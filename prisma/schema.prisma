@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Session {
+  id        String        @id @default(cuid())
+  title     String        @default("New Session")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+  documents Document[]
+}
+
+model ChatMessage {
+  id         String    @id @default(cuid())
+  sessionId  String
+  session    Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role       String
+  content    String
+  documentId String?   @unique
+  document   Document? @relation(fields: [documentId], references: [id])
+  model      String?
+  createdAt  DateTime  @default(now())
+}
+
+model Document {
+  id             String          @id @default(cuid())
+  sessionId      String
+  session        Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  title          String          @default("Untitled")
+  content        String          @default("[]")
+  status         String          @default("draft")
+  currentVersion Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  chatMessage    ChatMessage?
+  versions       Version[]
+  threads        CommentThread[]
+  knowledgeItems KnowledgeItem[]
+}
+
+model Version {
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  versionNum Int
+  content    String
+  title      String
+  lockedAt   DateTime @default(now())
+
+  @@unique([documentId, versionNum])
+}
+
+model CommentThread {
+  id         String           @id @default(cuid())
+  documentId String
+  document   Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  anchorText String
+  status     String           @default("open")
+  messages   CommentMessage[]
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+}
+
+model CommentMessage {
+  id        String        @id @default(cuid())
+  threadId  String
+  thread    CommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  role      String
+  content   String
+  model     String?
+  createdAt DateTime      @default(now())
+}
+
+model Memory {
+  id             String   @id @default(cuid())
+  sessionId      String?
+  category       String
+  content        String
+  sourceThreadId String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+}
+
+model KnowledgeItem {
+  id         String    @id @default(cuid())
+  documentId String?
+  document   Document? @relation(fields: [documentId], references: [id])
+  title      String
+  content    String
+  sourceType String    @default("note")
+  createdAt  DateTime  @default(now())
+}
