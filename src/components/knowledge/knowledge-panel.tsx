@@ -16,13 +16,20 @@ import {
   X,
 } from 'lucide-react';
 import type { KnowledgeItemData, MemoryData } from '@/types';
+import { cn } from '@/lib/utils';
 
 export function KnowledgePanel({
+  className,
+  embedded = false,
   isOpen,
   onClose,
+  wikiId,
 }: {
+  className?: string;
+  embedded?: boolean;
   isOpen: boolean;
   onClose: () => void;
+  wikiId?: string | null;
 }) {
   const [knowledgeItems, setKnowledgeItems] = React.useState<KnowledgeItemData[]>([]);
   const [memories, setMemories] = React.useState<MemoryData[]>([]);
@@ -30,13 +37,14 @@ export function KnowledgePanel({
   const [newContent, setNewContent] = React.useState('');
 
   const loadData = React.useCallback(async () => {
+    const wikiQuery = wikiId ? `?wikiId=${encodeURIComponent(wikiId)}` : '';
     const [kRes, mRes] = await Promise.all([
-      fetch('/api/knowledge'),
-      fetch('/api/memories'),
+      fetch(`/api/knowledge${wikiQuery}`),
+      fetch(`/api/memories${wikiQuery}`),
     ]);
     if (kRes.ok) setKnowledgeItems(await kRes.json());
     if (mRes.ok) setMemories(await mRes.json());
-  }, []);
+  }, [wikiId]);
 
   React.useEffect(() => {
     if (isOpen) loadData();
@@ -47,7 +55,7 @@ export function KnowledgePanel({
     const res = await fetch('/api/knowledge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTitle, content: newContent }),
+      body: JSON.stringify({ title: newTitle, content: newContent, wikiId }),
     });
     if (res.ok) {
       setNewTitle('');
@@ -85,18 +93,28 @@ export function KnowledgePanel({
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-[360px] border-l border-border bg-background shadow-lg z-50 flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+    <div
+      className={cn(
+        'flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background',
+        embedded
+          ? 'w-full border-0 shadow-none'
+          : 'w-[360px] max-w-[360px] shrink-0 border-l border-border shadow-lg',
+        className
+      )}
+    >
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <BookOpen className="h-4 w-4" />
-          Knowledge Base
+          Context
         </h2>
-        <Button size="icon" variant="ghost" onClick={onClose} className="h-7 w-7">
-          <X className="h-4 w-4" />
-        </Button>
+        {!embedded ? (
+          <Button size="icon" variant="ghost" onClick={onClose} className="h-7 w-7">
+            <X className="h-4 w-4" />
+          </Button>
+        ) : null}
       </div>
 
-      <Tabs defaultValue="knowledge" className="flex-1 flex flex-col">
+      <Tabs defaultValue="knowledge" className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <TabsList className="mx-4 mt-2">
           <TabsTrigger value="knowledge" className="text-xs">
             <BookOpen className="h-3 w-3 mr-1" />
@@ -113,8 +131,8 @@ export function KnowledgePanel({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="knowledge" className="flex-1 flex flex-col mt-0">
-          <ScrollArea className="flex-1 px-4">
+        <TabsContent value="knowledge" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ScrollArea className="min-h-0 flex-1 px-4">
             <div className="space-y-2 py-3">
               {knowledgeItems.map(item => (
                 <div key={item.id} className="rounded-lg border p-3 text-xs">
@@ -161,8 +179,8 @@ export function KnowledgePanel({
           </div>
         </TabsContent>
 
-        <TabsContent value="memories" className="flex-1 flex flex-col mt-0">
-          <ScrollArea className="flex-1 px-4">
+        <TabsContent value="memories" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
+          <ScrollArea className="min-h-0 flex-1 px-4">
             <div className="space-y-2 py-3">
               {memories.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground text-xs">

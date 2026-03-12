@@ -7,14 +7,22 @@ export function SplitView({
   left,
   right,
   className,
+  defaultRatio = 0.38,
+  resetKey,
 }: {
   left: React.ReactNode;
   right: React.ReactNode;
   className?: string;
+  defaultRatio?: number;
+  resetKey?: string;
 }) {
-  const [splitRatio, setSplitRatio] = React.useState(0.38);
+  const [splitRatio, setSplitRatio] = React.useState(defaultRatio);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const isDragging = React.useRef(false);
+
+  React.useEffect(() => {
+    setSplitRatio(defaultRatio);
+  }, [defaultRatio, resetKey]);
 
   const handleMouseDown = React.useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -38,9 +46,12 @@ export function SplitView({
   }, []);
 
   return (
-    <div ref={containerRef} className={cn('flex h-screen w-full', className)}>
+    <div
+      ref={containerRef}
+      className={cn('flex h-full min-h-0 w-full min-w-0 overflow-hidden', className)}
+    >
       <div
-        className="flex flex-col overflow-hidden border-r border-border"
+        className="flex min-w-0 shrink-0 flex-col overflow-hidden border-r border-border"
         style={{ width: `${splitRatio * 100}%` }}
       >
         {left}
@@ -51,7 +62,7 @@ export function SplitView({
         onMouseDown={handleMouseDown}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {right}
       </div>
     </div>

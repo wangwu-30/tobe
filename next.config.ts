@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ["@mariozechner/pi-ai", "@mariozechner/pi-agent-core"],
 };
 
 export default nextConfig;

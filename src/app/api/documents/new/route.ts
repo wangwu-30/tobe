@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db/prisma';
+import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { createWikiWithConversation } from '@/lib/wiki/service';
 
 export async function POST(req: NextRequest) {
-  const { sessionId, title, content } = await req.json();
+  const actor = await getPlatformContextFromHeaders(req.headers);
+  const { sessionId, title, content } = await req.json().catch(() => ({}));
 
-  const doc = await prisma.document.create({
-    data: {
-      sessionId,
-      title: title || 'Untitled',
-      content: content || '[]',
-      status: 'reviewing',
-    },
+  if (sessionId) {
+    const workspace = await createWikiWithConversation(actor, {
+      content,
+      conversationTitle: title,
+      title,
+    });
+
+    return NextResponse.json(workspace.wiki);
+  }
+
+  const workspace = await createWikiWithConversation(actor, {
+    content,
+    conversationTitle: title,
+    title,
   });
 
-  return NextResponse.json(doc);
+  return NextResponse.json(workspace.wiki);
 }

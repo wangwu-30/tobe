@@ -7,92 +7,533 @@ datasource db {
   provider = "sqlite"
 }
 
+model Organization {
+  id               String                  @id
+  slug             String                  @unique
+  name             String
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  memberships      OrganizationMembership[]
+  subscription     Subscription?
+  devices          Device[]
+  sessions         Session[]
+  messages         ChatMessage[]
+  documents        Document[]
+  workspaceFiles   WorkspaceFile[]
+  versions         Version[]
+  commentThreads   CommentThread[]
+  commentMessages  CommentMessage[]
+  memories         Memory[]
+  knowledgeItems   KnowledgeItem[]
+  wikiEditLocks    WikiEditLock[]
+  workspaceRuns    WorkspaceRun[]
+  assistantRuns    AssistantRun[]
+  workspacePlans   WorkspacePlan[]
+  mutationRequests MutationRequest[]
+  stagedChangeSets StagedChangeSet[]
+  chatAttachments  ChatAttachment[]
+  syncEvents       SyncEvent[]
+  syncCursors      SyncCursor[]
+}
+
+model User {
+  id          String                   @id
+  name        String
+  email       String?                  @unique
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  memberships OrganizationMembership[]
+  devices     Device[]
+}
+
+model OrganizationMembership {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  role           String       @default("owner")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+model Subscription {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  plan           String       @default("local")
+  status         String       @default("inactive")
+  cloudEnabled   Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id             String       @id
+  organizationId String
+  userId         String
+  label          String
+  type           String       @default("local")
+  lastSeenAt     DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  syncCursors    SyncCursor[]
+}
+
 model Session {
-  id        String        @id @default(cuid())
-  title     String        @default("New Session")
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
-  messages  ChatMessage[]
-  documents Document[]
+  id              String        @id @default(cuid())
+  organizationId  String        @default("local-org")
+  title           String        @default("New Conversation")
+  wikiId          String?
+  parentSessionId String?
+  forkedFromMessageId String?
+  baseVersionId   String?
+  activeFileId    String?
+  createdByUserId String?
+  originDeviceId  String?
+  sourceType      String        @default("chat")
+  revision        Int           @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  wiki            Document?     @relation("WikiConversations", fields: [wikiId], references: [id], onDelete: SetNull)
+  parentSession   Session?      @relation("ConversationBranches", fields: [parentSessionId], references: [id], onDelete: SetNull)
+  childSessions   Session[]     @relation("ConversationBranches")
+  forkedFromMessage ChatMessage? @relation("ConversationForkMessage", fields: [forkedFromMessageId], references: [id], onDelete: SetNull)
+  baseVersion     Version?      @relation("ConversationBaseVersion", fields: [baseVersionId], references: [id], onDelete: SetNull)
+  activeFile      WorkspaceFile? @relation("ConversationActiveFile", fields: [activeFileId], references: [id], onDelete: SetNull)
+  messages        ChatMessage[]
+  assistantRuns   AssistantRun[]
+  chatAttachments ChatAttachment[]
+  documents       Document[]    @relation("PrimaryConversationDocuments")
+  sourceVersions  Version[]     @relation("SnapshotSourceConversation")
+
+  @@index([organizationId, updatedAt])
+  @@index([wikiId, updatedAt])
+  @@index([parentSessionId, updatedAt])
 }
 
 model ChatMessage {
-  id         String    @id @default(cuid())
-  sessionId  String
-  session    Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role       String
-  content    String
-  documentId String?   @unique
-  document   Document? @relation(fields: [documentId], references: [id])
-  model      String?
-  createdAt  DateTime  @default(now())
+  id              String        @id @default(cuid())
+  organizationId  String        @default("local-org")
+  sessionId       String
+  role            String
+  content         String
+  documentId      String?
+  model           String?
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int           @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session         Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  document        Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  forkedConversations Session[] @relation("ConversationForkMessage")
+  sourceSnapshots Version[]     @relation("SnapshotSourceMessage")
+  requestedRuns   AssistantRun[] @relation("ConversationRequestRuns")
+  attachments     ChatAttachment[]
+
+  @@index([organizationId, createdAt])
+  @@index([sessionId, createdAt])
 }
 
 model Document {
-  id             String          @id @default(cuid())
-  sessionId      String
-  session        Session         @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  title          String          @default("Untitled")
-  content        String          @default("[]")
-  status         String          @default("draft")
-  currentVersion Int             @default(0)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  chatMessage    ChatMessage?
-  versions       Version[]
-  threads        CommentThread[]
-  knowledgeItems KnowledgeItem[]
+  id              String          @id @default(cuid())
+  organizationId  String          @default("local-org")
+  sessionId       String
+  title           String          @default("Untitled")
+  content         String          @default("[]")
+  status          String          @default("draft")
+  currentVersion  Int             @default(0)
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int             @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session         Session         @relation("PrimaryConversationDocuments", fields: [sessionId], references: [id], onDelete: Cascade)
+  conversations   Session[]       @relation("WikiConversations")
+  chatMessages    ChatMessage[]
+  files           WorkspaceFile[]
+  versions        Version[]
+  threads         CommentThread[]
+  knowledgeItems  KnowledgeItem[]
+  wikiEditLock    WikiEditLock?
+  workspaceRuns   WorkspaceRun[]
+  assistantRuns   AssistantRun[]
+  workspacePlan   WorkspacePlan?
+  stagedChangeSets StagedChangeSet[]
+  chatAttachments ChatAttachment[]
+
+  @@index([organizationId, updatedAt])
+  @@index([sessionId, updatedAt])
 }
 
 model Version {
-  id         String   @id @default(cuid())
-  documentId String
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  versionNum Int
-  content    String
-  title      String
-  lockedAt   DateTime @default(now())
+  id              String          @id @default(cuid())
+  organizationId  String          @default("local-org")
+  documentId      String
+  versionNum      Int
+  content         String
+  title           String
+  parentVersionId String?
+  sourceSessionId String?
+  sourceMessageId String?
+  snapshotType    String         @default("manual")
+  lockedAt        DateTime        @default(now())
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int             @default(1)
+  deletedAt       DateTime?
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parentVersion   Version?        @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions   Version[]       @relation("VersionLineage")
+  sourceConversation Session?     @relation("SnapshotSourceConversation", fields: [sourceSessionId], references: [id], onDelete: SetNull)
+  sourceMessage   ChatMessage?    @relation("SnapshotSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  baseConversations Session[]     @relation("ConversationBaseVersion")
+  threads         CommentThread[]
+  workspaceRuns   WorkspaceRun[]
 
   @@unique([documentId, versionNum])
+  @@index([organizationId, lockedAt])
+}
+
+model WorkspaceFile {
+  id              String          @id @default(cuid())
+  organizationId  String          @default("local-org")
+  documentId      String
+  parentId        String?
+  name            String
+  type            String          @default("file")
+  kind            String          @default("richtext")
+  role            String          @default("deliverable")
+  path            String
+  language        String?
+  content         String          @default("")
+  isPrimary       Boolean         @default(false)
+  sortOrder       Int             @default(0)
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int             @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent          WorkspaceFile?  @relation("WorkspaceFileChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children        WorkspaceFile[] @relation("WorkspaceFileChildren")
+  activeConversations Session[]   @relation("ConversationActiveFile")
+  commentThreads  CommentThread[]
+  chatAttachments ChatAttachment[]
+
+  @@unique([documentId, path])
+  @@index([organizationId, updatedAt])
+  @@index([documentId, parentId, sortOrder])
 }
 
 model CommentThread {
-  id         String           @id @default(cuid())
-  documentId String
-  document   Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  anchorText String
-  status     String           @default("open")
-  messages   CommentMessage[]
-  createdAt  DateTime         @default(now())
-  updatedAt  DateTime         @updatedAt
+  id              String           @id @default(cuid())
+  organizationId  String           @default("local-org")
+  documentId      String
+  fileId          String?
+  versionId       String?
+  anchorText      String
+  selectionAnchor String?
+  draftRevision   Int?
+  status          String           @default("open")
+  resolvedAt      DateTime?
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int              @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file            WorkspaceFile?   @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  version         Version?         @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  messages        CommentMessage[]
+
+  @@index([organizationId, updatedAt])
+  @@index([documentId, updatedAt])
+  @@index([fileId, updatedAt])
 }
 
 model CommentMessage {
-  id        String        @id @default(cuid())
-  threadId  String
-  thread    CommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  role      String
-  content   String
-  model     String?
-  createdAt DateTime      @default(now())
+  id              String        @id @default(cuid())
+  organizationId  String        @default("local-org")
+  threadId        String
+  role            String
+  content         String
+  model           String?
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int           @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  thread          CommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([threadId, createdAt])
 }
 
 model Memory {
-  id             String   @id @default(cuid())
-  sessionId      String?
-  category       String
-  content        String
-  sourceThreadId String?
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  sessionId       String?
+  documentId      String?
+  category        String
+  content         String
+  sourceThreadId  String?
+  active          Boolean      @default(true)
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int          @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([documentId, createdAt])
+  @@index([sessionId, createdAt])
 }
 
 model KnowledgeItem {
-  id         String    @id @default(cuid())
-  documentId String?
-  document   Document? @relation(fields: [documentId], references: [id])
-  title      String
-  content    String
-  sourceType String    @default("note")
-  createdAt  DateTime  @default(now())
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  documentId      String?
+  title           String
+  content         String
+  sourceType      String       @default("note")
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int          @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([documentId, createdAt])
+}
+
+model WikiEditLock {
+  id              String       @id @default(cuid())
+  organizationId  String
+  documentId      String       @unique
+  userId          String
+  originDeviceId  String
+  lockedVersionId String?
+  expiresAt       DateTime
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, expiresAt])
+}
+
+model WorkspaceRun {
+  id              String       @id @default(cuid())
+  organizationId  String
+  documentId      String
+  versionId       String?
+  kind            String
+  command         String
+  status          String       @default("pending")
+  previewUrl      String?
+  logPath         String?
+  exitCode        Int?
+  startedAt       DateTime     @default(now())
+  finishedAt      DateTime?
+  createdByUserId String?
+  originDeviceId  String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version         Version?     @relation(fields: [versionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, startedAt])
+  @@index([documentId, startedAt])
+  @@index([status, startedAt])
+}
+
+model AssistantRun {
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  sessionId       String
+  documentId      String
+  requestMessageId String?
+  mode            String       @default("revision")
+  title           String
+  status          String       @default("queued")
+  summary         String?
+  payloadJson     String?
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int          @default(1)
+  deletedAt       DateTime?
+  startedAt       DateTime     @default(now())
+  finishedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  requestMessage  ChatMessage? @relation("ConversationRequestRuns", fields: [requestMessageId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, startedAt])
+  @@index([sessionId, startedAt])
+  @@index([documentId, startedAt])
+  @@index([status, startedAt])
+}
+
+model ChatAttachment {
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  sessionId       String
+  messageId       String
+  documentId      String
+  fileId          String
+  kind            String
+  source          String       @default("upload")
+  storageFormat   String       @default("text")
+  mimeType        String?
+  originalName    String
+  sizeBytes       Int?
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int          @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message         ChatMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file            WorkspaceFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([messageId, createdAt])
+  @@index([documentId, createdAt])
+}
+
+model WorkspacePlan {
+  id               String       @id @default(cuid())
+  organizationId   String
+  documentId       String       @unique
+  goal             String
+  deliverableType  String       @default("document")
+  constraints      String?
+  styleGuide       String?
+  status           String       @default("drafting")
+  version          Int          @default(1)
+  stagesJson       String
+  activeStageId    String?
+  lastProgressNote String?
+  createdByUserId  String?
+  originDeviceId   String?
+  revision         Int          @default(1)
+  deletedAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document         Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, updatedAt])
+  @@index([documentId, updatedAt])
+}
+
+model MutationRequest {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  operation      String
+  requestKey     String
+  requestHash    String
+  status         String       @default("in_progress")
+  responseJson   String?
+  resourceType   String?
+  resourceId     String?
+  errorMessage   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, operation, requestKey])
+  @@index([organizationId, userId, operation, status, updatedAt])
+  @@index([organizationId, createdAt])
+}
+
+model StagedChangeSet {
+  id                         String       @id @default(cuid())
+  organizationId             String
+  documentId                 String
+  sessionId                  String?
+  baseVersionId              String?
+  appliedCheckpointVersionId String?
+  title                      String
+  summary                    String
+  status                     String       @default("pending")
+  sourceType                 String       @default("ai")
+  changesJson                String
+  createdByUserId            String?
+  originDeviceId             String?
+  appliedAt                  DateTime?
+  discardedAt                DateTime?
+  revision                   Int          @default(1)
+  deletedAt                  DateTime?
+  createdAt                  DateTime     @default(now())
+  updatedAt                  DateTime     @updatedAt
+  organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document                   Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, updatedAt])
+  @@index([documentId, updatedAt])
+  @@index([sessionId, updatedAt])
+  @@index([status, updatedAt])
+}
+
+model SyncEvent {
+  id             String       @id
+  organizationId String
+  entityType     String
+  entityId       String
+  actorUserId    String
+  originDeviceId String?
+  revision       Int
+  occurredAt     DateTime     @default(now())
+  payload        String
+  pushedAt       DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, occurredAt])
+  @@index([entityType, entityId, revision])
+}
+
+model SyncCursor {
+  id             String       @id @default(cuid())
+  organizationId String
+  deviceId       String
+  backend        String
+  lastEventId    String?
+  lastOccurredAt DateTime?
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  device         Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, deviceId, backend])
 }

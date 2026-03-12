@@ -1,42 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db/prisma';
+import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { isVisibleVersion } from '@/lib/workspace/planning';
+import { createWikiVersion, listWikiVersions, WikiLockConflictError } from '@/lib/wiki/service';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ docId: string }> }
 ) {
+  const actor = await getPlatformContextFromHeaders(req.headers);
   const { docId } = await params;
-  const versions = await prisma.version.findMany({
-    where: { documentId: docId },
-    orderBy: { versionNum: 'desc' },
+  const versions = await listWikiVersions({
+    organizationId: actor.organizationId,
+    wikiId: docId,
   });
-  return NextResponse.json(versions);
+  return NextResponse.json(versions.filter(isVisibleVersion));
 }
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ docId: string }> }
 ) {
+  const actor = await getPlatformContextFromHeaders(req.headers);
   const { docId } = await params;
-  const doc = await prisma.document.findUnique({ where: { id: docId } });
-  if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const nextVersion = doc.currentVersion + 1;
+  try {
+    const version = await createWikiVersion(actor, docId);
+    return NextResponse.json(version);
+  } catch (error) {
+    if (error instanceof WikiLockConflictError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          lock: error.detail,
+        },
+        { status: 423 }
+      );
+    }
 
-  const [version] = await prisma.$transaction([
-    prisma.version.create({
-      data: {
-        documentId: docId,
-        versionNum: nextVersion,
-        content: doc.content,
-        title: doc.title,
-      },
-    }),
-    prisma.document.update({
-      where: { id: docId },
-      data: { currentVersion: nextVersion, status: 'locked' },
-    }),
-  ]);
-
-  return NextResponse.json(version);
+    throw error;
+  }
 }

@@ -10,6 +10,7 @@ import { PlateLeaf, useEditorPlugin, usePluginOption } from 'platejs/react';
 
 import { cn } from '@/lib/utils';
 import { commentPlugin } from '@/components/editor/plugins/comment-kit';
+import { requestCommentThreadFocus } from '@/lib/comments/constants';
 
 export function CommentLeaf(props: PlateLeafProps<TCommentText>) {
   const { children, leaf } = props;
@@ -36,7 +37,14 @@ export function CommentLeaf(props: PlateLeafProps<TCommentText>) {
       )}
       attributes={{
         ...props.attributes,
-        onClick: () => setOption('activeId', currentId ?? null),
+        onClick: (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setOption('activeId', currentId ?? null);
+          if (currentId) {
+            requestCommentThreadFocus(currentId);
+          }
+        },
         onMouseEnter: () => setOption('hoverId', currentId ?? null),
         onMouseLeave: () => setOption('hoverId', null),
       }}

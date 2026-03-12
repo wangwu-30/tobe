@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dao Design Principles"
+  short_description: "Apply Dao UI and product design rules."
+  default_prompt: "Use the Dao design principles to simplify this UI or product flow while keeping the AI-native loop clear and feedback explicit."

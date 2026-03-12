@@ -49,6 +49,10 @@
 }
 
 :root {
+  --font-geist-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
+    "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-geist-mono: "SFMono-Regular", "JetBrains Mono", Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -124,6 +128,31 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply overflow-hidden bg-background text-foreground;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled),
+  a[href],
+  summary,
+  label[for],
+  [data-slot="select-trigger"]:not([data-disabled]),
+  [data-slot="sheet-trigger"]:not([data-disabled]),
+  [data-slot="dropdown-menu-trigger"]:not([data-disabled]),
+  [data-slot="popover-trigger"]:not([data-disabled]),
+  [data-slot="switch"]:not([data-disabled]) {
+    cursor: pointer;
+  }
+  input:not(:disabled),
+  textarea:not(:disabled),
+  select:not(:disabled),
+  [contenteditable="true"] {
+    cursor: text;
+  }
+  button:disabled,
+  input:disabled,
+  textarea:disabled,
+  select:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
   }
 }

@@ -5,69 +5,72 @@ type ExtractedMemory = {
   content: string;
 };
 
-// Parse AI response to extract memories
 export function parseMemoryExtractionResponse(response: string): ExtractedMemory[] {
   try {
     const parsed = JSON.parse(response);
-    if (Array.isArray(parsed)) {
-      return parsed.filter(
-        (m: any) =>
-          m.category &&
-          m.content &&
-          ['correction', 'preference', 'domain_knowledge', 'constraint'].includes(m.category)
-      );
+    if (!Array.isArray(parsed)) {
+      return [];
     }
-    return [];
+
+    return parsed.filter(
+      (memory: ExtractedMemory) =>
+        Boolean(memory.category) &&
+        Boolean(memory.content) &&
+        ['correction', 'preference', 'domain_knowledge', 'constraint'].includes(
+          memory.category
+        )
+    );
   } catch {
     return [];
   }
 }
 
-// Save extracted memories to database
-export async function saveExtractedMemories(
-  memories: ExtractedMemory[],
-  threadId: string,
-  sessionId?: string
-) {
+export async function saveExtractedMemories(params: {
+  memories: ExtractedMemory[];
+  organizationId: string;
+  threadId: string;
+  wikiId?: string | null;
+}) {
   const created = await Promise.all(
-    memories.map(m =>
+    params.memories.map((memory) =>
       prisma.memory.create({
         data: {
-          category: m.category,
-          content: m.content,
-          sourceThreadId: threadId,
-          sessionId: sessionId || null,
+          organizationId: params.organizationId,
+          documentId: params.wikiId || null,
+          category: memory.category,
+          content: memory.content,
+          sourceThreadId: params.threadId,
           active: true,
         },
       })
     )
   );
+
   return created;
 }
 
-// Build the prompt for memory extraction
 export function buildMemoryExtractionPrompt(
   threadMessages: { role: string; content: string }[],
   anchorText: string
 ): string {
   const conversation = threadMessages
-    .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content}`)
+    .map((message) => `${message.role === 'user' ? 'User' : 'AI'}: ${message.content}`)
     .join('\n');
 
-  return `Analyze this comment thread from a document review. Extract any reusable knowledge, corrections, preferences, or constraints that the user has expressed.
+  return `Analyze this review thread from 成形. Extract reusable memories such as corrections, preferences, domain knowledge, or constraints.
 
-## Commented Text
+## Highlighted Wiki Text
 "${anchorText}"
 
 ## Thread Conversation
 ${conversation}
 
 ## Instructions
-If the thread contains learnable information (corrections to AI mistakes, user preferences, domain knowledge, or constraints), return a JSON array of memory objects. Each object should have:
+If the thread contains reusable information, return a JSON array of memory objects. Each object must have:
 - "category": one of "correction", "preference", "domain_knowledge", "constraint"
-- "content": a concise statement of the memory (e.g., "The project uses PostgreSQL, not MySQL")
+- "content": a concise memory statement
 
-If there is nothing to learn from this thread, return an empty array: []
+If nothing reusable appears, return []
 
-Return ONLY the JSON array, no other text.`;
+Return ONLY the JSON array.`;
 }

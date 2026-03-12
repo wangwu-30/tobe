@@ -51,6 +51,12 @@ import {
   type TDiscussion,
   discussionPlugin,
 } from '@/components/editor/plugins/discussion-kit';
+import { useAiReply } from '@/hooks/use-ai-reply';
+import { useEditorSession } from '@/components/editor/editor-session-context';
+import {
+  notifyCommentThreadsChanged,
+  readCommentReplyMode,
+} from '@/lib/comments/constants';
 
 import { Editor, EditorContainer } from './editor';
 
@@ -84,61 +90,32 @@ export function Comment(props: {
     onEditorClick,
   } = props;
 
-  const editor = useEditorRef();
   const userInfo = usePluginOption(discussionPlugin, 'user', comment.userId);
   const currentUserId = usePluginOption(discussionPlugin, 'currentUserId');
+  const isMyComment = currentUserId === comment.userId;
 
-  const resolveDiscussion = async (id: string) => {
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .map((discussion) => {
-        if (discussion.id === id) {
-          return { ...discussion, isResolved: true };
-        }
-        return discussion;
-      });
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
-  };
-
-  const removeDiscussion = async (id: string) => {
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .filter((discussion) => discussion.id !== id);
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
-  };
-
-  const updateComment = async (input: {
+  const updateComment = React.useCallback(async (input: {
     id: string;
     contentRich: Value;
     discussionId: string;
     isEdited: boolean;
   }) => {
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .map((discussion) => {
-        if (discussion.id === input.discussionId) {
-          const updatedComments = discussion.comments.map((comment) => {
-            if (comment.id === input.id) {
-              return {
-                ...comment,
-                contentRich: input.contentRich,
-                isEdited: true,
-                updatedAt: new Date(),
-              };
-            }
-            return comment;
-          });
-          return { ...discussion, comments: updatedComments };
-        }
-        return discussion;
-      });
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
-  };
+    const content = NodeApi.string({ children: input.contentRich, type: KEYS.p });
+    const response = await fetch(
+      `/api/threads/${input.discussionId}/messages/${input.id}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      }
+    );
+
+    if (response.ok) {
+      notifyCommentThreadsChanged();
+    }
+  }, []);
 
   const { tf } = useEditorPlugin(CommentPlugin);
-
-  // Replace to your own backend or refer to potion
-  const isMyComment = currentUserId === comment.userId;
 
   const initialValue = comment.contentRich;
 
@@ -169,8 +146,18 @@ export function Comment(props: {
   };
 
   const onResolveComment = () => {
-    void resolveDiscussion(comment.discussionId);
-    tf.comment.unsetMark({ id: comment.discussionId });
+    void (async () => {
+      const response = await fetch(`/api/threads/${comment.discussionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved' }),
+      });
+
+      if (response.ok) {
+        tf.comment.unsetMark({ id: comment.discussionId });
+        notifyCommentThreadsChanged();
+      }
+    })();
   };
 
   const isFirst = index === 0;
@@ -224,7 +211,6 @@ export function Comment(props: {
               onRemoveComment={() => {
                 if (discussionLength === 1) {
                   tf.comment.unsetMark({ id: comment.discussionId });
-                  void removeDiscussion(comment.discussionId);
                 }
               }}
               comment={comment}
@@ -312,42 +298,26 @@ function CommentMoreDropdown(props: {
     onRemoveComment,
   } = props;
 
-  const editor = useEditorRef();
-
   const selectedEditCommentRef = React.useRef<boolean>(false);
 
   const onDeleteComment = React.useCallback(() => {
     if (!comment.id)
       return alert('You are operating too quickly, please try again later.');
 
-    // Find and update the discussion
-    const updatedDiscussions = editor
-      .getOption(discussionPlugin, 'discussions')
-      .map((discussion) => {
-        if (discussion.id !== comment.discussionId) {
-          return discussion;
+    void (async () => {
+      const response = await fetch(
+        `/api/threads/${comment.discussionId}/messages/${comment.id}`,
+        {
+          method: 'DELETE',
         }
+      );
 
-        const commentIndex = discussion.comments.findIndex(
-          (c) => c.id === comment.id
-        );
-        if (commentIndex === -1) {
-          return discussion;
-        }
+      if (!response.ok) return;
 
-        return {
-          ...discussion,
-          comments: [
-            ...discussion.comments.slice(0, commentIndex),
-            ...discussion.comments.slice(commentIndex + 1),
-          ],
-        };
-      });
-
-    // Save back to session storage
-    editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
-    onRemoveComment?.();
-  }, [comment.discussionId, comment.id, editor, onRemoveComment]);
+      onRemoveComment?.();
+      notifyCommentThreadsChanged();
+    })();
+  }, [comment.discussionId, comment.id, onRemoveComment]);
 
   const onEditComment = React.useCallback(() => {
     selectedEditCommentRef.current = true;
@@ -397,7 +367,7 @@ function CommentMoreDropdown(props: {
 
 const useCommentEditor = (
   options: Omit<CreatePlateEditorOptions, 'plugins'> = {},
-  deps: any[] = []
+  deps: unknown[] = []
 ) => {
   const commentEditor = usePlateEditor(
     {
@@ -424,10 +394,12 @@ export function CommentCreateForm({
   focusOnMount?: boolean;
 }) {
   const discussions = usePluginOption(discussionPlugin, 'discussions');
-
   const editor = useEditorRef();
   const commentId = useCommentId();
   const discussionId = discussionIdProp ?? commentId;
+  const isReply = Boolean(discussionIdProp);
+  const editorSession = useEditorSession();
+  const { sendCommentReply } = useAiReply();
 
   const userInfo = usePluginOption(discussionPlugin, 'currentUser');
   const [commentValue, setCommentValue] = React.useState<Value | undefined>();
@@ -450,88 +422,110 @@ export function CommentCreateForm({
     if (!commentValue) return;
 
     commentEditor.tf.reset();
-
-    if (discussionId) {
-      // Get existing discussion
-      const discussion = discussions.find((d) => d.id === discussionId);
-      if (!discussion) {
-        // Mock creating suggestion
-        const newDiscussion: TDiscussion = {
-          id: discussionId,
-          comments: [
-            {
-              id: nanoid(),
-              contentRich: commentValue,
-              createdAt: new Date(),
-              discussionId,
-              isEdited: false,
-              userId: editor.getOption(discussionPlugin, 'currentUserId'),
-            },
-          ],
-          createdAt: new Date(),
-          isResolved: false,
-          userId: editor.getOption(discussionPlugin, 'currentUserId'),
-        };
-
-        editor.setOption(discussionPlugin, 'discussions', [
-          ...discussions,
-          newDiscussion,
-        ]);
-        return;
-      }
-
-      // Create reply comment
-      const comment: TComment = {
-        id: nanoid(),
-        contentRich: commentValue,
-        createdAt: new Date(),
-        discussionId,
-        isEdited: false,
-        userId: editor.getOption(discussionPlugin, 'currentUserId'),
-      };
-
-      // Add reply to discussion comments
-      const updatedDiscussion = {
-        ...discussion,
-        comments: [...discussion.comments, comment],
-      };
-
-      // Filter out old discussion and add updated one
-      const updatedDiscussions = discussions
-        .filter((d) => d.id !== discussionId)
-        .concat(updatedDiscussion);
-
-      editor.setOption(discussionPlugin, 'discussions', updatedDiscussions);
-
-      return;
-    }
-
     const commentsNodeEntry = editor
       .getApi(CommentPlugin)
       .comment.nodes({ at: [], isDraft: true });
+    const discussion = discussions.find((item) => item.id === discussionId);
+    const anchorText =
+      commentsNodeEntry.map(([node]: NodeEntry<TCommentText>) => node.text).join('') ||
+      discussion?.documentContent ||
+      '';
+    let persistedDiscussionId = discussionId || nanoid();
+
+    if (editorSession?.documentId) {
+      if (isReply && discussionId) {
+        const response = await fetch(`/api/threads/${discussionId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'user', content: commentContent }),
+        });
+
+        if (response.ok) {
+          notifyCommentThreadsChanged();
+
+          if (readCommentReplyMode() === 'auto') {
+            await sendCommentReply({
+              threadId: discussionId,
+              documentContent: editorSession.documentContent,
+              anchorText,
+              documentId: editorSession.documentId,
+            });
+            notifyCommentThreadsChanged();
+          }
+        }
+        return;
+      }
+
+      if (commentsNodeEntry.length > 0) {
+        const response = await fetch('/api/threads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            documentId: editorSession.documentId,
+            anchorText,
+            firstMessage: commentContent,
+            selectionAnchor: JSON.stringify({
+              surfaceType: 'document-block',
+              bindingType: 'block',
+              anchorPayload: {
+                excerpt: anchorText,
+              },
+              previewSnapshotId: editorSession.snapshotId || null,
+              sourceMapping: {
+                fileId: editorSession.fileId || null,
+              },
+            }),
+          }),
+        });
+
+        if (response.ok) {
+          const thread = await response.json();
+          persistedDiscussionId = thread.id;
+          notifyCommentThreadsChanged();
+
+          if (readCommentReplyMode() === 'auto') {
+            await sendCommentReply({
+              threadId: thread.id,
+              documentContent: editorSession.documentContent,
+              anchorText,
+              documentId: editorSession.documentId,
+            });
+            notifyCommentThreadsChanged();
+          }
+        }
+      }
+      if (commentsNodeEntry.length === 0) return;
+
+      commentsNodeEntry.forEach(([, path]: NodeEntry<TCommentText>) => {
+        editor.tf.setNodes(
+          {
+            [getCommentKey(persistedDiscussionId)]: true,
+          },
+          { at: path, split: true }
+        );
+        editor.tf.unsetNodes([getDraftCommentKey()], { at: path });
+      });
+
+      notifyCommentThreadsChanged();
+      return;
+    }
 
     if (commentsNodeEntry.length === 0) return;
 
-    const documentContent = commentsNodeEntry
-      .map(([node, _path]: NodeEntry<TCommentText>) => node.text)
-      .join('');
-
-    const _discussionId = nanoid();
-    // Mock creating new discussion
     const newDiscussion: TDiscussion = {
-      id: _discussionId,
+      id: persistedDiscussionId,
       comments: [
         {
           id: nanoid(),
           contentRich: commentValue,
           createdAt: new Date(),
-          discussionId: _discussionId,
+          discussionId: persistedDiscussionId,
           isEdited: false,
           userId: editor.getOption(discussionPlugin, 'currentUserId'),
         },
       ],
       createdAt: new Date(),
-      documentContent,
+      documentContent: anchorText,
       isResolved: false,
       userId: editor.getOption(discussionPlugin, 'currentUserId'),
     };
@@ -541,18 +535,26 @@ export function CommentCreateForm({
       newDiscussion,
     ]);
 
-    const id = newDiscussion.id;
-
     commentsNodeEntry.forEach(([, path]: NodeEntry<TCommentText>) => {
       editor.tf.setNodes(
         {
-          [getCommentKey(id)]: true,
+          [getCommentKey(persistedDiscussionId)]: true,
         },
         { at: path, split: true }
       );
       editor.tf.unsetNodes([getDraftCommentKey()], { at: path });
     });
-  }, [commentValue, commentEditor.tf, discussionId, editor, discussions]);
+  }, [
+    commentContent,
+    commentValue,
+    commentEditor.tf,
+    discussionId,
+    discussions,
+    editor,
+    editorSession,
+    isReply,
+    sendCommentReply,
+  ]);
 
   return (
     <div className={cn('flex w-full', className)}>

@@ -1,21 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { LanguageProvider } from "@/components/providers/language-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "Chat to Your Mind",
-  description: "AI-powered document generation with inline review",
+  title: "成形",
+  description: "Agent-powered writing workspace with inline review",
 };
 
 export default function RootLayout({
@@ -26,9 +16,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        suppressHydrationWarning
+        className="antialiased"
       >
-        <TooltipProvider>{children}</TooltipProvider>
+        <LanguageProvider>
+          <TooltipProvider>{children}</TooltipProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

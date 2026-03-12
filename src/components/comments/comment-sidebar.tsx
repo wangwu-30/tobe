@@ -3,132 +3,376 @@
 import * as React from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useAiReply } from '@/hooks/use-ai-reply';
 import {
-  MessageSquare,
-  Send,
   Bot,
   CheckCircle,
-  Loader2,
-  Wand2,
+  ChevronDown,
+  History,
+  MessageSquare,
+  PanelRightClose,
 } from 'lucide-react';
 import type { CommentThreadData, CommentMessageData } from '@/types';
+import {
+  COMMENT_THREAD_FOCUS_EVENT,
+  type CommentReplyMode,
+  readCommentReplyMode,
+  writeCommentReplyMode,
+} from '@/lib/comments/constants';
+import { useT } from '@/components/providers/language-provider';
+import { formatStableDate } from '@/lib/time';
+import { cn } from '@/lib/utils';
 
 export function CommentSidebar({
+  className,
   documentId,
-  sessionId,
+  documentContent,
+  embedded = false,
+  onClose,
+  onOpenChange,
+  threads,
+  refreshThreads,
 }: {
+  className?: string;
   documentId: string;
-  sessionId: string;
+  documentContent: string;
+  embedded?: boolean;
+  onClose?: () => void;
+  onOpenChange?: (open: boolean) => void;
+  threads: CommentThreadData[];
+  refreshThreads: () => Promise<void>;
 }) {
-  const [threads, setThreads] = React.useState<CommentThreadData[]>([]);
-  const [isLoading, setIsLoading] = React.useState(false);
-
-  const loadThreads = React.useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`/api/threads?documentId=${documentId}`);
-      if (res.ok) {
-        setThreads(await res.json());
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [documentId]);
+  const t = useT();
+  const [replyMode, setReplyMode] = React.useState<CommentReplyMode>('auto');
+  const [focusedThreadId, setFocusedThreadId] = React.useState<string | null>(null);
+  const [openListOpen, setOpenListOpen] = React.useState(true);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [activeReplyThreadId, setActiveReplyThreadId] = React.useState<string | null>(
+    null
+  );
+  const { isReplying, streamingContent, sendCommentReply } = useAiReply();
+  const threadRefs = React.useRef(new Map<string, HTMLDivElement>());
 
   React.useEffect(() => {
-    loadThreads();
-  }, [loadThreads]);
+    setReplyMode(readCommentReplyMode());
+  }, []);
 
-  const handleResolve = async (threadId: string) => {
-    // Update thread status
-    const res = await fetch(`/api/threads/${threadId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'system', content: 'Thread resolved' }),
+  React.useEffect(() => {
+    const handleThreadFocus = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      if (!detail?.threadId) return;
+
+      const thread = threads.find(item => item.id === detail.threadId);
+      if (!thread) return;
+
+      if (thread.status === 'resolved') {
+        setHistoryOpen(true);
+      } else {
+        setOpenListOpen(true);
+      }
+
+      onOpenChange?.(true);
+      setFocusedThreadId(thread.id);
+    };
+
+    window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
+    return () => {
+      window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
+    };
+  }, [onOpenChange, threads]);
+
+  React.useEffect(() => {
+    if (!focusedThreadId) return;
+
+    const timeoutId = window.setTimeout(() => {
+      setFocusedThreadId(current => (current === focusedThreadId ? null : current));
+    }, 2200);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [focusedThreadId]);
+
+  React.useEffect(() => {
+    if (!focusedThreadId) return;
+
+    const target = threadRefs.current.get(focusedThreadId);
+    if (!target) return;
+
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
+  }, [focusedThreadId, historyOpen, openListOpen, threads]);
 
-    // Extract memories from resolved thread
-    try {
-      await fetch('/api/ai/extract-memory', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(localStorage.getItem('ai-settings')
-            ? { 'x-ai-settings': localStorage.getItem('ai-settings')! }
-            : {}),
-        },
-        body: JSON.stringify({ threadId }),
-      });
-    } catch {
-      // Memory extraction is best-effort
+  const runAiReplyForThread = React.useCallback(
+    async (thread: CommentThreadData) => {
+      setActiveReplyThreadId(thread.id);
+      try {
+        await sendCommentReply({
+          threadId: thread.id,
+          documentContent,
+          anchorText: thread.anchorText,
+          documentId,
+          onComplete: () => refreshThreads(),
+        });
+      } finally {
+        setActiveReplyThreadId(null);
+      }
+    },
+    [documentContent, documentId, refreshThreads, sendCommentReply]
+  );
+
+  const handleReplyModeChange = React.useCallback((value: string) => {
+    const nextMode = value === 'manual' ? 'manual' : 'auto';
+    setReplyMode(nextMode);
+    writeCommentReplyMode(nextMode);
+  }, []);
+
+  const handleReplyPending = React.useCallback(async () => {
+    const pendingThreads = threads.filter(isPendingAiReply);
+    for (const thread of pendingThreads) {
+      await runAiReplyForThread(thread);
+      await refreshThreads();
     }
+  }, [refreshThreads, runAiReplyForThread, threads]);
 
-    setThreads(prev =>
-      prev.map(t => (t.id === threadId ? { ...t, status: 'resolved' } : t))
-    );
-  };
+  const handleResolve = React.useCallback(
+    async (threadId: string) => {
+      const res = await fetch(`/api/threads/${threadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved' }),
+      });
+
+      if (!res.ok) {
+        return;
+      }
+
+      try {
+        await fetch('/api/ai/extract-memory', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('ai-settings')
+              ? { 'x-ai-settings': localStorage.getItem('ai-settings')! }
+              : {}),
+          },
+          body: JSON.stringify({ threadId }),
+        });
+      } catch {
+        // Memory extraction is best-effort.
+      }
+
+      await refreshThreads();
+    },
+    [refreshThreads]
+  );
 
   const openThreads = threads.filter(t => t.status === 'open');
   const resolvedThreads = threads.filter(t => t.status === 'resolved');
+  const pendingThreads = openThreads.filter(isPendingAiReply);
+  const resolvedGroups = groupResolvedThreads(resolvedThreads);
 
   return (
-    <div className="w-[280px] border-l border-border flex flex-col bg-muted/30">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-        <h3 className="text-xs font-semibold flex items-center gap-1.5">
-          <MessageSquare className="h-3.5 w-3.5" />
-          Comments
-          {openThreads.length > 0 && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-              {openThreads.length}
+    <div
+      className={cn(
+        'flex min-h-0 min-w-0 flex-col overflow-hidden bg-muted/30',
+        embedded
+          ? 'h-full w-full border-0'
+          : 'w-[320px] max-w-[320px] shrink-0 border-l border-border',
+        className
+      )}
+    >
+      <div className="space-y-2 border-b border-border px-3 py-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold">
+              <MessageSquare className="h-3.5 w-3.5" />
+              {t('comments.title')}
+              {openThreads.length > 0 && (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                  {openThreads.length}
+                </Badge>
+              )}
+            </h3>
+            <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+              {t('comments.description')}
+            </p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            {replyMode === 'manual' && pendingThreads.length > 0 && (
+              <Button
+                size="sm"
+                className="h-7 gap-1.5 px-2 text-[10px]"
+                onClick={handleReplyPending}
+                disabled={isReplying}
+              >
+                <Bot className="h-3 w-3" />
+                {t('comments.runAiReplies')}
+              </Button>
+            )}
+            {onClose && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="shrink-0"
+                onClick={onClose}
+              >
+                <PanelRightClose className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Select value={replyMode} onValueChange={handleReplyModeChange}>
+            <SelectTrigger className="h-8 min-w-0 flex-1 text-[11px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">{t('comments.autoReply')}</SelectItem>
+              <SelectItem value="manual">{t('comments.batchReply')}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {replyMode === 'manual' && (
+            <Badge variant="outline" className="text-[10px]">
+              {t('comments.queue')}
             </Badge>
           )}
-        </h3>
+        </div>
+
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          {replyMode === 'auto'
+            ? t('comments.autoReplyDescription')
+            : t('comments.writeSeveralCommentsFirst')}
+        </p>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-2 space-y-2">
-          {isLoading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          )}
+      <ScrollArea className="min-h-0 flex-1 overflow-hidden">
+        <div className="space-y-2 p-2">
+          <div className="overflow-hidden rounded-lg border bg-background/80">
+            <button
+              className="flex w-full items-center justify-between px-3 py-2 text-xs text-foreground"
+              onClick={() => setOpenListOpen(open => !open)}
+              type="button"
+            >
+              <span className="flex items-center gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" />
+                {t('comments.openThreads', { count: openThreads.length })}
+              </span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 transition-transform ${
+                  openListOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
 
-          {!isLoading && threads.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground text-xs">
-              <MessageSquare className="h-6 w-6 mx-auto mb-2 opacity-30" />
-              <p>No comments yet</p>
-              <p className="mt-1 opacity-70">Select text and press Cmd+Shift+M</p>
-            </div>
-          )}
-
-          {openThreads.map(thread => (
-            <CommentThreadCard
-              key={thread.id}
-              thread={thread}
-              documentId={documentId}
-              onResolve={() => handleResolve(thread.id)}
-              onUpdate={loadThreads}
-            />
-          ))}
+            {openListOpen && (
+              <div className="space-y-2 border-t border-border p-2">
+                {openThreads.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-muted-foreground">
+                    <MessageSquare className="mx-auto mb-2 h-6 w-6 opacity-30" />
+                    <p>{t('comments.noOpenComments')}</p>
+                    <p className="mt-1 opacity-70">
+                      {t('comments.leaveCommentForAi')}
+                    </p>
+                  </div>
+                ) : (
+                  openThreads.map(thread => (
+                    <CommentThreadCard
+                      key={thread.id}
+                      highlighted={focusedThreadId === thread.id}
+                      ref={(node) => {
+                        if (node) {
+                          threadRefs.current.set(thread.id, node);
+                        } else {
+                          threadRefs.current.delete(thread.id);
+                        }
+                      }}
+                      thread={thread}
+                      resolved={false}
+                      isReplying={isReplying && activeReplyThreadId === thread.id}
+                      streamingContent={
+                        activeReplyThreadId === thread.id ? streamingContent : ''
+                      }
+                      canRequestAiReply={isPendingAiReply(thread)}
+                      t={t}
+                      onResolve={handleResolve}
+                      onRequestAiReply={runAiReplyForThread}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
 
           {resolvedThreads.length > 0 && (
-            <>
-              <div className="text-xs text-muted-foreground px-1 pt-2">
-                Resolved ({resolvedThreads.length})
-              </div>
-              {resolvedThreads.map(thread => (
-                <CommentThreadCard
-                  key={thread.id}
-                  thread={thread}
-                  documentId={documentId}
-                  resolved
-                  onUpdate={loadThreads}
+            <div className="overflow-hidden rounded-lg border bg-background/80">
+              <button
+                className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground"
+                onClick={() => setHistoryOpen(open => !open)}
+                type="button"
+              >
+                <span className="flex items-center gap-1.5">
+                  <History className="h-3.5 w-3.5" />
+                  {t('comments.history', { count: resolvedThreads.length })}
+                </span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${
+                    historyOpen ? 'rotate-180' : ''
+                  }`}
                 />
-              ))}
-            </>
+              </button>
+
+              {historyOpen && (
+                <div className="border-t border-border p-2 space-y-3">
+                  {resolvedGroups.map(group => (
+                    <div
+                      key={group.versionNum === null ? 'draft' : `v${group.versionNum}`}
+                      className="space-y-2"
+                    >
+                      <div className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {group.versionNum === null
+                          ? t('comments.draft')
+                          : `v${group.versionNum}`}
+                      </div>
+                      {group.threads.map(thread => (
+                        <CommentThreadCard
+                          key={thread.id}
+                          highlighted={focusedThreadId === thread.id}
+                          ref={(node) => {
+                            if (node) {
+                              threadRefs.current.set(thread.id, node);
+                            } else {
+                              threadRefs.current.delete(thread.id);
+                            }
+                          }}
+                          thread={thread}
+                          resolved
+                          isReplying={false}
+                          streamingContent=""
+                          canRequestAiReply={false}
+                          t={t}
+                          onResolve={handleResolve}
+                          onRequestAiReply={runAiReplyForThread}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </ScrollArea>
@@ -136,138 +380,178 @@ export function CommentSidebar({
   );
 }
 
-function CommentThreadCard({
-  thread,
-  documentId,
-  resolved,
-  onResolve,
-  onUpdate,
-}: {
-  thread: CommentThreadData;
-  documentId: string;
-  resolved?: boolean;
-  onResolve?: () => void;
-  onUpdate: () => void;
-}) {
-  const [replyText, setReplyText] = React.useState('');
-  const { isReplying, streamingContent, sendCommentReply } = useAiReply();
-
-  const handleSendReply = async () => {
-    if (!replyText.trim()) return;
-    const message = replyText.trim();
-    setReplyText('');
-
-    // Save user message
-    await fetch(`/api/threads/${thread.id}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role: 'user', content: message }),
-    });
-
-    // Get AI reply
-    await sendCommentReply({
-      threadId: thread.id,
-      message,
-      documentContent: '', // TODO: get from editor
-      anchorText: thread.anchorText,
-      documentId,
-      onComplete: () => onUpdate(),
-    });
-
-    onUpdate();
-  };
-
-  const handleRequestSuggestion = async () => {
-    // TODO: implement suggestion generation
-  };
-
+const CommentThreadCard = React.forwardRef<
+  HTMLDivElement,
+  {
+    thread: CommentThreadData;
+    resolved: boolean;
+    isReplying: boolean;
+    streamingContent: string;
+    canRequestAiReply: boolean;
+    highlighted?: boolean;
+    t: ReturnType<typeof useT>;
+    onResolve: (threadId: string) => Promise<void>;
+    onRequestAiReply: (thread: CommentThreadData) => Promise<void>;
+  }
+>(function CommentThreadCard(
+  {
+    thread,
+    resolved,
+    isReplying,
+    streamingContent,
+    canRequestAiReply,
+    highlighted = false,
+    t,
+    onResolve,
+    onRequestAiReply,
+  },
+  ref
+) {
   return (
-    <div className={`rounded-lg border bg-background p-2.5 text-xs ${resolved ? 'opacity-60' : ''}`}>
-      {/* Anchor text */}
-      <div className="mb-2 flex items-start gap-1.5">
-        <div className="mt-0.5 w-1 h-full min-h-[16px] bg-yellow-400 rounded-full shrink-0" />
-        <p className="text-muted-foreground line-clamp-2 italic">
-          &quot;{thread.anchorText}&quot;
-        </p>
+    <div
+      ref={ref}
+      className={cn(
+        'w-full min-w-0 overflow-hidden rounded-xl border bg-background p-3 text-xs transition-colors',
+        resolved && 'opacity-70',
+        highlighted && 'border-primary/60 bg-primary/5 ring-2 ring-primary/15'
+      )}
+    >
+      <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-start gap-1.5 overflow-hidden">
+          <div className="mt-0.5 h-full min-h-[16px] w-1 shrink-0 rounded-full bg-yellow-400" />
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <p className="break-words text-muted-foreground italic">
+              &quot;{thread.anchorText}&quot;
+            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+              <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                {thread.snapshot ? `v${thread.snapshot.versionNum}` : t('comments.draft')}
+              </Badge>
+              {!resolved && canRequestAiReply && (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                  {t('comments.awaitingAi')}
+                </Badge>
+              )}
+              {resolved && thread.resolvedAt && (
+                <span className="text-[10px] text-muted-foreground">
+                  {formatStableDate(thread.resolvedAt)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Messages */}
-      <div className="space-y-1.5 mb-2">
+      <div className="mb-3 min-w-0 space-y-2 overflow-hidden">
         {thread.messages.map((msg: CommentMessageData) => (
           <div
             key={msg.id}
-            className={`flex gap-1.5 ${msg.role === 'assistant' ? 'bg-muted/50 rounded px-1.5 py-1' : ''}`}
-          >
-            {msg.role === 'assistant' && (
-              <Bot className="h-3 w-3 mt-0.5 shrink-0 text-primary" />
+            className={cn(
+              'min-w-0 overflow-hidden rounded-lg border px-2 py-1.5',
+              msg.role === 'assistant'
+                ? 'border-primary/15 bg-primary/5'
+                : 'border-border/60 bg-muted/40'
             )}
-            <p className="leading-relaxed">{msg.content}</p>
+          >
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              {msg.role === 'assistant' ? (
+                <>
+                  <Bot className="h-3 w-3 text-primary" />
+                  {t('comments.aiReply')}
+                </>
+              ) : (
+                t('comments.commentToAi')
+              )}
+            </div>
+            <p className="break-words whitespace-pre-wrap leading-relaxed">
+              {msg.content}
+            </p>
           </div>
         ))}
 
-        {/* Streaming AI reply */}
-        {isReplying && streamingContent && (
-          <div className="flex gap-1.5 bg-muted/50 rounded px-1.5 py-1">
-            <Bot className="h-3 w-3 mt-0.5 shrink-0 text-primary animate-pulse" />
-            <p className="leading-relaxed">{streamingContent}</p>
+        {isReplying && (
+          <div className="min-w-0 overflow-hidden rounded-lg border border-primary/15 bg-primary/5 px-2 py-1.5">
+            <div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <Bot className="h-3 w-3 animate-pulse text-primary" />
+              {t('comments.aiReplying')}
+            </div>
+            <p className="break-words whitespace-pre-wrap leading-relaxed text-muted-foreground">
+              {streamingContent || t('comments.thinkingThroughComment')}
+            </p>
           </div>
         )}
       </div>
 
-      {/* Reply input */}
       {!resolved && (
-        <div className="space-y-1.5">
-          <Textarea
-            value={replyText}
-            onChange={(e) => setReplyText(e.target.value)}
-            placeholder="Reply or ask AI..."
-            className="min-h-[28px] text-xs resize-none rounded-md"
-            rows={1}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSendReply();
-              }
-            }}
-          />
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1">
+        <div className="flex items-center justify-between gap-2">
+          <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-muted-foreground">
+            {canRequestAiReply
+              ? t('comments.waitingAiReply')
+              : t('comments.resolvedMoveToHistory')}
+          </p>
+          <div className="flex shrink-0 items-center gap-1">
+            {canRequestAiReply && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="h-6 text-[10px] px-2"
-                onClick={handleRequestSuggestion}
+                className="h-6 px-2 text-[10px]"
+                onClick={() => void onRequestAiReply(thread)}
                 disabled={isReplying}
               >
-                <Wand2 className="h-3 w-3 mr-1" />
-                Suggest Edit
+                <Bot className="mr-1 h-3 w-3" />
+                {t('comments.replyWithAi')}
               </Button>
-            </div>
-            <div className="flex gap-1">
-              {onResolve && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 text-[10px] px-2"
-                  onClick={onResolve}
-                >
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Resolve
-                </Button>
-              )}
-              <Button
-                size="sm"
-                className="h-6 text-[10px] px-2"
-                onClick={handleSendReply}
-                disabled={!replyText.trim() || isReplying}
-              >
-                <Send className="h-3 w-3 mr-1" />
-                Send
-              </Button>
-            </div>
+            )}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-[10px]"
+              onClick={() => void onResolve(thread.id)}
+            >
+              <CheckCircle className="mr-1 h-3 w-3" />
+              {t('comments.resolve')}
+            </Button>
           </div>
         </div>
       )}
     </div>
   );
+});
+
+CommentThreadCard.displayName = 'CommentThreadCard';
+
+function isPendingAiReply(thread: CommentThreadData) {
+  const lastMessage = [...thread.messages]
+    .reverse()
+    .find(message => message.role === 'user' || message.role === 'assistant');
+
+  return lastMessage?.role === 'user';
+}
+
+function groupResolvedThreads(threads: CommentThreadData[]) {
+  const groups = new Map<number | null, CommentThreadData[]>();
+
+  threads.forEach(thread => {
+    const versionNum = thread.snapshot?.versionNum ?? null;
+    const existing = groups.get(versionNum) ?? [];
+    existing.push(thread);
+    groups.set(versionNum, existing);
+  });
+
+  return [...groups.entries()]
+    .sort(([left], [right]) => compareHistoryLabels(left, right))
+    .map(([versionNum, groupedThreads]) => ({
+      versionNum,
+      threads: groupedThreads.sort((a, b) => {
+        const leftTime = new Date(b.updatedAt).getTime();
+        const rightTime = new Date(a.updatedAt).getTime();
+        return leftTime - rightTime;
+      }),
+    }));
+}
+
+function compareHistoryLabels(left: number | null, right: number | null) {
+  if (left === null) return 1;
+  if (right === null) return -1;
+  return right - left;
 }

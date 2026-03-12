@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+/.vite/
+/apps/desktop/src/renderer/.vite/
+/dist/
 
 # production
 /build
@@ -23,6 +26,7 @@
 # misc
 .DS_Store
 *.pem
+/logs/
 
 # debug
 npm-debug.log*
@@ -41,5 +45,13 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+/dev.db
 prisma/dev.db
 prisma/dev.db-journal
+/.dao-desktop/
+/.desktop-oauth-backup/
+/.desktop-runtime/
+/.oauth/
+/.tmp/
+/workspace-mirror/
+/TODO-CONTEXT.md

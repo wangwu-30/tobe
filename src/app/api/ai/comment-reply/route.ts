@@ -1,49 +1,82 @@
-import { streamText } from 'ai';
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { getModelFromHeaders } from '@/lib/ai/providers';
 import { buildCommentContext } from '@/lib/ai/context-builder';
+import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
+import { streamWithPi, toPiContextMessages } from '@/lib/ai/pi-runtime';
+import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 
 export async function POST(req: NextRequest) {
-  const { threadId, message, documentContent, anchorText, documentId, model: modelOverride } = await req.json();
+  const actor = await getPlatformContextFromHeaders(req.headers);
+  const {
+    threadId,
+    wikiContent,
+    documentContent,
+    anchorText,
+    wikiId,
+    documentId,
+    model: modelOverride,
+  } = await req.json();
 
-  // Save user message
-  await prisma.commentMessage.create({
-    data: { threadId, role: 'user', content: message },
-  });
-
-  // Fetch thread messages
   const threadMessages = await prisma.commentMessage.findMany({
-    where: { threadId },
+    where: {
+      deletedAt: null,
+      threadId,
+    },
     orderBy: { createdAt: 'asc' },
   });
 
-  const thread = await prisma.commentThread.findUnique({ where: { id: threadId } });
-
-  const { systemPrompt, messages } = await buildCommentContext({
-    documentContent,
-    anchorText: anchorText || thread?.anchorText || '',
-    threadMessages: threadMessages.map(m => ({ role: m.role, content: m.content })),
-    documentId,
+  const thread = await prisma.commentThread.findUnique({
+    where: { id: threadId },
   });
 
-  const model = getModelFromHeaders(req.headers, modelOverride);
+  const resolvedWikiId = wikiId || documentId || thread?.documentId || undefined;
 
-  const result = streamText({
+  const { model, modelKey, settings } = getSelectedModelFromHeaders(
+    req.headers,
+    modelOverride
+  );
+
+  const { systemPrompt, messages } = await buildCommentContext({
+    anchorText: anchorText || thread?.anchorText || '',
+    language: settings.language,
+    organizationId: thread?.organizationId || actor.organizationId,
+    threadMessages: threadMessages
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({ role: message.role, content: message.content })),
+    wikiContent: wikiContent || documentContent || '',
+    wikiId: resolvedWikiId,
+  });
+
+  return streamWithPi({
     model,
-    system: systemPrompt,
-    messages,
+    settings,
+    context: {
+      systemPrompt,
+      messages: toPiContextMessages(
+        messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        model
+      ),
+    },
     onFinish: async ({ text }) => {
+      const persistedText = text.trim();
+      if (!persistedText) {
+        return;
+      }
+
       await prisma.commentMessage.create({
         data: {
+          organizationId: thread?.organizationId || actor.organizationId,
           threadId,
           role: 'assistant',
-          content: text,
-          model: modelOverride || 'claude-sonnet-4-20250514',
+          content: persistedText,
+          model: modelKey,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
         },
       });
     },
   });
-
-  return result.toTextStreamResponse();
 }
