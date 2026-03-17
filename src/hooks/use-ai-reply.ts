@@ -13,6 +13,7 @@ export function useAiReply() {
 
   const sendCommentReply = useCallback(
     async (params: {
+      agentId?: string;
       threadId: string;
       documentContent: string;
       anchorText: string;
@@ -33,6 +34,7 @@ export function useAiReply() {
             ...getStoredAISettingsHeader(),
           },
           body: JSON.stringify({
+            agentId: params.agentId,
             threadId: params.threadId,
             documentContent: params.documentContent,
             anchorText: params.anchorText,

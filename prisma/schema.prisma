@@ -25,10 +25,12 @@ model Organization {
   commentMessages  CommentMessage[]
   memories         Memory[]
   knowledgeItems   KnowledgeItem[]
+  workflowPlaybooks WorkflowPlaybook[]
   wikiEditLocks    WikiEditLock[]
   workspaceRuns    WorkspaceRun[]
   assistantRuns    AssistantRun[]
   workspacePlans   WorkspacePlan[]
+  projectFolders   ProjectFolder[]
   mutationRequests MutationRequest[]
   stagedChangeSets StagedChangeSet[]
   chatAttachments  ChatAttachment[]
@@ -147,10 +149,18 @@ model Document {
   id              String          @id @default(cuid())
   organizationId  String          @default("local-org")
   sessionId       String
+  projectId       String?
+  projectFolderId String?
+  draftBaseVersionId String?
+  projectTitle    String?
+  parentDocumentId String?
+  treeSortOrder   Float           @default(0)
   title           String          @default("Untitled")
   content         String          @default("[]")
+  projectRootPath String?
   status          String          @default("draft")
   currentVersion  Int             @default(0)
+  draftRevision   Int             @default(0)
   createdByUserId String?
   originDeviceId  String?
   revision        Int             @default(1)
@@ -159,12 +169,14 @@ model Document {
   updatedAt       DateTime        @updatedAt
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   session         Session         @relation("PrimaryConversationDocuments", fields: [sessionId], references: [id], onDelete: Cascade)
+  draftBaseVersion Version?       @relation("DocumentDraftBaseVersion", fields: [draftBaseVersionId], references: [id], onDelete: SetNull)
   conversations   Session[]       @relation("WikiConversations")
   chatMessages    ChatMessage[]
   files           WorkspaceFile[]
   versions        Version[]
   threads         CommentThread[]
   knowledgeItems  KnowledgeItem[]
+  workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookDocument")
   wikiEditLock    WikiEditLock?
   workspaceRuns   WorkspaceRun[]
   assistantRuns   AssistantRun[]
@@ -174,6 +186,26 @@ model Document {
 
   @@index([organizationId, updatedAt])
   @@index([sessionId, updatedAt])
+  @@index([draftBaseVersionId])
+  @@index([organizationId, projectId, projectFolderId, updatedAt])
+}
+
+model ProjectFolder {
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  projectId       String
+  parentId        String?
+  treeSortOrder   Float        @default(0)
+  title           String
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int          @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId, updatedAt])
 }
 
 model Version {
@@ -186,7 +218,7 @@ model Version {
   parentVersionId String?
   sourceSessionId String?
   sourceMessageId String?
-  snapshotType    String         @default("manual")
+  versionType     String         @default("manual")
   lockedAt        DateTime        @default(now())
   createdByUserId String?
   originDeviceId  String?
@@ -199,7 +231,9 @@ model Version {
   sourceConversation Session?     @relation("SnapshotSourceConversation", fields: [sourceSessionId], references: [id], onDelete: SetNull)
   sourceMessage   ChatMessage?    @relation("SnapshotSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
   baseConversations Session[]     @relation("ConversationBaseVersion")
+  draftBaseDocuments Document[]   @relation("DocumentDraftBaseVersion")
   threads         CommentThread[]
+  workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookSourceVersion")
   workspaceRuns   WorkspaceRun[]
 
   @@unique([documentId, versionNum])
@@ -247,6 +281,8 @@ model CommentThread {
   versionId       String?
   anchorText      String
   selectionAnchor String?
+  agentBindingsJson String?
+  researchStateJson String?
   draftRevision   Int?
   status          String           @default("open")
   resolvedAt      DateTime?
@@ -261,6 +297,7 @@ model CommentThread {
   file            WorkspaceFile?   @relation(fields: [fileId], references: [id], onDelete: SetNull)
   version         Version?         @relation(fields: [versionId], references: [id], onDelete: SetNull)
   messages        CommentMessage[]
+  workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookSourceThread")
 
   @@index([organizationId, updatedAt])
   @@index([documentId, updatedAt])
@@ -274,6 +311,9 @@ model CommentMessage {
   role            String
   content         String
   model           String?
+  mentionedAgentsJson String?
+  agentId         String?
+  agentLabel      String?
   createdByUserId String?
   originDeviceId  String?
   revision        Int           @default(1)
@@ -326,6 +366,37 @@ model KnowledgeItem {
 
   @@index([organizationId, createdAt])
   @@index([documentId, createdAt])
+}
+
+model WorkflowPlaybook {
+  id              String        @id @default(cuid())
+  organizationId  String        @default("local-org")
+  documentId      String?
+  sourceVersionId String?
+  sourceThreadId  String?
+  title           String
+  status          String        @default("draft")
+  summary         String        @default("")
+  steps           String        @default("")
+  constraints     String        @default("")
+  checklist       String        @default("")
+  content         String        @default("")
+  archivedAt      DateTime?
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int           @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document        Document?     @relation("WorkflowPlaybookDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  sourceVersion   Version?      @relation("WorkflowPlaybookSourceVersion", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  sourceThread    CommentThread? @relation("WorkflowPlaybookSourceThread", fields: [sourceThreadId], references: [id], onDelete: SetNull)
+  activeWorkspacePlans WorkspacePlan[] @relation("WorkspacePlanActiveWorkflow")
+
+  @@index([organizationId, createdAt])
+  @@index([documentId, createdAt])
+  @@index([sourceVersionId, createdAt])
 }
 
 model WikiEditLock {
@@ -435,6 +506,7 @@ model WorkspacePlan {
   id               String       @id @default(cuid())
   organizationId   String
   documentId       String       @unique
+  activeWorkflowPlaybookId String?
   goal             String
   deliverableType  String       @default("document")
   constraints      String?
@@ -452,9 +524,11 @@ model WorkspacePlan {
   updatedAt        DateTime     @updatedAt
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   document         Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  activeWorkflowPlaybook WorkflowPlaybook? @relation("WorkspacePlanActiveWorkflow", fields: [activeWorkflowPlaybookId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, updatedAt])
   @@index([documentId, updatedAt])
+  @@index([activeWorkflowPlaybookId, updatedAt])
 }
 
 model MutationRequest {

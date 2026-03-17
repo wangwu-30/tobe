@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { isVisibleVersion } from '@/lib/workspace/planning';
 import {
-  createWorkspaceSnapshot,
-  listWorkspaceSnapshots,
+  createWorkspaceVersion,
+  listWorkspaceVersions,
   WorkspaceLockConflictError,
 } from '@/lib/workspace/service';
 
@@ -15,7 +15,7 @@ export async function GET(
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { workspaceId } = await params;
   const scope = new URL(req.url).searchParams.get('scope');
-  const versions = await listWorkspaceSnapshots({
+  const versions = await listWorkspaceVersions({
     organizationId: actor.organizationId,
     workspaceId,
   });
@@ -34,11 +34,11 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
 
   try {
-    const version = await createWorkspaceSnapshot(actor, {
-      snapshotType: 'manual',
+    const version = await createWorkspaceVersion(actor, {
       sourceConversationId: body.sourceConversationId || null,
       sourceMessageId: body.sourceMessageId || null,
       title: body.title,
+      versionType: 'manual',
       workspaceId,
     });
 

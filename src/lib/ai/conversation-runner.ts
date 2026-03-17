@@ -4,6 +4,7 @@ import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
+import type { ResearchMode } from '@/types';
 import {
   createConversationMessage,
   updateAssistantRun,
@@ -169,6 +170,8 @@ export async function streamWorkspaceAssistantRun(params: {
   conversationId: string;
   model: AnyPiModel;
   modelKey: string;
+  researchMode?: ResearchMode;
+  searchBudget?: number;
   searchProvider?: SearchProvider | null;
   settings: Settings;
   systemPrompt: string;
@@ -181,6 +184,8 @@ export async function streamWorkspaceAssistantRun(params: {
     conversationId: params.conversationId,
     organizationId: params.actor.organizationId,
     originDeviceId: params.actor.deviceId,
+    researchMode: params.researchMode || 'light',
+    searchBudget: params.searchBudget,
     searchProvider: params.searchProvider || null,
     workspaceId: params.workspaceId,
   });
@@ -239,7 +244,6 @@ export async function streamWorkspaceAssistantRun(params: {
 
   response.headers.set('x-dao-conversation-id', params.conversationId);
   response.headers.set('x-dao-workspace-id', params.workspaceId);
-  response.headers.set('x-dao-wiki-id', params.workspaceId);
 
   return response;
 }

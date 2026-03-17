@@ -39,6 +39,12 @@ export async function PATCH(
   await prisma.commentThread.update({
     where: { id: threadId },
     data: {
+      ...(existingMessage.role === 'user'
+        ? {
+            resolvedAt: null,
+            status: 'open',
+          }
+        : {}),
       createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
       revision: {
@@ -106,6 +112,12 @@ export async function DELETE(
   await prisma.commentThread.update({
     where: { id: threadId },
     data: {
+      ...(existingMessage.role === 'user'
+        ? {
+            resolvedAt: null,
+            status: 'open',
+          }
+        : {}),
       createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
       revision: {

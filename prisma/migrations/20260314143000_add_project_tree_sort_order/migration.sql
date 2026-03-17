@@ -1,0 +1,3 @@
+ALTER TABLE "Document" ADD COLUMN "treeSortOrder" REAL NOT NULL DEFAULT 0;
+
+ALTER TABLE "ProjectFolder" ADD COLUMN "treeSortOrder" REAL NOT NULL DEFAULT 0;

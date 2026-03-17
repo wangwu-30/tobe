@@ -6,8 +6,8 @@ import {
   FileText,
   FolderClosed,
   FolderPlus,
-  GitBranch,
   History,
+  MessagesSquare,
   Plus,
   Settings,
   Trash2,
@@ -27,19 +27,20 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { formatStableDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import { formatProjectListMeta } from '@/lib/workspace/project-summary';
 import type {
   ConversationBranchSummary,
+  ProjectSummaryData,
   WorkspaceFileData,
-  WorkspaceSidebarItem,
-  WorkspaceSnapshotData,
+  WorkspaceVersionData,
 } from '@/types';
 
 type WorkspaceTreeState = {
   currentConversationId?: string | null;
   currentFileId?: string | null;
-  currentSnapshotId?: string | null;
+  currentVersionId?: string | null;
   files?: WorkspaceFileData[];
-  snapshots?: WorkspaceSnapshotData[];
+  versions?: WorkspaceVersionData[];
   threads?: ConversationBranchSummary[];
 };
 
@@ -48,7 +49,7 @@ type WorkspaceActions = {
   onDeleteWorkspace?: (workspaceId: string) => Promise<void> | void;
   onOpenConversation?: (conversationId: string) => void;
   onOpenFile?: (fileId: string) => void;
-  onOpenSnapshot?: (snapshotId: string | null) => void;
+  onOpenVersion?: (versionId: string | null) => void;
   onOpenWorkspace?: (workspaceId: string) => void;
 };
 
@@ -63,6 +64,7 @@ export function AppShell({
   sidebarTree,
   subtitle,
   title,
+  titleNode,
 }: {
   actions?: React.ReactNode;
   children: React.ReactNode;
@@ -75,6 +77,7 @@ export function AppShell({
   sidebarTree?: WorkspaceTreeState;
   subtitle?: string;
   title: string;
+  titleNode?: React.ReactNode;
 }) {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
@@ -133,6 +136,7 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <AppTopBar
           title={title}
+          titleNode={titleNode}
           subtitle={subtitle}
           actions={actions}
           isSidebarCollapsed={sidebarCollapsed}
@@ -164,26 +168,26 @@ function WorkspaceSidebar({
   const pathname = useAppPathname();
   const router = useAppRouter();
   const [isLoading, setIsLoading] = React.useState(true);
-  const [workspaces, setWorkspaces] = React.useState<WorkspaceSidebarItem[]>([]);
+  const [projects, setProjects] = React.useState<ProjectSummaryData[]>([]);
 
-  const loadWorkspaces = React.useCallback(async () => {
+  const loadProjects = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/workspaces');
+      const res = await fetch('/api/projects');
       if (!res.ok) {
         return;
       }
 
       const data = await res.json();
-      setWorkspaces(data.items || []);
+      setProjects(data.items || []);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   React.useEffect(() => {
-    void loadWorkspaces();
-  }, [loadWorkspaces, pathname]);
+    void loadProjects();
+  }, [loadProjects, pathname]);
 
   const handleCreateWorkspace = React.useCallback(async () => {
     onNavigate?.();
@@ -191,39 +195,44 @@ function WorkspaceSidebar({
   }, [onNavigate, router]);
 
   const handleDeleteWorkspace = React.useCallback(
-    async (workspaceId: string, event: React.MouseEvent) => {
+    async (projectId: string, event: React.MouseEvent) => {
       event.stopPropagation();
       if (!window.confirm(t('sidebar.deleteProjectConfirm'))) {
         return;
       }
 
       if (sidebarActions?.onDeleteWorkspace) {
-        await sidebarActions.onDeleteWorkspace(workspaceId);
+        await sidebarActions.onDeleteWorkspace(projectId);
       } else {
-        const response = await fetch(`/api/workspaces/${workspaceId}`, { method: 'DELETE' });
+        const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
         if (!response.ok) {
           return;
         }
 
-        if (currentWorkspaceId === workspaceId) {
+        const deletedCurrentProject = projects.some(
+          (project) =>
+            project.id === projectId && project.workspaceId === currentWorkspaceId
+        );
+
+        if (deletedCurrentProject) {
           onNavigate?.();
           router.push('/');
         }
       }
 
-      await loadWorkspaces();
+      await loadProjects();
     },
-    [currentWorkspaceId, loadWorkspaces, onNavigate, router, sidebarActions, t]
+    [currentWorkspaceId, loadProjects, onNavigate, projects, router, sidebarActions, t]
   );
 
-  const openWorkspace = React.useCallback(
-    (workspaceId: string) => {
+  const openProject = React.useCallback(
+    (project: ProjectSummaryData) => {
       onNavigate?.();
       if (sidebarActions?.onOpenWorkspace) {
-        sidebarActions.onOpenWorkspace(workspaceId);
+        sidebarActions.onOpenWorkspace(project.workspaceId);
         return;
       }
-      router.push(`/workspace/${workspaceId}`);
+      router.push(`/workspace/${project.workspaceId}`);
     },
     [onNavigate, router, sidebarActions]
   );
@@ -293,16 +302,16 @@ function WorkspaceSidebar({
             <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-3">
               {isLoading ? (
                 <SidebarInfo compact text="..." />
-              ) : workspaces.length === 0 ? (
+              ) : projects.length === 0 ? (
                 <SidebarInfo compact text="-" />
               ) : (
-                workspaces.map((workspace) => (
+                projects.map((project) => (
                   <SidebarIconButton
-                    key={workspace.id}
-                    active={currentWorkspaceId === workspace.id}
+                    key={project.id}
+                    active={currentWorkspaceId === project.workspaceId}
                     icon={<FileText className="h-4 w-4" />}
-                    label={workspace.title}
-                    onClick={() => openWorkspace(workspace.id)}
+                    label={project.title}
+                    onClick={() => openProject(project)}
                   />
                 ))
               )}
@@ -324,33 +333,33 @@ function WorkspaceSidebar({
               >
                 {isLoading ? (
                   <SidebarInfo text={t('sidebar.loadingProjects')} />
-                ) : workspaces.length === 0 ? (
+                ) : projects.length === 0 ? (
                   <SidebarInfo text={t('sidebar.noProjectsYet')} />
                 ) : (
                   <div className="min-w-0 space-y-1">
-                    {workspaces.map((workspace) => (
+                    {projects.map((project) => (
                       <div
-                        key={workspace.id}
+                        key={project.id}
                         className={cn(
                           'group flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 transition-colors hover:bg-accent',
-                          currentWorkspaceId === workspace.id &&
+                          currentWorkspaceId === project.workspaceId &&
                             'bg-background shadow-sm ring-1 ring-border'
                         )}
                       >
                         <button
                           type="button"
                           className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
-                          onClick={() => openWorkspace(workspace.id)}
+                          onClick={() => openProject(project)}
                         >
                           <div className="shrink-0 rounded-md bg-background/80 p-1.5 ring-1 ring-border/60">
                             <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
                           <div className="min-w-0 flex-1 overflow-hidden">
                             <div className="truncate text-sm font-medium leading-5">
-                              {workspace.title}
+                              {project.title}
                             </div>
                             <div className="truncate text-[11px] text-muted-foreground/80">
-                              {formatStableDate(workspace.updatedAt)}
+                              {formatProjectListMeta(project, t)}
                             </div>
                           </div>
                         </button>
@@ -360,7 +369,7 @@ function WorkspaceSidebar({
                           variant="ghost"
                           className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
                           onClick={(event) =>
-                            void handleDeleteWorkspace(workspace.id, event)
+                            void handleDeleteWorkspace(project.id, event)
                           }
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -421,15 +430,15 @@ function WorkspaceSidebar({
                     )}
                   </SidebarSection>
 
-                  <SidebarSection title={t('sidebar.snapshots')}>
-                    {sidebarTree.snapshots && sidebarTree.snapshots.length > 0 ? (
-                      <SnapshotList
-                        currentSnapshotId={sidebarTree.currentSnapshotId}
-                        onOpenSnapshot={sidebarActions?.onOpenSnapshot}
-                        snapshots={sidebarTree.snapshots}
+                  <SidebarSection title={t('sidebar.versions')}>
+                    {sidebarTree.versions && sidebarTree.versions.length > 0 ? (
+                      <VersionList
+                        currentVersionId={sidebarTree.currentVersionId}
+                        onOpenVersion={sidebarActions?.onOpenVersion}
+                        versions={sidebarTree.versions}
                       />
                     ) : (
-                      <SidebarInfo text={t('sidebar.noSnapshotsYet')} />
+                      <SidebarInfo text={t('sidebar.noVersionsYet')} />
                     )}
                   </SidebarSection>
                 </>
@@ -599,7 +608,7 @@ function ConversationTreeNode({
         style={{ paddingLeft: `${depth * 16 + 8}px` }}
         onClick={() => onOpenConversation?.(item.id)}
       >
-        <GitBranch
+        <MessagesSquare
           className={cn(
             'mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground',
             currentConversationId === item.id && 'text-foreground'
@@ -656,47 +665,49 @@ function shouldShowConversationPreview(
   return !normalizedPreview.startsWith(normalizedTitle);
 }
 
-function SnapshotList({
-  currentSnapshotId,
-  onOpenSnapshot,
-  snapshots,
+function VersionList({
+  currentVersionId,
+  onOpenVersion,
+  versions,
 }: {
-  currentSnapshotId?: string | null;
-  onOpenSnapshot?: (snapshotId: string | null) => void;
-  snapshots: WorkspaceSnapshotData[];
+  currentVersionId?: string | null;
+  onOpenVersion?: (versionId: string | null) => void;
+  versions: WorkspaceVersionData[];
 }) {
+  const t = useT();
+
   return (
     <div className="min-w-0 space-y-0.5 overflow-hidden">
       <button
         type="button"
         className={cn(
           'flex min-w-0 w-full max-w-full items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
-          !currentSnapshotId && 'bg-background shadow-sm ring-1 ring-border'
+          !currentVersionId && 'bg-background shadow-sm ring-1 ring-border'
         )}
-        onClick={() => onOpenSnapshot?.(null)}
+        onClick={() => onOpenVersion?.(null)}
       >
         <History className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        Live draft
+        {t('workspace.liveDraft')}
       </button>
 
-      {snapshots.map((snapshot) => (
+      {versions.map((version) => (
         <button
-          key={snapshot.id}
+          key={version.id}
           type="button"
           className={cn(
             'flex min-w-0 w-full max-w-full items-start gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
-            currentSnapshotId === snapshot.id &&
+            currentVersionId === version.id &&
               'bg-background shadow-sm ring-1 ring-border'
           )}
-          onClick={() => onOpenSnapshot?.(snapshot.id)}
+          onClick={() => onOpenVersion?.(version.id)}
         >
           <History className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block truncate">
-              v{snapshot.versionNum} {snapshot.title}
+              v{version.versionNum} {version.title}
             </span>
             <span className="block truncate text-xs text-muted-foreground">
-              {formatStableDate(snapshot.lockedAt)}
+              {formatStableDate(version.lockedAt)}
             </span>
           </span>
         </button>

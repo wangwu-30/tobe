@@ -2,7 +2,9 @@ import { getModel as getPiModel, getModels, getProviders } from '@mariozechner/p
 import type { Api, Model as PiModel, Provider as PiProvider } from '@mariozechner/pi-ai';
 import { normalizeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { translate } from '@/lib/i18n/copy';
+import { normalizeCommentAgents } from '@/lib/comments/agents';
 import type {
+  CommentAgentConfigData,
   ModelCatalogData,
   ModelCatalogProviderData,
   ModelOptionData,
@@ -12,6 +14,7 @@ import type {
 export type Settings = {
   defaultModel?: string;
   language?: AppLanguage;
+  commentAgents?: CommentAgentConfigData[];
   providerApiKeys?: Record<string, string>;
   searchApiKey?: string;
   searchEndpoint?: string;
@@ -174,13 +177,27 @@ export function formatModelLabel(
 export function getSettingsFromHeaders(headers: Headers): Settings {
   const settingsHeader = headers.get('x-ai-settings');
   if (!settingsHeader) {
-    return { defaultModel: DEFAULT_MODEL_KEY, language: normalizeAppLanguage(), providerApiKeys: {} };
+    return {
+      defaultModel: DEFAULT_MODEL_KEY,
+      language: normalizeAppLanguage(),
+      commentAgents: normalizeCommentAgents([], normalizeAppLanguage()),
+      providerApiKeys: {},
+    };
   }
 
   try {
     return normalizeSettings(JSON.parse(settingsHeader));
   } catch {
-    return { defaultModel: DEFAULT_MODEL_KEY, language: normalizeAppLanguage(), providerApiKeys: {} };
+    try {
+      return normalizeSettings(JSON.parse(decodeURIComponent(settingsHeader)));
+    } catch {
+      return {
+        defaultModel: DEFAULT_MODEL_KEY,
+        language: normalizeAppLanguage(),
+        commentAgents: normalizeCommentAgents([], normalizeAppLanguage()),
+        providerApiKeys: {},
+      };
+    }
   }
 }
 
@@ -212,10 +229,12 @@ export function normalizeSettings(input: unknown): Settings {
 
   const defaultModel = normalizeModelKey(asString(raw.defaultModel)) || DEFAULT_MODEL_KEY;
   const language = normalizeAppLanguage(asString(raw.language));
+  const commentAgents = normalizeCommentAgents(raw.commentAgents, language);
 
   return {
     defaultModel,
     language,
+    commentAgents,
     providerApiKeys,
   };
 }

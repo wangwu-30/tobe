@@ -19,6 +19,7 @@ import {
 import { WorkspaceStarterDialog } from '@/components/workspace/workspace-starter-dialog';
 import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { useT } from '@/components/providers/language-provider';
+import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
 
 export default function HomePage() {
   const t = useT();
@@ -33,8 +34,11 @@ export default function HomePage() {
     React.useState<GoalComposerValues | null>(null);
   const [goalDialogSeedValues, setGoalDialogSeedValues] =
     React.useState<Partial<GoalComposerValues> | null>(null);
-  const [workspaceInventoryLoaded, setWorkspaceInventoryLoaded] = React.useState(false);
-  const [hasExistingWorkspace, setHasExistingWorkspace] = React.useState<boolean | null>(null);
+  const [workspaceCreateContext, setWorkspaceCreateContext] = React.useState<{
+    projectFolderId: string | null;
+    projectId: string | null;
+    projectTitle: string | null;
+  } | null>(null);
   const [pendingCreateEntry, setPendingCreateEntry] = React.useState(false);
   const createWorkspaceRequestIdRef = React.useRef<string | null>(null);
   const createWorkspaceInFlightRef = React.useRef(false);
@@ -45,6 +49,11 @@ export default function HomePage() {
       createWorkspaceRequestIdRef.current = recovery.requestId;
       setCreateWorkspaceRecoveryActive(true);
       setCreateWorkspaceRecoveryValues(recovery.values);
+      setWorkspaceCreateContext({
+        projectFolderId: recovery.context?.projectFolderId || null,
+        projectId: recovery.context?.projectId || null,
+        projectTitle: recovery.context?.projectTitle || null,
+      });
       setCreateWorkspaceError(t('goal.createProjectRetryUnknown'));
     }
 
@@ -54,64 +63,24 @@ export default function HomePage() {
     }
   }, [t]);
 
-  React.useEffect(() => {
-    let cancelled = false;
-
-    async function loadWorkspaceInventory() {
-      try {
-        const response = await fetch('/api/workspaces');
-        if (!response.ok) {
-          if (!cancelled) {
-            setHasExistingWorkspace(null);
-          }
-          return;
-        }
-
-        const payload = await response.json();
-        if (!cancelled) {
-          setHasExistingWorkspace((payload.items || []).length > 0);
-        }
-      } catch {
-        if (!cancelled) {
-          setHasExistingWorkspace(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setWorkspaceInventoryLoaded(true);
-        }
-      }
-    }
-
-    void loadWorkspaceInventory();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const openWorkspaceCreateEntry = React.useCallback(() => {
-    if (!workspaceInventoryLoaded) {
-      setPendingCreateEntry(true);
+    if (createWorkspaceRecoveryActive) {
+      setGoalDialogSeedValues(null);
+      setGoalDialogOpen(true);
       return;
     }
 
-    if (!createWorkspaceRecoveryActive && hasExistingWorkspace === false) {
-      setWorkspaceStarterOpen(true);
-      return;
-    }
-
-    setGoalDialogSeedValues(null);
-    setGoalDialogOpen(true);
-  }, [createWorkspaceRecoveryActive, hasExistingWorkspace, workspaceInventoryLoaded]);
+    setWorkspaceStarterOpen(true);
+  }, [createWorkspaceRecoveryActive]);
 
   React.useEffect(() => {
-    if (!pendingCreateEntry || !workspaceInventoryLoaded) {
+    if (!pendingCreateEntry) {
       return;
     }
 
     openWorkspaceCreateEntry();
     setPendingCreateEntry(false);
-  }, [openWorkspaceCreateEntry, pendingCreateEntry, workspaceInventoryLoaded]);
+  }, [openWorkspaceCreateEntry, pendingCreateEntry]);
 
   const createWorkspace = async (values: GoalComposerValues) => {
     if (createWorkspaceInFlightRef.current) return;
@@ -132,13 +101,23 @@ export default function HomePage() {
           [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: createWorkspaceRequestIdRef.current,
           ...getStoredAISettingsHeader(),
         },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          ...(workspaceCreateContext
+            ? {
+                projectFolderId: workspaceCreateContext.projectFolderId,
+                projectId: workspaceCreateContext.projectId,
+                projectTitle: workspaceCreateContext.projectTitle,
+              }
+            : {}),
+        }),
       });
       if (res.ok) {
         const workspace = await res.json();
         clearWorkspaceCreateRecovery();
         setCreateWorkspaceRecoveryActive(false);
         setCreateWorkspaceRecoveryValues(null);
+        setWorkspaceCreateContext(null);
         createWorkspaceRequestIdRef.current = null;
         setGoalDialogOpen(false);
         router.push(
@@ -155,6 +134,13 @@ export default function HomePage() {
       setCreateWorkspaceError(payload?.error || t('goal.createProjectFailed'));
     } catch {
       const recovery = {
+        context: workspaceCreateContext
+          ? {
+              projectFolderId: workspaceCreateContext.projectFolderId,
+              projectId: workspaceCreateContext.projectId,
+              projectTitle: workspaceCreateContext.projectTitle,
+            }
+          : undefined,
         requestId: createWorkspaceRequestIdRef.current || crypto.randomUUID(),
         values,
       };
@@ -170,15 +156,16 @@ export default function HomePage() {
   };
 
   const handleGoalDialogOpenChange = React.useCallback((open: boolean) => {
-    if (!open) {
-      if (!createWorkspaceRecoveryActive) {
-        clearWorkspaceCreateRecovery();
-        setCreateWorkspaceError(null);
-        setCreateWorkspaceRecoveryValues(null);
-        setGoalDialogSeedValues(null);
-        createWorkspaceRequestIdRef.current = null;
+      if (!open) {
+        if (!createWorkspaceRecoveryActive) {
+          clearWorkspaceCreateRecovery();
+          setCreateWorkspaceError(null);
+          setCreateWorkspaceRecoveryValues(null);
+          setGoalDialogSeedValues(null);
+          setWorkspaceCreateContext(null);
+          createWorkspaceRequestIdRef.current = null;
+        }
       }
-    }
 
     setGoalDialogOpen(open);
   }, [createWorkspaceRecoveryActive]);
@@ -186,7 +173,10 @@ export default function HomePage() {
   const handleWorkspaceStarterSelect = React.useCallback(
     (deliverableType: GoalComposerValues['deliverableType']) => {
       setWorkspaceStarterOpen(false);
-      setGoalDialogSeedValues({ deliverableType });
+      setGoalDialogSeedValues({
+        deliverableType,
+        projectParentPath: '',
+      });
       setGoalDialogOpen(true);
     },
     []
@@ -276,7 +266,10 @@ export default function HomePage() {
           createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
         }
         onSubmit={(values) => createWorkspace(values)}
+        workflowContextId={null}
       />
+      
+      <OnboardingDialog />
     </AppShell>
   );
 }

@@ -23,6 +23,8 @@ Agent-assisted writing workspace built with Next.js, Prisma, SQLite, Plate, and 
 ## Documentation
 
 - Change log and project status: [CHANGELOG.md](./CHANGELOG.md)
+- Product north star and IA glossary: [docs/chengxing-product-north-star.md](./docs/chengxing-product-north-star.md)
+- Rollout plan and phase boundaries: [docs/chengxing-rollout-plan.md](./docs/chengxing-rollout-plan.md)
 
 ## Development
 

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { getCommentKey, getDraftCommentKey } from '@platejs/comment';
 import { getSelectionBoundingClientRect } from '@platejs/floating';
-import { MessageSquarePlus } from 'lucide-react';
+import { MessageSquarePlus, Search } from 'lucide-react';
 import {
   useEditorPlugin,
   useEditorRef,
@@ -12,14 +12,22 @@ import {
 
 import { commentPlugin } from '@/components/editor/plugins/comment-kit';
 import { useEditorSession } from '@/components/editor/editor-session-context';
+import { CommentAgentTextarea } from '@/components/comments/comment-agent-textarea';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { useAiReply } from '@/hooks/use-ai-reply';
+import { useCommentAgents } from '@/hooks/use-comment-agents';
+import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
+import { resolveSingleResearchTarget } from '@/lib/comments/agents';
+import {
+  createStructuredDocumentSelectionRange,
+  isSingleBlockDocumentSelectionRange,
+  type DocumentSelectionRangeData,
+} from '@/lib/comments/document-selection';
 import {
   OPEN_SELECTION_COMMENT_COMPOSER_EVENT,
-  readCommentReplyMode,
   requestCommentThreadFocus,
 } from '@/lib/comments/constants';
+import { useT } from '@/components/providers/language-provider';
 import { cn } from '@/lib/utils';
 import type { CommentThreadData } from '@/types';
 
@@ -32,6 +40,7 @@ type TriggerPosition = {
 type ComposerState = {
   anchorText: string;
   position: TriggerPosition;
+  selectionRange: DocumentSelectionRangeData | null;
 };
 
 export function SelectionCommentTrigger({
@@ -43,13 +52,16 @@ export function SelectionCommentTrigger({
 }) {
   const editor = useEditorRef();
   const selection = useEditorSelection();
+  const t = useT();
   const editorSession = useEditorSession();
   const { setOption } = useEditorPlugin(commentPlugin);
   const { isReplying, sendCommentReply } = useAiReply();
+  const commentAgents = useCommentAgents();
   const [isMounted, setIsMounted] = React.useState(false);
   const [selectionState, setSelectionState] = React.useState<ComposerState | null>(null);
   const [composerState, setComposerState] = React.useState<ComposerState | null>(null);
   const [commentText, setCommentText] = React.useState('');
+  const [researchMode, setResearchMode] = React.useState<'light' | 'deep'>('light');
   const [error, setError] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const composerRef = React.useRef<HTMLDivElement>(null);
@@ -72,6 +84,16 @@ export function SelectionCommentTrigger({
     }
 
     try {
+      const structuredRange = createStructuredDocumentSelectionRange({
+        anchor: {
+          offset: editor.selection.anchor.offset,
+          path: [...editor.selection.anchor.path],
+        },
+        focus: {
+          offset: editor.selection.focus.offset,
+          path: [...editor.selection.focus.path],
+        },
+      });
       const rect = getSelectionBoundingClientRect(editor);
       if (!rect || rect.width === 0 || rect.height === 0) {
         return null;
@@ -84,6 +106,10 @@ export function SelectionCommentTrigger({
       return {
         anchorText: selectedText,
         position: { left, placement, top },
+        selectionRange:
+          structuredRange && isSingleBlockDocumentSelectionRange(structuredRange)
+            ? structuredRange
+            : null,
       };
     } catch {
       return null;
@@ -107,6 +133,7 @@ export function SelectionCommentTrigger({
       }
       setComposerState(null);
       setCommentText('');
+      setResearchMode('light');
       setError(null);
       setSelectionState(null);
     },
@@ -199,10 +226,13 @@ export function SelectionCommentTrigger({
 
       const response = await fetch('/api/threads', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getStoredAISettingsHeader(),
+        },
         body: JSON.stringify({
           documentId: editorSession.workspaceId || editorSession.wikiId,
-          draftRevision: editorSession.snapshotId ? null : undefined,
+          draftRevision: editorSession.versionId ? null : editorSession.draftRevision,
           fileId: editorSession.fileId,
           wikiId: editorSession.wikiId,
           anchorText,
@@ -212,13 +242,20 @@ export function SelectionCommentTrigger({
             bindingType: 'selection',
             anchorPayload: {
               excerpt: anchorText,
+              rangeState: composerState.selectionRange ? 'single-block' : 'cross-block',
+              ...(composerState.selectionRange
+                ? {
+                    start: composerState.selectionRange.start,
+                    end: composerState.selectionRange.end,
+                  }
+                : {}),
             },
-            previewSnapshotId: editorSession.snapshotId || null,
+            previewVersionId: editorSession.versionId || null,
             sourceMapping: {
               fileId: editorSession.fileId || null,
             },
           }),
-          snapshotId: editorSession.snapshotId,
+          versionId: editorSession.versionId,
         }),
       });
 
@@ -240,22 +277,65 @@ export function SelectionCommentTrigger({
       setOption('commentingBlock', null);
       setComposerState(null);
       setCommentText('');
+      setResearchMode('light');
 
       await onThreadsChanged();
       requestCommentThreadFocus(thread.id);
 
-      if (readCommentReplyMode() === 'auto') {
-        try {
-          await sendCommentReply({
+      if (researchMode === 'deep') {
+        const researchTarget = resolveSingleResearchTarget({
+          agents: commentAgents,
+          content,
+        });
+
+        if (researchTarget.error === 'multiple') {
+          throw new Error(t('comments.researchNeedsSingleAgent'));
+        }
+
+        if (!researchTarget.target) {
+          throw new Error(t('comments.researchNeedsSingleAgent'));
+        }
+
+        const researchResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
+          body: JSON.stringify({
+            agentId: researchTarget.target.agentId,
             anchorText,
+            content,
             documentContent: editorSession.documentContent,
-            documentId: editorSession.wikiId,
-            threadId: thread.id,
-          });
+            persistMessage: false,
+          }),
+        });
+
+        if (!researchResponse.ok) {
+          const payload = await researchResponse.json().catch(() => null);
+          throw new Error(payload?.error || t('comments.researchPlanFailed'));
+        }
+
+        await onThreadsChanged();
+        requestCommentThreadFocus(thread.id);
+        return;
+      }
+
+      if (thread.agentBindings.length > 0) {
+        try {
+          for (const binding of thread.agentBindings) {
+            await sendCommentReply({
+              agentId: binding.agentId,
+              anchorText,
+              documentContent: editorSession.documentContent,
+              documentId: editorSession.wikiId,
+              threadId: thread.id,
+            });
+          }
           await onThreadsChanged();
           requestCommentThreadFocus(thread.id);
         } catch {
-          // Comment creation succeeds even if auto reply fails.
+          // Comment creation succeeds even if agent replies fail.
         }
       }
     } catch (err) {
@@ -269,9 +349,12 @@ export function SelectionCommentTrigger({
     composerState,
     editor,
     editorSession,
+    commentAgents,
     onThreadsChanged,
+    researchMode,
     sendCommentReply,
     setOption,
+    t,
   ]);
 
   React.useEffect(() => {
@@ -413,10 +496,11 @@ export function SelectionCommentTrigger({
             </p>
           </div>
 
-          <Textarea
+          <CommentAgentTextarea
+            agents={commentAgents}
             ref={textareaRef}
             value={commentText}
-            onChange={event => setCommentText(event.target.value)}
+            onChange={setCommentText}
             onKeyDown={event => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -434,19 +518,46 @@ export function SelectionCommentTrigger({
 
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[11px] text-muted-foreground">
-              {readCommentReplyMode() === 'auto'
-                ? 'AI will reply right after you submit this comment.'
-                : 'AI will wait until you run the pending replies from the sidebar.'}
+              {researchMode === 'deep'
+                ? t('comments.deepResearchHint')
+                : t('comments.agentMentionHint')}
             </p>
-            <Button
-              size="sm"
-              className="gap-1.5"
-              disabled={!commentText.trim() || isSubmitting || isReplying}
-              onClick={() => void submitComment()}
-            >
-              <MessageSquarePlus className="h-4 w-4" />
-              {isSubmitting ? 'Commenting...' : 'Comment'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={researchMode === 'deep' ? 'secondary' : 'outline'}
+                className="h-8 rounded-full px-2 text-[11px]"
+                disabled={isSubmitting || isReplying}
+                onClick={() =>
+                  setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
+                }
+              >
+                <Search className="mr-1 h-3.5 w-3.5" />
+                {researchMode === 'deep'
+                  ? t('comments.deepResearchEnabled')
+                  : t('comments.deepResearch')}
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                disabled={!commentText.trim() || isSubmitting || isReplying}
+                onClick={() => void submitComment()}
+              >
+                {researchMode === 'deep' ? (
+                  <Search className="h-4 w-4" />
+                ) : (
+                  <MessageSquarePlus className="h-4 w-4" />
+                )}
+                {isSubmitting
+                  ? researchMode === 'deep'
+                    ? t('comments.researchPlanning')
+                    : 'Commenting...'
+                  : researchMode === 'deep'
+                    ? t('comments.createResearchPlan')
+                    : 'Comment'}
+              </Button>
+            </div>
           </div>
         </div>
       ) : (
@@ -461,7 +572,7 @@ export function SelectionCommentTrigger({
           onClick={openComposer}
         >
           <MessageSquarePlus className="h-4 w-4" />
-          Comment
+          {t('common.comment')}
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
             Cmd+Shift+M
           </span>

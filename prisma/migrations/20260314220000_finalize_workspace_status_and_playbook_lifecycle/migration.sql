@@ -1,0 +1,3 @@
+ALTER TABLE "Document" ADD COLUMN "draftRevision" INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE "WorkflowPlaybook" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'draft';

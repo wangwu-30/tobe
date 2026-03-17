@@ -1,43 +1,74 @@
 'use client';
 
 import * as React from 'react';
+import { CommentAgentTextarea } from '@/components/comments/comment-agent-textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { markdownToPlate, plateToMarkdown } from '@/lib/ai/serializer';
 import { useAiReply } from '@/hooks/use-ai-reply';
+import { useCommentAgents } from '@/hooks/use-comment-agents';
 import {
   Bot,
   CheckCircle,
   ChevronDown,
+  CircleAlert,
+  ExternalLink,
   History,
+  LoaderCircle,
   MessageSquare,
   PanelRightClose,
+  PenLine,
+  Search,
+  SendHorizonal,
+  Settings2,
+  Sparkles,
+  X,
 } from 'lucide-react';
-import type { CommentThreadData, CommentMessageData } from '@/types';
+import type {
+  CommentAgentBindingData,
+  CommentAgentConfigData,
+  CommentMessageData,
+  CommentThreadData,
+  WorkspaceFileData,
+} from '@/types';
 import {
   COMMENT_THREAD_FOCUS_EVENT,
-  type CommentReplyMode,
-  readCommentReplyMode,
-  writeCommentReplyMode,
+  notifyCommentThreadsChanged,
+  requestCommentThreadFocus,
 } from '@/lib/comments/constants';
+import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
+import {
+  buildMissingAgentBindings,
+  formatRemainingListeningMs,
+  resolveReplyTargets,
+  resolveSingleResearchTarget,
+} from '@/lib/comments/agents';
+import {
+  extractTextFromPlateRange,
+  getStructuredDocumentSelectionRange,
+  isSingleBlockDocumentSelectionRange,
+  replaceTextInPlateRange,
+  type DocumentSelectionRangeData,
+} from '@/lib/comments/document-selection';
 import { useT } from '@/components/providers/language-provider';
 import { formatStableDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import { useAppRouter } from '@/lib/app-router';
+import { isPlateBackedWorkspaceFile } from '@/lib/workspace/file-presentation';
 
 export function CommentSidebar({
   className,
   documentId,
   documentContent,
   embedded = false,
+  files = [],
   onClose,
   onOpenChange,
+  onOpenFile,
+  onSourceContentApplied,
+  allowSourceApply = false,
+  showHeader = !embedded,
   threads,
   refreshThreads,
 }: {
@@ -45,24 +76,55 @@ export function CommentSidebar({
   documentId: string;
   documentContent: string;
   embedded?: boolean;
+  files?: WorkspaceFileData[];
   onClose?: () => void;
   onOpenChange?: (open: boolean) => void;
+  onOpenFile?: (fileId: string) => void;
+  onSourceContentApplied?: () => Promise<void> | void;
+  allowSourceApply?: boolean;
+  showHeader?: boolean;
   threads: CommentThreadData[];
   refreshThreads: () => Promise<void>;
 }) {
   const t = useT();
-  const [replyMode, setReplyMode] = React.useState<CommentReplyMode>('auto');
+  const router = useAppRouter();
+  const commentAgents = useCommentAgents();
   const [focusedThreadId, setFocusedThreadId] = React.useState<string | null>(null);
   const [openListOpen, setOpenListOpen] = React.useState(true);
+  const [appliedListOpen, setAppliedListOpen] = React.useState(true);
+  const [earlierContextOpen, setEarlierContextOpen] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
-  const [activeReplyThreadId, setActiveReplyThreadId] = React.useState<string | null>(
-    null
-  );
-  const { isReplying, streamingContent, sendCommentReply } = useAiReply();
+  const [activeReplyTarget, setActiveReplyTarget] = React.useState<{
+    agentId: string;
+    threadId: string;
+  } | null>(null);
+  const [submittingThreadId, setSubmittingThreadId] = React.useState<string | null>(null);
+  const [applyingThreadId, setApplyingThreadId] = React.useState<string | null>(null);
+  const [researchActionId, setResearchActionId] = React.useState<string | null>(null);
+  const [replyProblems, setReplyProblems] = React.useState<
+    Record<string, Record<string, string>>
+  >({});
+  const [threadStatusNotice, setThreadStatusNotice] = React.useState<{
+    tone: 'error' | 'info';
+    text: string;
+  } | null>(null);
+  const {
+    isReplying,
+    streamingContent,
+    sendCommentReply,
+    requestSuggestion,
+  } = useAiReply();
   const threadRefs = React.useRef(new Map<string, HTMLDivElement>());
+  const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
-    setReplyMode(readCommentReplyMode());
+    const intervalId = window.setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -73,8 +135,10 @@ export function CommentSidebar({
       const thread = threads.find(item => item.id === detail.threadId);
       if (!thread) return;
 
-      if (thread.status === 'resolved') {
+      if (isResolvedThread(thread)) {
         setHistoryOpen(true);
+      } else if (isAppliedThread(thread)) {
+        setAppliedListOpen(true);
       } else {
         setOpenListOpen(true);
       }
@@ -110,39 +174,286 @@ export function CommentSidebar({
     requestAnimationFrame(() => {
       target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }, [focusedThreadId, historyOpen, openListOpen, threads]);
+  }, [appliedListOpen, focusedThreadId, historyOpen, openListOpen, threads]);
 
-  const runAiReplyForThread = React.useCallback(
-    async (thread: CommentThreadData) => {
-      setActiveReplyThreadId(thread.id);
-      try {
-        await sendCommentReply({
-          threadId: thread.id,
-          documentContent,
-          anchorText: thread.anchorText,
-          documentId,
-          onComplete: () => refreshThreads(),
+  const runAgentReplies = React.useCallback(
+    async (
+      thread: CommentThreadData,
+      targets: Array<{ agentId: string; agentLabel: string; handle: string }>
+    ) => {
+      for (const target of targets) {
+        setActiveReplyTarget({ agentId: target.agentId, threadId: thread.id });
+        setReplyProblems((current) => {
+          if (!current[thread.id]?.[target.agentId]) {
+            return current;
+          }
+          const next = { ...current };
+          next[thread.id] = { ...next[thread.id] };
+          delete next[thread.id][target.agentId];
+          if (Object.keys(next[thread.id]).length === 0) {
+            delete next[thread.id];
+          }
+          return next;
         });
-      } finally {
-        setActiveReplyThreadId(null);
+
+        try {
+          await sendCommentReply({
+            agentId: target.agentId,
+            threadId: thread.id,
+            documentContent,
+            anchorText: thread.anchorText,
+            documentId,
+          });
+        } catch (error) {
+          setReplyProblems((current) => ({
+            ...current,
+            [thread.id]: {
+              ...(current[thread.id] || {}),
+              [target.agentId]:
+                error instanceof Error ? error.message : t('comments.agentBlocked'),
+            },
+          }));
+        } finally {
+          setActiveReplyTarget((current) =>
+            current?.threadId === thread.id && current.agentId === target.agentId
+              ? null
+              : current
+          );
+        }
       }
+
+      notifyCommentThreadsChanged();
+      await refreshThreads();
+      requestCommentThreadFocus(thread.id);
     },
-    [documentContent, documentId, refreshThreads, sendCommentReply]
+    [documentContent, documentId, refreshThreads, sendCommentReply, t]
   );
 
-  const handleReplyModeChange = React.useCallback((value: string) => {
-    const nextMode = value === 'manual' ? 'manual' : 'auto';
-    setReplyMode(nextMode);
-    writeCommentReplyMode(nextMode);
-  }, []);
+  const submitFollowUpForThread = React.useCallback(
+    async (thread: CommentThreadData, content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) {
+        return 0;
+      }
 
-  const handleReplyPending = React.useCallback(async () => {
-    const pendingThreads = threads.filter(isPendingAiReply);
-    for (const thread of pendingThreads) {
-      await runAiReplyForThread(thread);
+      setThreadStatusNotice(null);
+      setSubmittingThreadId(thread.id);
+      try {
+        const response = await fetch(`/api/threads/${thread.id}/messages`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
+          body: JSON.stringify({ role: 'user', content: trimmed }),
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error || 'Failed to add comment');
+        }
+
+        notifyCommentThreadsChanged();
+        const targets = resolveReplyTargets({
+          agents: commentAgents,
+          bindings: thread.agentBindings,
+          content: trimmed,
+        });
+        if (targets.length > 0) {
+          await runAgentReplies(thread, targets);
+        } else {
+          await refreshThreads();
+          requestCommentThreadFocus(thread.id);
+        }
+        return targets.length;
+      } finally {
+        setSubmittingThreadId(null);
+      }
+    },
+    [commentAgents, refreshThreads, runAgentReplies]
+  );
+
+  const submitDeepResearchForThread = React.useCallback(
+    async (
+      thread: CommentThreadData,
+      content: string,
+      targetAgentId: string
+    ) => {
+      const trimmed = content.trim();
+      if (!trimmed) {
+        return;
+      }
+
+      setThreadStatusNotice(null);
+      setSubmittingThreadId(thread.id);
+
+      try {
+        const response = await fetch(`/api/threads/${thread.id}/research-plan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
+          body: JSON.stringify({
+            agentId: targetAgentId,
+            anchorText: thread.anchorText,
+            content: trimmed,
+            documentContent,
+          }),
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          throw new Error(payload?.error || t('comments.researchPlanFailed'));
+        }
+
+        notifyCommentThreadsChanged();
+        await refreshThreads();
+        requestCommentThreadFocus(thread.id);
+        setThreadStatusNotice({
+          tone: 'info',
+          text: t('comments.researchPlanQueued'),
+        });
+      } finally {
+        setSubmittingThreadId(null);
+      }
+    },
+    [documentContent, refreshThreads, t]
+  );
+
+  const applyThreadToSource = React.useCallback(
+    async (thread: CommentThreadData) => {
+      const plan = resolveSourceApplyPlan({ files, t, thread });
+      if (plan.kind === 'blocked') {
+        throw new Error(plan.reason || t('comments.applyFailed'));
+      }
+
+      setApplyingThreadId(thread.id);
+      setThreadStatusNotice(null);
+
+      try {
+        const replacement = (
+          await requestSuggestion({
+            anchorText: thread.anchorText,
+            documentContent: plan.editableText,
+            threadDiscussion: serializeThreadDiscussion(thread),
+          })
+        ).trim();
+
+        const nextContent =
+          plan.kind === 'structured'
+            ? replaceTextInPlateRange(plan.targetFile.content, plan.range, replacement)
+            : toWorkspaceFileContent(
+                plan.targetFile,
+                replaceSourceRange(plan.editableText, plan.match, replacement)
+              );
+        if (!nextContent) {
+          throw new Error(t('comments.applyAnchorMissing'));
+        }
+        if (nextContent === plan.targetFile.content) {
+          throw new Error(t('comments.applyNoMaterialChange'));
+        }
+        const createResponse = await fetch(`/api/workspaces/${documentId}/staged-changes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sourceType: 'comment',
+            summary: t('comments.applySummary', { anchorText: thread.anchorText }),
+            title: t('comments.applyTitle'),
+            changes: [
+              {
+                fileId: plan.targetFile.id,
+                kind: plan.targetFile.kind,
+                name: plan.targetFile.name,
+                nextContent,
+                summary: t('comments.applySummary', { anchorText: thread.anchorText }),
+              },
+            ],
+          }),
+        });
+
+        if (!createResponse.ok) {
+          const payload = await createResponse.json().catch(() => null);
+          throw new Error(payload?.error || 'Failed to create staged changes');
+        }
+
+        const changeSet = (await createResponse.json()) as { id: string };
+        const applyResponse = await fetch(
+          `/api/workspaces/${documentId}/staged-changes/${changeSet.id}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'apply',
+              checkpointTitle: t('comments.applyCheckpointTitle'),
+            }),
+          }
+        );
+
+        if (!applyResponse.ok) {
+          const payload = await applyResponse.json().catch(() => null);
+          throw new Error(payload?.error || 'Failed to apply staged changes');
+        }
+
+        const threadResponse = await fetch(`/api/threads/${thread.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'applied' }),
+        });
+
+        if (!threadResponse.ok) {
+          const payload = await threadResponse.json().catch(() => null);
+          throw new Error(payload?.error || t('comments.applyStatusUpdateFailed'));
+        }
+
+        await Promise.all([
+          refreshThreads(),
+          Promise.resolve(onSourceContentApplied?.()),
+        ]);
+        requestCommentThreadFocus(thread.id);
+      } finally {
+        setApplyingThreadId(null);
+      }
+    },
+    [documentId, files, onSourceContentApplied, refreshThreads, requestSuggestion, t]
+  );
+
+  const handleStopAgentListening = React.useCallback(
+    async (threadId: string, agentId: string) => {
+      const response = await fetch(`/api/threads/${threadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'stop_agent_listening',
+          agentId,
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        setThreadStatusNotice({
+          tone: 'error',
+          text: payload?.error || t('comments.stopListeningFailed'),
+        });
+        return;
+      }
+
+      setReplyProblems((current) => {
+        if (!current[threadId]?.[agentId]) {
+          return current;
+        }
+        const next = { ...current };
+        next[threadId] = { ...next[threadId] };
+        delete next[threadId][agentId];
+        if (Object.keys(next[threadId]).length === 0) {
+          delete next[threadId];
+        }
+        return next;
+      });
       await refreshThreads();
-    }
-  }, [refreshThreads, runAiReplyForThread, threads]);
+    },
+    [refreshThreads, t]
+  );
 
   const handleResolve = React.useCallback(
     async (threadId: string) => {
@@ -153,8 +464,22 @@ export function CommentSidebar({
       });
 
       if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setThreadStatusNotice({
+          tone: 'error',
+          text: payload?.error || t('comments.resolveFailed'),
+        });
         return;
       }
+
+      const payload = (await res.json().catch(() => null)) as
+        | {
+            action?: {
+              boundVersionTitle?: string | null;
+              versionLinked?: boolean;
+            };
+          }
+        | null;
 
       try {
         await fetch('/api/ai/extract-memory', {
@@ -171,15 +496,164 @@ export function CommentSidebar({
         // Memory extraction is best-effort.
       }
 
+      setThreadStatusNotice({
+        tone: 'info',
+        text:
+          payload?.action?.versionLinked && payload.action.boundVersionTitle
+            ? t('comments.resolvedBoundVersion', {
+                version: payload.action.boundVersionTitle,
+              })
+            : t('comments.resolvedNotice'),
+      });
       await refreshThreads();
     },
-    [refreshThreads]
+    [refreshThreads, t]
   );
 
-  const openThreads = threads.filter(t => t.status === 'open');
-  const resolvedThreads = threads.filter(t => t.status === 'resolved');
-  const pendingThreads = openThreads.filter(isPendingAiReply);
+  const handleReopen = React.useCallback(
+    async (threadId: string) => {
+      const res = await fetch(`/api/threads/${threadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'open' }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setThreadStatusNotice({
+          tone: 'error',
+          text: payload?.error || t('comments.reopenFailed'),
+        });
+        return;
+      }
+
+      setThreadStatusNotice({
+        tone: 'info',
+        text: t('comments.reopenedNotice'),
+      });
+      await refreshThreads();
+      requestCommentThreadFocus(threadId);
+    },
+    [refreshThreads, t]
+  );
+
+  const handleResearchAction = React.useCallback(
+    async (thread: CommentThreadData, action: 'start' | 'dismiss') => {
+      if (researchActionId) {
+        return;
+      }
+
+      setResearchActionId(`${thread.id}:${action}`);
+      setThreadStatusNotice(null);
+
+      try {
+        if (action === 'dismiss') {
+          const dismissResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getStoredAISettingsHeader(),
+            },
+            body: JSON.stringify({ action: 'dismiss' }),
+          });
+          const dismissPayload = await dismissResponse.json().catch(() => null);
+          if (!dismissResponse.ok) {
+            throw new Error(dismissPayload?.error || t('comments.researchActionFailed'));
+          }
+
+          await refreshThreads();
+          return;
+        }
+
+        const proposalStatus = thread.researchState?.proposal?.status || 'pending';
+        if (proposalStatus !== 'approved') {
+          const approveResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getStoredAISettingsHeader(),
+            },
+            body: JSON.stringify({ action: 'approve' }),
+          });
+          const approvePayload = await approveResponse.json().catch(() => null);
+          if (!approveResponse.ok) {
+            throw new Error(approvePayload?.error || t('comments.researchActionFailed'));
+          }
+          await refreshThreads();
+        }
+
+        const intervalId = window.setInterval(() => {
+          void refreshThreads();
+        }, 1500);
+
+        try {
+          const startResponse = await fetch(`/api/threads/${thread.id}/research/start`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getStoredAISettingsHeader(),
+            },
+            body: JSON.stringify({
+              anchorText: thread.anchorText,
+              documentContent,
+            }),
+          });
+          const startPayload = await startResponse.json().catch(() => null);
+          if (!startResponse.ok) {
+            throw new Error(startPayload?.error || t('comments.researchActionFailed'));
+          }
+        } finally {
+          window.clearInterval(intervalId);
+        }
+
+        notifyCommentThreadsChanged();
+        await refreshThreads();
+        requestCommentThreadFocus(thread.id);
+      } catch (error) {
+        setThreadStatusNotice({
+          tone: 'error',
+          text:
+            error instanceof Error
+              ? error.message
+              : t('comments.researchActionFailed'),
+        });
+      } finally {
+        setResearchActionId(null);
+      }
+    },
+    [documentContent, refreshThreads, researchActionId, t]
+  );
+
+  const directThreads = threads.filter((thread) => thread.scope === 'direct');
+  const openThreads = directThreads.filter(isOpenThread);
+  const appliedThreads = directThreads.filter(isAppliedThread);
+  const actionableInheritedThreads = threads.filter(
+    (thread) => thread.scope === 'inherited' && thread.inheritanceState === 'actionable'
+  );
+  const earlierContextThreads = threads.filter(
+    (thread) =>
+      thread.scope === 'inherited' &&
+      (thread.inheritanceState === 'stale' || thread.inheritanceState === 'superseded')
+  );
+  const resolvedThreads = directThreads.filter(isResolvedThread);
   const resolvedGroups = groupResolvedThreads(resolvedThreads);
+  const activeThreadCount =
+    openThreads.length + appliedThreads.length + actionableInheritedThreads.length;
+  const sourceApplyStates = React.useMemo(
+    () =>
+      new Map(
+        threads.map((thread) => [
+          thread.id,
+          getSourceApplyState({
+            allowSourceApply,
+            files,
+            t,
+            thread,
+          }),
+        ])
+      ),
+    [allowSourceApply, files, t, threads]
+  );
 
   return (
     <div
@@ -193,33 +667,23 @@ export function CommentSidebar({
     >
       <div className="space-y-2 border-b border-border px-3 py-2">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="flex items-center gap-1.5 text-xs font-semibold">
-              <MessageSquare className="h-3.5 w-3.5" />
-              {t('comments.title')}
-              {openThreads.length > 0 && (
-                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                  {openThreads.length}
-                </Badge>
-              )}
-            </h3>
-            <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-              {t('comments.description')}
-            </p>
-          </div>
-
+          {showHeader ? (
+            <div className="min-w-0">
+              <h3 className="flex items-center gap-1.5 text-xs font-semibold">
+                <MessageSquare className="h-3.5 w-3.5" />
+                {t('assistant.review')}
+                {activeThreadCount > 0 && (
+                  <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                    {activeThreadCount}
+                  </Badge>
+                )}
+              </h3>
+              <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                {t('comments.description')}
+              </p>
+            </div>
+          ) : null}
           <div className="flex shrink-0 items-center gap-1">
-            {replyMode === 'manual' && pendingThreads.length > 0 && (
-              <Button
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-[10px]"
-                onClick={handleReplyPending}
-                disabled={isReplying}
-              >
-                <Bot className="h-3 w-3" />
-                {t('comments.runAiReplies')}
-              </Button>
-            )}
             {onClose && (
               <Button
                 type="button"
@@ -234,29 +698,21 @@ export function CommentSidebar({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Select value={replyMode} onValueChange={handleReplyModeChange}>
-            <SelectTrigger className="h-8 min-w-0 flex-1 text-[11px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">{t('comments.autoReply')}</SelectItem>
-              <SelectItem value="manual">{t('comments.batchReply')}</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {replyMode === 'manual' && (
-            <Badge variant="outline" className="text-[10px]">
-              {t('comments.queue')}
-            </Badge>
-          )}
-        </div>
-
         <p className="text-[10px] leading-relaxed text-muted-foreground">
-          {replyMode === 'auto'
-            ? t('comments.autoReplyDescription')
-            : t('comments.writeSeveralCommentsFirst')}
+          {t('comments.description')}
         </p>
+        {threadStatusNotice ? (
+          <div
+            className={cn(
+              'rounded-md px-2 py-1.5 text-[10px] leading-relaxed',
+              threadStatusNotice.tone === 'error'
+                ? 'bg-destructive/10 text-destructive'
+                : 'bg-muted/60 text-muted-foreground'
+            )}
+          >
+            {threadStatusNotice.text}
+          </div>
+        ) : null}
       </div>
 
       <ScrollArea className="min-h-0 flex-1 overflow-hidden">
@@ -301,21 +757,226 @@ export function CommentSidebar({
                         }
                       }}
                       thread={thread}
-                      resolved={false}
-                      isReplying={isReplying && activeReplyThreadId === thread.id}
+                          isReplying={isReplying && activeReplyTarget?.threadId === thread.id}
+                      isSubmitting={submittingThreadId === thread.id}
+                      isApplying={applyingThreadId === thread.id}
                       streamingContent={
-                        activeReplyThreadId === thread.id ? streamingContent : ''
+                        activeReplyTarget?.threadId === thread.id ? streamingContent : ''
                       }
-                      canRequestAiReply={isPendingAiReply(thread)}
+                      allowSourceApply={allowSourceApply}
+                      activeReplyAgentId={
+                        activeReplyTarget?.threadId === thread.id
+                          ? activeReplyTarget.agentId
+                          : null
+                      }
+                      agentRegistry={commentAgents}
+                      blockedAgentReasons={replyProblems[thread.id] || {}}
                       t={t}
+                      now={now}
+                      sourceApplyState={sourceApplyStates.get(thread.id) || BLOCKED_SOURCE_APPLY_STATE}
+                      onApplyToSource={applyThreadToSource}
+                      onFocusThread={requestCommentThreadFocus}
+                      onOpenSettings={() => router.push('/settings')}
+                      onOpenFile={onOpenFile}
+                      onReopen={handleReopen}
+                      onResearchAction={handleResearchAction}
                       onResolve={handleResolve}
-                      onRequestAiReply={runAiReplyForThread}
+                      onStopAgentListening={handleStopAgentListening}
+                      onSubmitDeepResearch={submitDeepResearchForThread}
+                      onSubmitFollowUp={submitFollowUpForThread}
+                      researchActionState={researchActionId}
                     />
                   ))
                 )}
               </div>
             )}
           </div>
+
+          {appliedThreads.length > 0 && (
+            <div className="overflow-hidden rounded-lg border bg-background/80">
+              <button
+                className="flex w-full items-center justify-between px-3 py-2 text-xs text-foreground"
+                onClick={() => setAppliedListOpen(open => !open)}
+                type="button"
+              >
+                <span className="flex items-center gap-1.5">
+                  <PenLine className="h-3.5 w-3.5" />
+                  {t('comments.pendingVerificationThreads', {
+                    count: appliedThreads.length,
+                  })}
+                </span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${
+                    appliedListOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {appliedListOpen && (
+                <div className="space-y-2 border-t border-border p-2">
+                  <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+                    {t('comments.pendingVerificationDescription')}
+                  </p>
+                  {appliedThreads.map(thread => (
+                    <CommentThreadCard
+                      key={thread.id}
+                      highlighted={focusedThreadId === thread.id}
+                      ref={(node) => {
+                        if (node) {
+                          threadRefs.current.set(thread.id, node);
+                        } else {
+                          threadRefs.current.delete(thread.id);
+                        }
+                      }}
+                      thread={thread}
+                          isReplying={isReplying && activeReplyTarget?.threadId === thread.id}
+                      isSubmitting={submittingThreadId === thread.id}
+                      isApplying={applyingThreadId === thread.id}
+                      streamingContent={
+                        activeReplyTarget?.threadId === thread.id ? streamingContent : ''
+                      }
+                      allowSourceApply={allowSourceApply}
+                      activeReplyAgentId={
+                        activeReplyTarget?.threadId === thread.id
+                          ? activeReplyTarget.agentId
+                          : null
+                      }
+                      agentRegistry={commentAgents}
+                      blockedAgentReasons={replyProblems[thread.id] || {}}
+                      t={t}
+                      now={now}
+                      sourceApplyState={sourceApplyStates.get(thread.id) || BLOCKED_SOURCE_APPLY_STATE}
+                      onApplyToSource={applyThreadToSource}
+                      onFocusThread={requestCommentThreadFocus}
+                      onOpenSettings={() => router.push('/settings')}
+                      onOpenFile={onOpenFile}
+                      onReopen={handleReopen}
+                      onResearchAction={handleResearchAction}
+                      onResolve={handleResolve}
+                      onStopAgentListening={handleStopAgentListening}
+                      onSubmitDeepResearch={submitDeepResearchForThread}
+                      onSubmitFollowUp={submitFollowUpForThread}
+                      researchActionState={researchActionId}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {actionableInheritedThreads.length > 0 && (
+            <div className="overflow-hidden rounded-lg border bg-background/80">
+              <div className="flex items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground">
+                <History className="h-3.5 w-3.5" />
+                {t('comments.inheritedThreads', { count: actionableInheritedThreads.length })}
+              </div>
+              <div className="space-y-2 border-t border-border p-2">
+                <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+                  {t('comments.inheritedDescription')}
+                </p>
+                {actionableInheritedThreads.map(thread => (
+                  <CommentThreadCard
+                    key={thread.id}
+                    highlighted={focusedThreadId === thread.id}
+                    ref={(node) => {
+                      if (node) {
+                        threadRefs.current.set(thread.id, node);
+                      } else {
+                        threadRefs.current.delete(thread.id);
+                      }
+                    }}
+                    thread={thread}
+                    isReplying={false}
+                    isSubmitting={false}
+                    isApplying={false}
+                    streamingContent=""
+                    allowSourceApply={false}
+                    activeReplyAgentId={null}
+                    agentRegistry={commentAgents}
+                    blockedAgentReasons={replyProblems[thread.id] || {}}
+                    t={t}
+                    now={now}
+                    sourceApplyState={BLOCKED_SOURCE_APPLY_STATE}
+                    onApplyToSource={applyThreadToSource}
+                    onFocusThread={requestCommentThreadFocus}
+                    onOpenSettings={() => router.push('/settings')}
+                    onOpenFile={onOpenFile}
+                    onReopen={handleReopen}
+                    onResearchAction={handleResearchAction}
+                    onResolve={handleResolve}
+                    onStopAgentListening={handleStopAgentListening}
+                    onSubmitDeepResearch={submitDeepResearchForThread}
+                    onSubmitFollowUp={submitFollowUpForThread}
+                    researchActionState={researchActionId}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {earlierContextThreads.length > 0 && (
+            <div className="overflow-hidden rounded-lg border bg-background/80">
+              <button
+                className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground"
+                onClick={() => setEarlierContextOpen((open) => !open)}
+                type="button"
+              >
+                <span className="flex items-center gap-1.5">
+                  <History className="h-3.5 w-3.5" />
+                  {t('comments.earlierContext', { count: earlierContextThreads.length })}
+                </span>
+                <ChevronDown
+                  className={`h-3.5 w-3.5 transition-transform ${
+                    earlierContextOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {earlierContextOpen && (
+                <div className="space-y-2 border-t border-border p-2">
+                  <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
+                    {t('comments.earlierContextDescription')}
+                  </p>
+                  {earlierContextThreads.map((thread) => (
+                    <CommentThreadCard
+                      key={thread.id}
+                      highlighted={focusedThreadId === thread.id}
+                      ref={(node) => {
+                        if (node) {
+                          threadRefs.current.set(thread.id, node);
+                        } else {
+                          threadRefs.current.delete(thread.id);
+                        }
+                      }}
+                      thread={thread}
+                      isReplying={false}
+                      isSubmitting={false}
+                      isApplying={false}
+                      streamingContent=""
+                      allowSourceApply={false}
+                      activeReplyAgentId={null}
+                      agentRegistry={commentAgents}
+                      blockedAgentReasons={replyProblems[thread.id] || {}}
+                      t={t}
+                      now={now}
+                      sourceApplyState={BLOCKED_SOURCE_APPLY_STATE}
+                      onApplyToSource={applyThreadToSource}
+                      onFocusThread={requestCommentThreadFocus}
+                      onOpenSettings={() => router.push('/settings')}
+                      onOpenFile={onOpenFile}
+                      onReopen={handleReopen}
+                      onResearchAction={handleResearchAction}
+                      onResolve={handleResolve}
+                      onStopAgentListening={handleStopAgentListening}
+                      onSubmitDeepResearch={submitDeepResearchForThread}
+                      onSubmitFollowUp={submitFollowUpForThread}
+                      researchActionState={researchActionId}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {resolvedThreads.length > 0 && (
             <div className="overflow-hidden rounded-lg border bg-background/80">
@@ -359,13 +1020,28 @@ export function CommentSidebar({
                             }
                           }}
                           thread={thread}
-                          resolved
                           isReplying={false}
+                          isSubmitting={false}
+                          isApplying={false}
                           streamingContent=""
-                          canRequestAiReply={false}
+                          allowSourceApply={false}
+                          activeReplyAgentId={null}
+                          agentRegistry={commentAgents}
+                          blockedAgentReasons={replyProblems[thread.id] || {}}
                           t={t}
+                          now={now}
+                          sourceApplyState={BLOCKED_SOURCE_APPLY_STATE}
+                          onApplyToSource={applyThreadToSource}
+                          onFocusThread={requestCommentThreadFocus}
+                          onOpenSettings={() => router.push('/settings')}
+                          onOpenFile={onOpenFile}
+                          onReopen={handleReopen}
+                          onResearchAction={handleResearchAction}
                           onResolve={handleResolve}
-                          onRequestAiReply={runAiReplyForThread}
+                          onStopAgentListening={handleStopAgentListening}
+                          onSubmitDeepResearch={submitDeepResearchForThread}
+                          onSubmitFollowUp={submitFollowUpForThread}
+                          researchActionState={researchActionId}
                         />
                       ))}
                     </div>
@@ -384,39 +1060,251 @@ const CommentThreadCard = React.forwardRef<
   HTMLDivElement,
   {
     thread: CommentThreadData;
-    resolved: boolean;
+    activeReplyAgentId: string | null;
+    agentRegistry: CommentAgentConfigData[];
+    blockedAgentReasons: Record<string, string>;
     isReplying: boolean;
+    isSubmitting: boolean;
+    isApplying: boolean;
     streamingContent: string;
-    canRequestAiReply: boolean;
+    allowSourceApply: boolean;
+    sourceApplyState: SourceApplyState;
     highlighted?: boolean;
+    now: number;
     t: ReturnType<typeof useT>;
+    onApplyToSource: (thread: CommentThreadData) => Promise<void>;
+    onFocusThread: (threadId: string) => void;
+    onOpenFile?: (fileId: string) => void;
+    onOpenSettings: () => void;
+    onReopen: (threadId: string) => Promise<void>;
+    onResearchAction: (
+      thread: CommentThreadData,
+      action: 'start' | 'dismiss'
+    ) => Promise<void>;
     onResolve: (threadId: string) => Promise<void>;
-    onRequestAiReply: (thread: CommentThreadData) => Promise<void>;
+    onStopAgentListening: (threadId: string, agentId: string) => Promise<void>;
+    onSubmitDeepResearch: (
+      thread: CommentThreadData,
+      content: string,
+      targetAgentId: string
+    ) => Promise<void>;
+    onSubmitFollowUp: (thread: CommentThreadData, content: string) => Promise<number>;
+    researchActionState: string | null;
   }
 >(function CommentThreadCard(
   {
     thread,
-    resolved,
+    activeReplyAgentId,
+    agentRegistry,
+    blockedAgentReasons,
     isReplying,
+    isSubmitting,
+    isApplying,
     streamingContent,
-    canRequestAiReply,
+    allowSourceApply,
+    sourceApplyState,
     highlighted = false,
+    now,
     t,
+    onApplyToSource,
+    onFocusThread,
+    onOpenFile,
+    onOpenSettings,
+    onReopen,
+    onResearchAction,
     onResolve,
-    onRequestAiReply,
+    onStopAgentListening,
+    onSubmitDeepResearch,
+    onSubmitFollowUp,
+    researchActionState,
   },
   ref
 ) {
+  const [followUp, setFollowUp] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
+  const [applyFeedback, setApplyFeedback] = React.useState<{
+    text: string;
+    tone: 'error' | 'success';
+  } | null>(null);
+  const [researchMode, setResearchMode] = React.useState<'light' | 'deep'>('light');
+  const isResolved = isResolvedThread(thread);
+  const isApplied = isAppliedThread(thread);
+  const isInherited = thread.isInherited;
+  const agentRegistryById = React.useMemo(
+    () => new Map(agentRegistry.map((agent) => [agent.id, agent])),
+    [agentRegistry]
+  );
+  const bindingStates = React.useMemo(() => {
+    return thread.agentBindings
+      .map((binding) => {
+        const registryAgent = agentRegistryById.get(binding.agentId) || null;
+        const remainingMs = formatRemainingListeningMs(binding.listeningUntil, now);
+        const missingBinding = buildMissingAgentBindings({
+          agents: agentRegistry,
+          bindings: [binding],
+        })[0];
+        const blockedReason =
+          blockedAgentReasons[binding.agentId] ||
+          (missingBinding
+            ? t('comments.agentMissing')
+            : registryAgent && !registryAgent.enabled
+              ? t('comments.agentDisabled')
+              : null);
+        const isResponding = activeReplyAgentId === binding.agentId;
+        const isWaiting = !isResponding && !blockedReason && remainingMs > 0;
+        const isVisible = isResponding || isWaiting || Boolean(blockedReason);
+
+        if (!isVisible) {
+          return null;
+        }
+
+        return {
+          ...binding,
+          blockedReason,
+          isResponding,
+          isWaiting,
+          remainingMs,
+        };
+      })
+      .filter(
+        (
+          item
+        ): item is CommentAgentBindingData & {
+          blockedReason: string | null;
+          isResponding: boolean;
+          isWaiting: boolean;
+          remainingMs: number;
+        } => Boolean(item)
+      );
+  }, [activeReplyAgentId, agentRegistry, agentRegistryById, blockedAgentReasons, now, t, thread.agentBindings]);
+  const hasAssistantReply = thread.messages.some(
+    message => message.role === 'assistant' && message.content.trim().length > 0
+  );
+  const researchState = thread.researchState;
+  const researchProposal = researchState?.proposal || null;
+  const researchProgress = researchState?.progress || null;
+  const researchActionForThread =
+    researchActionState?.startsWith(`${thread.id}:`) ? researchActionState : null;
+  const isStartingResearch = researchActionForThread === `${thread.id}:start`;
+  const isDismissingResearch = researchActionForThread === `${thread.id}:dismiss`;
+  const hasResearchReport = Boolean(researchState?.reportFileId);
+  const researchBusy =
+    researchProgress?.phase === 'searching' ||
+    researchProgress?.phase === 'analyzing_gaps' ||
+    researchProgress?.phase === 'reporting' ||
+    isStartingResearch;
+  const researchComposerDisabled =
+    researchBusy || (researchProposal !== null && researchProposal.status === 'pending');
+  const enabledAgentBindings = thread.agentBindings.filter((binding) => {
+    const agent = agentRegistryById.get(binding.agentId);
+    return Boolean(agent?.enabled);
+  });
+  const footerHint = isApplied
+    ? t('comments.pendingVerificationHint')
+    : bindingStates.length > 0
+      ? t('comments.agentWaitingHint')
+      : t('comments.continueConversationHint');
+  const showApplyAction =
+    !isApplied &&
+    !isInherited &&
+    allowSourceApply &&
+    sourceApplyState.canApply &&
+    hasAssistantReply;
+  const applyStatus =
+    isApplying
+      ? {
+          text: t('comments.applyLocating'),
+          tone: 'info' as const,
+        }
+      : applyFeedback
+        ? {
+            text: applyFeedback.text,
+            tone: applyFeedback.tone,
+          }
+        : !showApplyAction &&
+            !isApplied &&
+            !isResolved &&
+            !isInherited &&
+            allowSourceApply &&
+            hasAssistantReply &&
+            sourceApplyState.reason
+          ? {
+              text: sourceApplyState.reason,
+              tone: 'error' as const,
+            }
+          : null;
+  const handleSubmit = React.useCallback(async () => {
+    const trimmed = followUp.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+    setApplyFeedback(null);
+
+    try {
+      if (researchMode === 'deep') {
+        const researchTarget = resolveSingleResearchTarget({
+          agents: agentRegistry,
+          bindings: enabledAgentBindings,
+          content: trimmed,
+        });
+        if (researchTarget.error === 'multiple') {
+          throw new Error(t('comments.researchNeedsSingleAgent'));
+        }
+        const targetAgent = researchTarget.target;
+
+        if (!targetAgent) {
+          throw new Error(t('comments.researchNeedsSingleAgent'));
+        }
+
+        await onSubmitDeepResearch(thread, trimmed, targetAgent.agentId);
+        setFollowUp('');
+        setResearchMode('light');
+        setNotice(t('comments.researchPlanQueued'));
+        return;
+      }
+
+      const triggeredAgentCount = await onSubmitFollowUp(thread, trimmed);
+      setFollowUp('');
+      setNotice(
+        triggeredAgentCount > 0
+          ? t('comments.followUpQueued')
+          : t('comments.followUpNeedsMention')
+      );
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : t('comments.followUpFailed')
+      );
+    }
+  }, [
+    agentRegistry,
+    enabledAgentBindings,
+    followUp,
+    onSubmitDeepResearch,
+    onSubmitFollowUp,
+    researchMode,
+    t,
+    thread,
+  ]);
+
   return (
     <div
       ref={ref}
+      data-testid={`comment-thread-${thread.id}`}
       className={cn(
         'w-full min-w-0 overflow-hidden rounded-xl border bg-background p-3 text-xs transition-colors',
-        resolved && 'opacity-70',
+        isResolved && 'opacity-70',
         highlighted && 'border-primary/60 bg-primary/5 ring-2 ring-primary/15'
       )}
     >
-      <div className="mb-3 flex min-w-0 items-start justify-between gap-2">
+      <button
+        type="button"
+        className="mb-3 flex w-full min-w-0 items-start justify-between gap-2 text-left"
+        onClick={() => onFocusThread(thread.id)}
+      >
         <div className="flex min-w-0 flex-1 items-start gap-1.5 overflow-hidden">
           <div className="mt-0.5 h-full min-h-[16px] w-1 shrink-0 rounded-full bg-yellow-400" />
           <div className="min-w-0 flex-1 overflow-hidden">
@@ -425,14 +1313,31 @@ const CommentThreadCard = React.forwardRef<
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
-                {thread.snapshot ? `v${thread.snapshot.versionNum}` : t('comments.draft')}
+                {thread.version ? `v${thread.version.versionNum}` : t('comments.draft')}
               </Badge>
-              {!resolved && canRequestAiReply && (
+              {isInherited && (
                 <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-                  {t('comments.awaitingAi')}
+                  {thread.inheritanceState === 'actionable'
+                    ? t('comments.inheritedActionable')
+                    : t('comments.inherited')}
                 </Badge>
               )}
-              {resolved && thread.resolvedAt && (
+              {thread.inheritanceState === 'stale' ? (
+                <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                  {t('comments.reviewStateStale')}
+                </Badge>
+              ) : null}
+              {thread.inheritanceState === 'superseded' ? (
+                <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                  {t('comments.reviewStateSuperseded')}
+                </Badge>
+              ) : null}
+              {isApplied && (
+                <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+                  {t('comments.applied')}
+                </Badge>
+              )}
+              {isResolved && thread.resolvedAt && (
                 <span className="text-[10px] text-muted-foreground">
                   {formatStableDate(thread.resolvedAt)}
                 </span>
@@ -440,7 +1345,176 @@ const CommentThreadCard = React.forwardRef<
             </div>
           </div>
         </div>
-      </div>
+      </button>
+
+      {bindingStates.length > 0 ? (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          {bindingStates.map((binding) => (
+            <div
+              key={`${thread.id}-${binding.agentId}`}
+              data-testid={`comment-agent-chip-${thread.id}-${binding.agentId}`}
+              className={cn(
+                'flex items-center gap-1 rounded-full border px-2 py-1 text-[10px]',
+                binding.blockedReason
+                  ? 'border-destructive/20 bg-destructive/10 text-destructive'
+                  : binding.isResponding
+                    ? 'border-primary/20 bg-primary/10 text-primary'
+                    : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+              )}
+            >
+              {binding.isResponding ? (
+                <LoaderCircle className="h-3 w-3 animate-spin" />
+              ) : binding.blockedReason ? (
+                <CircleAlert className="h-3 w-3" />
+              ) : (
+                <Bot className="h-3 w-3" />
+              )}
+              <span>
+                {binding.handle}{' '}
+                {binding.isResponding
+                  ? t('comments.agentResponding')
+                  : binding.blockedReason
+                    ? t('comments.agentUnavailable')
+                    : `${t('comments.agentWaiting')} · ${formatDurationLabel(binding.remainingMs)}`}
+              </span>
+              {binding.blockedReason ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="h-5 w-5 rounded-full"
+                  onClick={onOpenSettings}
+                >
+                  <Settings2 className="h-3 w-3" />
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="h-5 w-5 rounded-full"
+                data-testid={`comment-stop-agent-${thread.id}-${binding.agentId}`}
+                onClick={() => void onStopAgentListening(thread.id, binding.agentId)}
+                disabled={isSubmitting || isApplying}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {researchState ? (
+        <div className="mb-3 space-y-2 rounded-xl border border-border/70 bg-muted/20 p-3">
+          {researchProposal ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  <Search className="h-3.5 w-3.5" />
+                  {t('comments.researchProposal')}
+                </div>
+                <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                  {researchProposal.status === 'approved'
+                    ? t('comments.researchApproved')
+                    : t('comments.researchPending')}
+                </Badge>
+              </div>
+              <div className="text-sm font-medium text-foreground">
+                {researchProposal.title}
+              </div>
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                {researchProposal.summary}
+              </p>
+              {researchProposal.subquestions.length > 0 ? (
+                <div className="space-y-1">
+                  {researchProposal.subquestions.slice(0, 3).map((question, index) => (
+                    <div
+                      key={`${thread.id}-research-question-${index}`}
+                      className="rounded-lg border border-border/60 bg-background/70 px-2 py-1.5 text-[11px] leading-5 text-foreground"
+                    >
+                      {question}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {researchProposal.status !== 'dismissed' && !researchBusy ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    className="h-7 px-2 text-[10px]"
+                    disabled={isSubmitting || isReplying || Boolean(researchActionForThread)}
+                    onClick={() => void onResearchAction(thread, 'start')}
+                  >
+                    {isStartingResearch
+                      ? t('comments.researchStarting')
+                      : t('comments.researchStart')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-[10px]"
+                    disabled={isSubmitting || isReplying || Boolean(researchActionForThread)}
+                    onClick={() => void onResearchAction(thread, 'dismiss')}
+                  >
+                    {isDismissingResearch
+                      ? t('comments.researchDismissing')
+                      : t('comments.researchDismiss')}
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {researchProgress ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {t('comments.researchProgress')}
+                </div>
+                <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                  {formatCommentResearchPhase(researchProgress.phase, t)}
+                </Badge>
+              </div>
+              {researchProgress.currentStepLabel ? (
+                <p className="text-[11px] leading-5 text-muted-foreground">
+                  {researchProgress.currentStepLabel}
+                </p>
+              ) : null}
+              {researchState.summary ? (
+                <p className="text-[11px] leading-5 text-foreground">{researchState.summary}</p>
+              ) : null}
+              {researchProgress.providerState === 'unavailable' ? (
+                <div className="space-y-2">
+                  <ThreadActionStatus
+                    text={t('comments.researchProviderUnavailable')}
+                    tone="error"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[10px]"
+                    onClick={onOpenSettings}
+                  >
+                    {t('common.settings')}
+                  </Button>
+                </div>
+              ) : null}
+              {hasResearchReport && onOpenFile ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-[10px]"
+                  onClick={() => onOpenFile(researchState.reportFileId!)}
+                >
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                  {t('comments.openResearchReport')}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="mb-3 min-w-0 space-y-2 overflow-hidden">
         {thread.messages.map((msg: CommentMessageData) => (
@@ -457,7 +1531,7 @@ const CommentThreadCard = React.forwardRef<
               {msg.role === 'assistant' ? (
                 <>
                   <Bot className="h-3 w-3 text-primary" />
-                  {t('comments.aiReply')}
+                  {msg.agentLabel || t('comments.aiReply')}
                 </>
               ) : (
                 t('comments.commentToAi')
@@ -482,57 +1556,253 @@ const CommentThreadCard = React.forwardRef<
         )}
       </div>
 
-      {!resolved && (
-        <div className="flex items-center justify-between gap-2">
-          <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-muted-foreground">
-            {canRequestAiReply
-              ? t('comments.waitingAiReply')
-              : t('comments.resolvedMoveToHistory')}
-          </p>
-          <div className="flex shrink-0 items-center gap-1">
-            {canRequestAiReply && (
+      {!isResolved && !isInherited && (
+        <div className="space-y-3">
+          <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={researchMode === 'deep' ? 'secondary' : 'outline'}
+                className="h-7 rounded-full px-2 text-[10px]"
+                disabled={researchComposerDisabled}
+                onClick={() =>
+                  setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
+                }
+              >
+                <Search className="mr-1 h-3.5 w-3.5" />
+                {researchMode === 'deep'
+                  ? t('comments.deepResearchEnabled')
+                  : t('comments.deepResearch')}
+              </Button>
+              {researchMode === 'deep' ? (
+                <span className="text-[10px] leading-5 text-muted-foreground">
+                  {t('comments.deepResearchInfo')}
+                </span>
+              ) : null}
+            </div>
+            <CommentAgentTextarea
+              agents={agentRegistry}
+              value={followUp}
+              onChange={(value) => {
+                setFollowUp(value);
+                if (error) setError(null);
+                if (notice) setNotice(null);
+                if (applyFeedback) setApplyFeedback(null);
+              }}
+              className="min-h-[72px] resize-none border-0 bg-background text-xs shadow-none focus-visible:ring-1"
+              placeholder={t('comments.followUpPlaceholder')}
+            />
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-muted-foreground">
+                {researchMode === 'deep'
+                  ? t('comments.deepResearchHint')
+                  : bindingStates.length > 0
+                  ? t('comments.agentListeningHint')
+                  : t('comments.agentMentionHint')}
+              </p>
+              <Button
+                size="sm"
+                className="h-7 px-2 text-[10px]"
+                onClick={() => void handleSubmit()}
+                disabled={isSubmitting || isReplying || !followUp.trim() || researchBusy}
+              >
+                {isSubmitting ? (
+                  <LoaderCircle className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <>
+                    {researchMode === 'deep' ? (
+                      <Search className="mr-1 h-3 w-3" />
+                    ) : (
+                      <SendHorizonal className="mr-1 h-3 w-3" />
+                    )}
+                  </>
+                )}
+                {isSubmitting
+                  ? researchMode === 'deep'
+                    ? t('comments.researchPlanning')
+                    : t('comments.sendingFollowUp')
+                  : researchMode === 'deep'
+                    ? t('comments.createResearchPlan')
+                    : t('comments.sendFollowUp')}
+              </Button>
+            </div>
+          </div>
+
+          {error ? (
+            <p className="text-[10px] leading-relaxed text-destructive">{error}</p>
+          ) : null}
+          {notice ? (
+            <p className="text-[10px] leading-relaxed text-muted-foreground">{notice}</p>
+          ) : null}
+          {applyStatus ? (
+            <ThreadActionStatus
+              text={applyStatus.text}
+              tone={applyStatus.tone}
+            />
+          ) : null}
+
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-muted-foreground">
+              {footerHint}
+            </p>
+            <div className="flex shrink-0 items-center gap-1">
+              {showApplyAction ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[10px]"
+                  data-testid={`comment-apply-source-${thread.id}`}
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        setApplyFeedback(null);
+                        await onApplyToSource(thread);
+                        setApplyFeedback({
+                          text: t('comments.appliedToSource'),
+                          tone: 'success',
+                        });
+                      } catch (nextError) {
+                        setApplyFeedback({
+                          text:
+                            nextError instanceof Error
+                              ? nextError.message
+                              : t('comments.applyFailed'),
+                          tone: 'error',
+                        });
+                      }
+                    })();
+                  }}
+                  disabled={isApplying || isSubmitting || isReplying}
+                >
+                  {isApplying ? (
+                    <LoaderCircle className="mr-1 h-3 w-3 animate-spin" />
+                  ) : (
+                    <PenLine className="mr-1 h-3 w-3" />
+                  )}
+                  {isApplying
+                    ? t('comments.applyingToSource')
+                    : t('comments.applyToSource')}
+                </Button>
+              ) : null}
+              {isApplied ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => void onReopen(thread.id)}
+                  disabled={isSubmitting || isApplying || isReplying}
+                >
+                  {t('comments.reopen')}
+                </Button>
+              ) : null}
               <Button
                 size="sm"
                 variant="ghost"
                 className="h-6 px-2 text-[10px]"
-                onClick={() => void onRequestAiReply(thread)}
-                disabled={isReplying}
+                onClick={() => void onResolve(thread.id)}
+                disabled={isSubmitting || isApplying || isReplying}
               >
-                <Bot className="mr-1 h-3 w-3" />
-                {t('comments.replyWithAi')}
+                <CheckCircle className="mr-1 h-3 w-3" />
+                {t('comments.resolve')}
               </Button>
-            )}
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 px-2 text-[10px]"
-              onClick={() => void onResolve(thread.id)}
-            >
-              <CheckCircle className="mr-1 h-3 w-3" />
-              {t('comments.resolve')}
-            </Button>
+            </div>
           </div>
         </div>
       )}
+
+      {isInherited ? (
+        <div className="space-y-1 text-[10px] leading-relaxed text-muted-foreground">
+          <p>
+            {t('comments.inheritedHint', {
+              version: thread.inheritedFromVersionTitle || t('comments.draft'),
+            })}
+          </p>
+          {thread.inheritanceState === 'stale' ? (
+            <p>{t('comments.reviewStateStaleHint')}</p>
+          ) : null}
+          {thread.inheritanceState === 'superseded' ? (
+            <p>{t('comments.reviewStateSupersededHint')}</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 });
 
 CommentThreadCard.displayName = 'CommentThreadCard';
 
-function isPendingAiReply(thread: CommentThreadData) {
-  const lastMessage = [...thread.messages]
-    .reverse()
-    .find(message => message.role === 'user' || message.role === 'assistant');
+function ThreadActionStatus({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: 'error' | 'info' | 'success';
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium',
+        tone === 'error' &&
+          'border-destructive/20 bg-destructive/10 text-destructive',
+        tone === 'info' && 'border-primary/15 bg-primary/5 text-primary',
+        tone === 'success' && 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700'
+      )}
+    >
+      {tone === 'error' ? (
+        <CircleAlert className="h-3 w-3" />
+      ) : tone === 'success' ? (
+        <CheckCircle className="h-3 w-3" />
+      ) : (
+        <LoaderCircle className="h-3 w-3 animate-spin" />
+      )}
+      <span className="leading-none">{text}</span>
+    </div>
+  );
+}
 
-  return lastMessage?.role === 'user';
+function formatCommentResearchPhase(
+  phase: NonNullable<CommentThreadData['researchState']>['progress'] extends infer T
+    ? T extends { phase: infer P }
+      ? P
+      : never
+    : never,
+  t: ReturnType<typeof useT>
+) {
+  if (phase === 'proposal') return t('comments.researchPhaseProposal');
+  if (phase === 'searching') return t('comments.researchPhaseSearching');
+  if (phase === 'analyzing_gaps') return t('comments.researchPhaseAnalyzingGaps');
+  if (phase === 'reporting') return t('comments.researchPhaseReporting');
+  if (phase === 'blocked') return t('comments.researchPhaseBlocked');
+  return t('comments.researchPhaseCompleted');
+}
+
+function formatDurationLabel(valueMs: number) {
+  const totalSeconds = Math.max(0, Math.ceil(valueMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${seconds}`;
+}
+
+function isOpenThread(thread: CommentThreadData) {
+  return thread.status === 'open';
+}
+
+function isAppliedThread(thread: CommentThreadData) {
+  return thread.status === 'applied';
+}
+
+function isResolvedThread(thread: CommentThreadData) {
+  return thread.status === 'resolved';
 }
 
 function groupResolvedThreads(threads: CommentThreadData[]) {
   const groups = new Map<number | null, CommentThreadData[]>();
 
   threads.forEach(thread => {
-    const versionNum = thread.snapshot?.versionNum ?? null;
+    const versionNum = thread.version?.versionNum ?? null;
     const existing = groups.get(versionNum) ?? [];
     existing.push(thread);
     groups.set(versionNum, existing);
@@ -554,4 +1824,358 @@ function compareHistoryLabels(left: number | null, right: number | null) {
   if (left === null) return 1;
   if (right === null) return -1;
   return right - left;
+}
+
+type SourceApplyState = {
+  canApply: boolean;
+  reason: string | null;
+};
+
+type SourceApplyPlan =
+  | {
+      editableText: string;
+      kind: 'structured';
+      range: DocumentSelectionRangeData;
+      targetFile: WorkspaceFileData;
+    }
+  | {
+      editableText: string;
+      kind: 'text';
+      match: { end: number; start: number };
+      targetFile: WorkspaceFileData;
+    };
+
+const BLOCKED_SOURCE_APPLY_STATE: SourceApplyState = {
+  canApply: false,
+  reason: null,
+};
+
+function getSourceApplyState(params: {
+  allowSourceApply: boolean;
+  files: WorkspaceFileData[];
+  t: ReturnType<typeof useT>;
+  thread: CommentThreadData;
+}): SourceApplyState {
+  if (
+    !params.allowSourceApply ||
+    params.thread.isInherited ||
+    isResolvedThread(params.thread) ||
+    isAppliedThread(params.thread)
+  ) {
+    return BLOCKED_SOURCE_APPLY_STATE;
+  }
+
+  const plan = resolveSourceApplyPlan(params);
+  if (!plan || plan.kind === 'blocked') {
+    return {
+      canApply: false,
+      reason: plan?.reason || null,
+    };
+  }
+
+  return {
+    canApply: true,
+    reason: null,
+  };
+}
+
+function resolveSourceApplyPlan(params: {
+  files: WorkspaceFileData[];
+  t: ReturnType<typeof useT>;
+  thread: CommentThreadData;
+}):
+  | SourceApplyPlan
+  | {
+      kind: 'blocked';
+      reason: string | null;
+    } {
+  const targetFile = resolveTargetFile(params.thread, params.files);
+  if (!targetFile) {
+    return {
+      kind: 'blocked',
+      reason: params.t('comments.applyTargetMissing'),
+    };
+  }
+
+  const reviewAnchor = params.thread.reviewAnchor;
+  if (reviewAnchor?.surfaceType === 'web-component') {
+    return {
+      kind: 'blocked',
+      reason: null,
+    };
+  }
+
+  const rangeState =
+    typeof reviewAnchor?.anchorPayload?.rangeState === 'string'
+      ? reviewAnchor.anchorPayload.rangeState
+      : null;
+  if (
+    reviewAnchor?.surfaceType === 'document-selection' &&
+    rangeState === 'cross-block'
+  ) {
+    return {
+      kind: 'blocked',
+      reason: params.t('comments.applyCrossBlockUnsupported'),
+    };
+  }
+
+  const editableText = getEditableText(targetFile);
+  const anchorCandidates = collectAnchorCandidates(params.thread);
+  const structuredRange = getStructuredDocumentSelectionRange(reviewAnchor);
+  if (
+    structuredRange &&
+    isSingleBlockDocumentSelectionRange(structuredRange) &&
+    isPlateBackedWorkspaceFile(targetFile)
+  ) {
+    const structuredExcerpt = extractTextFromPlateRange(targetFile.content, structuredRange);
+    if (
+      structuredExcerpt &&
+      matchesStructuredAnchorExcerpt(structuredExcerpt, anchorCandidates)
+    ) {
+      return {
+        editableText,
+        kind: 'structured',
+        range: structuredRange,
+        targetFile,
+      };
+    }
+  }
+
+  const textMatch = resolveUniqueAnchorMatch({
+    anchorCandidates,
+    sourceText: editableText,
+  });
+  if (!textMatch) {
+    return {
+      kind: 'blocked',
+      reason: params.t('comments.applyAnchorMissing'),
+    };
+  }
+
+  if (textMatch === 'ambiguous') {
+    return {
+      kind: 'blocked',
+      reason: params.t('comments.applyAnchorAmbiguous'),
+    };
+  }
+
+  return {
+    editableText,
+    kind: 'text',
+    match: textMatch,
+    targetFile,
+  };
+}
+
+function resolveTargetFile(
+  thread: CommentThreadData,
+  files: WorkspaceFileData[]
+): WorkspaceFileData | null {
+  const mappedFileId =
+    thread.fileId || thread.reviewAnchor?.sourceMapping?.fileId || null;
+
+  if (mappedFileId) {
+    return files.find(file => file.id === mappedFileId) || null;
+  }
+
+  return files.find(file => file.isPrimary) || files[0] || null;
+}
+
+function serializeThreadDiscussion(thread: CommentThreadData) {
+  return thread.messages
+    .filter(message => message.role === 'user' || message.role === 'assistant')
+    .map(message =>
+      `${message.role === 'assistant' ? 'AI' : 'User'}: ${message.content.trim()}`
+    )
+    .join('\n\n');
+}
+
+function collectAnchorCandidates(thread: CommentThreadData) {
+  const candidates = new Set<string>();
+  const excerpt =
+    typeof thread.reviewAnchor?.anchorPayload?.excerpt === 'string'
+      ? thread.reviewAnchor.anchorPayload.excerpt
+      : null;
+
+  [thread.anchorText, excerpt].forEach((value) => {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      candidates.add(trimmed);
+    }
+  });
+
+  return [...candidates];
+}
+
+function getEditableText(file: WorkspaceFileData) {
+  if (!isPlateBackedWorkspaceFile(file)) {
+    return file.content;
+  }
+
+  try {
+    return plateToMarkdown(JSON.parse(file.content));
+  } catch {
+    return file.content;
+  }
+}
+
+function toWorkspaceFileContent(file: WorkspaceFileData, content: string) {
+  if (!isPlateBackedWorkspaceFile(file)) {
+    return content;
+  }
+
+  return JSON.stringify(markdownToPlate(content));
+}
+
+function matchesStructuredAnchorExcerpt(
+  excerpt: string,
+  anchorCandidates: string[]
+) {
+  if (anchorCandidates.length === 0) {
+    return true;
+  }
+
+  const normalizedExcerpt = normalizeAnchorText(excerpt);
+  return anchorCandidates.some(
+    (candidate) => normalizeAnchorText(candidate) === normalizedExcerpt
+  );
+}
+
+function resolveUniqueAnchorMatch(params: {
+  anchorCandidates: string[];
+  sourceText: string;
+}) {
+  const candidates = params.anchorCandidates
+    .map((candidate) => candidate.trim())
+    .filter(Boolean);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  for (const candidate of candidates) {
+    const exactMatch = findUniqueExactMatch(params.sourceText, candidate);
+    if (exactMatch === 'ambiguous') {
+      continue;
+    }
+    if (exactMatch) {
+      return exactMatch;
+    }
+  }
+
+  const normalizedMatches = new Map<string, { end: number; start: number }>();
+  let sawAmbiguousCandidate = false;
+
+  for (const candidate of candidates) {
+    const normalizedMatch = findUniqueNormalizedMatch(params.sourceText, candidate);
+    if (normalizedMatch === 'ambiguous') {
+      sawAmbiguousCandidate = true;
+      continue;
+    }
+    if (normalizedMatch) {
+      normalizedMatches.set(
+        `${normalizedMatch.start}:${normalizedMatch.end}`,
+        normalizedMatch
+      );
+    }
+  }
+
+  if (normalizedMatches.size === 1) {
+    return [...normalizedMatches.values()][0];
+  }
+
+  if (normalizedMatches.size > 1 || sawAmbiguousCandidate) {
+    return 'ambiguous' as const;
+  }
+
+  return null;
+}
+
+function findUniqueExactMatch(sourceText: string, candidate: string) {
+  const firstIndex = sourceText.indexOf(candidate);
+  if (firstIndex < 0) {
+    return null;
+  }
+
+  const secondIndex = sourceText.indexOf(candidate, firstIndex + candidate.length);
+  if (secondIndex >= 0) {
+    return 'ambiguous' as const;
+  }
+
+  return {
+    end: firstIndex + candidate.length,
+    start: firstIndex,
+  };
+}
+
+function findUniqueNormalizedMatch(sourceText: string, candidate: string) {
+  const normalizedCandidate = normalizeAnchorText(candidate);
+  if (!normalizedCandidate) {
+    return null;
+  }
+
+  const indexedSource = buildNormalizedSearchIndex(sourceText);
+  if (!indexedSource.text) {
+    return null;
+  }
+
+  const matchIndex = indexedSource.text.indexOf(normalizedCandidate);
+  if (matchIndex < 0) {
+    return null;
+  }
+
+  const nextMatchIndex = indexedSource.text.indexOf(
+    normalizedCandidate,
+    matchIndex + normalizedCandidate.length
+  );
+  if (nextMatchIndex >= 0) {
+    return 'ambiguous' as const;
+  }
+
+  return {
+    end: indexedSource.indexMap[matchIndex + normalizedCandidate.length - 1] + 1,
+    start: indexedSource.indexMap[matchIndex],
+  };
+}
+
+function buildNormalizedSearchIndex(value: string) {
+  let text = '';
+  const indexMap: number[] = [];
+  let lastWasWhitespace = true;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (/\s/.test(character)) {
+      if (lastWasWhitespace || text.length === 0) {
+        continue;
+      }
+      text += ' ';
+      indexMap.push(index);
+      lastWasWhitespace = true;
+      continue;
+    }
+
+    text += character.toLowerCase();
+    indexMap.push(index);
+    lastWasWhitespace = false;
+  }
+
+  if (text.endsWith(' ')) {
+    text = text.slice(0, -1);
+    indexMap.pop();
+  }
+
+  return { indexMap, text };
+}
+
+function normalizeAnchorText(value: string) {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function replaceSourceRange(
+  sourceText: string,
+  range: { end: number; start: number },
+  replacement: string
+) {
+  return sourceText.slice(0, range.start) + replacement + sourceText.slice(range.end);
 }

@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const provider = getSearchProviderFromHeaders(req.headers, providerId);
+    const provider = await getSearchProviderFromHeaders(req.headers, providerId);
     const result = await provider.search({ query, maxResults });
     return NextResponse.json(result);
   } catch (error) {

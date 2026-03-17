@@ -2,7 +2,7 @@ import { prisma } from '@/lib/db/prisma';
 import { markStagedChangeSetStatus, mapStagedChangeSet } from '@/lib/workspace/planning';
 import {
   createWorkspaceFile,
-  createWorkspaceSnapshot,
+  createWorkspaceVersion,
   updateWorkspaceFile,
 } from '@/lib/workspace/service';
 
@@ -30,10 +30,10 @@ export async function applyStagedChangeSet(
   }
 
   const patches = parseChangeSetPatches(changeSet.changesJson);
-  const checkpoint = await createWorkspaceSnapshot(actor, {
-    snapshotType: 'checkpoint',
+  const checkpoint = await createWorkspaceVersion(actor, {
     sourceConversationId: changeSet.sessionId,
-    title: input.checkpointTitle || 'Recovery Checkpoint',
+    title: input.checkpointTitle || 'Recovery Point before Apply',
+    versionType: 'checkpoint',
     workspaceId: input.workspaceId,
   });
 

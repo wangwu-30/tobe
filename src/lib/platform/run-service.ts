@@ -30,14 +30,14 @@ export interface WorkspaceRunService {
     actor: ActorContext,
     input: {
       command: WorkspaceCommand;
-      snapshotId?: string | null;
+      versionId?: string | null;
       workspaceId: string;
     }
   ): Promise<WorkspaceRunData>;
   startWorkspacePreview(
     actor: ActorContext,
     input: {
-      snapshotId?: string | null;
+      versionId?: string | null;
       workspaceId: string;
     }
   ): Promise<WorkspaceRunData>;
@@ -113,7 +113,7 @@ export async function startWorkspaceCommand(
   actor: ActorContext,
   input: {
     command: WorkspaceCommand;
-    snapshotId?: string | null;
+    versionId?: string | null;
     workspaceId: string;
   }
 ) {
@@ -123,7 +123,7 @@ export async function startWorkspaceCommand(
 
   const mirrorDir = await materializeWorkspaceMirror({
     organizationId: actor.organizationId,
-    snapshotId: input.snapshotId,
+    versionId: input.versionId || null,
     workspaceId: input.workspaceId,
   });
 
@@ -134,7 +134,7 @@ export async function startWorkspaceCommand(
     data: {
       organizationId: actor.organizationId,
       documentId: input.workspaceId,
-      versionId: input.snapshotId || null,
+      versionId: input.versionId || null,
       kind: input.command === 'npm run dev' ? 'preview' : 'command',
       command: input.command,
       status: 'pending',
@@ -162,7 +162,7 @@ export async function startWorkspaceCommand(
 export async function startWorkspacePreview(
   actor: ActorContext,
   input: {
-    snapshotId?: string | null;
+    versionId?: string | null;
     workspaceId: string;
   }
 ) {
@@ -170,7 +170,7 @@ export async function startWorkspacePreview(
 
   const mirrorDir = await materializeWorkspaceMirror({
     organizationId: actor.organizationId,
-    snapshotId: input.snapshotId,
+    versionId: input.versionId || null,
     workspaceId: input.workspaceId,
   });
 
@@ -182,7 +182,7 @@ export async function startWorkspacePreview(
     data: {
       organizationId: actor.organizationId,
       documentId: input.workspaceId,
-      versionId: input.snapshotId || null,
+      versionId: input.versionId || null,
       kind: 'preview',
       command: previewTarget.command,
       status: 'pending',
@@ -433,7 +433,7 @@ function mapWorkspaceRun(run: {
     id: run.id,
     organizationId: run.organizationId,
     workspaceId: run.documentId,
-    snapshotId: run.versionId,
+    versionId: run.versionId,
     kind: run.kind,
     command: run.command,
     status: normalizeRunStatus(run.status),

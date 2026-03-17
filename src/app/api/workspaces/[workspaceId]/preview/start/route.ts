@@ -13,7 +13,7 @@ export async function POST(
   try {
     return NextResponse.json(
       await startWorkspacePreview(actor, {
-        snapshotId: body.snapshotId || null,
+        versionId: body.versionId || null,
         workspaceId,
       })
     );

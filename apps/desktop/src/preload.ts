@@ -35,6 +35,9 @@ contextBridge.exposeInMainWorld('daoDesktop', {
   platform: {
     getStatus: () => ipcRenderer.invoke('dao:platform-status'),
   },
+  projects: {
+    pickLocation: () => ipcRenderer.invoke('dao:projects-pick-location'),
+  },
   diagnostics: {
     exportBundle: () => ipcRenderer.invoke('dao:diagnostics-export-bundle'),
     getMetadata: () =>

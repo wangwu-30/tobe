@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import {
-  restoreWorkspaceSnapshot,
+  restoreWorkspaceVersion,
   WorkspaceLockConflictError,
 } from '@/lib/workspace/service';
 
@@ -18,8 +18,8 @@ export async function POST(
   const { versionId, workspaceId } = await params;
 
   try {
-    const restored = await restoreWorkspaceSnapshot(actor, {
-      snapshotId: versionId,
+    const restored = await restoreWorkspaceVersion(actor, {
+      versionId,
       workspaceId,
     });
 

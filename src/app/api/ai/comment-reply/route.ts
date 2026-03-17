@@ -3,11 +3,18 @@ import { prisma } from '@/lib/db/prisma';
 import { buildCommentContext } from '@/lib/ai/context-builder';
 import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
 import { streamWithPi, toPiContextMessages } from '@/lib/ai/pi-runtime';
+import {
+  normalizeCommentAgents,
+  parseCommentAgentBindings,
+  refreshCommentAgentBindings,
+  stringifyCommentAgentBindings,
+} from '@/lib/comments/agents';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 
 export async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const {
+    agentId,
     threadId,
     wikiContent,
     documentContent,
@@ -28,6 +35,7 @@ export async function POST(req: NextRequest) {
   const thread = await prisma.commentThread.findUnique({
     where: { id: threadId },
   });
+  const selectedAgentId = typeof agentId === 'string' && agentId.trim() ? agentId.trim() : 'assistant';
 
   const resolvedWikiId = wikiId || documentId || thread?.documentId || undefined;
 
@@ -35,6 +43,20 @@ export async function POST(req: NextRequest) {
     req.headers,
     modelOverride
   );
+  const commentAgents = normalizeCommentAgents(settings.commentAgents, settings.language);
+  const activeAgent = commentAgents.find(
+    (entry) => entry.id === selectedAgentId && entry.enabled
+  );
+
+  if (!activeAgent) {
+    return Response.json(
+      {
+        error: 'Comment agent unavailable',
+        details: 'This agent is missing or disabled in current settings.',
+      },
+      { status: 409 }
+    );
+  }
 
   const { systemPrompt, messages } = await buildCommentContext({
     anchorText: anchorText || thread?.anchorText || '',
@@ -46,12 +68,13 @@ export async function POST(req: NextRequest) {
     wikiContent: wikiContent || documentContent || '',
     wikiId: resolvedWikiId,
   });
+  const agentSystemPrompt = `${systemPrompt}\n\n## Comment Agent\nHandle this reply as ${activeAgent.name} (${activeAgent.handle}).\n${activeAgent.systemPrompt}`;
 
   return streamWithPi({
     model,
     settings,
     context: {
-      systemPrompt,
+      systemPrompt: agentSystemPrompt,
       messages: toPiContextMessages(
         messages.map((message) => ({
           role: message.role,
@@ -73,8 +96,35 @@ export async function POST(req: NextRequest) {
           role: 'assistant',
           content: persistedText,
           model: modelKey,
+          agentId: activeAgent.id,
+          agentLabel: activeAgent.name,
           createdByUserId: actor.userId,
           originDeviceId: actor.deviceId,
+        },
+      });
+
+      const nextBindings = refreshCommentAgentBindings({
+        bindings: parseCommentAgentBindings(thread?.agentBindingsJson),
+        mentions: [
+          {
+            agentId: activeAgent.id,
+            agentLabel: activeAgent.name,
+            handle: activeAgent.handle,
+          },
+        ],
+      });
+
+      await prisma.commentThread.update({
+        where: { id: threadId },
+        data: {
+          agentBindingsJson:
+            nextBindings.length > 0 ? stringifyCommentAgentBindings(nextBindings) : null,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+          revision: {
+            increment: 1,
+          },
+          updatedAt: new Date(),
         },
       });
     },

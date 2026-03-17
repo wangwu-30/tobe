@@ -128,25 +128,27 @@ export type WorkspaceFileData = {
   updatedAt: Date | string;
 };
 
-export type WorkspaceSnapshotFileData = Omit<
+export type WorkspaceVersionFileData = Omit<
   WorkspaceFileData,
   'organizationId' | 'deletedAt' | 'createdAt' | 'updatedAt'
 > & {
-  snapshotId?: string | null;
+  versionId?: string | null;
 };
 
-export type WorkspaceSnapshotData = {
+export type WorkspaceVersionType = 'manual' | 'checkpoint' | 'checkpoint_pinned';
+
+export type WorkspaceVersionData = {
   id: string;
   organizationId: string;
   workspaceId: string;
   versionNum: number;
   title: string;
   content: string;
-  files: WorkspaceSnapshotFileData[];
-  parentSnapshotId: string | null;
+  files: WorkspaceVersionFileData[];
+  parentVersionId: string | null;
   sourceConversationId: string | null;
   sourceMessageId: string | null;
-  snapshotType: string;
+  versionType: WorkspaceVersionType;
   createdByUserId: string | null;
   originDeviceId: string | null;
   revision: number;
@@ -183,11 +185,44 @@ export type ChatAttachmentData = {
 
 export type DeliverableType = 'document' | 'slides' | 'web' | 'code';
 
+export type CommentAgentConfigData = {
+  id: string;
+  handle: string;
+  name: string;
+  systemPrompt: string;
+  enabled: boolean;
+  builtin: boolean;
+};
+
+export type CommentAgentReferenceData = {
+  agentId: string;
+  agentLabel: string;
+  handle: string;
+};
+
+export type CommentAgentBindingData = CommentAgentReferenceData & {
+  lastActivatedAt: Date | string;
+  listeningUntil: Date | string;
+  sortOrder: number;
+};
+
+export type ReviewAnchorPointData = {
+  path: number[];
+  offset: number;
+};
+
+export type ReviewAnchorPayloadData = Record<string, unknown> & {
+  excerpt?: string;
+  selector?: string;
+  start?: ReviewAnchorPointData;
+  end?: ReviewAnchorPointData;
+};
+
 export type ReviewAnchorData = {
   surfaceType: 'document-block' | 'document-selection' | 'web-component' | 'web-block' | 'code-range';
   bindingType: 'selection' | 'block' | 'component' | 'range';
-  anchorPayload: Record<string, unknown>;
-  previewSnapshotId?: string | null;
+  anchorPayload: ReviewAnchorPayloadData;
+  previewVersionId?: string | null;
   sourceMapping?: {
     fileId?: string | null;
     path?: string | null;
@@ -200,13 +235,13 @@ export type DeliverableData = {
   workspaceId: string;
   title: string;
   deliverableType: DeliverableType;
-  status: string;
+  persistedStatus: string;
   content: string;
   primaryFileId: string | null;
   currentVersion: number;
 };
 
-export type DeliverableVersionData = WorkspaceSnapshotData;
+export type DeliverableVersionData = WorkspaceVersionData;
 
 export type WorkspacePlanStageData = {
   id: string;
@@ -223,6 +258,8 @@ export type WorkspacePlanData = {
   id: string;
   organizationId: string;
   workspaceId: string;
+  activeWorkflowPlaybookId: string | null;
+  activeWorkflowPlaybook: WorkflowPlaybookData | null;
   goal: string;
   deliverableType: DeliverableType;
   constraints: string | null;
@@ -251,14 +288,51 @@ export type AssistantPlanProposalData = {
   stages: WorkspacePlanStageData[];
 };
 
+export type ResearchMode = 'light' | 'deep';
+
+export type DeepResearchPlanProposalData = {
+  status: 'pending' | 'approved' | 'dismissed';
+  title: string;
+  query: string;
+  summary: string;
+  subquestions: string[];
+  reportOutline: string[];
+  allowedDomains: string[];
+  sourceScope: {
+    attachments: boolean;
+    web: boolean;
+    workspace: boolean;
+  };
+};
+
+export type ResearchProgressPhase =
+  | 'proposal'
+  | 'searching'
+  | 'analyzing_gaps'
+  | 'reporting'
+  | 'blocked'
+  | 'completed';
+
+export type ResearchProgressData = {
+  mode: ResearchMode;
+  phase: ResearchProgressPhase;
+  currentStepLabel: string | null;
+  providerState: 'ready' | 'unavailable';
+  reportFileId: string | null;
+  reportFileName: string | null;
+  stepIndex: number | null;
+  totalSteps: number | null;
+};
+
 export type WorkflowPrimaryActionKind =
   | 'none'
+  | 'generate_first_pass'
   | 'wait_for_ai'
   | 'start_preview'
   | 'create_version'
   | 'restore_latest';
 
-export type WorkflowSummaryData = {
+export type WorkspaceCurrentStatusData = {
   phase:
     | 'idle'
     | 'planning'
@@ -272,10 +346,13 @@ export type WorkflowSummaryData = {
   statusDescription: string;
   primaryAction: WorkflowPrimaryActionKind;
   blockedReason: string | null;
-  latestRestorableSnapshotId: string | null;
-  latestRestorableSnapshotTitle: string | null;
+  latestRestorableVersionId: string | null;
+  latestRestorableVersionTitle: string | null;
   isAiWorking: boolean;
 };
+
+export type WorkflowSummaryData = WorkspaceCurrentStatusData;
+export type WorkflowPlaybookStatus = 'draft' | 'active' | 'archived';
 
 export type StagedChangePatchData = {
   fileId: string | null;
@@ -311,7 +388,7 @@ export type WorkspaceRunData = {
   id: string;
   organizationId: string;
   workspaceId: string;
-  snapshotId: string | null;
+  versionId: string | null;
   kind: string;
   command: string;
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'stopped';
@@ -332,11 +409,13 @@ export type AssistantRunData = {
   conversationId: string;
   workspaceId: string;
   requestMessageId: string | null;
-  mode: 'first_pass' | 'revision' | 'question' | 'replan';
+  mode: 'run' | 'first_pass' | 'revision' | 'question' | 'replan';
   title: string;
   status: 'queued' | 'planning' | 'running' | 'completed' | 'failed' | 'cancelled';
   summary: string | null;
   planProposal?: AssistantPlanProposalData | null;
+  researchPlanProposal?: DeepResearchPlanProposalData | null;
+  researchProgress?: ResearchProgressData | null;
   createdByUserId: string | null;
   originDeviceId: string | null;
   revision: number;
@@ -372,8 +451,7 @@ export type ConversationData = {
   wikiId?: string | null;
   parentConversationId: string | null;
   forkedFromMessageId: string | null;
-  baseSnapshotId: string | null;
-  baseDeliverableVersionId?: string | null;
+  baseVersionId: string | null;
   activeFileId: string | null;
   hasPendingChanges?: boolean;
   scopeFilter?: string | null;
@@ -400,6 +478,9 @@ export type CommentMessageData = {
   role: string;
   content: string;
   model: string | null;
+  mentionedAgents: CommentAgentReferenceData[];
+  agentId: string | null;
+  agentLabel: string | null;
   createdByUserId: string | null;
   originDeviceId: string | null;
   revision: number;
@@ -407,21 +488,47 @@ export type CommentMessageData = {
   createdAt: Date | string;
 };
 
+export type CommentResearchStateData = {
+  progress: ResearchProgressData | null;
+  proposal: DeepResearchPlanProposalData | null;
+  reportFileId: string | null;
+  reportFileName: string | null;
+  summary: string | null;
+  targetAgentId: string | null;
+  targetAgentLabel: string | null;
+};
+
+export type CommentThreadStatus = 'open' | 'applied' | 'resolved';
+export type CommentThreadScope = 'direct' | 'inherited';
+export type CommentThreadInheritanceState =
+  | 'actionable'
+  | 'stale'
+  | 'superseded';
+
 export type CommentThreadData = {
   id: string;
   organizationId: string;
   workspaceId: string;
   wikiId?: string;
   fileId: string | null;
-  snapshotId: string | null;
+  versionId: string | null;
+  sourceVersionId: string | null;
+  anchorFingerprint: string;
+  scope: CommentThreadScope;
+  inheritanceState: CommentThreadInheritanceState | null;
+  isInherited: boolean;
+  inheritedFromVersionId: string | null;
+  inheritedFromVersionTitle: string | null;
   draftRevision: number | null;
   anchorText: string;
   selectionAnchor: string | null;
   reviewAnchor?: ReviewAnchorData | null;
-  status: string;
+  status: CommentThreadStatus;
   messages: CommentMessageData[];
+  agentBindings: CommentAgentBindingData[];
+  researchState: CommentResearchStateData | null;
   resolvedAt: Date | string | null;
-  snapshot: WorkspaceSnapshotData | null;
+  version: WorkspaceVersionData | null;
   createdByUserId: string | null;
   originDeviceId: string | null;
   revision: number;
@@ -464,15 +571,20 @@ export type MemoryData = {
   updatedAt: Date | string;
 };
 
-export type WorkspaceData = {
+export type WorkflowPlaybookData = {
   id: string;
   organizationId: string;
-  primaryConversationId: string;
-  sessionId?: string;
+  workspaceId: string | null;
+  sourceVersionId: string | null;
+  sourceThreadId: string | null;
+  status: WorkflowPlaybookStatus;
   title: string;
+  summary: string;
+  steps: string[];
+  constraints: string[];
+  checklist: string[];
   content: string;
-  status: string;
-  currentVersion: number;
+  archivedAt: Date | string | null;
   createdByUserId: string | null;
   originDeviceId: string | null;
   revision: number;
@@ -481,12 +593,79 @@ export type WorkspaceData = {
   updatedAt: Date | string;
 };
 
-export type WorkspaceSidebarItem = {
-  id: string;
+export type WorkflowPlaybookDraftWarningKey =
+  | 'context.workflowDraftWarningDedupedSignals'
+  | 'context.workflowDraftWarningDefaultConstraints'
+  | 'context.workflowDraftWarningDefaultSteps'
+  | 'context.workflowDraftWarningReviewSignals';
+
+export type WorkflowPlaybookDraftData = {
+  sourceThreadId: string | null;
+  sourceVersionId: string | null;
+  summary: string;
   title: string;
-  preview: string;
+  steps: string[];
+  constraints: string[];
+  checklist: string[];
+  content: string;
+  warnings: WorkflowPlaybookDraftWarningKey[];
+};
+
+export type WorkspaceData = {
+  id: string;
+  organizationId: string;
+  primaryConversationId: string;
+  sessionId?: string;
+  projectId: string;
+  projectFolderId: string | null;
+  draftBaseVersionId: string | null;
+  projectTitle: string;
+  title: string;
+  content: string;
+  projectRootPath: string | null;
+  persistedStatus: string;
+  currentVersion: number;
+  draftRevision: number;
+  createdByUserId: string | null;
+  originDeviceId: string | null;
+  revision: number;
+  deletedAt: Date | string | null;
+  createdAt: Date | string;
   updatedAt: Date | string;
 };
+
+export type ProjectSummaryData = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  preview: string;
+  deliverableCount: number;
+  latestDeliverableTitle: string | null;
+  updatedAt: Date | string;
+};
+
+export type ProjectSidebarItem = ProjectSummaryData;
+
+export type ProjectDeliverableItem = {
+  id: string;
+  projectId: string;
+  projectFolderId: string | null;
+  sortOrder: number;
+  title: string;
+  deliverableType: DeliverableType;
+  updatedAt: Date | string;
+};
+
+export type ProjectFolderItem = {
+  id: string;
+  projectId: string;
+  parentFolderId: string | null;
+  sortOrder: number;
+  title: string;
+  updatedAt: Date | string;
+};
+
+export type WorkspaceSidebarItem = ProjectSummaryData;
 
 export type WorkspaceEditLockData = {
   id: string;
@@ -495,7 +674,7 @@ export type WorkspaceEditLockData = {
   wikiId?: string;
   userId: string;
   originDeviceId: string;
-  lockedSnapshotId: string | null;
+  lockedVersionId: string | null;
   expiresAt: Date | string;
   createdAt: Date | string;
   updatedAt: Date | string;
@@ -514,27 +693,30 @@ export type WorkspaceWithRelations = WorkspaceData & {
   knowledgeItems?: KnowledgeItemData[];
   primaryConversation?: ConversationData | null;
   stagedChangeSets?: StagedChangeSetData[];
-  snapshots?: WorkspaceSnapshotData[];
+  versions?: WorkspaceVersionData[];
   workspacePlan?: WorkspacePlanData | null;
 };
 
 export type WorkspaceViewData = {
   workspace: WorkspaceWithRelations | null;
+  currentProject: ProjectSummaryData | null;
+  projectFolders: ProjectFolderItem[];
+  projectDeliverables: ProjectDeliverableItem[];
   deliverable: DeliverableData | null;
   files: WorkspaceFileData[];
-  snapshots: WorkspaceSnapshotData[];
+  versions: WorkspaceVersionData[];
   visibleVersions: DeliverableVersionData[];
-  snapshotFiles: WorkspaceSnapshotFileData[];
-  currentFile: WorkspaceFileData | WorkspaceSnapshotFileData | null;
+  versionFiles: WorkspaceVersionFileData[];
+  currentFile: WorkspaceFileData | WorkspaceVersionFileData | null;
   currentConversation: ConversationWithRelations | null;
   latestConversation: ConversationWithRelations | null;
   conversationTree: ConversationBranchSummary[];
   conversationRuns: AssistantRunData[];
   activeAssistantRun: AssistantRunData | null;
-  currentSnapshot: WorkspaceSnapshotData | null;
+  selectedVersion: WorkspaceVersionData | null;
   stagedChangeSets: StagedChangeSetData[];
   workspacePlan: WorkspacePlanData | null;
-  workflowSummary: WorkflowSummaryData | null;
+  currentStatus: WorkspaceCurrentStatusData | null;
   activeLock?: WorkspaceEditLockData | null;
 };
 
@@ -562,13 +744,13 @@ export type SyncCursorData = {
 };
 
 export type WikiData = WorkspaceData;
-export type WikiVersionData = WorkspaceSnapshotData;
+export type WikiVersionData = WorkspaceVersionData;
 export type WikiWithRelations = WorkspaceWithRelations;
 export type WikiSidebarItem = WorkspaceSidebarItem;
 export type WikiEditLockData = WorkspaceEditLockData;
 export type SessionWithRelations = ConversationWithRelations;
 export type ChatMessageData = ConversationMessageData;
 export type DocumentData = WorkspaceData;
-export type VersionData = WorkspaceSnapshotData;
+export type VersionData = WorkspaceVersionData;
 
 export type PlateValue = Value;

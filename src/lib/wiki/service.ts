@@ -4,14 +4,14 @@ import {
   branchConversation,
   createConversationForWorkspace,
   createConversationMessage as createWorkspaceConversationMessage,
-  createWorkspaceSnapshot,
+  createWorkspaceVersion,
   createWorkspaceWithConversation,
   getActiveWorkspaceLock,
   getConversationWorkspace as getWorkspaceConversation,
   getWorkspaceView,
   listConversationBranches,
   listConversations as listWorkspaceConversations,
-  listWorkspaceSnapshots,
+  listWorkspaceVersions,
   listWorkspaces,
   mapCommentMessage,
   mapCommentThread,
@@ -20,7 +20,7 @@ import {
   mapKnowledgeItem,
   mapMemory,
   mapWorkspace,
-  mapWorkspaceSnapshot,
+  mapWorkspaceVersion,
   releaseWorkspaceLock,
   updateWorkspace,
 } from '@/lib/workspace/service';
@@ -35,7 +35,7 @@ export const WikiLockConflictError = WorkspaceLockConflictError;
 
 export const listWikis = listWorkspaces;
 export const mapWiki = mapWorkspace;
-export const mapWikiVersion = mapWorkspaceSnapshot;
+export const mapWikiVersion = mapWorkspaceVersion;
 export {
   branchConversation,
   listConversationBranches,
@@ -68,7 +68,7 @@ export async function createConversationForWiki(
   actor: ActorContext,
   input: {
     activeFileId?: string | null;
-    baseSnapshotId?: string | null;
+    baseVersionId?: string | null;
     forkedFromMessageId?: string | null;
     parentConversationId?: string | null;
     title?: string;
@@ -77,7 +77,7 @@ export async function createConversationForWiki(
 ) {
   return createConversationForWorkspace(actor, {
     activeFileId: input.activeFileId,
-    baseSnapshotId: input.baseSnapshotId,
+    baseVersionId: input.baseVersionId,
     forkedFromMessageId: input.forkedFromMessageId,
     parentConversationId: input.parentConversationId,
     title: input.title,
@@ -132,11 +132,11 @@ export async function getWikiWorkspace(params: {
     conversationTree: view.conversationTree,
     currentConversation: view.currentConversation,
     currentFile: view.currentFile,
-    currentSnapshot: view.currentSnapshot,
+    selectedVersion: view.selectedVersion,
     files: view.files,
     latestConversation: view.latestConversation,
-    snapshotFiles: view.snapshotFiles,
-    snapshots: view.snapshots,
+    versionFiles: view.versionFiles,
+    versions: view.versions,
     wiki: view.workspace,
     workspace: view.workspace,
   };
@@ -179,14 +179,14 @@ export async function listWikiVersions(params: {
   organizationId: string;
   wikiId: string;
 }) {
-  return listWorkspaceSnapshots({
+  return listWorkspaceVersions({
     organizationId: params.organizationId,
     workspaceId: params.wikiId,
   });
 }
 
 export async function createWikiVersion(actor: ActorContext, wikiId: string) {
-  return createWorkspaceSnapshot(actor, {
+  return createWorkspaceVersion(actor, {
     workspaceId: wikiId,
   });
 }
@@ -204,7 +204,7 @@ export async function acquireWikiLock(
   }
 ) {
   return acquireWorkspaceLock(actor, {
-    lockedSnapshotId: input.lockedVersionId,
+    lockedVersionId: input.lockedVersionId,
     ttlMinutes: input.ttlMinutes,
     workspaceId: input.wikiId,
   });

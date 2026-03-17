@@ -163,6 +163,20 @@ function registerDesktopIpcHandlers() {
     return JSON.parse(text);
   });
 
+  ipcMain.handle('dao:projects-pick-location', async () => {
+    const result = await dialog.showOpenDialog({
+      buttonLabel: '选择文件夹',
+      properties: ['openDirectory', 'createDirectory'],
+      title: '选择项目保存位置',
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    return result.filePaths[0] || null;
+  });
+
   ipcMain.handle('dao:diagnostics-get-metadata', async (): Promise<DesktopDiagnosticsMetadata> => {
     ensureRuntimeContext();
     return {

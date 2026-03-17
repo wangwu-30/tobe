@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
-import type { ChatMessageData } from '@/types';
+import type { ChatMessageData, ResearchMode } from '@/types';
 import { describeAIError, type AIErrorInfo } from '@/lib/ai/error-utils';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { stripAIStreamControlTokens } from '@/lib/ai/stream-protocol';
@@ -19,12 +19,12 @@ export function useChat({
   conversationId,
   workspaceId,
   activeFileId,
-  baseSnapshotId,
+  baseVersionId,
 }: {
   conversationId?: string | null;
   workspaceId?: string | null;
   activeFileId?: string | null;
-  baseSnapshotId?: string | null;
+  baseVersionId?: string | null;
 }) {
   const language = useAppLanguage();
   const t = useT();
@@ -49,7 +49,7 @@ export function useChat({
         conversationId: string | null;
         workspaceId: string | null;
       }) => void;
-      searchMode?: 'auto' | 'force';
+      researchMode?: ResearchMode;
       suppressUserEcho?: boolean;
     };
   } | null>(null);
@@ -75,7 +75,7 @@ export function useChat({
           conversationId: string | null;
           workspaceId: string | null;
         }) => void;
-        searchMode?: 'auto' | 'force';
+        researchMode?: ResearchMode;
         suppressUserEcho?: boolean;
       }
     ) => {
@@ -170,10 +170,10 @@ export function useChat({
 
         const formData = new FormData();
         formData.set('activeFileId', activeFileId || '');
-        formData.set('baseSnapshotId', baseSnapshotId || '');
+        formData.set('baseVersionId', baseVersionId || '');
         formData.set('conversationId', conversationId || '');
         formData.set('sessionId', conversationId || '');
-        formData.set('searchMode', options?.searchMode || 'auto');
+        formData.set('researchMode', options?.researchMode || 'light');
         formData.set('workspaceId', workspaceId || '');
         formData.set('wikiId', workspaceId || '');
         formData.set('message', content);
@@ -196,14 +196,18 @@ export function useChat({
           formData.append('attachments', attachment.file, attachment.file.name);
         });
 
-        const response = await fetch('/api/ai/chat', {
-          method: 'POST',
-          headers: {
-            ...getStoredAISettingsHeader(),
-          },
-          body: formData,
-          signal: abortRef.current.signal,
-        });
+        const isDeepResearch = (options?.researchMode || 'light') === 'deep';
+        const response = await fetch(
+          isDeepResearch ? '/api/ai/research-plan' : '/api/ai/chat',
+          {
+            method: 'POST',
+            headers: {
+              ...getStoredAISettingsHeader(),
+            },
+            body: formData,
+            signal: abortRef.current.signal,
+          }
+        );
 
         if (!response.ok) {
           const payload = await response.json().catch(() => null);
@@ -218,15 +222,28 @@ export function useChat({
           clearTimeout(slowResponseRef.current);
           slowResponseRef.current = null;
         }
-        setStatusMessage(t('chat.planning'));
+        setStatusMessage(
+          isDeepResearch ? t('chat.researchPlanning') : t('chat.planning')
+        );
+
+        if (isDeepResearch) {
+          const payload = (await response.json()) as {
+            conversationId?: string | null;
+            workspaceId?: string | null;
+          };
+          options?.onWorkspaceChange?.({
+            conversationId: payload.conversationId || conversationId || null,
+            workspaceId: payload.workspaceId || workspaceId || null,
+          });
+          setMessages((prev) => prev.filter((message) => message.id !== assistantId));
+          setStatusMessage(null);
+          await options?.onComplete?.();
+          return;
+        }
 
         const nextConversationId =
           response.headers.get('x-dao-conversation-id') || conversationId || null;
-        const nextWorkspaceId =
-          response.headers.get('x-dao-workspace-id') ||
-          response.headers.get('x-dao-wiki-id') ||
-          workspaceId ||
-          null;
+        const nextWorkspaceId = response.headers.get('x-dao-workspace-id') || workspaceId || null;
 
         options?.onWorkspaceChange?.({
           conversationId: nextConversationId,
@@ -303,7 +320,103 @@ export function useChat({
         abortReasonRef.current = null;
       }
     },
-    [activeFileId, baseSnapshotId, conversationId, language, nextTempId, t, workspaceId]
+    [activeFileId, baseVersionId, conversationId, language, nextTempId, t, workspaceId]
+  );
+
+  const startResearch = useCallback(
+    async (
+      runId: string,
+      options?: {
+        onComplete?: () => void | Promise<void>;
+        onWorkspaceChange?: (workspace: {
+          conversationId: string | null;
+          workspaceId: string | null;
+        }) => void;
+      }
+    ) => {
+      if (!workspaceId || !runId) {
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+      setStatusMessage(t('chat.researchStarting'));
+      abortReasonRef.current = null;
+
+      try {
+        abortRef.current = new AbortController();
+        clearTimers();
+        slowResponseRef.current = setTimeout(() => {
+          setStatusMessage(t('chat.stillWaiting'));
+        }, SLOW_RESPONSE_MS);
+        scheduleIdleTimeout();
+        totalTimeoutRef.current = setTimeout(() => {
+          abortReasonRef.current = 'timeout';
+          abortRef.current?.abort();
+        }, STREAM_TOTAL_TIMEOUT_MS);
+
+        const response = await fetch(
+          `/api/workspaces/${workspaceId}/assistant-runs/${runId}/research-plan/start`,
+          {
+            method: 'POST',
+            headers: {
+              ...getStoredAISettingsHeader(),
+            },
+            signal: abortRef.current.signal,
+          }
+        );
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(
+            payload?.error ||
+              payload?.details ||
+              `AI request failed: ${response.status} ${response.statusText}`
+          );
+        }
+
+        if (slowResponseRef.current) {
+          clearTimeout(slowResponseRef.current);
+          slowResponseRef.current = null;
+        }
+        setStatusMessage(null);
+        options?.onWorkspaceChange?.({
+          conversationId: payload?.conversationId || conversationId || null,
+          workspaceId: payload?.workspaceId || workspaceId || null,
+        });
+        await options?.onComplete?.();
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          if (abortReasonRef.current === 'timeout') {
+            setStatusMessage(null);
+            setError({
+              detail: t('chat.timeoutDetail'),
+              kind: 'network',
+              message: t('chat.timeoutMessage'),
+              retryable: true,
+              showSettings: true,
+              statusCode: 504,
+            });
+          } else {
+            setStatusMessage(t('chat.generationStopped'));
+          }
+        } else {
+          setStatusMessage(null);
+          setError(
+            describeAIError({
+              language,
+              rawMessage: err instanceof Error ? err.message : '',
+            })
+          );
+        }
+      } finally {
+        clearTimers();
+        setIsLoading(false);
+        abortRef.current = null;
+        abortReasonRef.current = null;
+      }
+    },
+    [conversationId, language, t, workspaceId]
   );
 
   const continueProposal = useCallback(
@@ -386,11 +499,7 @@ export function useChat({
         options?.onWorkspaceChange?.({
           conversationId:
             response.headers.get('x-dao-conversation-id') || conversationId || null,
-          workspaceId:
-            response.headers.get('x-dao-workspace-id') ||
-            response.headers.get('x-dao-wiki-id') ||
-            workspaceId ||
-            null,
+          workspaceId: response.headers.get('x-dao-workspace-id') || workspaceId || null,
         });
 
         const reader = response.body?.getReader();
@@ -516,6 +625,7 @@ export function useChat({
     statusMessage,
     sendMessage,
     continueProposal,
+    startResearch,
     retryLastMessage,
     stopGeneration,
     loadMessages,

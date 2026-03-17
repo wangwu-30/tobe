@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import {
-  setWorkspaceSnapshotPinned,
+  setWorkspaceVersionPinned,
   WorkspaceLockConflictError,
   WorkspaceRecoveryPinLimitError,
 } from '@/lib/workspace/service';
@@ -16,13 +16,13 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
 
   try {
-    const snapshot = await setWorkspaceSnapshotPinned(actor, {
+    const version = await setWorkspaceVersionPinned(actor, {
       pinned: Boolean(body.pinned),
-      snapshotId: versionId,
+      versionId,
       workspaceId,
     });
 
-    return NextResponse.json(snapshot);
+    return NextResponse.json(version);
   } catch (error) {
     if (error instanceof WorkspaceRecoveryPinLimitError) {
       return NextResponse.json({ error: error.message }, { status: 409 });

@@ -69,6 +69,9 @@ declare global {
       platform?: {
         getStatus?: () => Promise<unknown>;
       };
+      projects?: {
+        pickLocation?: () => Promise<string | null>;
+      };
     };
   }
 }

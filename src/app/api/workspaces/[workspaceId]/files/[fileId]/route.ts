@@ -24,6 +24,10 @@ export async function PATCH(
       name: body.name,
       parentId: body.parentId,
       setPrimary: body.setPrimary,
+      sortOrder:
+        typeof body.sortOrder === 'number' && Number.isFinite(body.sortOrder)
+          ? body.sortOrder
+          : undefined,
       workspaceId,
     });
 

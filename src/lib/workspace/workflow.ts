@@ -7,7 +7,7 @@ import type {
   WorkflowSummaryData,
   WorkspaceFileData,
   WorkspaceRunData,
-  WorkspaceSnapshotData,
+  WorkspaceVersionData,
 } from '@/types';
 import type { WorkspacePreviewCapability } from '@/lib/workspace/preview';
 
@@ -18,7 +18,7 @@ type DeriveWorkflowSummaryParams = {
   deliverable: DeliverableData | null;
   language: AppLanguage;
   previewCapability: WorkspacePreviewCapability;
-  snapshots: WorkspaceSnapshotData[];
+  versions: WorkspaceVersionData[];
   stagedChangeSets: StagedChangeSetData[];
 };
 
@@ -29,17 +29,17 @@ export function deriveWorkflowSummary(
     return null;
   }
 
-  const latestRestorableSnapshot =
-    params.snapshots.find((snapshot) => snapshot.restorable && !snapshot.visible) || null;
-  const latestVisibleSnapshot =
-    params.snapshots.find((snapshot) => snapshot.visible) || null;
+  const latestRestorableVersion =
+    params.versions.find((version) => version.restorable && !version.visible) || null;
+  const latestVisibleVersion =
+    params.versions.find((version) => version.visible) || null;
   const isAiWorking = isAssistantRunActive(params.activeAssistantRun);
-  const hasVisibleVersion = Boolean(latestVisibleSnapshot);
+  const hasVisibleVersion = Boolean(latestVisibleVersion);
   const hasLiveContent = hasMeaningfulDeliverableContent(
     resolvePrimaryLiveContent(params.currentFiles, params.deliverable.content)
   );
-  const liveDraftMatchesVisibleVersion = latestVisibleSnapshot
-    ? doFilesMatchSnapshot(params.currentFiles, latestVisibleSnapshot)
+  const liveDraftMatchesVisibleVersion = latestVisibleVersion
+    ? doFilesMatchVersion(params.currentFiles, latestVisibleVersion)
     : false;
 
   const summary =
@@ -50,8 +50,8 @@ export function deriveWorkflowSummary(
           hasVisibleVersion,
           isAiWorking,
           language: params.language,
-          latestRestorableSnapshot,
-          latestVisibleSnapshot,
+          latestRestorableVersion,
+          latestVisibleVersion,
           liveDraftMatchesVisibleVersion,
           previewCapability: params.previewCapability,
         })
@@ -60,8 +60,8 @@ export function deriveWorkflowSummary(
           hasVisibleVersion,
           isAiWorking,
           language: params.language,
-          latestRestorableSnapshot,
-          latestVisibleSnapshot,
+          latestRestorableVersion,
+          latestVisibleVersion,
           liveDraftMatchesVisibleVersion,
           stagedChangeSets: params.stagedChangeSets,
         });
@@ -69,8 +69,8 @@ export function deriveWorkflowSummary(
   return {
     ...summary,
     isAiWorking,
-    latestRestorableSnapshotId: latestRestorableSnapshot?.id || null,
-    latestRestorableSnapshotTitle: latestRestorableSnapshot?.title || null,
+    latestRestorableVersionId: latestRestorableVersion?.id || null,
+    latestRestorableVersionTitle: latestRestorableVersion?.title || null,
   };
 }
 
@@ -80,11 +80,14 @@ function deriveWebWorkflowSummary(params: {
   hasVisibleVersion: boolean;
   isAiWorking: boolean;
   language: AppLanguage;
-  latestRestorableSnapshot: WorkspaceSnapshotData | null;
-  latestVisibleSnapshot: WorkspaceSnapshotData | null;
+  latestRestorableVersion: WorkspaceVersionData | null;
+  latestVisibleVersion: WorkspaceVersionData | null;
   liveDraftMatchesVisibleVersion: boolean;
   previewCapability: WorkspacePreviewCapability;
-}): Omit<WorkflowSummaryData, 'isAiWorking' | 'latestRestorableSnapshotId' | 'latestRestorableSnapshotTitle'> {
+}): Omit<
+  WorkflowSummaryData,
+  'isAiWorking' | 'latestRestorableVersionId' | 'latestRestorableVersionTitle'
+> {
   if (params.isAiWorking) {
     return {
       blockedReason: null,
@@ -98,12 +101,12 @@ function deriveWebWorkflowSummary(params: {
   if (
     params.hasVisibleVersion &&
     params.liveDraftMatchesVisibleVersion &&
-    params.latestVisibleSnapshot
+    params.latestVisibleVersion
   ) {
     return {
       blockedReason: null,
       phase: 'finalized',
-      primaryAction: params.latestRestorableSnapshot ? 'restore_latest' : 'none',
+      primaryAction: params.latestRestorableVersion ? 'restore_latest' : 'none',
       statusDescription: translate(params.language, 'workflow.finalizedDescription'),
       statusTitle: translate(params.language, 'workflow.finalizedTitle'),
     };
@@ -113,7 +116,7 @@ function deriveWebWorkflowSummary(params: {
     return {
       blockedReason: translate(params.language, 'workspace.previewUnavailableReason'),
       phase: 'blocked',
-      primaryAction: params.latestRestorableSnapshot ? 'restore_latest' : 'none',
+      primaryAction: params.latestRestorableVersion ? 'restore_latest' : 'none',
       statusDescription: translate(params.language, 'workflow.blockedDescription'),
       statusTitle: translate(params.language, 'workflow.blockedTitle'),
     };
@@ -142,7 +145,7 @@ function deriveWebWorkflowSummary(params: {
   return {
     blockedReason: null,
     phase: 'planning',
-    primaryAction: 'wait_for_ai',
+    primaryAction: 'generate_first_pass',
     statusDescription: translate(params.language, 'workflow.planDescription'),
     statusTitle: translate(params.language, 'workflow.planTitle'),
   };
@@ -153,11 +156,14 @@ function deriveDraftWorkflowSummary(params: {
   hasVisibleVersion: boolean;
   isAiWorking: boolean;
   language: AppLanguage;
-  latestRestorableSnapshot: WorkspaceSnapshotData | null;
-  latestVisibleSnapshot: WorkspaceSnapshotData | null;
+  latestRestorableVersion: WorkspaceVersionData | null;
+  latestVisibleVersion: WorkspaceVersionData | null;
   liveDraftMatchesVisibleVersion: boolean;
   stagedChangeSets: StagedChangeSetData[];
-}): Omit<WorkflowSummaryData, 'isAiWorking' | 'latestRestorableSnapshotId' | 'latestRestorableSnapshotTitle'> {
+}): Omit<
+  WorkflowSummaryData,
+  'isAiWorking' | 'latestRestorableVersionId' | 'latestRestorableVersionTitle'
+> {
   const pendingChangeSets = params.stagedChangeSets.filter(
     (changeSet) => changeSet.status === 'pending'
   );
@@ -175,12 +181,12 @@ function deriveDraftWorkflowSummary(params: {
   if (
     params.hasVisibleVersion &&
     params.liveDraftMatchesVisibleVersion &&
-    params.latestVisibleSnapshot
+    params.latestVisibleVersion
   ) {
     return {
       blockedReason: null,
       phase: 'finalized',
-      primaryAction: params.latestRestorableSnapshot ? 'restore_latest' : 'none',
+      primaryAction: params.latestRestorableVersion ? 'restore_latest' : 'none',
       statusDescription: translate(params.language, 'workflow.finalizedDescription'),
       statusTitle: translate(params.language, 'workflow.finalizedTitle'),
     };
@@ -209,7 +215,7 @@ function deriveDraftWorkflowSummary(params: {
   return {
     blockedReason: null,
     phase: 'planning',
-    primaryAction: 'wait_for_ai',
+    primaryAction: 'generate_first_pass',
     statusDescription: translate(params.language, 'workflow.planDescription'),
     statusTitle: translate(params.language, 'workflow.planTitle'),
   };
@@ -279,9 +285,9 @@ function hasMeaningfulStructuredContent(value: unknown): boolean {
   return Object.values(record).some((item) => hasMeaningfulStructuredContent(item));
 }
 
-function doFilesMatchSnapshot(
+function doFilesMatchVersion(
   currentFiles: WorkspaceFileData[],
-  snapshot: WorkspaceSnapshotData
+  version: WorkspaceVersionData
 ) {
   const currentComparable = currentFiles
     .filter((file) => file.nodeType === 'file')
@@ -292,7 +298,7 @@ function doFilesMatchSnapshot(
       path: file.path,
     }))
     .sort(compareComparableFiles);
-  const snapshotComparable = snapshot.files
+  const versionComparable = version.files
     .filter((file) => file.nodeType === 'file')
     .map((file) => ({
       content: file.content,
@@ -302,7 +308,7 @@ function doFilesMatchSnapshot(
     }))
     .sort(compareComparableFiles);
 
-  return JSON.stringify(currentComparable) === JSON.stringify(snapshotComparable);
+  return JSON.stringify(currentComparable) === JSON.stringify(versionComparable);
 }
 
 function compareComparableFiles(

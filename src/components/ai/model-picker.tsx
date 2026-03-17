@@ -30,12 +30,12 @@ export function ModelPicker({
   variant?: ModelPickerVariant;
 }) {
   const t = useT();
-  const providerOptions = catalog?.providers || [];
+  const providerOptions = React.useMemo(() => catalog?.providers || [], [catalog?.providers]);
   const selectedProvider =
     providerOptions.find((provider) => provider.id === value?.providerId) ||
     providerOptions[0] ||
     null;
-  const modelOptions = selectedProvider?.models || [];
+  const modelOptions = React.useMemo(() => selectedProvider?.models || [], [selectedProvider?.models]);
   const selectedModel =
     modelOptions.find((model) => model.id === value?.modelId) ||
     modelOptions[0] ||

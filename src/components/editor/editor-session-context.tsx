@@ -10,8 +10,8 @@ type EditorSessionContextValue = {
   sessionId: string;
   wikiId: string | null;
   conversationId: string | null;
-  snapshotId: string | null;
   versionId: string | null;
+  draftRevision: number | null;
 };
 
 const EditorSessionContext = React.createContext<EditorSessionContextValue | null>(

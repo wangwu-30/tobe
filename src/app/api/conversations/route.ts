@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   const conversation = await createConversationForWiki(actor, {
     activeFileId: body.activeFileId,
-    baseSnapshotId: body.baseSnapshotId,
+    baseVersionId: body.baseVersionId,
     forkedFromMessageId: body.forkedFromMessageId,
     parentConversationId: body.parentConversationId,
     title: body.title,

@@ -22,7 +22,7 @@ export async function GET(
   const { searchParams } = new URL(req.url);
   const conversationId = searchParams.get('conversationId');
   const fileId = searchParams.get('fileId');
-  const snapshotId = searchParams.get('snapshotId');
+  const versionId = searchParams.get('versionId');
   const language = normalizeAppLanguage(req.headers.get('accept-language'));
 
   const view = await getWorkspaceView({
@@ -30,7 +30,7 @@ export async function GET(
     fileId,
     language,
     organizationId: actor.organizationId,
-    snapshotId,
+    versionId,
     workspaceId,
   });
 
@@ -65,6 +65,16 @@ export async function PATCH(
   try {
     const workspace = await updateWorkspace(actor, {
       content: body.content,
+      projectFolderId:
+        body.projectFolderId === null
+          ? null
+          : typeof body.projectFolderId === 'string'
+            ? body.projectFolderId
+            : undefined,
+      treeSortOrder:
+        typeof body.treeSortOrder === 'number' && Number.isFinite(body.treeSortOrder)
+          ? body.treeSortOrder
+          : undefined,
       status: body.status,
       title: body.title,
       workspaceId,
@@ -99,7 +109,7 @@ export async function DELETE(
       id: workspaceId,
       organizationId: actor.organizationId,
     },
-    select: { id: true, revision: true, sessionId: true },
+    select: { id: true, projectId: true, projectRootPath: true, revision: true, sessionId: true },
   });
 
   if (!existing) {
@@ -107,6 +117,18 @@ export async function DELETE(
   }
 
   const deletedAt = new Date();
+  const projectId = existing.projectId || existing.id;
+  const remainingProjectDocument = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      organizationId: actor.organizationId,
+      id: {
+        not: workspaceId,
+      },
+      OR: [{ id: projectId }, { projectId }],
+    },
+    select: { id: true },
+  });
   await stopWorkspacePreview(actor.organizationId, workspaceId);
 
   await prisma.$transaction(async (tx) => {
@@ -324,11 +346,28 @@ export async function DELETE(
           organizationId: actor.organizationId,
         },
       }),
+      ...(remainingProjectDocument
+        ? []
+        : [
+            tx.projectFolder.updateMany({
+              where: {
+                deletedAt: null,
+                organizationId: actor.organizationId,
+                projectId,
+              },
+              data: {
+                deletedAt,
+                revision: {
+                  increment: 1,
+                },
+              },
+            }),
+          ]),
     ]);
   });
 
   await Promise.all([
-    fs.rm(getWorkspaceMirrorPath(actor.organizationId, workspaceId), {
+    fs.rm(existing.projectRootPath || getWorkspaceMirrorPath(actor.organizationId, workspaceId), {
       force: true,
       recursive: true,
     }),

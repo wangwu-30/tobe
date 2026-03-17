@@ -6,68 +6,17 @@ import {
   resolveSearchProviderModel,
   type SearchSettings,
 } from '@/lib/search/settings';
-import { BraveSearchProvider } from '@/lib/search/providers/brave-search';
-import { VolcengineWebSearchProvider } from '@/lib/search/providers/volcengine-web-search';
 import {
-  BRAVE_SEARCH_PROVIDER_ID,
-  DEFAULT_SEARCH_PROVIDER_ID,
   SearchProviderError,
   type SearchProvider,
-  type SearchProviderInfo,
   type SearchProviderRuntimeConfig,
+} from '@/lib/search/types';
+import {
+  BRAVE_SEARCH_PROVIDER_ID,
   VOLCENGINE_WEB_SEARCH_PROVIDER_ID,
 } from '@/lib/search/types';
 
-type ProviderDefinition = {
-  id: string;
-  label: string;
-  description: string;
-  create: (config: SearchProviderRuntimeConfig) => SearchProvider;
-};
-
-const PROVIDERS: ProviderDefinition[] = [
-  {
-    id: BRAVE_SEARCH_PROVIDER_ID,
-    label: 'Brave Search',
-    description: 'Brave Search API with Playwright browser fallback',
-    create: config => new BraveSearchProvider(config),
-  },
-  {
-    id: VOLCENGINE_WEB_SEARCH_PROVIDER_ID,
-    label: 'Volcengine Web Search',
-    description: 'ARK Responses API with the web_search tool',
-    create: config => new VolcengineWebSearchProvider(config),
-  },
-];
-
-export function getSearchProvidersFromHeaders(headers: Headers) {
-  const settings = getSearchSettingsFromHeaders(headers);
-  return getSearchProviders(settings);
-}
-
-export function getSearchProviders(settings: SearchSettings): {
-  defaultProviderId: string;
-  selectedProviderId: string;
-  providers: SearchProviderInfo[];
-} {
-  const selectedProviderId = resolveSearchProviderId(settings);
-
-  return {
-    defaultProviderId: DEFAULT_SEARCH_PROVIDER_ID,
-    selectedProviderId,
-    providers: PROVIDERS.map(provider => ({
-      id: provider.id,
-      label: provider.label,
-      description: provider.description,
-      configured:
-        provider.id === BRAVE_SEARCH_PROVIDER_ID ||
-        Boolean(resolveSearchProviderApiKey(settings, provider.id)),
-      selected: provider.id === selectedProviderId,
-    })),
-  };
-}
-
-export function getSearchProviderFromHeaders(
+export async function getSearchProviderFromHeaders(
   headers: Headers,
   providerIdOverride?: string | null
 ) {
@@ -75,21 +24,36 @@ export function getSearchProviderFromHeaders(
   return getSearchProvider(settings, providerIdOverride);
 }
 
-export function getSearchProvider(
+export async function getSearchProvider(
   settings: SearchSettings,
   providerIdOverride?: string | null
-) {
+) : Promise<SearchProvider> {
   const providerId = resolveSearchProviderId(settings, providerIdOverride);
-  const definition = PROVIDERS.find(provider => provider.id === providerId);
-
-  if (!definition) {
-    throw new SearchProviderError(`Unsupported search provider: ${providerId}`, 400);
-  }
-
-  return definition.create({
+  const provider = await createSearchProvider(providerId, {
     providerId,
     apiKey: resolveSearchProviderApiKey(settings, providerId),
     model: resolveSearchProviderModel(settings, providerId),
     endpoint: resolveSearchProviderEndpoint(settings, providerId),
   });
+
+  return provider;
+}
+
+async function createSearchProvider(
+  providerId: string,
+  config: SearchProviderRuntimeConfig
+): Promise<SearchProvider> {
+  if (providerId === BRAVE_SEARCH_PROVIDER_ID) {
+    const { BraveSearchProvider } = await import('@/lib/search/providers/brave-search');
+    return new BraveSearchProvider(config);
+  }
+
+  if (providerId === VOLCENGINE_WEB_SEARCH_PROVIDER_ID) {
+    const { VolcengineWebSearchProvider } = await import(
+      '@/lib/search/providers/volcengine-web-search'
+    );
+    return new VolcengineWebSearchProvider(config);
+  }
+
+  throw new SearchProviderError(`Unsupported search provider: ${providerId}`, 400);
 }

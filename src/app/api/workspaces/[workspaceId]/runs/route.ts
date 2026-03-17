@@ -32,7 +32,7 @@ export async function POST(
     return NextResponse.json(
       await startWorkspaceCommand(actor, {
         command: body.command,
-        snapshotId: body.snapshotId || null,
+        versionId: body.versionId || null,
         workspaceId,
       })
     );

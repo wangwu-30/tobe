@@ -52,11 +52,13 @@ import {
   discussionPlugin,
 } from '@/components/editor/plugins/discussion-kit';
 import { useAiReply } from '@/hooks/use-ai-reply';
+import { useCommentAgents } from '@/hooks/use-comment-agents';
 import { useEditorSession } from '@/components/editor/editor-session-context';
 import {
   notifyCommentThreadsChanged,
-  readCommentReplyMode,
 } from '@/lib/comments/constants';
+import { parseCommentAgentMentions } from '@/lib/comments/agents';
+import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 
 import { Editor, EditorContainer } from './editor';
 
@@ -400,6 +402,7 @@ export function CommentCreateForm({
   const isReply = Boolean(discussionIdProp);
   const editorSession = useEditorSession();
   const { sendCommentReply } = useAiReply();
+  const commentAgents = useCommentAgents();
 
   const userInfo = usePluginOption(discussionPlugin, 'currentUser');
   const [commentValue, setCommentValue] = React.useState<Value | undefined>();
@@ -431,20 +434,25 @@ export function CommentCreateForm({
       discussion?.documentContent ||
       '';
     let persistedDiscussionId = discussionId || nanoid();
+    const mentionTargets = parseCommentAgentMentions(commentContent, commentAgents);
 
     if (editorSession?.documentId) {
       if (isReply && discussionId) {
         const response = await fetch(`/api/threads/${discussionId}/messages`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
           body: JSON.stringify({ role: 'user', content: commentContent }),
         });
 
         if (response.ok) {
           notifyCommentThreadsChanged();
 
-          if (readCommentReplyMode() === 'auto') {
+          for (const target of mentionTargets) {
             await sendCommentReply({
+              agentId: target.agentId,
               threadId: discussionId,
               documentContent: editorSession.documentContent,
               anchorText,
@@ -459,18 +467,23 @@ export function CommentCreateForm({
       if (commentsNodeEntry.length > 0) {
         const response = await fetch('/api/threads', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
           body: JSON.stringify({
             documentId: editorSession.documentId,
             anchorText,
+            draftRevision: editorSession.versionId ? null : editorSession.draftRevision,
             firstMessage: commentContent,
+            versionId: editorSession.versionId || null,
             selectionAnchor: JSON.stringify({
               surfaceType: 'document-block',
               bindingType: 'block',
               anchorPayload: {
                 excerpt: anchorText,
               },
-              previewSnapshotId: editorSession.snapshotId || null,
+              previewVersionId: editorSession.versionId || null,
               sourceMapping: {
                 fileId: editorSession.fileId || null,
               },
@@ -483,8 +496,9 @@ export function CommentCreateForm({
           persistedDiscussionId = thread.id;
           notifyCommentThreadsChanged();
 
-          if (readCommentReplyMode() === 'auto') {
+          for (const binding of thread.agentBindings || []) {
             await sendCommentReply({
+              agentId: binding.agentId,
               threadId: thread.id,
               documentContent: editorSession.documentContent,
               anchorText,
@@ -553,6 +567,7 @@ export function CommentCreateForm({
     editor,
     editorSession,
     isReply,
+    commentAgents,
     sendCommentReply,
   ]);
 

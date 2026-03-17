@@ -1,6 +1,10 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/db/prisma';
+import { getSettingsFromHeaders } from '@/lib/ai/providers';
+import { translate } from '@/lib/i18n/copy';
 import {
   IdempotencyConflictError,
   IdempotencyInProgressError,
@@ -11,8 +15,21 @@ import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import { WORKSPACE_CREATE_IDEMPOTENCY_HEADER } from '@/lib/workspace/create-request';
 import { createInitialWorkspacePlan } from '@/lib/workspace/planning';
-import { listWorkspaces, mapConversation, mapWorkspace, mapWorkspaceFile } from '@/lib/workspace/service';
+import {
+  getNextProjectTreeSortOrder,
+  listWorkspaces,
+  mapConversation,
+  mapWorkspace,
+  mapWorkspaceFile,
+  PROJECT_TREE_SORT_STEP,
+} from '@/lib/workspace/service';
+import {
+  formatWorkflowPlaybookForPrompt,
+  getWorkflowPlaybook,
+} from '@/lib/workflows/service';
 import type { DeliverableType } from '@/types';
+
+class WorkspaceCreateValidationError extends Error {}
 
 export async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
@@ -23,20 +40,55 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json().catch(() => ({}));
+  const settings = getSettingsFromHeaders(req.headers);
+  const language = settings.language || 'zh-CN';
   const deliverableType =
+    body.deliverableType === 'document' ||
     body.deliverableType === 'web' ||
     body.deliverableType === 'code' ||
     body.deliverableType === 'slides'
       ? body.deliverableType
       : 'document';
   const suggestedTitle = deriveWorkspaceTitle(body.title || body.goal);
+  const projectParentPath =
+    typeof body.projectParentPath === 'string' && body.projectParentPath.trim()
+      ? body.projectParentPath.trim()
+      : null;
+  const projectId =
+    typeof body.projectId === 'string' && body.projectId.trim()
+      ? body.projectId.trim()
+      : null;
+  const projectTitle =
+    typeof body.projectTitle === 'string' && body.projectTitle.trim()
+      ? body.projectTitle.trim()
+      : null;
+  const projectFolderId =
+    typeof body.projectFolderId === 'string' && body.projectFolderId.trim()
+      ? body.projectFolderId.trim()
+      : null;
+  const workflowPlaybookId =
+    typeof body.workflowPlaybookId === 'string' && body.workflowPlaybookId.trim()
+      ? body.workflowPlaybookId.trim()
+      : null;
+
+  if (projectParentPath && !path.isAbsolute(projectParentPath)) {
+    return NextResponse.json(
+      { error: 'Project save location must be an absolute path.' },
+      { status: 400 }
+    );
+  }
   const requestKey = req.headers.get(WORKSPACE_CREATE_IDEMPOTENCY_HEADER)?.trim() || null;
   const requestHash = JSON.stringify({
     constraints: body.constraints || null,
     deliverableType,
     goal: body.goal || null,
+    projectFolderId,
+    projectParentPath,
+    projectId,
+    projectTitle,
     styleGuide: body.styleGuide || null,
     title: suggestedTitle || null,
+    workflowPlaybookId,
   });
 
   try {
@@ -48,8 +100,14 @@ export async function POST(req: NextRequest) {
           deliverableType,
           goal: body.goal,
           initialContent: typeof body.content === 'string' ? body.content : null,
+          initialPlanNote: translate(language, 'plan.generatingDescription'),
+          projectFolderId,
+          projectParentPath,
+          projectId,
+          projectTitle,
           styleGuide: body.styleGuide,
           title: suggestedTitle || undefined,
+          workflowPlaybookId,
         });
         await finalizeWorkspaceCreation(actor, created).catch((error) => {
           console.error('Workspace creation side effects failed.', error);
@@ -94,6 +152,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (error instanceof WorkspaceCreateValidationError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
+    }
+
     console.error('Workspace creation failed.', error);
     return NextResponse.json(
       { error: 'Could not create the project.' },
@@ -110,8 +175,14 @@ async function createWorkspaceForRequest(
     deliverableType: DeliverableType;
     goal?: unknown;
     initialContent?: string | null;
+    initialPlanNote?: string | null;
+    projectFolderId?: string | null;
+    projectParentPath?: string | null;
+    projectId?: string | null;
+    projectTitle?: string | null;
     styleGuide?: string | null;
     title?: string;
+    workflowPlaybookId?: string | null;
   }
 ) {
   const title = input.title?.trim() || 'Untitled Project';
@@ -120,12 +191,87 @@ async function createWorkspaceForRequest(
       ? input.goal.trim()
       : null;
   const planGoal = goal || title || 'Create a new deliverable';
+  const projectParentPath = input.projectParentPath?.trim() || null;
+  const requestedProjectId = input.projectId?.trim() || null;
+  const requestedProjectFolderId = input.projectFolderId?.trim() || null;
+  const requestedProjectTitle = input.projectTitle?.trim() || null;
+  const requestedWorkflowPlaybookId = input.workflowPlaybookId?.trim() || null;
+  const inheritedProject =
+    requestedProjectId
+      ? await prisma.document.findFirst({
+          where: {
+            deletedAt: null,
+            organizationId: actor.organizationId,
+            OR: [{ id: requestedProjectId }, { projectId: requestedProjectId }],
+          },
+          select: {
+            id: true,
+            projectId: true,
+            projectRootPath: true,
+            projectTitle: true,
+            title: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        })
+      : null;
+
+  if (requestedProjectId && !inheritedProject) {
+    throw new WorkspaceCreateValidationError('Project not found.');
+  }
+
+  if (requestedProjectFolderId && !requestedProjectId) {
+    throw new WorkspaceCreateValidationError('Project folder requires a project.');
+  }
+
+  const workflowPlaybook = requestedWorkflowPlaybookId
+    ? await getWorkflowPlaybook({
+        id: requestedWorkflowPlaybookId,
+        organizationId: actor.organizationId,
+      })
+    : null;
+
+  if (requestedWorkflowPlaybookId && !workflowPlaybook) {
+    throw new WorkspaceCreateValidationError('Workflow playbook not found.');
+  }
+
+  if (workflowPlaybook && workflowPlaybook.status !== 'active') {
+    throw new WorkspaceCreateValidationError(
+      'Only active workflow playbooks can be reused for a new deliverable.'
+    );
+  }
+
+  const workflowPrompt = workflowPlaybook
+    ? formatWorkflowPlaybookForPrompt(workflowPlaybook)
+    : null;
   const initialPlan = createInitialWorkspacePlan({
-    constraints: input.constraints || null,
+    activeWorkflowPlaybookId: workflowPlaybook?.id || null,
+    constraints: [input.constraints?.trim() || null, workflowPrompt].filter(Boolean).join('\n\n') || null,
     deliverableType: input.deliverableType,
     goal: planGoal,
     styleGuide: input.styleGuide || null,
   });
+  initialPlan.lastProgressNote = input.initialPlanNote?.trim() || initialPlan.lastProgressNote;
+
+  if (requestedProjectFolderId) {
+    const folder = await prisma.projectFolder.findFirst({
+      where: {
+        deletedAt: null,
+        id: requestedProjectFolderId,
+        organizationId: actor.organizationId,
+        projectId: requestedProjectId || undefined,
+      },
+      select: { id: true },
+    });
+
+    if (!folder) {
+      throw new WorkspaceCreateValidationError('Project folder not found.');
+    }
+  }
+
+  if (projectParentPath && !requestedProjectId) {
+    await assertProjectParentPath(projectParentPath);
+  }
+
   const fileSeeds = buildWorkspaceFileSeeds({
     deliverableType: input.deliverableType,
     heading: title,
@@ -133,6 +279,9 @@ async function createWorkspaceForRequest(
   });
 
   return prisma.$transaction(async (tx) => {
+    const createWorkspacePlanRecord = tx.workspacePlan.create as unknown as (
+      args: object
+    ) => Promise<unknown>;
     const conversation = await tx.session.create({
       data: {
         organizationId: actor.organizationId,
@@ -147,17 +296,60 @@ async function createWorkspaceForRequest(
       },
     });
 
-    const workspace = await tx.document.create({
+    const nextTreeSortOrder = requestedProjectId
+      ? await getNextProjectTreeSortOrder(
+          {
+            organizationId: actor.organizationId,
+            parentFolderId: requestedProjectFolderId,
+            projectId: requestedProjectId,
+          },
+          tx
+        )
+      : PROJECT_TREE_SORT_STEP;
+
+    let workspace = await tx.document.create({
       data: {
         organizationId: actor.organizationId,
         sessionId: conversation.id,
+        projectId: requestedProjectId,
+        projectFolderId: requestedProjectFolderId,
+        projectTitle:
+          requestedProjectTitle ||
+          inheritedProject?.projectTitle ||
+          inheritedProject?.title ||
+          title,
+        treeSortOrder: nextTreeSortOrder,
         title,
         content: fileSeeds.primary.content,
+        projectRootPath: inheritedProject?.projectRootPath || null,
         status: 'draft',
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
       },
     });
+
+    if (!requestedProjectId || projectParentPath) {
+      workspace = await tx.document.update({
+        where: { id: workspace.id },
+        data: {
+          projectId: requestedProjectId || workspace.id,
+          projectTitle:
+            requestedProjectTitle ||
+            inheritedProject?.projectTitle ||
+            inheritedProject?.title ||
+            title,
+          ...(projectParentPath
+            ? {
+                projectRootPath: await resolveManagedProjectRootPath({
+                  projectParentPath,
+                  title,
+                  workspaceId: workspace.id,
+                }),
+              }
+            : {}),
+        },
+      });
+    }
 
     const primaryFile = await tx.workspaceFile.create({
       data: {
@@ -208,7 +400,7 @@ async function createWorkspaceForRequest(
       },
     });
 
-    await tx.workspacePlan.create({
+    await createWorkspacePlanRecord({
       data: {
         organizationId: actor.organizationId,
         documentId: workspace.id,
@@ -223,6 +415,11 @@ async function createWorkspaceForRequest(
         lastProgressNote: initialPlan.lastProgressNote,
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
+        ...(initialPlan.activeWorkflowPlaybookId
+          ? {
+              activeWorkflowPlaybookId: initialPlan.activeWorkflowPlaybookId,
+            }
+          : {}),
       },
     });
 
@@ -343,7 +540,7 @@ function buildWorkspaceFileSeeds(params: {
         content: params.initialContent || '[]',
         kind: 'markdown' as const,
         language: 'markdown',
-        name: 'slides.md',
+        name: 'slides',
       },
     };
   }
@@ -354,9 +551,50 @@ function buildWorkspaceFileSeeds(params: {
       content: params.initialContent || '[]',
       kind: 'markdown' as const,
       language: 'markdown',
-      name: 'main.md',
+      name: 'main',
     },
   };
+}
+
+async function assertProjectParentPath(projectParentPath: string) {
+  const stat = await fs.stat(projectParentPath).catch(() => null);
+  if (!stat?.isDirectory()) {
+    throw new WorkspaceCreateValidationError('Project save location is unavailable.');
+  }
+}
+
+async function resolveManagedProjectRootPath(params: {
+  projectParentPath: string;
+  title: string;
+  workspaceId: string;
+}) {
+  const baseName = `${slugProjectTitle(params.title)}-${params.workspaceId.slice(-6)}`;
+  let suffix = 1;
+
+  while (true) {
+    const candidateName = suffix === 1 ? baseName : `${baseName}-${suffix}`;
+    const candidatePath = path.join(params.projectParentPath, candidateName);
+    const exists = await fs.access(candidatePath).then(() => true).catch(() => false);
+
+    if (!exists) {
+      return candidatePath;
+    }
+
+    suffix += 1;
+  }
+}
+
+function slugProjectTitle(title: string) {
+  const normalized = title
+    .normalize('NFKC')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, ' ')
+    .replace(/[^\p{L}\p{N}\s_-]+/gu, ' ')
+    .replace(/[\s_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+
+  return normalized || 'project';
 }
 
 function deriveWorkspaceTitle(value: unknown) {

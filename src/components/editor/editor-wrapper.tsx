@@ -10,17 +10,19 @@ import { SuggestionKit } from '@/components/editor/plugins/suggestion-kit';
 import { DiscussionKit } from '@/components/editor/plugins/discussion-kit';
 import { CommentSidebar } from '@/components/comments/comment-sidebar';
 import { SelectionCommentTrigger } from '@/components/comments/selection-comment-trigger';
-import { VersionBar } from '@/components/versions/version-bar';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Lock, Pencil, Eye, MessageSquarePlus } from 'lucide-react';
+import { AlertCircle, Lock, Pencil, Eye, MessageSquarePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EditorSessionProvider } from '@/components/editor/editor-session-context';
 import { useT } from '@/components/providers/language-provider';
+import { commentPlugin } from '@/components/editor/plugins/comment-kit';
 import { discussionPlugin } from '@/components/editor/plugins/discussion-kit';
 import {
+  COMMENT_THREAD_FOCUS_EVENT,
   COMMENT_THREADS_CHANGED_EVENT,
   requestSelectionCommentComposerOpen,
+  type CommentThreadFocusDetail,
 } from '@/lib/comments/constants';
 import { threadsToDiscussions } from '@/lib/comments/discussion-sync';
 import type { CommentThreadData } from '@/types';
@@ -38,12 +40,14 @@ export function EditorWrapper({
   onCloseCommentSidebar,
   readOnly: readOnlyOverride,
   sessionId,
-  showBottomVersionBar = false,
   showCommentAction = true,
   showVersionControls = true,
-  snapshotId = null,
+  versionId = null,
   title,
   status,
+  statusLabel,
+  statusTone,
+  draftRevision = null,
   onContentChange,
   onLockVersion,
   onUnlock,
@@ -63,12 +67,14 @@ export function EditorWrapper({
   onCloseCommentSidebar?: () => void;
   readOnly?: boolean;
   sessionId: string;
-  showBottomVersionBar?: boolean;
   showCommentAction?: boolean;
   showVersionControls?: boolean;
-  snapshotId?: string | null;
+  versionId?: string | null;
+  draftRevision?: number | null;
   title: string;
   status: string;
+  statusLabel?: string;
+  statusTone?: 'blocked' | 'draft' | 'locked' | 'reviewing';
   onContentChange: (content: string) => void;
   onLockVersion: () => void;
   onUnlock: () => void;
@@ -82,10 +88,32 @@ export function EditorWrapper({
   const isLocked = status === 'locked';
   const isReadOnly = readOnlyOverride ?? isLocked;
   const [threads, setThreads] = React.useState<CommentThreadData[]>([]);
+  const editorSurfaceRef = React.useRef<HTMLDivElement | null>(null);
   const editorPlaceholder = placeholder || t('workspace.documentPlaceholder');
   const resolvedEmptyTitle = emptyTitle || t('workspace.noDocumentYet');
   const resolvedEmptyDescription =
     emptyDescription || t('workspace.askAiGenerateDocument');
+  const resolvedStatusTone =
+    statusTone || (isLocked ? 'locked' : status === 'reviewing' ? 'reviewing' : 'draft');
+  const resolvedStatusLabel =
+    statusLabel ||
+    (resolvedStatusTone === 'locked'
+      ? t('common.locked')
+      : resolvedStatusTone === 'reviewing'
+        ? t('common.reviewing')
+        : resolvedStatusTone === 'blocked'
+          ? t('plan.blockedTitle')
+          : t('common.draft'));
+  const statusIcon =
+    resolvedStatusTone === 'locked' ? (
+      <Lock className="mr-1 h-3 w-3" />
+    ) : resolvedStatusTone === 'reviewing' ? (
+      <Eye className="mr-1 h-3 w-3" />
+    ) : resolvedStatusTone === 'blocked' ? (
+      <AlertCircle className="mr-1 h-3 w-3" />
+    ) : (
+      <Pencil className="mr-1 h-3 w-3" />
+    );
 
   const editor = usePlateEditor(
     {
@@ -109,8 +137,10 @@ export function EditorWrapper({
     if (fileId) {
       searchParams.set('fileId', fileId);
     }
-    if (snapshotId) {
-      searchParams.set('snapshotId', snapshotId);
+    if (versionId) {
+      searchParams.set('versionId', versionId);
+    } else {
+      searchParams.set('draftOnly', '1');
     }
 
     const res = await fetch(`/api/threads?${searchParams.toString()}`);
@@ -119,7 +149,7 @@ export function EditorWrapper({
     const nextThreads = (await res.json()) as CommentThreadData[];
     setThreads(nextThreads);
     editor.setOption(discussionPlugin, 'discussions', threadsToDiscussions(nextThreads));
-  }, [documentId, editor, fileId, snapshotId, workspaceId]);
+  }, [documentId, editor, fileId, versionId, workspaceId]);
 
   React.useEffect(() => {
     void loadThreads();
@@ -136,6 +166,60 @@ export function EditorWrapper({
     };
   }, [loadThreads]);
 
+  React.useEffect(() => {
+    const activeThreadId = editor.getOption(commentPlugin, 'activeId');
+    if (!activeThreadId) {
+      return;
+    }
+
+    const activeThread = threads.find((thread) => thread.id === activeThreadId) || null;
+    if (activeThread?.status !== 'resolved') {
+      return;
+    }
+
+    editor.setOption(commentPlugin, 'activeId', null);
+    editor.setOption(commentPlugin, 'hoverId', null);
+  }, [editor, threads]);
+
+  React.useEffect(() => {
+    let clearHighlightTimeoutId: number | null = null;
+
+    const handleThreadFocus = (event: Event) => {
+      const detail = (event as CustomEvent<CommentThreadFocusDetail>).detail;
+      if (!detail?.threadId) {
+        return;
+      }
+
+      editor.setOption(commentPlugin, 'activeId', detail.threadId);
+      editor.setOption(commentPlugin, 'hoverId', null);
+
+      const target = editorSurfaceRef.current?.querySelector<HTMLElement>(
+        `[data-comment-thread-id="${detail.threadId}"]`
+      );
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      if (clearHighlightTimeoutId) {
+        window.clearTimeout(clearHighlightTimeoutId);
+      }
+
+      clearHighlightTimeoutId = window.setTimeout(() => {
+        if (editor.getOption(commentPlugin, 'activeId') === detail.threadId) {
+          editor.setOption(commentPlugin, 'activeId', null);
+        }
+      }, 2200);
+    };
+
+    window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
+    return () => {
+      if (clearHighlightTimeoutId) {
+        window.clearTimeout(clearHighlightTimeoutId);
+      }
+      window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
+    };
+  }, [editor]);
+
   return (
     <EditorSessionProvider
       value={{
@@ -146,30 +230,26 @@ export function EditorWrapper({
         wikiId: documentId,
         conversationId: sessionId,
         sessionId,
-        snapshotId,
-        versionId: snapshotId,
+        versionId,
+        draftRevision,
       }}
     >
-      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+      <div
+        ref={editorSurfaceRef}
+        className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
+        data-workspace-outline-surface="true"
+      >
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold truncate max-w-[300px]">
               {title || t('workspace.untitledDocument')}
             </h2>
-            <Badge variant={isLocked ? 'secondary' : 'default'} className="text-xs">
-              {isLocked ? (
-                <>
-                  <Lock className="h-3 w-3 mr-1" /> {t('common.locked')}
-                </>
-              ) : status === 'reviewing' ? (
-                <>
-                  <Eye className="h-3 w-3 mr-1" /> {t('common.reviewing')}
-                </>
-              ) : (
-                <>
-                  <Pencil className="h-3 w-3 mr-1" /> {t('common.draft')}
-                </>
-              )}
+            <Badge
+              variant={resolvedStatusTone === 'locked' ? 'secondary' : 'default'}
+              className="text-xs"
+            >
+              {statusIcon}
+              {resolvedStatusLabel}
             </Badge>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
@@ -261,8 +341,6 @@ export function EditorWrapper({
             />
           )}
         </div>
-
-        {documentId && showBottomVersionBar && <VersionBar documentId={documentId} />}
       </div>
     </EditorSessionProvider>
   );

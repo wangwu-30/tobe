@@ -6,11 +6,13 @@ import type {
   DeliverableType,
   StagedChangePatchData,
   StagedChangeSetData,
-  WorkflowSummaryData,
+  WorkflowPlaybookData,
+  WorkspaceCurrentStatusData,
   WorkspaceFileData,
   WorkspacePlanData,
   WorkspacePlanStageData,
-  WorkspaceSnapshotData,
+  WorkspaceVersionType,
+  WorkspaceVersionData,
 } from '@/types';
 
 type ActorContext = {
@@ -27,16 +29,11 @@ type WorkspaceRecord = {
   currentVersion: number;
 };
 
-type FileRecord = {
-  id: string;
-  isPrimary: boolean;
-  kind: string;
-};
-
 type WorkspacePlanRecord = {
   id: string;
   organizationId: string;
   documentId: string;
+  activeWorkflowPlaybookId?: string | null;
   goal: string;
   deliverableType: string;
   constraints: string | null;
@@ -52,6 +49,27 @@ type WorkspacePlanRecord = {
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  activeWorkflowPlaybook?: {
+    id: string;
+    organizationId: string;
+    documentId: string | null;
+    sourceVersionId: string | null;
+    sourceThreadId: string | null;
+    status: string;
+    title: string;
+    summary: string;
+    steps?: string | null;
+    constraints?: string | null;
+    checklist?: string | null;
+    content: string;
+    archivedAt?: Date | null;
+    createdByUserId: string | null;
+    originDeviceId: string | null;
+    revision: number;
+    deletedAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
 };
 
 type StagedChangeSetRecord = {
@@ -129,21 +147,32 @@ export async function getWorkspacePlan(params: {
   organizationId: string;
   workspaceId: string;
 }) {
+  const findWorkspacePlanUnique = prisma.workspacePlan.findUnique as unknown as (
+    args: object
+  ) => Promise<unknown>;
   const plan = await prisma.workspacePlan.findFirst({
     where: {
       deletedAt: null,
       documentId: params.workspaceId,
       organizationId: params.organizationId,
     },
-  });
+  } as object);
 
-  return plan ? mapWorkspacePlan(plan) : null;
+  const hydratedPlan = plan
+    ? await findWorkspacePlanUnique({
+        where: { documentId: params.workspaceId },
+        include: { activeWorkflowPlaybook: true },
+      })
+    : null;
+
+  return hydratedPlan ? mapWorkspacePlan(hydratedPlan as WorkspacePlanRecord) : null;
 }
 
 export async function upsertWorkspacePlan(
   actor: ActorContext,
   input: {
     activeStageId?: string | null;
+    activeWorkflowPlaybookId?: string | null;
     constraints?: string | null;
     deliverableType?: DeliverableType;
     goal: string;
@@ -155,6 +184,9 @@ export async function upsertWorkspacePlan(
     workspaceId: string;
   }
 ) {
+  const upsertWorkspacePlanRecord = prisma.workspacePlan.upsert as unknown as (
+    args: object
+  ) => Promise<unknown>;
   const workspace = await prisma.document.findFirst({
     where: {
       deletedAt: null,
@@ -185,6 +217,23 @@ export async function upsertWorkspacePlan(
   const existing = await prisma.workspacePlan.findUnique({
     where: { documentId: input.workspaceId },
   });
+  const nextActiveWorkflowPlaybook =
+    input.activeWorkflowPlaybookId !== undefined && input.activeWorkflowPlaybookId !== null
+      ? await prisma.workflowPlaybook.findFirst({
+          where: {
+            deletedAt: null,
+            id: input.activeWorkflowPlaybookId,
+            organizationId: actor.organizationId,
+            status: 'active',
+          },
+          select: { id: true },
+        })
+      : undefined;
+
+  if (input.activeWorkflowPlaybookId && !nextActiveWorkflowPlaybook) {
+    throw new Error('Only active workflow playbooks can be applied to a task.');
+  }
+
   const stages = resolvePlanStages({
     deliverableType,
     existing: existing ? mapWorkspacePlan(existing as WorkspacePlanRecord) : null,
@@ -196,7 +245,7 @@ export async function upsertWorkspacePlan(
     stages[0]?.id ||
     null;
 
-  const plan = await prisma.workspacePlan.upsert({
+  const plan = await upsertWorkspacePlanRecord({
     where: { documentId: input.workspaceId },
     create: {
       organizationId: actor.organizationId,
@@ -212,6 +261,11 @@ export async function upsertWorkspacePlan(
       lastProgressNote: input.lastProgressNote || null,
       createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
+      ...(input.activeWorkflowPlaybookId
+        ? {
+            activeWorkflowPlaybookId: nextActiveWorkflowPlaybook!.id,
+          }
+        : {}),
     },
     update: {
       goal,
@@ -220,6 +274,19 @@ export async function upsertWorkspacePlan(
       styleGuide,
       status: input.status || 'drafting',
       ...(input.incrementVersion ? { version: { increment: 1 } } : {}),
+      ...(input.activeWorkflowPlaybookId !== undefined
+        ? {
+            activeWorkflowPlaybook: input.activeWorkflowPlaybookId
+              ? {
+                  connect: {
+                    id: nextActiveWorkflowPlaybook!.id,
+                  },
+                }
+              : {
+                  disconnect: true,
+                },
+          }
+        : {}),
       stagesJson: JSON.stringify(stages),
       activeStageId,
       lastProgressNote:
@@ -232,15 +299,19 @@ export async function upsertWorkspacePlan(
         increment: 1,
       },
     },
+    include: {
+      activeWorkflowPlaybook: true,
+    },
   });
 
-  return mapWorkspacePlan(plan);
+  return mapWorkspacePlan(plan as WorkspacePlanRecord);
 }
 
 export async function updateWorkspacePlan(
   actor: ActorContext,
   input: {
     activeStageId?: string | null;
+    activeWorkflowPlaybookId?: string | null;
     constraints?: string | null;
     deliverableType?: DeliverableType;
     goal?: string;
@@ -260,6 +331,26 @@ export async function updateWorkspacePlan(
     throw new Error('Workspace plan not found.');
   }
 
+  const updateWorkspacePlanRecord = prisma.workspacePlan.update as unknown as (
+    args: object
+  ) => Promise<unknown>;
+  const nextActiveWorkflowPlaybook =
+    input.activeWorkflowPlaybookId !== undefined && input.activeWorkflowPlaybookId !== null
+      ? await prisma.workflowPlaybook.findFirst({
+          where: {
+            deletedAt: null,
+            id: input.activeWorkflowPlaybookId,
+            organizationId: actor.organizationId,
+            status: 'active',
+          },
+          select: { id: true },
+        })
+      : undefined;
+
+  if (input.activeWorkflowPlaybookId && !nextActiveWorkflowPlaybook) {
+    throw new Error('Only active workflow playbooks can be applied to a task.');
+  }
+
   const deliverableType =
     input.deliverableType || normalizeDeliverableType(existing.deliverableType);
   const nextStages = resolvePlanStages({
@@ -274,7 +365,7 @@ export async function updateWorkspacePlan(
     nextStages[0]?.id ||
     null;
 
-  const plan = await prisma.workspacePlan.update({
+  const plan = await updateWorkspacePlanRecord({
     where: { documentId: input.workspaceId },
     data: {
       ...(input.goal !== undefined ? { goal: input.goal.trim() } : {}),
@@ -286,6 +377,19 @@ export async function updateWorkspacePlan(
         : {}),
       ...(input.styleGuide !== undefined
         ? { styleGuide: input.styleGuide?.trim() || null }
+        : {}),
+      ...(input.activeWorkflowPlaybookId !== undefined
+        ? {
+            activeWorkflowPlaybook: input.activeWorkflowPlaybookId
+              ? {
+                  connect: {
+                    id: nextActiveWorkflowPlaybook!.id,
+                  },
+                }
+              : {
+                  disconnect: true,
+                },
+          }
         : {}),
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.incrementVersion ? { version: { increment: 1 } } : {}),
@@ -300,9 +404,12 @@ export async function updateWorkspacePlan(
         increment: 1,
       },
     },
+    include: {
+      activeWorkflowPlaybook: true,
+    },
   });
 
-  return mapWorkspacePlan(plan);
+  return mapWorkspacePlan(plan as WorkspacePlanRecord);
 }
 
 export async function listStagedChangeSets(params: {
@@ -418,7 +525,7 @@ export function buildDeliverable(params: {
     workspaceId: params.workspace.id,
     title: params.workspace.title,
     deliverableType: inferredType,
-    status: params.workspace.status,
+    persistedStatus: params.workspace.status,
     content: primaryFile?.content || params.workspace.content,
     primaryFileId: primaryFile?.id || null,
     currentVersion: params.currentVersion,
@@ -427,11 +534,13 @@ export function buildDeliverable(params: {
 
 export function mapWorkspacePlan(plan: WorkspacePlanRecord): WorkspacePlanData {
   const deliverableType = normalizeDeliverableType(plan.deliverableType);
-  const stages = parsePlanStages(plan.stagesJson, deliverableType);
+  const stages = parsePlanStages(plan.stagesJson, deliverableType, plan.status);
   return {
     id: plan.id,
     organizationId: plan.organizationId,
     workspaceId: plan.documentId,
+    activeWorkflowPlaybookId: plan.activeWorkflowPlaybookId || null,
+    activeWorkflowPlaybook: mapWorkflowPlaybook(plan.activeWorkflowPlaybook || null),
     goal: plan.goal,
     deliverableType,
     constraints: plan.constraints,
@@ -478,63 +587,141 @@ export function mapStagedChangeSet(changeSet: StagedChangeSetRecord): StagedChan
   };
 }
 
-export function isRecoverySnapshotType(snapshotType: string | null | undefined) {
-  return snapshotType === 'checkpoint' || snapshotType === 'checkpoint_pinned';
+export function isRecoveryVersionType(versionType: WorkspaceVersionType | null | undefined) {
+  return versionType === 'checkpoint' || versionType === 'checkpoint_pinned';
 }
 
-export function isPinnedRecoverySnapshotType(snapshotType: string | null | undefined) {
-  return snapshotType === 'checkpoint_pinned';
+export function isPinnedRecoveryVersionType(versionType: WorkspaceVersionType | null | undefined) {
+  return versionType === 'checkpoint_pinned';
 }
 
-export function isVisibleVersion(version: Pick<WorkspaceSnapshotData, 'snapshotType'>) {
-  return !isRecoverySnapshotType(version.snapshotType);
+export function isVisibleVersion(version: Pick<WorkspaceVersionData, 'versionType'>) {
+  return !isRecoveryVersionType(version.versionType);
 }
 
 export function createInitialWorkspacePlan(params: {
+  activeWorkflowPlaybookId?: string | null;
   constraints?: string | null;
   deliverableType: DeliverableType;
   goal: string;
   styleGuide?: string | null;
-}) {
-  const stages = buildDefaultPlanStages(params.deliverableType);
+}): {
+  activeStageId: string | null;
+  activeWorkflowPlaybookId: string | null;
+  constraints: string | null;
+  deliverableType: DeliverableType;
+  goal: string;
+  lastProgressNote: string | null;
+  stages: WorkspacePlanStageData[];
+  status: string;
+  styleGuide: string | null;
+  version: number;
+} {
   return {
-    activeStageId: stages[0]?.id || null,
+    activeStageId: null,
+    activeWorkflowPlaybookId: params.activeWorkflowPlaybookId || null,
     constraints: params.constraints?.trim() || null,
     deliverableType: params.deliverableType,
     goal: params.goal.trim() || 'Create a new deliverable',
     lastProgressNote: null,
-    stages,
-    status: 'drafting',
+    stages: [],
+    status: 'generating',
     styleGuide: params.styleGuide?.trim() || null,
     version: 1,
+  };
+}
+
+function mapWorkflowPlaybook(
+  playbook: WorkspacePlanRecord['activeWorkflowPlaybook']
+): WorkflowPlaybookData | null {
+  if (!playbook) {
+    return null;
+  }
+
+  const parseStructuredList = (raw: string | null | undefined) =>
+    (raw || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim())
+      .filter(Boolean);
+
+  return {
+    id: playbook.id,
+    organizationId: playbook.organizationId,
+    workspaceId: playbook.documentId,
+    sourceVersionId: playbook.sourceVersionId,
+    sourceThreadId: playbook.sourceThreadId,
+    status:
+      playbook.status === 'active' || playbook.status === 'archived'
+        ? playbook.status
+        : 'draft',
+    title: playbook.title,
+    summary: playbook.summary,
+    steps: parseStructuredList(playbook.steps),
+    constraints: parseStructuredList(playbook.constraints),
+    checklist: parseStructuredList(playbook.checklist),
+    content: playbook.content,
+    archivedAt: playbook.archivedAt || null,
+    createdByUserId: playbook.createdByUserId,
+    originDeviceId: playbook.originDeviceId,
+    revision: playbook.revision,
+    deletedAt: playbook.deletedAt,
+    createdAt: playbook.createdAt,
+    updatedAt: playbook.updatedAt,
   };
 }
 
 export function hydrateWorkspacePlanForView(params: {
   activeAssistantRun: AssistantRunData | null;
   plan: WorkspacePlanData | null;
-  workflowSummary: WorkflowSummaryData | null;
+  currentStatus: WorkspaceCurrentStatusData | null;
 }) {
   if (!params.plan) {
     return null;
   }
 
-  const stages = params.plan.stages.length
-    ? params.plan.stages
-    : buildDefaultPlanStages(params.plan.deliverableType);
+  const activeWorkflowPlaybook = params.plan.activeWorkflowPlaybook?.status !== 'active'
+    ? null
+    : params.plan.activeWorkflowPlaybook;
+  const activeWorkflowPlaybookId = activeWorkflowPlaybook
+    ? params.plan.activeWorkflowPlaybookId
+    : null;
+
+  if (
+    (params.plan.status === 'generating' || params.plan.status === 'blocked') &&
+    params.plan.stages.length === 0
+  ) {
+    return {
+      ...params.plan,
+      activeStageId: null,
+      activeWorkflowPlaybook,
+      activeWorkflowPlaybookId,
+      lastProgressNote:
+        params.currentStatus?.blockedReason ||
+        params.currentStatus?.statusDescription ||
+        params.plan.lastProgressNote,
+      stages: [],
+    };
+  }
+
+  const stages =
+    params.plan.stages.length > 0
+      ? params.plan.stages
+      : buildDefaultPlanStages(params.plan.deliverableType);
   const activeStageKind = resolveActiveStageKind({
     activeAssistantRun: params.activeAssistantRun,
     deliverableType: params.plan.deliverableType,
-    workflowSummary: params.workflowSummary,
+    currentStatus: params.currentStatus,
   });
   const activeIndex = stages.findIndex((stage) => stage.kind === activeStageKind);
   const normalizedIndex = activeIndex >= 0 ? activeIndex : 0;
   const normalizedStages = stages.map((stage, index) => {
-    if (params.workflowSummary?.phase === 'blocked' && index === normalizedIndex) {
+    if (params.currentStatus?.phase === 'blocked' && index === normalizedIndex) {
       return { ...stage, status: 'blocked' as const };
     }
 
-    if (params.workflowSummary?.phase === 'finalized') {
+    if (params.currentStatus?.phase === 'finalized') {
       return { ...stage, status: 'completed' as const };
     }
 
@@ -552,9 +739,11 @@ export function hydrateWorkspacePlanForView(params: {
   return {
     ...params.plan,
     activeStageId: normalizedStages[normalizedIndex]?.id || params.plan.activeStageId,
+    activeWorkflowPlaybook,
+    activeWorkflowPlaybookId,
     lastProgressNote:
-      params.workflowSummary?.blockedReason ||
-      params.workflowSummary?.statusDescription ||
+      params.currentStatus?.blockedReason ||
+      params.currentStatus?.statusDescription ||
       params.plan.lastProgressNote,
     stages: normalizedStages,
   };
@@ -604,12 +793,15 @@ function parseChangeSetPatches(changesJson: string): StagedChangePatchData[] {
 
 function parsePlanStages(
   raw: string,
-  deliverableType: DeliverableType
+  deliverableType: DeliverableType,
+  status?: string
 ): WorkspacePlanStageData[] {
+  const allowEmptyStages = status === 'generating' || status === 'blocked';
+
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) {
-      return buildDefaultPlanStages(deliverableType);
+      return allowEmptyStages ? [] : buildDefaultPlanStages(deliverableType);
     }
 
     const fallbackStages = buildDefaultPlanStages(deliverableType);
@@ -649,9 +841,13 @@ function parsePlanStages(
       })
       .filter((stage): stage is WorkspacePlanStageData => Boolean(stage));
 
-    return normalized.length > 0 ? normalized : fallbackStages;
+    if (normalized.length > 0) {
+      return normalized;
+    }
+
+    return allowEmptyStages ? [] : fallbackStages;
   } catch {
-    return buildDefaultPlanStages(deliverableType);
+    return allowEmptyStages ? [] : buildDefaultPlanStages(deliverableType);
   }
 }
 
@@ -660,7 +856,7 @@ function resolvePlanStages(params: {
   existing: WorkspacePlanData | null;
   nextStages?: WorkspacePlanStageData[];
 }) {
-  if (params.nextStages && params.nextStages.length > 0) {
+  if (params.nextStages !== undefined) {
     return params.nextStages;
   }
 
@@ -673,14 +869,14 @@ function resolvePlanStages(params: {
 
 function resolveActiveStageKind(params: {
   activeAssistantRun: AssistantRunData | null;
+  currentStatus: WorkspaceCurrentStatusData | null;
   deliverableType: DeliverableType;
-  workflowSummary: WorkflowSummaryData | null;
 }) {
-  if (params.workflowSummary?.phase === 'planning') {
+  if (params.currentStatus?.phase === 'planning') {
     return 'clarify';
   }
 
-  if (params.workflowSummary?.phase === 'implementing') {
+  if (params.currentStatus?.phase === 'implementing') {
     if (params.activeAssistantRun?.mode === 'replan') {
       return 'structure';
     }
@@ -697,17 +893,17 @@ function resolveActiveStageKind(params: {
   }
 
   if (
-    params.workflowSummary?.phase === 'preview_ready' ||
-    params.workflowSummary?.phase === 'preview_running'
+    params.currentStatus?.phase === 'preview_ready' ||
+    params.currentStatus?.phase === 'preview_running'
   ) {
     return params.deliverableType === 'web' ? 'preview' : 'review';
   }
 
-  if (params.workflowSummary?.phase === 'reviewing' || params.workflowSummary?.phase === 'blocked') {
+  if (params.currentStatus?.phase === 'reviewing' || params.currentStatus?.phase === 'blocked') {
     return params.deliverableType === 'code' ? 'verify' : 'review';
   }
 
-  if (params.workflowSummary?.phase === 'finalized') {
+  if (params.currentStatus?.phase === 'finalized') {
     return 'finalize';
   }
 

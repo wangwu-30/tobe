@@ -143,6 +143,30 @@ async function runBackendSmoke(params) {
       );
     }
 
+    const searchProvidersResponse = await harness.route({
+      body: { kind: 'empty' },
+      headers: {
+        'x-dao-device-id': 'smoke-device',
+        'x-dao-organization-id': 'smoke-org',
+        'x-dao-user-id': 'smoke-user',
+      },
+      method: 'GET',
+      path: '/api/search/providers',
+    });
+
+    if (searchProvidersResponse.status !== 200) {
+      throw new Error(
+        `Packaged backend search providers route failed with ${searchProvidersResponse.status}: ${searchProvidersResponse.text}`
+      );
+    }
+
+    const searchProvidersPayload = JSON.parse(searchProvidersResponse.text);
+    if (!Array.isArray(searchProvidersPayload?.providers) || searchProvidersPayload.providers.length === 0) {
+      throw new Error(
+        `Packaged backend search providers route returned an empty payload: ${searchProvidersResponse.text}`
+      );
+    }
+
     const createResponse = await harness.route({
       body: {
         kind: 'text',
@@ -173,6 +197,68 @@ async function runBackendSmoke(params) {
     if (!payload?.workspace?.id || !payload?.primaryFile?.id || !payload?.conversation?.id) {
       throw new Error(
         `Packaged backend workspace creation returned an incomplete payload: ${createResponse.text}`
+      );
+    }
+
+    const searchQueryResponse = await harness.route({
+      body: {
+        kind: 'text',
+        value: JSON.stringify({
+          maxResults: 3,
+          query: 'packaged smoke',
+        }),
+      },
+      headers: {
+        'content-type': 'application/json',
+        'x-dao-device-id': 'smoke-device',
+        'x-dao-organization-id': 'smoke-org',
+        'x-dao-user-id': 'smoke-user',
+      },
+      method: 'POST',
+      path: '/api/search/query',
+    });
+
+    const searchQueryPayload = JSON.parse(searchQueryResponse.text);
+    if (searchQueryResponse.status === 200) {
+      if (!Array.isArray(searchQueryPayload?.results)) {
+        throw new Error(
+          `Packaged backend search query returned an invalid success payload: ${searchQueryResponse.text}`
+        );
+      }
+    } else if (
+      searchQueryResponse.status !== 400 ||
+      typeof searchQueryPayload?.error !== 'string'
+    ) {
+      throw new Error(
+        `Packaged backend search query returned an unexpected failure payload: ${searchQueryResponse.status} ${searchQueryResponse.text}`
+      );
+    }
+
+    const planGenerateResponse = await harness.route({
+      body: { kind: 'empty' },
+      headers: {
+        'x-dao-device-id': 'smoke-device',
+        'x-dao-organization-id': 'smoke-org',
+        'x-dao-user-id': 'smoke-user',
+      },
+      method: 'POST',
+      path: `/api/workspaces/${payload.workspace.id}/plan/generate`,
+    });
+
+    const planGeneratePayload = JSON.parse(planGenerateResponse.text);
+    if (planGenerateResponse.status === 200) {
+      if (!Array.isArray(planGeneratePayload?.stages)) {
+        throw new Error(
+          `Packaged backend plan generate returned an invalid success payload: ${planGenerateResponse.text}`
+        );
+      }
+    } else if (
+      !planGeneratePayload?.plan ||
+      planGeneratePayload.plan.status !== 'blocked' ||
+      typeof planGeneratePayload.error !== 'string'
+    ) {
+      throw new Error(
+        `Packaged backend plan generate returned an unexpected failure payload: ${planGenerateResponse.status} ${planGenerateResponse.text}`
       );
     }
   } finally {

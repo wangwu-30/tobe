@@ -51,7 +51,7 @@ export async function POST(
     conversationId: run.sessionId,
     organizationId: actor.organizationId,
   });
-  const searchProvider = getSearchProviderFromHeaders(req.headers);
+  const searchProvider = await getSearchProviderFromHeaders(req.headers);
   const systemPrompt = await buildChatSystemPrompt({
     conversationId: run.sessionId,
     language: settings.language,

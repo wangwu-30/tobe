@@ -1,19 +1,26 @@
 import { Prisma } from '@/generated/prisma/client';
+import { normalizeCommentThreadStatus } from '@/lib/comments/status';
 import { prisma } from '@/lib/db/prisma';
-import { bindResolvedThreadsToVersion } from '@/lib/comments/version-binding';
+import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
 import { listWorkspaceRuns, startWorkspacePreview } from '@/lib/platform/run-service';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage } from '@/lib/i18n/language';
 import { parseAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
 import {
+  parseCommentAgentBindings,
+  parseCommentAgentMentionsJson,
+} from '@/lib/comments/agents';
+import { parseCommentResearchState } from '@/lib/comments/research';
+import {
+  isPinnedRecoveryVersionType,
+  isRecoveryVersionType,
   buildDeliverable,
   getWorkspacePlan,
   hydrateWorkspacePlanForView,
-  isPinnedRecoverySnapshotType,
-  isRecoverySnapshotType,
   isVisibleVersion,
   listStagedChangeSets,
+  mapWorkspacePlan,
 } from '@/lib/workspace/planning';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import { deriveWorkflowSummary } from '@/lib/workspace/workflow';
@@ -29,12 +36,14 @@ import type {
   ConversationWithRelations,
   KnowledgeItemData,
   MemoryData,
+  ProjectSummaryData,
+  ReviewAnchorData,
   WorkspaceData,
   WorkspaceEditLockData,
   WorkspaceFileData,
-  WorkspaceSidebarItem,
-  WorkspaceSnapshotData,
-  WorkspaceSnapshotFileData,
+  WorkspaceVersionData,
+  WorkspaceVersionFileData,
+  WorkspaceVersionType,
   WorkspaceViewData,
   WorkspaceWithRelations,
 } from '@/types';
@@ -51,10 +60,54 @@ type LockConflict = {
   workspaceId: string;
 };
 
-type SnapshotPayload = {
-  files: WorkspaceSnapshotFileData[];
+type VersionPayload = {
+  files: WorkspaceVersionFileData[];
   workspaceTitle?: string;
 };
+
+function normalizeWorkspaceVersionType(
+  value: string | null | undefined
+): WorkspaceVersionType {
+  if (value === 'checkpoint' || value === 'checkpoint_pinned') {
+    return value;
+  }
+
+  return 'manual';
+}
+
+async function resolveDraftBaseVersionIdForVersion(
+  organizationId: string,
+  versionId: string | null
+): Promise<string | null> {
+  let currentVersionId = versionId;
+
+  while (currentVersionId) {
+    const version = await prisma.version.findFirst({
+      where: {
+        deletedAt: null,
+        id: currentVersionId,
+        organizationId,
+      },
+      select: {
+        id: true,
+        parentVersionId: true,
+        versionType: true,
+      },
+    });
+
+    if (!version) {
+      return null;
+    }
+
+    if (!isRecoveryVersionType(normalizeWorkspaceVersionType(version.versionType))) {
+      return version.id;
+    }
+
+    currentVersionId = version.parentVersionId;
+  }
+
+  return null;
+}
 
 type SupportFileEnvelope = {
   base64?: string;
@@ -68,6 +121,7 @@ type SupportFileEnvelope = {
 const MAX_PINNED_RECOVERY_POINTS = 3;
 const MAX_TEMPORARY_RECOVERY_POINTS = 1;
 const SUPPORT_UPLOADS_ROOT = 'Uploads';
+export const PROJECT_TREE_SORT_STEP = 1024;
 
 export class WorkspaceLockConflictError extends Error {
   readonly detail: LockConflict;
@@ -86,50 +140,133 @@ export class WorkspaceRecoveryPinLimitError extends Error {
   }
 }
 
-export async function listWorkspaces(
+function resolveWorkspaceProjectId(workspace: {
+  id: string;
+  projectId?: string | null;
+}) {
+  return workspace.projectId || workspace.id;
+}
+
+function resolveWorkspaceProjectTitle(workspace: {
+  projectTitle?: string | null;
+  title: string;
+}) {
+  return workspace.projectTitle?.trim() || workspace.title;
+}
+
+type ProjectSummarySeed = {
+  id: string;
+  projectId: string | null;
+  projectTitle: string | null;
+  title: string;
+  updatedAt: Date;
+};
+
+function buildProjectSummary(
+  projectDocuments: ProjectSummarySeed[],
+  workspace?: ProjectSummarySeed | null
+): ProjectSummaryData | null {
+  const documents = projectDocuments.length > 0
+    ? [...projectDocuments].sort(
+        (left, right) =>
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+      )
+    : workspace
+      ? [workspace]
+      : [];
+
+  const latestWorkspace = documents[0] || workspace || null;
+  const anchorWorkspace = workspace || latestWorkspace;
+
+  if (!latestWorkspace || !anchorWorkspace) {
+    return null;
+  }
+
+  return {
+    id: resolveWorkspaceProjectId(anchorWorkspace),
+    workspaceId: latestWorkspace.id,
+    title: resolveWorkspaceProjectTitle(anchorWorkspace),
+    preview: latestWorkspace.title,
+    deliverableCount: documents.length,
+    latestDeliverableTitle: latestWorkspace.title || null,
+    updatedAt: latestWorkspace.updatedAt,
+  };
+}
+
+export async function getNextProjectTreeSortOrder(
+  params: {
+    organizationId: string;
+    parentFolderId: string | null;
+    projectId: string;
+  },
+  db: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const [lastDeliverable, lastFolder] = await Promise.all([
+    db.document.findFirst({
+      where: {
+        deletedAt: null,
+        organizationId: params.organizationId,
+        projectId: params.projectId,
+        projectFolderId: params.parentFolderId,
+      },
+      select: { treeSortOrder: true },
+      orderBy: [{ treeSortOrder: 'desc' }, { updatedAt: 'desc' }],
+    }),
+    db.projectFolder.findFirst({
+      where: {
+        deletedAt: null,
+        organizationId: params.organizationId,
+        projectId: params.projectId,
+        parentId: params.parentFolderId,
+      },
+      select: { treeSortOrder: true },
+      orderBy: [{ treeSortOrder: 'desc' }, { updatedAt: 'desc' }],
+    }),
+  ]);
+
+  return (
+    Math.max(lastDeliverable?.treeSortOrder || 0, lastFolder?.treeSortOrder || 0) +
+    PROJECT_TREE_SORT_STEP
+  );
+}
+
+export async function listProjects(
   organizationId: string
-): Promise<WorkspaceSidebarItem[]> {
+): Promise<ProjectSummaryData[]> {
   const workspaces = await prisma.document.findMany({
     where: {
       deletedAt: null,
       organizationId,
     },
-    include: {
-      conversations: {
-        where: { deletedAt: null },
-        orderBy: { updatedAt: 'desc' },
-        take: 1,
-        include: {
-          messages: {
-            where: { deletedAt: null },
-            orderBy: { createdAt: 'desc' },
-            take: 1,
-          },
-        },
-      },
-      files: {
-        where: {
-          deletedAt: null,
-          isPrimary: true,
-        },
-        orderBy: { updatedAt: 'desc' },
-        take: 1,
-      },
+    select: {
+      id: true,
+      projectId: true,
+      projectTitle: true,
+      title: true,
+      updatedAt: true,
     },
     orderBy: { updatedAt: 'desc' },
   });
 
-  return workspaces.map((workspace) => ({
-    id: workspace.id,
-    title: workspace.title,
-    preview:
-      workspace.conversations[0]?.messages[0]?.content?.replace(/\s+/g, ' ').trim() ||
-      workspace.files[0]?.name ||
-      workspace.title ||
-      'Open this project',
-    updatedAt: workspace.updatedAt,
-  }));
+  const projects = new Map<string, ProjectSummarySeed[]>();
+
+  workspaces.forEach((workspace) => {
+    const projectId = resolveWorkspaceProjectId(workspace);
+    const bucket = projects.get(projectId) || [];
+    bucket.push(workspace);
+    projects.set(projectId, bucket);
+  });
+
+  return Array.from(projects.values())
+    .map((projectDocuments) => buildProjectSummary(projectDocuments))
+    .filter((project): project is ProjectSummaryData => Boolean(project))
+    .sort(
+      (left, right) =>
+        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+    );
 }
+
+export const listWorkspaces = listProjects;
 
 export async function createWorkspaceWithConversation(
   actor: ActorContext,
@@ -159,7 +296,7 @@ export async function createWorkspaceWithConversation(
       },
     });
 
-    const workspace = await tx.document.create({
+    let workspace = await tx.document.create({
       data: {
         organizationId: actor.organizationId,
         sessionId: conversation.id,
@@ -168,6 +305,14 @@ export async function createWorkspaceWithConversation(
         status: 'draft',
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
+      },
+    });
+
+    workspace = await tx.document.update({
+      where: { id: workspace.id },
+      data: {
+        projectId: workspace.id,
+        projectTitle: title,
       },
     });
 
@@ -261,9 +406,10 @@ export async function createConversationForWorkspace(
   actor: ActorContext,
   input: {
     activeFileId?: string | null;
-    baseSnapshotId?: string | null;
+    baseVersionId?: string | null;
     forkedFromMessageId?: string | null;
     parentConversationId?: string | null;
+    sourceType?: string;
     title?: string;
     workspaceId: string;
   }
@@ -282,6 +428,7 @@ export async function createConversationForWorkspace(
 
   const files = await ensureWorkspaceFiles(actor.organizationId, workspace.id);
   const primaryFile = resolvePrimaryFile(files);
+  const sourceType = input.sourceType || 'chat';
 
   const conversation = await prisma.session.create({
     data: {
@@ -290,11 +437,11 @@ export async function createConversationForWorkspace(
       title: input.title?.trim() || workspace.title,
       parentSessionId: input.parentConversationId || null,
       forkedFromMessageId: input.forkedFromMessageId || null,
-      baseVersionId: input.baseSnapshotId || null,
+      baseVersionId: input.baseVersionId || null,
       activeFileId: input.activeFileId || primaryFile?.id || null,
       createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
-      sourceType: 'chat',
+      sourceType,
     },
   });
 
@@ -306,15 +453,52 @@ export async function createConversationForWorkspace(
     originDeviceId: actor.deviceId,
     payload: {
       op: 'create',
-      title: conversation.title,
-      workspaceId: workspace.id,
-      parentConversationId: input.parentConversationId || null,
-      baseSnapshotId: input.baseSnapshotId || null,
-    },
-    revision: conversation.revision,
-  });
+        title: conversation.title,
+        workspaceId: workspace.id,
+        parentConversationId: input.parentConversationId || null,
+        baseVersionId: input.baseVersionId || null,
+        sourceType,
+      },
+      revision: conversation.revision,
+    });
 
   return mapConversation(conversation);
+}
+
+export async function createConversationFromWorkspaceVersion(
+  actor: ActorContext,
+  input: {
+    activeFileId?: string | null;
+    parentConversationId?: string | null;
+    title?: string;
+    versionId: string;
+    workspaceId: string;
+  }
+) {
+  const version = await prisma.version.findFirst({
+    where: {
+      deletedAt: null,
+      documentId: input.workspaceId,
+      id: input.versionId,
+      organizationId: actor.organizationId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!version) {
+    throw new Error('Version not found.');
+  }
+
+  return createConversationForWorkspace(actor, {
+    activeFileId: input.activeFileId,
+    baseVersionId: version.id,
+    parentConversationId: input.parentConversationId,
+    sourceType: 'version',
+    title: input.title,
+    workspaceId: input.workspaceId,
+  });
 }
 
 export async function listConversations(params: {
@@ -619,15 +803,20 @@ export async function branchConversation(
 
   const forkMessage = messages[forkIndex];
   const inheritedMessages = messages.slice(0, forkIndex + 1);
-  const baseSnapshot = await findNearestSnapshotBeforeMessage({
+  const baseVersion = await findNearestVersionBeforeMessage({
     messageCreatedAt: forkMessage.createdAt,
     organizationId: actor.organizationId,
     workspaceId: conversation.wikiId,
   });
 
+  const fallbackTitle = truncate(
+    forkMessage.content.replace(/\s+/g, ' ').trim(),
+    42
+  ).trim();
   const title =
     input.title?.trim() ||
-    `Branch: ${truncate(forkMessage.content.replace(/\s+/g, ' ').trim(), 42)}`;
+    fallbackTitle ||
+    'New Conversation';
 
   const branchedConversation = await prisma.$transaction(async (tx) => {
     const nextConversation = await tx.session.create({
@@ -637,7 +826,7 @@ export async function branchConversation(
         title,
         parentSessionId: conversation.id,
         forkedFromMessageId: forkMessage.id,
-        baseVersionId: baseSnapshot?.id || conversation.baseVersionId || null,
+        baseVersionId: baseVersion?.id || conversation.baseVersionId || null,
         activeFileId: conversation.activeFileId,
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
@@ -674,14 +863,14 @@ export async function branchConversation(
       op: 'branch',
       parentConversationId: conversation.id,
       forkedFromMessageId: forkMessage.id,
-      baseSnapshotId: baseSnapshot?.id || conversation.baseVersionId || null,
+      baseVersionId: baseVersion?.id || conversation.baseVersionId || null,
       workspaceId: conversation.wikiId,
     },
     revision: branchedConversation.revision,
   });
 
   return {
-    baseSnapshot: baseSnapshot ? mapWorkspaceSnapshot(baseSnapshot) : null,
+    baseVersion: baseVersion ? mapWorkspaceVersion(baseVersion) : null,
     conversation: mapConversation(branchedConversation),
   };
 }
@@ -690,6 +879,8 @@ export async function updateWorkspace(
   actor: ActorContext,
   input: {
     content?: string;
+    projectFolderId?: string | null;
+    treeSortOrder?: number;
     status?: string;
     title?: string;
     workspaceId: string;
@@ -698,6 +889,50 @@ export async function updateWorkspace(
   await ensureWorkspaceEditable(actor, input.workspaceId);
   const files = await ensureWorkspaceFiles(actor.organizationId, input.workspaceId);
   const primaryFile = resolvePrimaryFile(files);
+  const workspaceRecord =
+    input.projectFolderId !== undefined
+      ? await prisma.document.findFirst({
+          where: {
+            deletedAt: null,
+            id: input.workspaceId,
+            organizationId: actor.organizationId,
+          },
+          select: { id: true, projectFolderId: true, projectId: true, treeSortOrder: true },
+        })
+      : null;
+
+  if (input.projectFolderId !== undefined && !workspaceRecord) {
+    throw new Error('Workspace not found.');
+  }
+
+  if (input.projectFolderId) {
+    const projectFolder = await prisma.projectFolder.findFirst({
+      where: {
+        deletedAt: null,
+        id: input.projectFolderId,
+        organizationId: actor.organizationId,
+        projectId: resolveWorkspaceProjectId(workspaceRecord!),
+      },
+      select: { id: true },
+    });
+
+    if (!projectFolder) {
+      throw new Error('Project folder not found.');
+    }
+  }
+
+  const nextTreeSortOrder =
+    input.treeSortOrder !== undefined
+      ? input.treeSortOrder
+      : input.projectFolderId !== undefined &&
+          workspaceRecord &&
+          workspaceRecord.projectFolderId !== input.projectFolderId
+        ? await getNextProjectTreeSortOrder({
+            organizationId: actor.organizationId,
+            parentFolderId: input.projectFolderId || null,
+            projectId: resolveWorkspaceProjectId(workspaceRecord),
+          })
+        : undefined;
 
   if (input.content !== undefined && primaryFile) {
     await prisma.workspaceFile.update({
@@ -717,6 +952,12 @@ export async function updateWorkspace(
     where: { id: input.workspaceId },
     data: {
       ...(input.content !== undefined && { content: input.content }),
+      ...(input.projectFolderId !== undefined && {
+        projectFolderId: input.projectFolderId,
+      }),
+      ...(nextTreeSortOrder !== undefined && {
+        treeSortOrder: nextTreeSortOrder,
+      }),
       ...(input.status !== undefined && { status: input.status }),
       ...(input.title !== undefined && { title: input.title }),
       originDeviceId: actor.deviceId,
@@ -737,6 +978,8 @@ export async function updateWorkspace(
     payload: {
       op: 'update',
       status: input.status,
+      projectFolderId: input.projectFolderId,
+      treeSortOrder: nextTreeSortOrder,
       title: input.title,
       hasContent: input.content !== undefined,
     },
@@ -852,6 +1095,7 @@ export async function updateWorkspaceFile(
     parentId?: string | null;
     role?: 'deliverable' | 'support';
     setPrimary?: boolean;
+    sortOrder?: number;
     workspaceId: string;
   }
 ) {
@@ -881,44 +1125,121 @@ export async function updateWorkspaceFile(
       })
     : null;
 
+  if (
+    nextParent &&
+    (nextParent.id === existing.id || nextParent.path.startsWith(`${existing.path}/`))
+  ) {
+    throw new Error('Cannot move a folder into itself or one of its descendants.');
+  }
+
+  const nextParentId = input.parentId === undefined ? existing.parentId : input.parentId;
+
   const siblings = await prisma.workspaceFile.findMany({
     where: {
       deletedAt: null,
       documentId: input.workspaceId,
       organizationId: actor.organizationId,
-      parentId: input.parentId === undefined ? existing.parentId : input.parentId,
+      parentId: nextParentId,
       id: { not: existing.id },
     },
   });
+  const previousSiblings =
+    input.parentId !== undefined && existing.parentId !== nextParentId
+      ? await prisma.workspaceFile.findMany({
+          where: {
+            deletedAt: null,
+            documentId: input.workspaceId,
+            organizationId: actor.organizationId,
+            parentId: existing.parentId,
+            id: { not: existing.id },
+          },
+        })
+      : [];
 
   const nextName =
     input.name !== undefined
       ? makeUniqueChildName(input.name.trim() || existing.name, siblings)
       : existing.name;
-  const nextParentId = input.parentId === undefined ? existing.parentId : input.parentId;
   const nextPath =
     input.name !== undefined || input.parentId !== undefined
       ? buildWorkspacePath(nextParent?.path || null, nextName)
       : existing.path;
+  const normalizedSiblings = [...siblings].sort((left, right) => left.sortOrder - right.sortOrder);
+  const targetSortOrder =
+    input.sortOrder === undefined
+      ? existing.sortOrder
+      : Math.max(0, Math.min(Math.trunc(input.sortOrder), normalizedSiblings.length));
+  const requiresSortNormalization =
+    input.parentId !== undefined ||
+    input.sortOrder !== undefined;
 
-  const file = await prisma.workspaceFile.update({
-    where: { id: existing.id },
-    data: {
-      ...(input.content !== undefined && { content: input.content }),
-      ...(input.kind !== undefined && { kind: input.kind }),
-      ...(input.role !== undefined && { role: input.role }),
-      ...(input.language !== undefined && { language: input.language }),
-      ...(input.name !== undefined && { name: nextName }),
-      ...(input.parentId !== undefined && { parentId: nextParentId }),
-      ...(nextPath !== existing.path && { path: nextPath }),
-      originDeviceId: actor.deviceId,
-      createdByUserId: actor.userId,
-      revision: {
-        increment: 1,
-      },
-      updatedAt: new Date(),
-    },
-  });
+  const file = requiresSortNormalization
+    ? await prisma.$transaction(async (tx) => {
+        const updated = await tx.workspaceFile.update({
+          where: { id: existing.id },
+          data: {
+            ...(input.content !== undefined && { content: input.content }),
+            ...(input.kind !== undefined && { kind: input.kind }),
+            ...(input.role !== undefined && { role: input.role }),
+            ...(input.language !== undefined && { language: input.language }),
+            ...(input.name !== undefined && { name: nextName }),
+            ...(input.parentId !== undefined && { parentId: nextParentId }),
+            ...(nextPath !== existing.path && { path: nextPath }),
+            sortOrder: targetSortOrder,
+            originDeviceId: actor.deviceId,
+            createdByUserId: actor.userId,
+            revision: {
+              increment: 1,
+            },
+            updatedAt: new Date(),
+          },
+        });
+
+        const reorderedTargetIds = [
+          ...normalizedSiblings.slice(0, targetSortOrder).map((item) => item.id),
+          updated.id,
+          ...normalizedSiblings.slice(targetSortOrder).map((item) => item.id),
+        ];
+
+        for (const [index, id] of reorderedTargetIds.entries()) {
+          await tx.workspaceFile.update({
+            where: { id },
+            data: { sortOrder: index },
+          });
+        }
+
+        if (previousSiblings.length > 0) {
+          const reorderedPreviousIds = [...previousSiblings]
+            .sort((left, right) => left.sortOrder - right.sortOrder)
+            .map((item) => item.id);
+          for (const [index, id] of reorderedPreviousIds.entries()) {
+            await tx.workspaceFile.update({
+              where: { id },
+              data: { sortOrder: index },
+            });
+          }
+        }
+
+        return updated;
+      })
+    : await prisma.workspaceFile.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.content !== undefined && { content: input.content }),
+          ...(input.kind !== undefined && { kind: input.kind }),
+          ...(input.role !== undefined && { role: input.role }),
+          ...(input.language !== undefined && { language: input.language }),
+          ...(input.name !== undefined && { name: nextName }),
+          ...(input.parentId !== undefined && { parentId: nextParentId }),
+          ...(nextPath !== existing.path && { path: nextPath }),
+          originDeviceId: actor.deviceId,
+          createdByUserId: actor.userId,
+          revision: {
+            increment: 1,
+          },
+          updatedAt: new Date(),
+        },
+      });
 
   if (nextPath !== existing.path) {
     await rebuildDescendantPaths({
@@ -1114,11 +1435,11 @@ export async function deleteWorkspaceFile(
   return { deleted: true };
 }
 
-export async function listWorkspaceSnapshots(params: {
+export async function listWorkspaceVersions(params: {
   organizationId: string;
   workspaceId: string;
 }) {
-  const snapshots = await prisma.version.findMany({
+  const versions = await prisma.version.findMany({
     where: {
       deletedAt: null,
       documentId: params.workspaceId,
@@ -1127,13 +1448,14 @@ export async function listWorkspaceSnapshots(params: {
     orderBy: { versionNum: 'desc' },
   });
 
-  return snapshots.map(mapWorkspaceSnapshot);
+  return versions.map(mapWorkspaceVersion);
 }
 
-export async function createWorkspaceSnapshot(
+export async function createWorkspaceVersion(
   actor: ActorContext,
   input: {
-    snapshotType?: string;
+    bindDraftThreads?: boolean;
+    versionType?: WorkspaceVersionType;
     sourceConversationId?: string | null;
     sourceMessageId?: string | null;
     title?: string;
@@ -1141,7 +1463,11 @@ export async function createWorkspaceSnapshot(
   }
 ) {
   await ensureWorkspaceEditable(actor, input.workspaceId);
-  const snapshotType = input.snapshotType || 'manual';
+  const versionType = normalizeWorkspaceVersionType(input.versionType);
+  const shouldBindDraftThreads =
+    input.bindDraftThreads !== undefined
+      ? input.bindDraftThreads
+      : versionType !== 'checkpoint';
 
   const workspace = await prisma.document.findFirst({
     where: {
@@ -1158,7 +1484,7 @@ export async function createWorkspaceSnapshot(
   const files = await ensureWorkspaceFiles(actor.organizationId, workspace.id);
   const mappedFiles = files.map(mapWorkspaceFile);
   const primaryFile = resolvePrimaryFile(files);
-  const [latestSnapshot, latestVisibleSnapshot] = await Promise.all([
+  const [latestVersion, latestVisibleVersion] = await Promise.all([
     prisma.version.findFirst({
       where: {
         deletedAt: null,
@@ -1167,14 +1493,14 @@ export async function createWorkspaceSnapshot(
       },
       orderBy: { versionNum: 'desc' },
     }),
-    snapshotType === 'checkpoint'
+    versionType === 'checkpoint'
       ? Promise.resolve(null)
       : prisma.version.findFirst({
           where: {
             deletedAt: null,
             documentId: workspace.id,
             organizationId: actor.organizationId,
-            snapshotType: {
+            versionType: {
               not: 'checkpoint',
             },
           },
@@ -1183,105 +1509,118 @@ export async function createWorkspaceSnapshot(
   ]);
 
   const nextVersion = workspace.currentVersion + 1;
-  const snapshotContent = serializeWorkspaceSnapshot({
-    files: mappedFiles.map(mapWorkspaceFileToSnapshot),
+  const versionContent = serializeWorkspaceVersion({
+    files: mappedFiles.map(mapWorkspaceFileToVersion),
     workspaceTitle: input.title?.trim() || workspace.title,
   });
 
-  const [snapshot] = await prisma.$transaction([
-    prisma.version.create({
+  const version = await prisma.$transaction(async (tx) => {
+    const created = await tx.version.create({
       data: {
         organizationId: actor.organizationId,
         documentId: workspace.id,
         versionNum: nextVersion,
-        content: snapshotContent,
+        content: versionContent,
         title: input.title?.trim() || workspace.title,
         parentVersionId:
-          snapshotType === 'checkpoint'
-            ? latestSnapshot?.id || null
-            : latestVisibleSnapshot?.id || null,
+          versionType === 'checkpoint'
+            ? latestVersion?.id || null
+            : latestVisibleVersion?.id || null,
         sourceSessionId: input.sourceConversationId || null,
         sourceMessageId: input.sourceMessageId || null,
-        snapshotType,
+        versionType,
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
       },
-    }),
-    prisma.document.update({
+    });
+
+    await tx.document.update({
       where: { id: workspace.id },
       data: {
         currentVersion: nextVersion,
+        draftRevision: {
+          increment: 1,
+        },
         originDeviceId: actor.deviceId,
         revision: {
           increment: 1,
         },
         ...(primaryFile ? { content: primaryFile.content } : {}),
+        ...(isRecoveryVersionType(versionType)
+          ? {}
+          : { draftBaseVersionId: created.id }),
       },
-    }),
-  ]);
+    });
 
-  await bindResolvedThreadsToVersion(workspace.id, snapshot.id);
+    return created;
+  });
+
+  if (shouldBindDraftThreads) {
+    await bindDraftThreadsToVersion(workspace.id, version.id, workspace.draftRevision);
+  }
 
   await recordSyncEvent({
     actorUserId: actor.userId,
-    entityId: snapshot.id,
-    entityType: 'workspace_snapshot',
+    entityId: version.id,
+    entityType: 'workspace_version',
     organizationId: actor.organizationId,
     originDeviceId: actor.deviceId,
     payload: {
       op: 'create',
-      versionNum: snapshot.versionNum,
+      versionNum: version.versionNum,
       workspaceId: workspace.id,
       sourceConversationId: input.sourceConversationId || null,
       sourceMessageId: input.sourceMessageId || null,
     },
-    revision: snapshot.revision,
+    revision: version.revision,
   });
 
-  if (snapshotType === 'checkpoint') {
+  if (versionType === 'checkpoint') {
     await pruneWorkspaceRecoveryCheckpoints({
       organizationId: actor.organizationId,
       workspaceId: workspace.id,
     });
   }
 
-  return mapWorkspaceSnapshot(snapshot);
+  return mapWorkspaceVersion(version);
 }
 
-export async function setWorkspaceSnapshotPinned(
+export async function setWorkspaceVersionPinned(
   actor: ActorContext,
   input: {
     pinned: boolean;
-    snapshotId: string;
+    versionId: string;
     workspaceId: string;
   }
 ) {
   await ensureWorkspaceEditable(actor, input.workspaceId);
 
-  const snapshot = await prisma.version.findFirst({
+  const version = await prisma.version.findFirst({
     where: {
       deletedAt: null,
       documentId: input.workspaceId,
-      id: input.snapshotId,
+      id: input.versionId,
       organizationId: actor.organizationId,
     },
   });
 
-  if (!snapshot) {
-    throw new Error('Snapshot not found.');
+  if (!version) {
+    throw new Error('Version not found.');
   }
 
-  if (!isRecoverySnapshotType(snapshot.snapshotType)) {
+  const normalizedVersionType = normalizeWorkspaceVersionType(version.versionType);
+
+  if (!isRecoveryVersionType(normalizedVersionType)) {
     throw new Error('Only recovery points can be pinned.');
   }
 
-  if (input.pinned && !isPinnedRecoverySnapshotType(snapshot.snapshotType)) {
+  if (input.pinned && !isPinnedRecoveryVersionType(normalizedVersionType)) {
     const pinnedCount = await prisma.version.count({
       where: {
         deletedAt: null,
         documentId: input.workspaceId,
         organizationId: actor.organizationId,
-        snapshotType: 'checkpoint_pinned',
+        versionType: 'checkpoint_pinned',
       },
     });
 
@@ -1292,13 +1631,13 @@ export async function setWorkspaceSnapshotPinned(
 
   const updated = await prisma.version.update({
     where: {
-      id: snapshot.id,
+      id: version.id,
     },
     data: {
       revision: {
         increment: 1,
       },
-      snapshotType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
+      versionType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
     },
   });
 
@@ -1307,29 +1646,29 @@ export async function setWorkspaceSnapshotPinned(
     workspaceId: input.workspaceId,
   });
 
-  return mapWorkspaceSnapshot(updated);
+  return mapWorkspaceVersion(updated);
 }
 
-export async function restoreWorkspaceSnapshot(
+export async function restoreWorkspaceVersion(
   actor: ActorContext,
   input: {
-    snapshotId: string;
+    versionId: string;
     workspaceId: string;
   }
 ) {
   await ensureWorkspaceEditable(actor, input.workspaceId);
 
-  const snapshot = await prisma.version.findFirst({
+  const version = await prisma.version.findFirst({
     where: {
       deletedAt: null,
       documentId: input.workspaceId,
-      id: input.snapshotId,
+      id: input.versionId,
       organizationId: actor.organizationId,
     },
   });
 
-  if (!snapshot) {
-    throw new Error('Snapshot not found.');
+  if (!version) {
+    throw new Error('Version not found.');
   }
 
   const hadActivePreview =
@@ -1343,18 +1682,273 @@ export async function restoreWorkspaceSnapshot(
         run.kind === 'preview' &&
         (run.status === 'pending' || run.status === 'running')
     );
-  const safetyCheckpoint = await createWorkspaceSnapshot(actor, {
-    snapshotType: 'checkpoint',
+  const draftBaseVersionId = await resolveDraftBaseVersionIdForVersion(
+    actor.organizationId,
+    version.id
+  );
+  const safetyCheckpoint = await createWorkspaceVersion(actor, {
+    bindDraftThreads: true,
+    versionType: 'checkpoint',
     title: 'Safety Checkpoint before Restore',
     workspaceId: input.workspaceId,
   });
-  const snapshotFiles = parseSnapshotFiles(snapshot.content);
+  const { restartedPreview } = await replaceWorkspaceDraftWithVersionFiles(actor, {
+    draftBaseVersionId,
+    hadActivePreview,
+    versionFiles: parseVersionFiles(version.content),
+    workspaceId: input.workspaceId,
+  });
+
+  return {
+    restoredVersion: mapWorkspaceVersion(version),
+    restartedPreview,
+    safetyCheckpoint,
+  };
+}
+
+export async function continueWorkspaceFromVersion(
+  actor: ActorContext,
+  input: {
+    activeFileId?: string | null;
+    parentConversationId?: string | null;
+    safetyCheckpointTitle?: string;
+    title?: string;
+    versionId: string;
+    workspaceId: string;
+  }
+) {
+  await ensureWorkspaceEditable(actor, input.workspaceId);
+
+  const sourceVersion = await prisma.version.findFirst({
+    where: {
+      deletedAt: null,
+      documentId: input.workspaceId,
+      id: input.versionId,
+      organizationId: actor.organizationId,
+    },
+  });
+
+  if (!sourceVersion) {
+    throw new Error('Version not found.');
+  }
+
+  const safetyCheckpoint = await createWorkspaceVersion(actor, {
+    bindDraftThreads: true,
+    versionType: 'checkpoint',
+    title: input.safetyCheckpointTitle || 'Safety Checkpoint before Continue',
+    workspaceId: input.workspaceId,
+  });
+
+  const workspace = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: input.workspaceId,
+      organizationId: actor.organizationId,
+    },
+    select: {
+      currentVersion: true,
+      id: true,
+      title: true,
+    },
+  });
+
+  if (!workspace) {
+    throw new Error('Workspace not found.');
+  }
+
+  const branchTitle = input.title?.trim() || sourceVersion.title || workspace.title;
+  const branchVersion = await prisma.$transaction(async (tx) => {
+    const nextVersionNum = workspace.currentVersion + 1;
+    const created = await tx.version.create({
+      data: {
+        organizationId: actor.organizationId,
+        documentId: workspace.id,
+        versionNum: nextVersionNum,
+        content: sourceVersion.content,
+        title: branchTitle,
+        parentVersionId: sourceVersion.id,
+        sourceSessionId: input.parentConversationId || null,
+        sourceMessageId: null,
+        versionType: 'manual',
+        createdByUserId: actor.userId,
+        originDeviceId: actor.deviceId,
+      },
+    });
+
+    await tx.document.update({
+      where: { id: workspace.id },
+      data: {
+        currentVersion: nextVersionNum,
+        originDeviceId: actor.deviceId,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+
+    return created;
+  });
+
+  await recordSyncEvent({
+    actorUserId: actor.userId,
+    entityId: branchVersion.id,
+    entityType: 'workspace_version',
+    organizationId: actor.organizationId,
+    originDeviceId: actor.deviceId,
+    payload: {
+      op: 'create',
+      versionNum: branchVersion.versionNum,
+      workspaceId: workspace.id,
+      sourceConversationId: input.parentConversationId || null,
+      sourceMessageId: null,
+    },
+    revision: branchVersion.revision,
+  });
+
+  const { activeFileId } = await replaceWorkspaceDraftWithVersionFiles(actor, {
+    draftBaseVersionId: branchVersion.id,
+    hadActivePreview: (
+      await listWorkspaceRuns({
+        organizationId: actor.organizationId,
+        workspaceId: input.workspaceId,
+      })
+    ).some(
+      (run) =>
+        run.kind === 'preview' &&
+        (run.status === 'pending' || run.status === 'running')
+    ),
+    preferredActiveFileId: input.activeFileId || null,
+    versionFiles: parseVersionFiles(branchVersion.content),
+    workspaceId: input.workspaceId,
+  });
+
+  const conversation = await createConversationForWorkspace(actor, {
+    activeFileId,
+    baseVersionId: branchVersion.id,
+    parentConversationId: input.parentConversationId,
+    sourceType: 'version',
+    title: branchTitle,
+    workspaceId: input.workspaceId,
+  });
+
+  return {
+    baseVersion: mapWorkspaceVersion(branchVersion),
+    conversation,
+    safetyCheckpoint,
+  };
+}
+
+export async function switchWorkspaceToVersionBranch(
+  actor: ActorContext,
+  input: {
+    activeFileId?: string | null;
+    parentConversationId?: string | null;
+    safetyCheckpointTitle?: string;
+    title?: string;
+    versionId: string;
+    workspaceId: string;
+  }
+) {
+  await ensureWorkspaceEditable(actor, input.workspaceId);
+
+  const sourceVersion = await prisma.version.findFirst({
+    where: {
+      deletedAt: null,
+      documentId: input.workspaceId,
+      id: input.versionId,
+      organizationId: actor.organizationId,
+    },
+  });
+
+  if (!sourceVersion) {
+    throw new Error('Version not found.');
+  }
+
+  if (isRecoveryVersionType(normalizeWorkspaceVersionType(sourceVersion.versionType))) {
+    throw new Error('Only visible branch heads can become the current draft base.');
+  }
+
+  const childVersions = await prisma.version.findMany({
+    where: {
+      deletedAt: null,
+      documentId: input.workspaceId,
+      organizationId: actor.organizationId,
+      parentVersionId: sourceVersion.id,
+    },
+    select: {
+      versionType: true,
+    },
+  });
+
+  if (
+    childVersions.some(
+      (version) => !isRecoveryVersionType(normalizeWorkspaceVersionType(version.versionType))
+    )
+  ) {
+    throw new Error('Only visible branch heads can become the current draft base.');
+  }
+
+  const safetyCheckpoint = await createWorkspaceVersion(actor, {
+    bindDraftThreads: true,
+    versionType: 'checkpoint',
+    title:
+      input.safetyCheckpointTitle || 'Safety Checkpoint before Branch Switch',
+    workspaceId: input.workspaceId,
+  });
+
+  const { activeFileId } = await replaceWorkspaceDraftWithVersionFiles(actor, {
+    draftBaseVersionId: sourceVersion.id,
+    hadActivePreview: (
+      await listWorkspaceRuns({
+        organizationId: actor.organizationId,
+        workspaceId: input.workspaceId,
+      })
+    ).some(
+      (run) =>
+        run.kind === 'preview' &&
+        (run.status === 'pending' || run.status === 'running')
+    ),
+    preferredActiveFileId: input.activeFileId || null,
+    versionFiles: parseVersionFiles(sourceVersion.content),
+    workspaceId: input.workspaceId,
+  });
+
+  const conversation = await createConversationForWorkspace(actor, {
+    activeFileId,
+    baseVersionId: sourceVersion.id,
+    parentConversationId: input.parentConversationId,
+    sourceType: 'version',
+    title: input.title?.trim() || sourceVersion.title,
+    workspaceId: input.workspaceId,
+  });
+
+  return {
+    baseVersion: mapWorkspaceVersion(sourceVersion),
+    conversation,
+    safetyCheckpoint,
+  };
+}
+
+async function replaceWorkspaceDraftWithVersionFiles(
+  actor: ActorContext,
+  input: {
+    draftBaseVersionId?: string | null;
+    hadActivePreview: boolean;
+    preferredActiveFileId?: string | null;
+    versionFiles: WorkspaceVersionFileData[];
+    workspaceId: string;
+  }
+) {
   const existingFiles = await ensureWorkspaceFiles(actor.organizationId, input.workspaceId);
+  const existingById = new Map(existingFiles.map((file) => [file.id, file]));
   const existingByPath = new Map(existingFiles.map((file) => [file.path, file]));
+  const preferredActiveFilePath = input.preferredActiveFileId
+    ? existingById.get(input.preferredActiveFileId)?.path || null
+    : null;
   const deletedFileIds = existingFiles
-    .filter((file) => !snapshotFiles.some((snapshotFile) => snapshotFile.path === file.path))
+    .filter((file) => !input.versionFiles.some((versionFile) => versionFile.path === file.path))
     .map((file) => file.id);
-  const orderedSnapshotFiles = [...snapshotFiles].sort((left, right) => {
+  const orderedVersionFiles = [...input.versionFiles].sort((left, right) => {
     const depthDelta = getWorkspacePathDepth(left.path) - getWorkspacePathDepth(right.path);
     if (depthDelta !== 0) {
       return depthDelta;
@@ -1367,6 +1961,7 @@ export async function restoreWorkspaceSnapshot(
     return left.nodeType === 'folder' ? -1 : 1;
   });
   const fileIdsByPath = new Map<string, string>();
+  let resolvedActiveFileId: string | null = null;
 
   await prisma.$transaction(async (tx) => {
     if (deletedFileIds.length > 0) {
@@ -1383,82 +1978,93 @@ export async function restoreWorkspaceSnapshot(
       });
     }
 
-    for (const snapshotFile of orderedSnapshotFiles) {
-      const parentPath = getParentWorkspacePath(snapshotFile.path);
+    for (const versionFile of orderedVersionFiles) {
+      const parentPath = getParentWorkspacePath(versionFile.path);
       const parentId = parentPath ? fileIdsByPath.get(parentPath) || null : null;
-      const existing = existingByPath.get(snapshotFile.path);
+      const existing = existingByPath.get(versionFile.path);
 
       if (existing) {
         const updated = await tx.workspaceFile.update({
           where: { id: existing.id },
           data: {
-            content: snapshotFile.content,
+            content: versionFile.content,
             createdByUserId: actor.userId,
             deletedAt: null,
-            isPrimary: snapshotFile.isPrimary,
-            kind: snapshotFile.kind,
-            language: snapshotFile.language,
-            name: snapshotFile.name,
+            isPrimary: versionFile.isPrimary,
+            kind: versionFile.kind,
+            language: versionFile.language,
+            name: versionFile.name,
             originDeviceId: actor.deviceId,
             parentId,
-            path: snapshotFile.path,
-            role: snapshotFile.role,
+            path: versionFile.path,
+            role: versionFile.role,
             revision: {
               increment: 1,
             },
-            sortOrder: snapshotFile.sortOrder,
-            type: snapshotFile.nodeType === 'folder' ? 'folder' : 'file',
+            sortOrder: versionFile.sortOrder,
+            type: versionFile.nodeType === 'folder' ? 'folder' : 'file',
             updatedAt: new Date(),
           },
         });
 
-        fileIdsByPath.set(snapshotFile.path, updated.id);
+        fileIdsByPath.set(versionFile.path, updated.id);
         continue;
       }
 
       const created = await tx.workspaceFile.create({
         data: {
-          content: snapshotFile.content,
+          content: versionFile.content,
           createdByUserId: actor.userId,
           documentId: input.workspaceId,
-          isPrimary: snapshotFile.isPrimary,
-          kind: snapshotFile.kind,
-          language: snapshotFile.language,
-          name: snapshotFile.name,
+          isPrimary: versionFile.isPrimary,
+          kind: versionFile.kind,
+          language: versionFile.language,
+          name: versionFile.name,
           organizationId: actor.organizationId,
           originDeviceId: actor.deviceId,
           parentId,
-          path: snapshotFile.path,
-          role: snapshotFile.role,
-          sortOrder: snapshotFile.sortOrder,
-          type: snapshotFile.nodeType === 'folder' ? 'folder' : 'file',
+          path: versionFile.path,
+          role: versionFile.role,
+          sortOrder: versionFile.sortOrder,
+          type: versionFile.nodeType === 'folder' ? 'folder' : 'file',
         },
       });
 
-      fileIdsByPath.set(snapshotFile.path, created.id);
+      fileIdsByPath.set(versionFile.path, created.id);
     }
 
-    const primarySnapshotFile =
-      orderedSnapshotFiles.find(
+    const primaryVersionFile =
+      orderedVersionFiles.find(
         (file) => file.nodeType === 'file' && file.isPrimary
-      ) || orderedSnapshotFiles.find((file) => file.nodeType === 'file');
-    const primaryFileId = primarySnapshotFile
-      ? fileIdsByPath.get(primarySnapshotFile.path) || null
+      ) || orderedVersionFiles.find((file) => file.nodeType === 'file');
+    const primaryFileId = primaryVersionFile
+      ? fileIdsByPath.get(primaryVersionFile.path) || null
       : null;
+
+    resolvedActiveFileId =
+      (preferredActiveFilePath
+        ? fileIdsByPath.get(preferredActiveFilePath) || null
+        : null) || primaryFileId;
 
     await tx.document.update({
       where: { id: input.workspaceId },
       data: {
-        content: primarySnapshotFile?.content || '',
+        content: primaryVersionFile?.content || '',
+        draftRevision: {
+          increment: 1,
+        },
         originDeviceId: actor.deviceId,
         revision: {
           increment: 1,
         },
         status: 'draft',
+        ...(input.draftBaseVersionId !== undefined
+          ? { draftBaseVersionId: input.draftBaseVersionId }
+          : {}),
       },
     });
 
-    if (primaryFileId) {
+    if (resolvedActiveFileId) {
       await tx.session.updateMany({
         where: {
           deletedAt: null,
@@ -1470,7 +2076,7 @@ export async function restoreWorkspaceSnapshot(
           ],
         },
         data: {
-          activeFileId: primaryFileId,
+          activeFileId: resolvedActiveFileId,
           revision: {
             increment: 1,
           },
@@ -1484,16 +2090,15 @@ export async function restoreWorkspaceSnapshot(
     workspaceId: input.workspaceId,
   });
 
-  const restartedPreview = hadActivePreview
+  const restartedPreview = input.hadActivePreview
     ? await startWorkspacePreview(actor, {
         workspaceId: input.workspaceId,
       }).catch(() => null)
     : null;
 
   return {
-    restoredSnapshot: mapWorkspaceSnapshot(snapshot),
+    activeFileId: resolvedActiveFileId,
     restartedPreview,
-    safetyCheckpoint,
   };
 }
 
@@ -1517,7 +2122,7 @@ export async function getActiveWorkspaceLock(
 export async function acquireWorkspaceLock(
   actor: ActorContext,
   input: {
-    lockedSnapshotId?: string | null;
+    lockedVersionId?: string | null;
     ttlMinutes?: number;
     workspaceId: string;
   }
@@ -1542,7 +2147,7 @@ export async function acquireWorkspaceLock(
       where: { documentId: input.workspaceId },
       data: {
         expiresAt,
-        lockedVersionId: input.lockedSnapshotId || null,
+        lockedVersionId: input.lockedVersionId || null,
         originDeviceId: actor.deviceId,
         organizationId: actor.organizationId,
         userId: actor.userId,
@@ -1555,7 +2160,7 @@ export async function acquireWorkspaceLock(
           organizationId: actor.organizationId,
           documentId: input.workspaceId,
           expiresAt,
-          lockedVersionId: input.lockedSnapshotId || null,
+          lockedVersionId: input.lockedVersionId || null,
           originDeviceId: actor.deviceId,
           userId: actor.userId,
         },
@@ -1585,7 +2190,7 @@ export async function acquireWorkspaceLock(
           where: { documentId: input.workspaceId },
           data: {
             expiresAt,
-            lockedVersionId: input.lockedSnapshotId || null,
+            lockedVersionId: input.lockedVersionId || null,
             originDeviceId: actor.deviceId,
             organizationId: actor.organizationId,
             userId: actor.userId,
@@ -1629,7 +2234,7 @@ export async function getWorkspaceView(params: {
   fileId?: string | null;
   language?: AppLanguage | null;
   organizationId: string;
-  snapshotId?: string | null;
+  versionId?: string | null;
   workspaceId: string;
 }): Promise<WorkspaceViewData> {
   const workspace = await prisma.document.findFirst({
@@ -1649,37 +2254,42 @@ export async function getWorkspaceView(params: {
   if (!workspace) {
     return {
       workspace: null,
+      currentProject: null,
+      projectFolders: [],
+      projectDeliverables: [],
       deliverable: null,
       files: [],
-      snapshots: [],
+      versions: [],
       visibleVersions: [],
-      snapshotFiles: [],
+      versionFiles: [],
       currentFile: null,
       currentConversation: null,
       latestConversation: null,
       conversationTree: [],
       conversationRuns: [],
       activeAssistantRun: null,
-      currentSnapshot: null,
+      selectedVersion: null,
       stagedChangeSets: [],
       workspacePlan: null,
-      workflowSummary: null,
+      currentStatus: null,
       activeLock: null,
     };
   }
 
   const [
     files,
-    snapshots,
+    versions,
     conversations,
     assistantRunRecords,
     activeLock,
     workspacePlan,
+    projectDocuments,
+    projectFolders,
     stagedChangeSets,
     workspaceRuns,
   ] = await Promise.all([
     ensureWorkspaceFiles(params.organizationId, workspace.id),
-    listWorkspaceSnapshots({
+    listWorkspaceVersions({
       organizationId: params.organizationId,
       workspaceId: workspace.id,
     }),
@@ -1710,6 +2320,37 @@ export async function getWorkspaceView(params: {
     getWorkspacePlan({
       organizationId: params.organizationId,
       workspaceId: workspace.id,
+    }),
+    prisma.document.findMany({
+      where: {
+        deletedAt: null,
+        organizationId: params.organizationId,
+        OR: [
+          { id: resolveWorkspaceProjectId(workspace) },
+          { projectId: resolveWorkspaceProjectId(workspace) },
+        ],
+      },
+      include: {
+        files: {
+          where: {
+            deletedAt: null,
+            isPrimary: true,
+            role: 'deliverable',
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+        },
+        workspacePlan: true,
+      },
+      orderBy: { updatedAt: 'desc' },
+    }),
+    prisma.projectFolder.findMany({
+      where: {
+        deletedAt: null,
+        organizationId: params.organizationId,
+        projectId: resolveWorkspaceProjectId(workspace),
+      },
+      orderBy: { updatedAt: 'desc' },
     }),
     listStagedChangeSets({
       organizationId: params.organizationId,
@@ -1783,9 +2424,9 @@ export async function getWorkspaceView(params: {
       orderBy: { updatedAt: 'desc' },
     }));
 
-  const currentSnapshot =
-    snapshots.find((snapshot) => snapshot.id === params.snapshotId) || null;
-  const snapshotFiles = currentSnapshot ? currentSnapshot.files : [];
+  const selectedVersion =
+    versions.find((version) => version.id === params.versionId) || null;
+  const versionFiles = selectedVersion ? selectedVersion.files : [];
 
   const workspaceFiles = files.map(mapWorkspaceFile);
   const deliverableFiles = workspaceFiles.filter((file) => file.role === 'deliverable');
@@ -1846,31 +2487,34 @@ export async function getWorkspaceView(params: {
       ) || null;
 
   const activeFile =
-    currentSnapshot && snapshotFiles.length > 0
-      ? resolveCurrentSnapshotFile({
+    selectedVersion && versionFiles.length > 0
+      ? resolveCurrentVersionFile({
           fileId: params.fileId || currentConversation?.activeFileId || null,
-          files: snapshotFiles,
+          files: versionFiles,
         })
       : resolveCurrentWorkspaceFile({
           fileId:
             params.fileId || currentConversation?.activeFileId || resolvePrimaryFile(files)?.id || null,
           files: workspaceFiles,
         });
-  const workflowSummary = deriveWorkflowSummary({
+  const currentStatus = deriveWorkflowSummary({
     activePreviewRun,
     activeAssistantRun: activeAssistantRun ? mapAssistantRun(activeAssistantRun) : null,
     currentFiles: deliverableFiles,
     deliverable,
     language: params.language || DEFAULT_APP_LANGUAGE,
     previewCapability,
-    snapshots,
+    versions,
     stagedChangeSets,
   });
   const hydratedWorkspacePlan = hydrateWorkspacePlanForView({
     activeAssistantRun: activeAssistantRun ? mapAssistantRun(activeAssistantRun) : null,
+    currentStatus,
     plan: workspacePlan,
-    workflowSummary,
   });
+  const currentProject = buildCurrentProjectSummary(projectDocuments, workspace);
+  const mappedProjectFolders = buildProjectFolders(projectFolders);
+  const projectDeliverables = buildProjectDeliverables(projectDocuments);
 
   return {
     workspace: mapWorkspaceWithRelations({
@@ -1879,14 +2523,17 @@ export async function getWorkspaceView(params: {
       files,
       knowledgeItems: workspace.knowledgeItems,
       stagedChangeSets,
-      versions: snapshots,
+      versions,
       workspacePlan: hydratedWorkspacePlan,
     }),
+    currentProject,
+    projectFolders: mappedProjectFolders,
+    projectDeliverables,
     deliverable,
     files: workspaceFiles,
-    snapshots,
-    visibleVersions: snapshots.filter(isVisibleVersion),
-    snapshotFiles,
+    versions,
+    visibleVersions: versions.filter(isVisibleVersion),
+    versionFiles,
     currentFile: activeFile,
     currentConversation,
     latestConversation,
@@ -1900,10 +2547,10 @@ export async function getWorkspaceView(params: {
     ),
     conversationRuns,
     activeAssistantRun: activeAssistantRun ? mapAssistantRun(activeAssistantRun) : null,
-    currentSnapshot,
+    selectedVersion,
     stagedChangeSets,
     workspacePlan: hydratedWorkspacePlan,
-    workflowSummary,
+    currentStatus,
     activeLock,
   };
 }
@@ -1943,6 +2590,108 @@ export async function getConversationWorkspace(params: {
   };
 }
 
+function buildCurrentProjectSummary(
+  projectDocuments: Array<{
+    id: string;
+    projectId: string | null;
+    projectTitle: string | null;
+    title: string;
+    updatedAt: Date;
+  }>,
+  workspace: {
+    id: string;
+    projectId: string | null;
+    projectTitle: string | null;
+    title: string;
+    updatedAt: Date;
+  }
+): ProjectSummaryData | null {
+  return buildProjectSummary(projectDocuments, workspace);
+}
+
+function buildProjectDeliverables(
+  projectDocuments: Array<{
+    content: string;
+    currentVersion: number;
+    files: Array<Parameters<typeof mapWorkspaceFile>[0]>;
+    id: string;
+    projectId: string | null;
+    projectFolderId?: string | null;
+    treeSortOrder: number;
+    status: string;
+    title: string;
+    updatedAt: Date;
+    workspacePlan: Parameters<typeof mapWorkspacePlan>[0] | null;
+  }>
+): WorkspaceViewData['projectDeliverables'] {
+  return projectDocuments
+    .map((workspace) => {
+      const deliverable = buildDeliverable({
+        currentVersion: workspace.currentVersion,
+        files: workspace.files.map(mapWorkspaceFile),
+        plan: workspace.workspacePlan ? mapWorkspacePlan(workspace.workspacePlan) : null,
+        workspace,
+      });
+
+      return {
+        id: workspace.id,
+        projectId: resolveWorkspaceProjectId(workspace),
+        projectFolderId: workspace.projectFolderId || null,
+        sortOrder: workspace.treeSortOrder,
+        title: workspace.title,
+        deliverableType: deliverable.deliverableType,
+        updatedAt: workspace.updatedAt,
+      };
+    })
+    .sort((left, right) => {
+      if (left.sortOrder === right.sortOrder) {
+        const updatedAtDiff =
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+        if (updatedAtDiff !== 0) {
+          return updatedAtDiff;
+        }
+
+        return left.id.localeCompare(right.id);
+      }
+
+      return left.sortOrder - right.sortOrder;
+    });
+}
+
+function buildProjectFolders(
+  folders: Array<{
+    id: string;
+    parentId: string | null;
+    projectId: string;
+    treeSortOrder: number;
+    title: string;
+    updatedAt: Date;
+  }>
+): WorkspaceViewData['projectFolders'] {
+  return folders
+    .map((folder) => ({
+      id: folder.id,
+      projectId: folder.projectId,
+      parentFolderId: folder.parentId || null,
+      sortOrder: folder.treeSortOrder,
+      title: folder.title,
+      updatedAt: folder.updatedAt,
+    }))
+    .sort((left, right) => {
+      if (left.sortOrder === right.sortOrder) {
+        const updatedAtDiff =
+          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+        if (updatedAtDiff !== 0) {
+          return updatedAtDiff;
+        }
+
+        return left.id.localeCompare(right.id);
+      }
+
+      return left.sortOrder - right.sortOrder;
+    });
+}
+
 export function mapConversation(session: {
   activeFileId: string | null;
   baseVersionId: string | null;
@@ -1967,8 +2716,7 @@ export function mapConversation(session: {
     wikiId: session.wikiId,
     parentConversationId: session.parentSessionId,
     forkedFromMessageId: session.forkedFromMessageId,
-    baseSnapshotId: session.baseVersionId,
-    baseDeliverableVersionId: session.baseVersionId,
+    baseVersionId: session.baseVersionId,
     activeFileId: session.activeFileId,
     hasPendingChanges:
       (pendingChangeSetsByConversation?.get(session.id) || 0) > 0,
@@ -2123,6 +2871,8 @@ export function mapAssistantRun(run: {
     status: normalizeAssistantRunStatus(run.status),
     summary: run.summary,
     planProposal: payload.planProposal,
+    researchPlanProposal: payload.researchPlanProposal,
+    researchProgress: payload.researchProgress,
     createdByUserId: run.createdByUserId,
     originDeviceId: run.originDeviceId,
     revision: run.revision,
@@ -2139,10 +2889,17 @@ export function mapWorkspace(document: {
   createdAt: Date;
   createdByUserId: string | null;
   currentVersion: number;
+  draftBaseVersionId?: string | null;
+  draftRevision?: number;
   deletedAt: Date | null;
   id: string;
   organizationId: string;
   originDeviceId: string | null;
+  parentDocumentId?: string | null;
+  projectId?: string | null;
+  projectFolderId?: string | null;
+  projectRootPath?: string | null;
+  projectTitle?: string | null;
   revision: number;
   sessionId: string;
   status: string;
@@ -2154,10 +2911,16 @@ export function mapWorkspace(document: {
     organizationId: document.organizationId,
     primaryConversationId: document.sessionId,
     sessionId: document.sessionId,
+    projectId: resolveWorkspaceProjectId(document),
+    projectFolderId: document.projectFolderId || null,
+    draftBaseVersionId: document.draftBaseVersionId || null,
+    projectTitle: resolveWorkspaceProjectTitle(document),
     title: document.title,
     content: document.content,
-    status: document.status,
+    projectRootPath: document.projectRootPath || null,
+    persistedStatus: document.status,
     currentVersion: document.currentVersion,
+    draftRevision: document.draftRevision || 0,
     createdByUserId: document.createdByUserId,
     originDeviceId: document.originDeviceId,
     revision: document.revision,
@@ -2211,7 +2974,7 @@ export function mapWorkspaceFile(file: {
   };
 }
 
-export function mapWorkspaceSnapshot(version: {
+export function mapWorkspaceVersion(version: {
   content: string;
   createdByUserId: string | null;
   deletedAt: Date | null;
@@ -2222,15 +2985,15 @@ export function mapWorkspaceSnapshot(version: {
   originDeviceId: string | null;
   parentVersionId: string | null;
   revision: number;
-  snapshotType?: string | null;
+  versionType?: string | null;
   sourceMessageId: string | null;
   sourceSessionId: string | null;
   title: string;
   versionNum: number;
-}): WorkspaceSnapshotData {
-  const snapshotType = version.snapshotType || 'manual';
-  const visible = !isRecoverySnapshotType(snapshotType);
-  const pinned = isPinnedRecoverySnapshotType(snapshotType);
+}): WorkspaceVersionData {
+  const versionType = normalizeWorkspaceVersionType(version.versionType);
+  const visible = !isRecoveryVersionType(versionType);
+  const pinned = isPinnedRecoveryVersionType(versionType);
 
   return {
     id: version.id,
@@ -2239,11 +3002,14 @@ export function mapWorkspaceSnapshot(version: {
     versionNum: version.versionNum,
     title: version.title,
     content: version.content,
-    files: parseSnapshotFiles(version.content),
-    parentSnapshotId: version.parentVersionId,
+    files: parseVersionFiles(version.content).map((file) => ({
+      ...file,
+      versionId: file.versionId || version.id,
+    })),
+    parentVersionId: version.parentVersionId,
     sourceConversationId: version.sourceSessionId,
     sourceMessageId: version.sourceMessageId,
-    snapshotType,
+    versionType,
     createdByUserId: version.createdByUserId,
     originDeviceId: version.originDeviceId,
     revision: version.revision,
@@ -2327,7 +3093,10 @@ export function mapCommentMessage(message: {
   createdAt: Date;
   createdByUserId: string | null;
   deletedAt: Date | null;
+  agentId?: string | null;
+  agentLabel?: string | null;
   id: string;
+  mentionedAgentsJson?: string | null;
   model: string | null;
   organizationId: string;
   originDeviceId: string | null;
@@ -2342,6 +3111,9 @@ export function mapCommentMessage(message: {
     role: message.role,
     content: message.content,
     model: message.model,
+    mentionedAgents: parseCommentAgentMentionsJson(message.mentionedAgentsJson),
+    agentId: message.agentId || null,
+    agentLabel: message.agentLabel || null,
     createdByUserId: message.createdByUserId,
     originDeviceId: message.originDeviceId,
     revision: message.revision,
@@ -2359,6 +3131,8 @@ export function mapCommentThread(thread: {
   draftRevision: number | null;
   fileId: string | null;
   id: string;
+  agentBindingsJson?: string | null;
+  researchStateJson?: string | null;
   messages: Array<Parameters<typeof mapCommentMessage>[0]>;
   organizationId: string;
   originDeviceId: string | null;
@@ -2367,10 +3141,15 @@ export function mapCommentThread(thread: {
   selectionAnchor: string | null;
   status: string;
   updatedAt: Date;
-  version: Parameters<typeof mapWorkspaceSnapshot>[0] | null;
+  version: Parameters<typeof mapWorkspaceVersion>[0] | null;
   versionId: string | null;
 }): CommentThreadData {
   const reviewAnchor = parseReviewAnchor(thread.selectionAnchor);
+  const anchorFingerprint = buildCommentAnchorFingerprint({
+    anchorText: thread.anchorText,
+    fileId: thread.fileId,
+    selectionAnchor: thread.selectionAnchor,
+  });
 
   return {
     id: thread.id,
@@ -2378,15 +3157,24 @@ export function mapCommentThread(thread: {
     workspaceId: thread.documentId,
     wikiId: thread.documentId,
     fileId: thread.fileId,
-    snapshotId: thread.versionId,
+    versionId: thread.versionId,
+    sourceVersionId: thread.versionId,
+    anchorFingerprint,
+    scope: 'direct',
+    inheritanceState: null,
+    isInherited: false,
+    inheritedFromVersionId: null,
+    inheritedFromVersionTitle: null,
     draftRevision: thread.draftRevision,
     anchorText: thread.anchorText,
     selectionAnchor: thread.selectionAnchor,
     reviewAnchor,
-    status: thread.status,
+    status: normalizeCommentThreadStatus(thread.status),
     messages: thread.messages.map(mapCommentMessage),
+    agentBindings: parseCommentAgentBindings(thread.agentBindingsJson),
+    researchState: parseCommentResearchState(thread.researchStateJson),
     resolvedAt: thread.resolvedAt,
-    snapshot: thread.version ? mapWorkspaceSnapshot(thread.version) : null,
+    version: thread.version ? mapWorkspaceVersion(thread.version) : null,
     createdByUserId: thread.createdByUserId,
     originDeviceId: thread.originDeviceId,
     revision: thread.revision,
@@ -2439,12 +3227,12 @@ export const listWikiVersions = (params: {
   organizationId: string;
   wikiId: string;
 }) =>
-  listWorkspaceSnapshots({
+  listWorkspaceVersions({
     organizationId: params.organizationId,
     workspaceId: params.wikiId,
   });
 export const createWikiVersion = (actor: ActorContext, wikiId: string) =>
-  createWorkspaceSnapshot(actor, { workspaceId: wikiId });
+  createWorkspaceVersion(actor, { workspaceId: wikiId });
 export const getActiveWikiLock = getActiveWorkspaceLock;
 export const acquireWikiLock = (actor: ActorContext, input: {
   lockedVersionId?: string | null;
@@ -2452,14 +3240,14 @@ export const acquireWikiLock = (actor: ActorContext, input: {
   wikiId: string;
 }) =>
   acquireWorkspaceLock(actor, {
-    lockedSnapshotId: input.lockedVersionId,
+    lockedVersionId: input.lockedVersionId,
     ttlMinutes: input.ttlMinutes,
     workspaceId: input.wikiId,
   });
 export const releaseWikiLock = (actor: ActorContext, wikiId: string) =>
   releaseWorkspaceLock(actor, wikiId);
 export const mapWiki = mapWorkspace;
-export const mapWikiVersion = mapWorkspaceSnapshot;
+export const mapWikiVersion = mapWorkspaceVersion;
 
 async function ensureWorkspaceEditable(actor: ActorContext, workspaceId: string) {
   const existing = await prisma.wikiEditLock.findUnique({
@@ -2594,7 +3382,7 @@ async function rebuildDescendantPaths(params: {
   }
 }
 
-async function findNearestSnapshotBeforeMessage(params: {
+async function findNearestVersionBeforeMessage(params: {
   messageCreatedAt: Date;
   organizationId: string;
   workspaceId: string;
@@ -2695,13 +3483,16 @@ function mapWorkspaceWithRelations(workspace: {
   knowledgeItems: Array<Parameters<typeof mapKnowledgeItem>[0]>;
   organizationId: string;
   originDeviceId: string | null;
+  parentDocumentId?: string | null;
+  projectId?: string | null;
+  projectTitle?: string | null;
   revision: number;
   sessionId: string;
   stagedChangeSets?: WorkspaceWithRelations['stagedChangeSets'];
   status: string;
   title: string;
   updatedAt: Date;
-  versions: WorkspaceSnapshotData[];
+  versions: WorkspaceVersionData[];
   workspacePlan?: WorkspaceWithRelations['workspacePlan'];
 }): WorkspaceWithRelations {
   return {
@@ -2710,7 +3501,7 @@ function mapWorkspaceWithRelations(workspace: {
     files: workspace.files.map(mapWorkspaceFile),
     knowledgeItems: workspace.knowledgeItems.map(mapKnowledgeItem),
     stagedChangeSets: workspace.stagedChangeSets || [],
-    snapshots: workspace.versions,
+    versions: workspace.versions,
     workspacePlan: workspace.workspacePlan || null,
   };
 }
@@ -2733,16 +3524,16 @@ function mapWorkspaceEditLock(lock: {
     wikiId: lock.documentId,
     userId: lock.userId,
     originDeviceId: lock.originDeviceId,
-    lockedSnapshotId: lock.lockedVersionId,
+    lockedVersionId: lock.lockedVersionId,
     expiresAt: lock.expiresAt,
     createdAt: lock.createdAt,
     updatedAt: lock.updatedAt,
   };
 }
 
-function parseSnapshotFiles(content: string): WorkspaceSnapshotFileData[] {
+export function parseVersionFiles(content: string): WorkspaceVersionFileData[] {
   try {
-    const parsed = JSON.parse(content) as SnapshotPayload | Value;
+    const parsed = JSON.parse(content) as VersionPayload | Value;
     if (
       parsed &&
       typeof parsed === 'object' &&
@@ -2755,10 +3546,11 @@ function parseSnapshotFiles(content: string): WorkspaceSnapshotFileData[] {
         role: normalizeWorkspaceFileRole(file.role),
         language: file.language || null,
         nodeType: file.nodeType === 'folder' ? 'folder' : 'file',
+        versionId: file.versionId || null,
       }));
     }
   } catch {
-    // fall through to legacy snapshot decoding below
+    // fall through to legacy version payload decoding below
   }
 
   return [
@@ -2778,12 +3570,12 @@ function parseSnapshotFiles(content: string): WorkspaceSnapshotFileData[] {
       createdByUserId: null,
       originDeviceId: null,
       revision: 1,
-      snapshotId: null,
+      versionId: null,
     },
   ];
 }
 
-function parseReviewAnchor(selectionAnchor: string | null) {
+function parseReviewAnchor(selectionAnchor: string | null): ReviewAnchorData | null {
   if (!selectionAnchor) {
     return null;
   }
@@ -2807,11 +3599,11 @@ function parseReviewAnchor(selectionAnchor: string | null) {
   return null;
 }
 
-function serializeWorkspaceSnapshot(payload: SnapshotPayload) {
+function serializeWorkspaceVersion(payload: VersionPayload) {
   return JSON.stringify(payload);
 }
 
-function mapWorkspaceFileToSnapshot(file: WorkspaceFileData): WorkspaceSnapshotFileData {
+function mapWorkspaceFileToVersion(file: WorkspaceFileData): WorkspaceVersionFileData {
   return {
     id: file.id,
     workspaceId: file.workspaceId,
@@ -2825,6 +3617,7 @@ function mapWorkspaceFileToSnapshot(file: WorkspaceFileData): WorkspaceSnapshotF
     content: file.content,
     sortOrder: file.sortOrder,
     isPrimary: file.isPrimary,
+    versionId: null,
     createdByUserId: file.createdByUserId,
     originDeviceId: file.originDeviceId,
     revision: file.revision,
@@ -2846,22 +3639,38 @@ function resolveCurrentWorkspaceFile(params: {
   fileId: string | null;
   files: WorkspaceFileData[];
 }) {
+  if (params.fileId) {
+    const requestedFile = params.files.find(
+      (file) => file.id === params.fileId && file.nodeType === 'file'
+    );
+    if (requestedFile) {
+      return requestedFile;
+    }
+  }
+
   const deliverableFiles = params.files.filter((file) => file.role === 'deliverable');
   return (
-    deliverableFiles.find((file) => file.id === params.fileId) ||
     deliverableFiles.find((file) => file.isPrimary) ||
     deliverableFiles.find((file) => file.nodeType === 'file') ||
     null
   );
 }
 
-function resolveCurrentSnapshotFile(params: {
+function resolveCurrentVersionFile(params: {
   fileId: string | null;
-  files: WorkspaceSnapshotFileData[];
+  files: WorkspaceVersionFileData[];
 }) {
+  if (params.fileId) {
+    const requestedFile = params.files.find(
+      (file) => file.id === params.fileId && file.nodeType === 'file'
+    );
+    if (requestedFile) {
+      return requestedFile;
+    }
+  }
+
   const deliverableFiles = params.files.filter((file) => file.role === 'deliverable');
   return (
-    deliverableFiles.find((file) => file.id === params.fileId) ||
     deliverableFiles.find((file) => file.isPrimary) ||
     deliverableFiles.find((file) => file.nodeType === 'file') ||
     null
@@ -2892,6 +3701,20 @@ function buildAttachmentPreviewUrl(
   } catch {
     return null;
   }
+}
+
+function buildCommentAnchorFingerprint(params: {
+  anchorText: string;
+  fileId: string | null;
+  selectionAnchor: string | null;
+}) {
+  const parsedAnchor = parseReviewAnchor(params.selectionAnchor);
+  const excerpt =
+    parsedAnchor?.anchorPayload?.excerpt ||
+    params.anchorText ||
+    '';
+  const normalized = excerpt.replace(/\s+/g, ' ').trim().toLowerCase();
+  return `${params.fileId || 'workspace'}::${normalized}`;
 }
 
 function normalizeAttachmentKind(kind?: string | null): ChatAttachmentData['kind'] {
@@ -3014,7 +3837,7 @@ async function pruneWorkspaceRecoveryCheckpoints(params: {
       deletedAt: null,
       documentId: params.workspaceId,
       organizationId: params.organizationId,
-      snapshotType: 'checkpoint',
+      versionType: 'checkpoint',
     },
     orderBy: { versionNum: 'desc' },
     select: {
@@ -3048,13 +3871,13 @@ async function pruneWorkspaceRecoveryCheckpoints(params: {
 function getDefaultFileName(kind: 'richtext' | 'markdown' | 'text' | 'code') {
   switch (kind) {
     case 'markdown':
-      return 'main.md';
+      return 'main';
     case 'code':
       return 'index.ts';
     case 'text':
       return 'notes.txt';
     default:
-      return 'main.md';
+      return 'main';
   }
 }
 

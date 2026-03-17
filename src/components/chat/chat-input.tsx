@@ -10,7 +10,7 @@ import {
   type ChatComposerAttachment,
 } from '@/components/chat/attachment-types';
 import { ModelPicker } from '@/components/ai/model-picker';
-import type { ModelCatalogData, ModelSelectionData } from '@/types';
+import type { ModelCatalogData, ModelSelectionData, ResearchMode } from '@/types';
 
 export function ChatInput({
   onSend,
@@ -26,7 +26,7 @@ export function ChatInput({
     message: string,
     options?: {
       attachments?: ChatComposerAttachment[];
-      searchMode?: 'auto' | 'force';
+      researchMode?: ResearchMode;
     }
   ) => void;
   onStop?: () => void;
@@ -40,7 +40,7 @@ export function ChatInput({
   const t = useT();
   const [value, setValue] = React.useState('');
   const [attachments, setAttachments] = React.useState<ChatComposerAttachment[]>([]);
-  const [searchMode, setSearchMode] = React.useState<'auto' | 'force'>('auto');
+  const [researchMode, setResearchMode] = React.useState<ResearchMode>('light');
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -71,8 +71,9 @@ export function ChatInput({
   const handleSubmit = () => {
     const trimmed = value.trim();
     if ((!trimmed && attachments.length === 0) || isLoading) return;
-    onSend(trimmed, { attachments, searchMode });
+    onSend(trimmed, { attachments, researchMode });
     resetComposer();
+    setResearchMode('light');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -150,7 +151,7 @@ export function ChatInput({
   }, [attachments]);
 
   return (
-    <div className="border-t border-border bg-background p-3">
+    <div className="border-t border-border bg-background p-3" data-testid="chat-composer">
       <input
         ref={fileInputRef}
         type="file"
@@ -179,26 +180,28 @@ export function ChatInput({
               </div>
             )}
           </div>
-        <button
-          type="button"
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors ${
-            searchMode === 'force'
-              ? 'border-foreground/20 bg-foreground text-background'
-              : 'border-border bg-muted/30 text-muted-foreground'
-          }`}
-          onClick={() =>
-            setSearchMode((current) => (current === 'force' ? 'auto' : 'force'))
-          }
-        >
-          <Search className="h-3 w-3" />
-          {searchMode === 'force' ? t('chat.liveWebOn') : t('chat.draftOnly')}
-        </button>
+          <button
+            type="button"
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors ${
+              researchMode === 'deep'
+                ? 'border-foreground/20 bg-foreground text-background'
+                : 'border-border bg-muted/30 text-muted-foreground'
+            }`}
+            onClick={() =>
+              setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
+            }
+          >
+            <Search className="h-3 w-3" />
+            {researchMode === 'deep'
+              ? t('chat.deepResearchEnabled')
+              : t('chat.deepResearch')}
+          </button>
         </div>
       </div>
 
-      {searchMode === 'force' ? (
+      {researchMode === 'deep' ? (
         <div className="mb-2 rounded-xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-[11px] leading-5 text-muted-foreground">
-          {t('chat.liveWebInfo')}
+          {t('chat.deepResearchInfo')}
         </div>
       ) : null}
 
@@ -247,8 +250,8 @@ export function ChatInput({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={
-            searchMode === 'force'
-              ? t('chat.askWithLiveWebPlaceholder')
+            researchMode === 'deep'
+              ? t('chat.askWithDeepResearchPlaceholder')
               : t('chat.askAiPlaceholder')
           }
           className="min-h-[44px] max-h-[200px] resize-none rounded-xl border-muted-foreground/20"

@@ -1,10 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { GitBranchPlus, Image as ImageIcon, Paperclip } from 'lucide-react';
+import { Image as ImageIcon, MessageSquarePlus, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ChatMessageData } from '@/types';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/components/providers/language-provider';
 
 export function ChatMessage({
   message,
@@ -13,6 +14,7 @@ export function ChatMessage({
   message: ChatMessageData;
   onBranch?: (messageId: string) => void;
 }) {
+  const t = useT();
   const isUser = message.role === 'user';
   const formattedContent = formatContent(message.content);
   const isThinking = !isUser && formattedContent.length === 0;
@@ -30,7 +32,7 @@ export function ChatMessage({
         )}
       >
         {isThinking ? (
-          <ThinkingPlaceholder seed={message.id} />
+          <ThinkingPlaceholder label={t('chat.planning')} />
         ) : (
           <div className="space-y-3">
             <div className="whitespace-pre-wrap break-words">{formattedContent}</div>
@@ -75,10 +77,11 @@ export function ChatMessage({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-2 text-[11px]"
+                  data-testid={`chat-new-conversation-message-${message.id}`}
                   onClick={() => onBranch(message.id)}
                 >
-                  <GitBranchPlus className="h-3.5 w-3.5" />
-                  Branch from here
+                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                  {t('chat.startNewConversationHere')}
                 </Button>
               </div>
             ) : null}
@@ -89,36 +92,20 @@ export function ChatMessage({
   );
 }
 
-function ThinkingPlaceholder({ seed }: { seed: string }) {
-  const quote = React.useMemo(
-    () => THINKING_QUOTES[Math.abs(hashSeed(seed)) % THINKING_QUOTES.length],
-    [seed]
-  );
-
+function ThinkingPlaceholder({ label }: { label: string }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
-        Thinking through the next move
+        {label}
       </div>
 
-      <div className="rounded-2xl border border-border/60 bg-background/70 px-3 py-2">
-        <p className="whitespace-pre-wrap break-words italic text-foreground/90">
-          &ldquo;{quote.text}&rdquo;
-        </p>
-        <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">
-          {quote.author}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-1.5">
-        {THINKING_DOT_DELAYS.map(delay => (
-          <span
-            key={delay}
-            className="h-1.5 w-1.5 rounded-full bg-foreground/45 animate-bounce"
-            style={{ animationDelay: `${delay}s` }}
-          />
-        ))}
+      <div className="rounded-2xl border border-border/60 bg-background/70 px-3 py-3">
+        <div className="space-y-2">
+          <div className="h-2.5 w-3/5 rounded-full bg-muted animate-pulse" />
+          <div className="h-2.5 w-4/5 rounded-full bg-muted/80 animate-pulse" />
+          <div className="h-2.5 w-2/5 rounded-full bg-muted/60 animate-pulse" />
+        </div>
       </div>
     </div>
   );
@@ -127,30 +114,4 @@ function ThinkingPlaceholder({ seed }: { seed: string }) {
 function formatContent(content: string): string {
   // Strip document blocks from display in chat
   return content.replace(/```document\n[\s\S]*?\n```/g, '📄 Document generated — see right panel').trim();
-}
-
-const THINKING_DOT_DELAYS = [0, 0.12, 0.24];
-
-const THINKING_QUOTES = [
-  { text: '知者不言，言者不知。', author: 'Tao Te Ching' },
-  { text: 'Stay hungry, stay foolish.', author: 'Steve Jobs' },
-  {
-    text: 'Simplicity is the ultimate sophistication.',
-    author: 'Leonardo da Vinci',
-  },
-  { text: 'The only way out is through.', author: 'Robert Frost' },
-  { text: 'Talk is cheap. Show me the code.', author: 'Linus Torvalds' },
-  { text: '万物并作，吾以观复。', author: 'Tao Te Ching' },
-  {
-    text: 'What we know is a drop, what we do not know is an ocean.',
-    author: 'Isaac Newton',
-  },
-  {
-    text: 'The journey of a thousand miles begins with one step.',
-    author: 'Lao Tzu',
-  },
-];
-
-function hashSeed(seed: string) {
-  return [...seed].reduce((acc, char) => acc * 31 + char.charCodeAt(0), 7);
 }

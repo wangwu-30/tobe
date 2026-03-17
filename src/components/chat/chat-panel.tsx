@@ -10,7 +10,7 @@ import type {
   ConversationBranchSummary,
   ModelCatalogData,
   ModelSelectionData,
-  WorkflowSummaryData,
+  ResearchMode,
 } from '@/types';
 import type { ChatComposerAttachment } from '@/components/chat/attachment-types';
 import {
@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { FileText, LoaderCircle, Wand2 } from 'lucide-react';
+import { ExternalLink, FileText, LoaderCircle, Search, Wand2 } from 'lucide-react';
 import {
   AI_SETTINGS_CHANGED_EVENT,
   getStoredAISettingsHeader,
@@ -42,44 +42,53 @@ export function ChatPanel({
   conversationId,
   conversationRuns,
   conversationTitle,
+  baseVersionLabel,
   branches,
   workspaceId,
   activeFileId,
-  baseSnapshotId,
+  baseVersionId,
   queuedPrompt,
   onBranchConversation,
   onBusyChange,
   onConversationComplete,
   onQueuedPromptHandled,
   onSelectConversation,
+  onOpenFile,
   onWorkspaceChange,
   initialMessages,
-  workflowSummary,
+  showHeader = true,
+  onChatErrorChange,
 }: {
   activeAssistantRun?: AssistantRunData | null;
   conversationId?: string | null;
   conversationRuns?: AssistantRunData[];
   conversationTitle?: string | null;
+  baseVersionLabel?: string | null;
   branches?: ConversationBranchSummary[];
   workspaceId?: string | null;
   activeFileId?: string | null;
-  baseSnapshotId?: string | null;
+  baseVersionId?: string | null;
   queuedPrompt?: {
     content: string;
     id: string;
-    searchMode?: 'auto' | 'force';
+    researchMode?: ResearchMode;
   } | null;
   onBranchConversation?: (messageId: string) => void;
   onBusyChange?: (isBusy: boolean) => void;
   onConversationComplete?: () => void | Promise<void>;
   onQueuedPromptHandled?: (promptId: string) => void;
   onSelectConversation?: (conversationId: string) => void;
+  onOpenFile?: (fileId: string) => void;
   onWorkspaceChange?: (workspace: {
     conversationId: string | null;
     workspaceId: string | null;
   }) => void;
+  onChatErrorChange?: (
+    error: { detail: string; message: string; retryable: boolean; kind: string } | null,
+    retryFn?: () => void
+  ) => void;
   initialMessages?: ChatMessageData[];
-  workflowSummary?: WorkflowSummaryData | null;
+  showHeader?: boolean;
 }) {
   const t = useT();
   const router = useAppRouter();
@@ -91,9 +100,10 @@ export function ChatPanel({
     statusMessage,
     sendMessage,
     continueProposal,
+    startResearch,
     retryLastMessage,
     stopGeneration,
-  } = useChat({ conversationId, workspaceId, activeFileId, baseSnapshotId });
+  } = useChat({ conversationId, workspaceId, activeFileId, baseVersionId });
   const [modelCatalog, setModelCatalog] = React.useState<ModelCatalogData | null>(null);
   const [selectedModelSelection, setSelectedModelSelection] =
     React.useState<ModelSelectionData | null>(() =>
@@ -129,8 +139,8 @@ export function ChatPanel({
     [messages, visibleMessages.length]
   );
   const displayRuns = React.useMemo(
-    () => buildDisplayRuns(conversationRuns || []),
-    [conversationRuns]
+    () => buildDisplayRuns(conversationRuns || [], activeAssistantRun || null),
+    [activeAssistantRun, conversationRuns]
   );
 
   const loadModelCatalog = React.useCallback(async () => {
@@ -166,6 +176,10 @@ export function ChatPanel({
       window.removeEventListener(AI_SETTINGS_CHANGED_EVENT, syncSelectedModel);
     };
   }, [loadModelCatalog]);
+
+  React.useEffect(() => {
+    onChatErrorChange?.(error, retryLastMessage);
+  }, [error, onChatErrorChange, retryLastMessage]);
 
   React.useEffect(() => {
     const nextConversationId = conversationId || null;
@@ -205,7 +219,7 @@ export function ChatPanel({
       content: string,
       options?: {
         attachments?: ChatComposerAttachment[];
-        searchMode?: 'auto' | 'force';
+        researchMode?: ResearchMode;
       }
     ) => {
       const activeModelKey = selectedModelSelection?.key || getActiveModelKey();
@@ -215,7 +229,7 @@ export function ChatPanel({
         model: activeModelKey,
         onComplete: onConversationComplete,
         onWorkspaceChange,
-        searchMode: options?.searchMode,
+        researchMode: options?.researchMode,
       });
     },
     [onConversationComplete, onWorkspaceChange, selectedModelSelection, sendMessage]
@@ -233,7 +247,7 @@ export function ChatPanel({
 
     handledQueuedPromptRef.current = queuedPrompt.id;
     handleSend(queuedPrompt.content, {
-      searchMode: queuedPrompt.searchMode,
+      researchMode: queuedPrompt.researchMode,
     });
     onQueuedPromptHandled?.(queuedPrompt.id);
   }, [handleSend, onQueuedPromptHandled, queuedPrompt]);
@@ -298,20 +312,81 @@ export function ChatPanel({
     ]
   );
 
+  const handleResearchAction = React.useCallback(
+    async (run: AssistantRunData, action: 'start' | 'dismiss') => {
+      if (!workspaceId || proposalActionId || isLoading) {
+        return;
+      }
+
+      setProposalActionId(`${run.id}:${action}`);
+      setProposalActionError(null);
+
+      try {
+        const response = await fetch(
+          `/api/workspaces/${workspaceId}/assistant-runs/${run.id}/research-plan`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...getStoredAISettingsHeader(),
+            },
+            body: JSON.stringify({ action: action === 'dismiss' ? 'dismiss' : 'approve' }),
+          }
+        );
+
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error || t('chat.researchActionFailed'));
+        }
+
+        await onConversationComplete?.();
+        if (action === 'dismiss') {
+          return;
+        }
+
+        await startResearch(run.id, {
+          onComplete: onConversationComplete,
+          onWorkspaceChange,
+        });
+      } catch (error) {
+        setProposalActionError({
+          message: error instanceof Error ? error.message : t('chat.researchActionFailed'),
+          runId: run.id,
+        });
+      } finally {
+        setProposalActionId(null);
+      }
+    },
+    [
+      isLoading,
+      onConversationComplete,
+      onWorkspaceChange,
+      proposalActionId,
+      startResearch,
+      t,
+      workspaceId,
+    ]
+  );
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       <div className="border-b border-border px-4 py-2.5">
         <div className="min-w-0 space-y-2">
-          <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <FileText className="h-4 w-4" />
-            {t('assistant.chat')}
-          </h2>
+          {showHeader ? (
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <FileText className="h-4 w-4" />
+              {t('assistant.chat')}
+            </h2>
+          ) : null}
           {flatBranches.length > 1 && onSelectConversation ? (
             <Select
               value={conversationId || ''}
               onValueChange={(value) => onSelectConversation(value)}
             >
-              <SelectTrigger className="h-7 w-[220px] text-xs">
+              <SelectTrigger
+                className="h-7 w-[220px] text-xs"
+                data-testid="chat-conversation-select"
+              >
                 <SelectValue placeholder={t('chat.selectConversation')} />
               </SelectTrigger>
               <SelectContent>
@@ -329,11 +404,23 @@ export function ChatPanel({
               })}
             </p>
           ) : null}
+          {baseVersionLabel ? (
+            <Badge
+              variant="outline"
+              className="w-fit max-w-full truncate text-[10px] font-normal"
+              data-testid="chat-base-version-label"
+            >
+              {baseVersionLabel}
+            </Badge>
+          ) : null}
         </div>
       </div>
 
-      <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-        <div className="min-w-0 py-4">
+      <div
+        ref={scrollRef}
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto scroll-pb-32"
+      >
+        <div className="min-w-0 py-4 pb-28">
           {displayRuns.length > 0 ? (
             <div className="space-y-3 px-4 pb-4">
               {displayRuns.map((run) => (
@@ -343,7 +430,9 @@ export function ChatPanel({
                   actionError={proposalActionError?.runId === run.id ? proposalActionError.message : null}
                   actionState={proposalActionId}
                   disabled={isLoading}
+                  onOpenFile={onOpenFile}
                   onProposalAction={handleProposalAction}
+                  onResearchAction={handleResearchAction}
                 />
               ))}
             </div>
@@ -353,21 +442,18 @@ export function ChatPanel({
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <FileText className="mb-3 h-10 w-10 opacity-30" />
               <p className="text-sm">
-                {workflowSummary?.statusTitle ||
-                  t(
-                    isWaitingForFirstPass
-                      ? 'chat.waitingForFirstPassTitle'
-                      : 'chat.emptyTitle'
-                  )}
+                {t(
+                  isWaitingForFirstPass
+                    ? 'chat.waitingForFirstPassTitle'
+                    : 'chat.emptyTitle'
+                )}
               </p>
               <p className="mt-1 text-xs opacity-70">
-                {workflowSummary?.blockedReason ||
-                  workflowSummary?.statusDescription ||
-                  t(
-                    isWaitingForFirstPass
-                      ? 'chat.waitingForFirstPassDescription'
-                      : 'chat.emptyDescription'
-                  )}
+                {t(
+                  isWaitingForFirstPass
+                    ? 'chat.waitingForFirstPassDescription'
+                    : 'chat.emptyDescription'
+                )}
               </p>
             </div>
           ) : null}
@@ -388,11 +474,6 @@ export function ChatPanel({
             <div className="px-4 pb-3">
               <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive">
                 <div>{error.message}</div>
-                {error.detail && error.detail !== error.message ? (
-                  <div className="mt-2 text-xs leading-5 text-destructive/80">
-                    {error.detail}
-                  </div>
-                ) : null}
                 <div className="mt-3 flex items-center gap-2">
                   {error.retryable ? (
                     <Button
@@ -446,25 +527,38 @@ function ConversationRunCard({
   actionError,
   actionState,
   disabled = false,
+  onOpenFile,
   onProposalAction,
+  onResearchAction,
   run,
 }: {
   actionError?: string | null;
   actionState?: string | null;
   disabled?: boolean;
+  onOpenFile?: (fileId: string) => void;
   onProposalAction?: (run: AssistantRunData, action: 'apply' | 'dismiss') => void;
+  onResearchAction?: (run: AssistantRunData, action: 'start' | 'dismiss') => void;
   run: AssistantRunData & { isLocal?: boolean };
 }) {
   const t = useT();
+  const router = useAppRouter();
   const isBusy =
     run.status === 'queued' || run.status === 'planning' || run.status === 'running';
   const proposal = run.planProposal || null;
+  const researchPlan = run.researchPlanProposal || null;
+  const researchProgress = run.researchProgress || null;
   const isProposalPending = proposal?.status === 'pending';
   const isApplying = actionState === `${run.id}:apply`;
   const isDismissing = actionState === `${run.id}:dismiss`;
+  const isStartingResearch = actionState === `${run.id}:start`;
+  const hasResearchReport =
+    Boolean(researchProgress?.reportFileId) && Boolean(researchProgress?.reportFileName);
 
   return (
-    <div className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+    <div
+      className="rounded-2xl border border-border/70 bg-muted/20 px-4 py-3"
+      data-testid={`assistant-run-card-${run.id}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -556,12 +650,151 @@ function ConversationRunCard({
           </div>
         </div>
       ) : null}
+
+      {researchPlan ? (
+        <div className="mt-3 rounded-2xl border border-border/70 bg-background/80 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <Search className="h-3.5 w-3.5" />
+              {t('chat.researchProposal')}
+            </div>
+            <Badge
+              variant={researchPlan.status === 'approved' ? 'secondary' : 'outline'}
+              className="text-[10px]"
+            >
+              {researchPlan.status === 'approved'
+                ? t('chat.researchApproved')
+                : researchPlan.status === 'dismissed'
+                  ? t('chat.researchDismissed')
+                  : t('chat.researchPending')}
+            </Badge>
+          </div>
+          <div className="mt-3 space-y-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                {t('chat.researchTitle')}
+              </div>
+              <div className="mt-1 text-sm leading-6 text-foreground">
+                {researchPlan.title}
+              </div>
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">{researchPlan.summary}</p>
+            {researchPlan.subquestions.length > 0 ? (
+              <div className="space-y-2">
+                {researchPlan.subquestions.map((question, index) => (
+                  <div
+                    key={`${run.id}-research-${index}`}
+                    className="rounded-xl border border-border/70 bg-muted/20 px-3 py-2"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[11px] text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <span>{question}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {researchPlan.status === 'pending' && onResearchAction ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-8"
+                  disabled={disabled || Boolean(actionState)}
+                  onClick={() => onResearchAction(run, 'start')}
+                >
+                  {isStartingResearch ? t('chat.researchStarting') : t('chat.researchStart')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  disabled={disabled || Boolean(actionState)}
+                  onClick={() => onResearchAction(run, 'dismiss')}
+                >
+                  {isDismissing ? t('chat.researchDismissing') : t('chat.researchDismiss')}
+                </Button>
+              </div>
+            ) : null}
+            {actionError ? (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+                {actionError}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {researchProgress ? (
+        <div className="mt-3 rounded-2xl border border-border/70 bg-background/80 px-3 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              <Search className="h-3.5 w-3.5" />
+              {t('chat.researchProgress')}
+            </div>
+            <Badge variant={researchProgress.phase === 'completed' ? 'secondary' : 'outline'} className="text-[10px]">
+              {formatResearchPhase(researchProgress.phase, t)}
+            </Badge>
+          </div>
+          <div className="mt-3 space-y-2">
+            {researchProgress.currentStepLabel ? (
+              <p className="text-xs leading-5 text-muted-foreground">
+                {researchProgress.currentStepLabel}
+              </p>
+            ) : null}
+            {researchProgress.stepIndex && researchProgress.totalSteps ? (
+              <p className="text-[11px] text-muted-foreground">
+                {t('chat.researchStepProgress', {
+                  current: researchProgress.stepIndex,
+                  total: researchProgress.totalSteps,
+                })}
+              </p>
+            ) : null}
+            {researchProgress.providerState === 'unavailable' ? (
+              <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs leading-5 text-destructive">
+                <div>{t('chat.researchProviderUnavailable')}</div>
+                <div className="mt-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-[10px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => router.push('/settings')}
+                  >
+                    {t('chat.openSettings')}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {hasResearchReport && onOpenFile ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={() => onOpenFile(researchProgress.reportFileId!)}
+              >
+                <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+                {t('chat.openResearchReport')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function buildDisplayRuns(conversationRuns: AssistantRunData[]) {
-  return [...conversationRuns].sort(
+function buildDisplayRuns(
+  conversationRuns: AssistantRunData[],
+  activeAssistantRun: AssistantRunData | null
+) {
+  const runs = [...conversationRuns];
+
+  if (activeAssistantRun && !runs.some((run) => run.id === activeAssistantRun.id)) {
+    runs.push(activeAssistantRun);
+  }
+
+  return runs.sort(
     (left, right) =>
       new Date(left.startedAt).getTime() - new Date(right.startedAt).getTime()
   );
@@ -596,6 +829,18 @@ function formatRunStatus(
   if (status === 'failed') return t('chat.runFailed');
   if (status === 'cancelled') return t('chat.runCancelled');
   return t('chat.runCompleted');
+}
+
+function formatResearchPhase(
+  phase: NonNullable<AssistantRunData['researchProgress']>['phase'],
+  t: ReturnType<typeof useT>
+) {
+  if (phase === 'proposal') return t('chat.researchPhaseProposal');
+  if (phase === 'searching') return t('chat.researchPhaseSearching');
+  if (phase === 'analyzing_gaps') return t('chat.researchPhaseAnalyzingGaps');
+  if (phase === 'reporting') return t('chat.researchPhaseReporting');
+  if (phase === 'blocked') return t('chat.researchPhaseBlocked');
+  return t('chat.researchPhaseCompleted');
 }
 
 function shouldHideChatMessage(message: ChatMessageData, isLoading: boolean) {

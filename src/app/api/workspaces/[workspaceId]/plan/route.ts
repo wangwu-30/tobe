@@ -70,27 +70,40 @@ export async function POST(
   const { workspaceId } = await params;
   const body = await req.json().catch(() => ({}));
   const deliverableType =
+    body.deliverableType === 'document' ||
     body.deliverableType === 'web' ||
     body.deliverableType === 'code' ||
     body.deliverableType === 'slides'
       ? body.deliverableType
       : 'document';
 
-  const plan = await upsertWorkspacePlan(actor, {
-    activeStageId:
-      typeof body.activeStageId === 'string' ? body.activeStageId : undefined,
-    constraints: body.constraints,
-    deliverableType,
-    goal: body.goal || 'Create a new deliverable',
-    lastProgressNote:
-      typeof body.lastProgressNote === 'string' ? body.lastProgressNote : undefined,
-    stages: parsePlanStages(body.stages),
-    status: body.status || 'drafting',
-    styleGuide: body.styleGuide,
-    workspaceId,
-  });
+  try {
+    const plan = await upsertWorkspacePlan(actor, {
+      activeStageId:
+        typeof body.activeStageId === 'string' ? body.activeStageId : undefined,
+      activeWorkflowPlaybookId:
+        body.activeWorkflowPlaybookId === null ||
+        typeof body.activeWorkflowPlaybookId === 'string'
+          ? body.activeWorkflowPlaybookId
+          : undefined,
+      constraints: body.constraints,
+      deliverableType,
+      goal: body.goal || 'Create a new deliverable',
+      lastProgressNote:
+        typeof body.lastProgressNote === 'string' ? body.lastProgressNote : undefined,
+      stages: parsePlanStages(body.stages),
+      status: body.status || 'drafting',
+      styleGuide: body.styleGuide,
+      workspaceId,
+    });
 
-  return NextResponse.json(plan);
+    return NextResponse.json(plan);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Could not save the plan.' },
+      { status: 400 }
+    );
+  }
 }
 
 export async function PATCH(
@@ -101,35 +114,48 @@ export async function PATCH(
   const { workspaceId } = await params;
   const body = await req.json().catch(() => ({}));
 
-  const plan = await updateWorkspacePlan(actor, {
-    activeStageId:
-      body.activeStageId === null || typeof body.activeStageId === 'string'
-        ? body.activeStageId
-        : undefined,
-    constraints:
-      body.constraints === null || typeof body.constraints === 'string'
-        ? body.constraints
-        : undefined,
-    deliverableType:
-      body.deliverableType === 'web' ||
-      body.deliverableType === 'code' ||
-      body.deliverableType === 'slides'
-        ? body.deliverableType
-        : undefined,
-    incrementVersion: body.incrementVersion === true,
-    lastProgressNote:
-      body.lastProgressNote === null || typeof body.lastProgressNote === 'string'
-        ? body.lastProgressNote
-        : undefined,
-    stages: parsePlanStages(body.stages),
-    goal: typeof body.goal === 'string' ? body.goal : undefined,
-    status: typeof body.status === 'string' ? body.status : undefined,
-    styleGuide:
-      body.styleGuide === null || typeof body.styleGuide === 'string'
-        ? body.styleGuide
-        : undefined,
-    workspaceId,
-  });
+  try {
+    const plan = await updateWorkspacePlan(actor, {
+      activeStageId:
+        body.activeStageId === null || typeof body.activeStageId === 'string'
+          ? body.activeStageId
+          : undefined,
+      activeWorkflowPlaybookId:
+        body.activeWorkflowPlaybookId === null ||
+        typeof body.activeWorkflowPlaybookId === 'string'
+          ? body.activeWorkflowPlaybookId
+          : undefined,
+      constraints:
+        body.constraints === null || typeof body.constraints === 'string'
+          ? body.constraints
+          : undefined,
+      deliverableType:
+        body.deliverableType === 'document' ||
+        body.deliverableType === 'web' ||
+        body.deliverableType === 'code' ||
+        body.deliverableType === 'slides'
+          ? body.deliverableType
+          : undefined,
+      incrementVersion: body.incrementVersion === true,
+      lastProgressNote:
+        body.lastProgressNote === null || typeof body.lastProgressNote === 'string'
+          ? body.lastProgressNote
+          : undefined,
+      stages: parsePlanStages(body.stages),
+      goal: typeof body.goal === 'string' ? body.goal : undefined,
+      status: typeof body.status === 'string' ? body.status : undefined,
+      styleGuide:
+        body.styleGuide === null || typeof body.styleGuide === 'string'
+          ? body.styleGuide
+          : undefined,
+      workspaceId,
+    });
 
-  return NextResponse.json(plan);
+    return NextResponse.json(plan);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Could not update the plan.' },
+      { status: 400 }
+    );
+  }
 }

@@ -12,6 +12,7 @@ export function AppTopBar({
   onToggleSidebarCollapsed,
   subtitle,
   title,
+  titleNode,
 }: {
   actions?: React.ReactNode;
   isSidebarCollapsed?: boolean;
@@ -19,6 +20,7 @@ export function AppTopBar({
   onToggleSidebarCollapsed?: () => void;
   subtitle?: string;
   title: string;
+  titleNode?: React.ReactNode;
 }) {
   return (
     <header className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -48,7 +50,9 @@ export function AppTopBar({
           </Button>
 
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{title}</div>
+            {titleNode || (
+              <div className="truncate text-sm font-semibold">{title}</div>
+            )}
             {subtitle && (
               <div className="truncate text-xs text-muted-foreground">{subtitle}</div>
             )}

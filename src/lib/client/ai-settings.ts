@@ -20,7 +20,7 @@ export function getStoredAISettingsHeader(): Record<string, string> {
 
   const settings = getStoredAISettings();
   return {
-    'x-ai-settings': JSON.stringify(settings),
+    'x-ai-settings': encodeURIComponent(JSON.stringify(settings)),
   };
 }
 

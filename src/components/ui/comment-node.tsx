@@ -10,6 +10,7 @@ import { PlateLeaf, useEditorPlugin, usePluginOption } from 'platejs/react';
 
 import { cn } from '@/lib/utils';
 import { commentPlugin } from '@/components/editor/plugins/comment-kit';
+import { discussionPlugin } from '@/components/editor/plugins/discussion-kit';
 import { requestCommentThreadFocus } from '@/lib/comments/constants';
 
 export function CommentLeaf(props: PlateLeafProps<TCommentText>) {
@@ -18,25 +19,33 @@ export function CommentLeaf(props: PlateLeafProps<TCommentText>) {
   const { api, setOption } = useEditorPlugin(commentPlugin);
   const hoverId = usePluginOption(commentPlugin, 'hoverId');
   const activeId = usePluginOption(commentPlugin, 'activeId');
+  const discussions = usePluginOption(discussionPlugin, 'discussions');
 
   const isOverlapping = getCommentCount(leaf) > 1;
   const currentId = api.comment.nodeId(leaf);
   const isActive = activeId === currentId;
   const isHover = hoverId === currentId;
+  const isResolved =
+    currentId != null &&
+    discussions.some((discussion) => discussion.id === currentId && discussion.isResolved);
+  const shouldShowHighlight = !isResolved || isHover || isActive;
 
   return (
     <PlateLeaf
       {...props}
       className={cn(
-        'border-b-2 border-b-highlight/[.36] bg-highlight/[.13] transition-colors duration-200',
-        (isHover || isActive) && 'border-b-highlight bg-highlight/25',
-        isOverlapping && 'border-b-2 border-b-highlight/[.7] bg-highlight/25',
-        (isHover || isActive) &&
+        'transition-colors duration-200',
+        shouldShowHighlight && 'border-b-2 border-b-highlight/[.36] bg-highlight/[.13]',
+        shouldShowHighlight && (isHover || isActive) && 'border-b-highlight bg-highlight/25',
+        shouldShowHighlight && isOverlapping && 'border-b-2 border-b-highlight/[.7] bg-highlight/25',
+        shouldShowHighlight &&
+          (isHover || isActive) &&
           isOverlapping &&
           'border-b-highlight bg-highlight/45'
       )}
       attributes={{
         ...props.attributes,
+        'data-comment-thread-id': currentId ?? undefined,
         onClick: (event) => {
           event.preventDefault();
           event.stopPropagation();

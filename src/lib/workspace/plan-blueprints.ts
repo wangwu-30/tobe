@@ -100,7 +100,7 @@ const PLAN_STAGE_BLUEPRINTS: Record<DeliverableType, StageBlueprint[]> = {
     {
       kind: 'finalize',
       defaultTitle: 'Finalize',
-      defaultDescription: 'Save a milestone when the deck reaches a stable checkpoint.',
+      defaultDescription: 'Save a milestone when the deck reaches a stable state.',
       checkpoint: true,
     },
   ],

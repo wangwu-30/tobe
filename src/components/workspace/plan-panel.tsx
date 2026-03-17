@@ -8,42 +8,69 @@ import {
   AlertCircle,
   CheckCircle2,
   Circle,
+  CircleDot,
   LoaderCircle,
   Sparkles,
 } from 'lucide-react';
-import type { WorkflowSummaryData, WorkspacePlanData } from '@/types';
+import type { WorkspaceCurrentStatusData, WorkspacePlanData } from '@/types';
 import { useT } from '@/components/providers/language-provider';
+import { useAppRouter } from '@/lib/app-router';
+import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
 
 export function PlanPanel({
-  canGenerateFirstPass = false,
+  currentDraftBranchTitle,
+  currentStatus,
   isAssistantBusy = false,
-  onGenerateFirstPass,
+  isSwitchingDeliverableIntent = false,
+  onCreateNextDeliverable,
+  onChangeDeliverableIntent,
+  onRegenerateWithIntent,
   plan,
-  workflowSummary,
 }: {
-  canGenerateFirstPass?: boolean;
+  currentDraftBranchTitle?: string | null;
+  currentStatus?: WorkspaceCurrentStatusData | null;
   isAssistantBusy?: boolean;
-  onGenerateFirstPass?: () => void;
+  isSwitchingDeliverableIntent?: boolean;
+  onCreateNextDeliverable?: () => void;
+  onChangeDeliverableIntent?: (deliverableType: WorkspacePlanData['deliverableType']) => void;
+  onRegenerateWithIntent?: () => void;
   plan?: WorkspacePlanData | null;
-  workflowSummary?: WorkflowSummaryData | null;
 }) {
   const t = useT();
-  const aiWorking = Boolean(workflowSummary?.isAiWorking || isAssistantBusy);
+  const router = useAppRouter();
+  const isPlanGenerating = !currentStatus && plan?.status === 'generating';
+  const isPlanBlocked = !currentStatus && plan?.status === 'blocked';
+  const isWorkflowBlocked = currentStatus?.phase === 'blocked';
+  const aiWorking = Boolean(currentStatus?.isAiWorking || isAssistantBusy || isPlanGenerating);
   const currentStage =
-    plan?.stages.find((stage) => stage.id === plan.activeStageId) || plan?.stages[0] || null;
+    !isPlanGenerating && !isPlanBlocked
+      ? plan?.stages.find((stage) => stage.id === plan.activeStageId) || plan?.stages[0] || null
+      : null;
+  const currentPhaseTitle =
+    currentStatus?.statusTitle ||
+    (isPlanGenerating
+      ? t('plan.generatingTitle')
+      : isPlanBlocked
+        ? t('plan.blockedTitle')
+        : currentStage?.title || t('status.noStatusTitle'));
   const progressNote =
-    workflowSummary?.blockedReason ||
+    currentStatus?.blockedReason ||
+    currentStatus?.statusDescription ||
     plan?.lastProgressNote ||
-    workflowSummary?.statusDescription ||
+    (isPlanGenerating ? t('plan.generatingDescription') : null) ||
     null;
+  const aiStatusValue = aiWorking ? t('status.aiBusy') : t('status.aiIdle');
+  const canRegenerateWithDeliverableType = Boolean(
+    onRegenerateWithIntent && currentStatus?.primaryAction !== 'generate_first_pass'
+  );
 
-  if (!plan && !workflowSummary) {
+  if (!plan && !currentStatus) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
         <div>
           <Sparkles className="mx-auto mb-3 h-8 w-8 opacity-40" />
-          <p>{t('plan.noPlanTitle')}</p>
-          <p className="mt-1 text-xs opacity-70">{t('plan.noPlanDescription')}</p>
+          <p>{t('status.noStatusTitle')}</p>
+          <p className="mt-1 text-xs opacity-70">{t('status.noStatusDescription')}</p>
         </div>
       </div>
     );
@@ -61,18 +88,58 @@ export function PlanPanel({
                 </div>
                 <div className="mt-2 flex items-center gap-2">
                   <span className="text-sm font-medium text-foreground">
-                    {currentStage?.title || workflowSummary?.statusTitle || t('plan.noPlanTitle')}
+                    {currentPhaseTitle}
                   </span>
                   {aiWorking ? (
                     <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  {progressNote || t('plan.noPlanDescription')}
+                  {progressNote || t('status.noStatusDescription')}
                 </p>
               </div>
-              <Badge variant="secondary">{t('assistant.plan')}</Badge>
+              <Badge variant="secondary">{t('assistant.status')}</Badge>
             </div>
+
+            {plan ? (
+              <div className="mt-4 rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                  {t('goal.deliverableType')}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(['document', 'slides', 'web'] as const).map((type) => (
+                    <Button
+                      key={type}
+                      type="button"
+                      size="sm"
+                      variant={plan.deliverableType === type ? 'default' : 'outline'}
+                      className="h-8 rounded-full px-3 text-xs"
+                      disabled={isSwitchingDeliverableIntent}
+                      onClick={() => onChangeDeliverableIntent?.(type)}
+                    >
+                      {formatDeliverableTypeLabel(type, t)}
+                    </Button>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                  {t('plan.deliverableTypeDescription')}
+                </p>
+                {canRegenerateWithDeliverableType ? (
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8"
+                      disabled={isAssistantBusy || isSwitchingDeliverableIntent}
+                      onClick={onRegenerateWithIntent}
+                    >
+                      {t('plan.regenerateWithDeliverableType')}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             {plan?.goal ? (
               <div className="mt-4 rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
@@ -83,13 +150,65 @@ export function PlanPanel({
               </div>
             ) : null}
 
-            {workflowSummary?.blockedReason ? (
+            {currentDraftBranchTitle ? (
+              <div
+                className="mt-4 rounded-2xl border border-border/70 bg-muted/15 px-3 py-3"
+                data-testid="plan-current-branch-card"
+              >
+                <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                  {t('plan.currentBranch')}
+                </div>
+                <div className="mt-2 text-sm font-medium text-foreground">
+                  {currentDraftBranchTitle}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t('plan.currentBranchDescription')}
+                </p>
+              </div>
+            ) : null}
+
+            {plan?.activeWorkflowPlaybook ? (
+              <div className="mt-4 rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
+                <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                  {t('plan.workflow')}
+                </div>
+                <div className="mt-2 text-sm font-medium text-foreground">
+                  {plan.activeWorkflowPlaybook.title}
+                </div>
+                {plan.activeWorkflowPlaybook.summary ? (
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {plan.activeWorkflowPlaybook.summary}
+                  </p>
+                ) : null}
+                {plan.activeWorkflowPlaybook.steps.length > 0 ? (
+                  <div className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+                    {plan.activeWorkflowPlaybook.steps.slice(0, 3).map((step, index) => (
+                      <p key={`${plan.activeWorkflowPlaybook?.id}-step-${index}`}>
+                        {index + 1}. {step}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {(isWorkflowBlocked || isPlanBlocked) && progressNote ? (
               <div className="mt-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-3 py-3">
                 <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
                   {t('status.blockedReason')}
                 </div>
                 <div className="mt-2 text-sm leading-6 text-foreground">
-                  {workflowSummary.blockedReason}
+                  {progressNote}
+                </div>
+                <div className="mt-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8"
+                    onClick={() => router.push('/settings')}
+                  >
+                    {t('chat.openSettings')}
+                  </Button>
                 </div>
               </div>
             ) : null}
@@ -97,27 +216,38 @@ export function PlanPanel({
             {plan?.stages.length ? (
               <div className="mt-4 space-y-2">
                 {plan.stages.map((stage) => (
-                  <StageRow key={stage.id} stage={stage} />
+                  <StageRow
+                    key={stage.id}
+                    animateActiveStage={aiWorking}
+                    stage={stage}
+                  />
                 ))}
               </div>
             ) : null}
 
-            {canGenerateFirstPass ? (
-              <div className="mt-4 rounded-2xl border border-primary/10 bg-primary/5 px-3 py-3">
+            {currentStatus?.phase === 'finalized' &&
+            plan?.activeWorkflowPlaybook &&
+            onCreateNextDeliverable ? (
+              <div
+                className="mt-4 rounded-2xl border border-primary/10 bg-primary/5 px-3 py-3"
+                data-testid="plan-next-deliverable-card"
+              >
                 <div className="text-sm font-medium text-foreground">
-                  {t('plan.firstPassTitle')}
+                  {t('plan.nextDeliverableTitle')}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t('plan.firstPassDescription')}
+                  {t('plan.nextDeliverableDescription', {
+                    workflow: plan.activeWorkflowPlaybook.title,
+                  })}
                 </p>
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-3">
                   <Button
                     size="sm"
                     className="h-8"
-                    onClick={onGenerateFirstPass}
-                    disabled={isAssistantBusy}
+                    data-testid="plan-next-deliverable-action"
+                    onClick={onCreateNextDeliverable}
                   >
-                    {isAssistantBusy ? t('plan.aiDrafting') : t('plan.firstPassAction')}
+                    {t('plan.nextDeliverableAction')}
                   </Button>
                 </div>
               </div>
@@ -127,17 +257,17 @@ export function PlanPanel({
           <section className="grid gap-3">
             <StatusStat
               label={t('status.ai')}
-              value={aiWorking ? t('status.aiBusy') : t('status.aiIdle')}
+              value={aiStatusValue}
             />
             <StatusStat
               label={t('status.preview')}
               value={
-                workflowSummary?.phase === 'preview_running'
+                currentStatus?.phase === 'preview_running'
                   ? t('status.previewRunning')
-                  : workflowSummary?.phase === 'preview_ready' ||
-                      workflowSummary?.phase === 'finalized'
+                  : currentStatus?.phase === 'preview_ready' ||
+                      currentStatus?.phase === 'finalized'
                     ? t('status.previewReady')
-                    : workflowSummary?.phase === 'blocked'
+                    : currentStatus?.phase === 'blocked'
                       ? t('status.previewBlocked')
                       : t('status.previewPending')
               }
@@ -150,8 +280,10 @@ export function PlanPanel({
 }
 
 function StageRow({
+  animateActiveStage,
   stage,
 }: {
+  animateActiveStage: boolean;
   stage: WorkspacePlanData['stages'][number];
 }) {
   const t = useT();
@@ -159,7 +291,11 @@ function StageRow({
     stage.status === 'completed' ? (
       <CheckCircle2 className="h-4 w-4 text-emerald-600" />
     ) : stage.status === 'in_progress' ? (
-      <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+      animateActiveStage ? (
+        <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+      ) : (
+        <CircleDot className="h-4 w-4 text-primary" />
+      )
     ) : stage.status === 'blocked' ? (
       <AlertCircle className="h-4 w-4 text-amber-600" />
     ) : (

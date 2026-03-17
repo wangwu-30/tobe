@@ -13,9 +13,9 @@ import {
 import {
   branchConversation,
   createWorkspaceFile,
-  createWorkspaceSnapshot,
+  createWorkspaceVersion,
   listWorkspaceFiles,
-  listWorkspaceSnapshots,
+  listWorkspaceVersions,
   updateWorkspaceFile,
 } from '@/lib/workspace/service';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
@@ -26,13 +26,15 @@ import {
   getPendingStagedChangeSets,
 } from '@/lib/workspace/staged-changes';
 import type { SearchProvider } from '@/lib/search/types';
-import type { DeliverableType, WorkspaceFileData } from '@/types';
+import type { DeliverableType, ResearchMode, WorkspaceFileData } from '@/types';
 
 type CreateWorkspaceAgentToolsParams = {
   actorUserId: string;
   conversationId: string;
   organizationId: string;
   originDeviceId: string;
+  researchMode?: ResearchMode;
+  searchBudget?: number;
   workspaceId: string;
   searchProvider?: SearchProvider | null;
 };
@@ -42,6 +44,8 @@ export function createWorkspaceAgentTools({
   conversationId,
   organizationId,
   originDeviceId,
+  researchMode = 'light',
+  searchBudget = 2,
   workspaceId,
   searchProvider,
 }: CreateWorkspaceAgentToolsParams): {
@@ -50,6 +54,7 @@ export function createWorkspaceAgentTools({
 } {
   const wikiId = workspaceId;
   const toolSummaries: string[] = [];
+  let remainingSearchBudget = searchBudget;
   let cachedDeliverableType: DeliverableType | null = null;
   let liveDraftRecoveryCheckpoint:
     | {
@@ -111,23 +116,23 @@ export function createWorkspaceAgentTools({
       return liveDraftRecoveryCheckpoint;
     }
 
-    const snapshot = await createWorkspaceSnapshot(
+    const version = await createWorkspaceVersion(
       {
         deviceId: originDeviceId,
         organizationId,
         userId: actorUserId,
       },
       {
-        snapshotType: 'checkpoint',
         sourceConversationId: conversationId,
         title: 'Recovery Point before AI Update',
+        versionType: 'checkpoint',
         workspaceId,
       }
     );
 
     liveDraftRecoveryCheckpoint = {
-      id: snapshot.id,
-      title: snapshot.title,
+      id: version.id,
+      title: version.title,
     };
     return liveDraftRecoveryCheckpoint;
   };
@@ -387,7 +392,7 @@ export function createWorkspaceAgentTools({
     }
 
     const { previewCapability, previewRun } = await maybeStartPreviewForWeb();
-    const summaryParts = [`Updated the live web draft in ${updatedFile.path}.`];
+    const summaryParts = [`Updated the current web deliverable in ${updatedFile.path}.`];
 
     if (liveDraftRecoveryCheckpoint?.title) {
       summaryParts.push(`Recovery point ready: ${liveDraftRecoveryCheckpoint.title}.`);
@@ -588,6 +593,13 @@ export function createWorkspaceAgentTools({
             ? summarizeThreads(wiki.threads.filter((thread) => thread.status === 'open'))
             : 'No deliverable yet.',
           '',
+          'Pending verification review threads:',
+          wiki
+            ? summarizeThreads(
+                wiki.threads.filter((thread) => thread.status === 'applied')
+              )
+            : 'No deliverable yet.',
+          '',
           'Resolved review threads:',
           wiki
             ? summarizeThreads(wiki.threads.filter((thread) => thread.status === 'resolved'))
@@ -620,69 +632,6 @@ export function createWorkspaceAgentTools({
       },
     },
     {
-      name: 'save_wiki_draft',
-      label: 'Save Wiki Draft',
-      description:
-        'Write the main text deliverable into the live draft from Markdown.',
-      parameters: Type.Object({
-        markdown: Type.String({ minLength: 1 }),
-        title: Type.Optional(Type.String({ minLength: 1 })),
-      }),
-      async execute(_toolCallId, params) {
-        const input = params as { markdown: string; title?: string };
-        const title = input.title?.trim() || extractTitleFromMarkdown(input.markdown);
-        const content = JSON.stringify(markdownToPlate(input.markdown));
-        const deliverableType = await getWorkspaceDeliverableType();
-        const primaryFile =
-          (await prisma.workspaceFile.findFirst({
-            where: {
-              deletedAt: null,
-              documentId: workspaceId,
-              isPrimary: true,
-              organizationId,
-            },
-          })) ||
-          (await prisma.workspaceFile.findFirst({
-            where: {
-              deletedAt: null,
-              documentId: workspaceId,
-              organizationId,
-              type: 'file',
-            },
-            orderBy: { createdAt: 'asc' },
-          }));
-
-        if (deliverableType !== 'document') {
-          throw new Error(
-            'save_wiki_draft only supports document deliverables. Use write_file for web and code workspaces.'
-          );
-        }
-
-        const result = await upsertLiveDraftFile({
-          content,
-          deliverableType,
-          existing: primaryFile ? mapWorkspaceFileRecord(primaryFile) : null,
-          kind: primaryFile ? normalizeWorkspaceFileKind(primaryFile.kind) : 'markdown',
-          path: primaryFile?.path || 'main.md',
-          setPrimary: true,
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: result.summary,
-            },
-          ],
-          details: {
-            title,
-            updatedFile: result.details.updatedFile,
-            wikiId,
-          },
-        };
-      },
-    },
-    {
       name: 'lock_current_wiki',
       label: 'Lock Current Wiki',
       description:
@@ -697,7 +646,7 @@ export function createWorkspaceAgentTools({
           throw new Error('No deliverable exists in the current workspace.');
         }
 
-        const version = await createWorkspaceSnapshot(
+        const version = await createWorkspaceVersion(
           {
             deviceId: originDeviceId,
             organizationId,
@@ -805,7 +754,7 @@ export function createWorkspaceAgentTools({
       name: 'write_file',
       label: 'Write File',
       description:
-        'Create or overwrite a file in the current workspace and update the live draft directly. For web deliverables, keep the previewable entrypoint ready when possible.',
+        'Create or overwrite any deliverable file (document, web, slides, code) in the current workspace and update the live draft directly.',
       parameters: Type.Object({
         content: Type.String(),
         fileId: Type.Optional(Type.String({ minLength: 1 })),
@@ -1045,12 +994,12 @@ export function createWorkspaceAgentTools({
       name: 'start_preview',
       label: 'Start Preview',
       description:
-        'Start the product preview for the current workspace draft or a selected snapshot.',
+        'Start the product preview for the current workspace draft or a selected version.',
       parameters: Type.Object({
-        snapshotId: Type.Optional(Type.String({ minLength: 1 })),
+        versionId: Type.Optional(Type.String({ minLength: 1 })),
       }),
       async execute(_toolCallId, params) {
-        const input = params as { snapshotId?: string };
+        const input = params as { versionId?: string };
         const run = await startWorkspacePreview(
           {
             deviceId: originDeviceId,
@@ -1058,7 +1007,7 @@ export function createWorkspaceAgentTools({
             userId: actorUserId,
           },
           {
-            snapshotId: input.snapshotId || null,
+            versionId: input.versionId || null,
             workspaceId,
           }
         );
@@ -1109,13 +1058,13 @@ export function createWorkspaceAgentTools({
       },
     },
     {
-      name: 'list_snapshots',
-      label: 'List Snapshots',
+      name: 'list_versions',
+      label: 'List Versions',
       description:
-        'List immutable snapshots for the current workspace.',
+        'List saved versions for the current workspace.',
       parameters: Type.Object({}),
       async execute() {
-        const snapshots = await listWorkspaceSnapshots({
+        const versions = await listWorkspaceVersions({
           organizationId,
           workspaceId,
         });
@@ -1125,31 +1074,31 @@ export function createWorkspaceAgentTools({
             {
               type: 'text',
               text:
-                snapshots.length > 0
-                  ? snapshots
+                versions.length > 0
+                  ? versions
                       .map(
-                        (snapshot) =>
-                          `- v${snapshot.versionNum} ${snapshot.title} (${snapshot.snapshotType})`
+                        (version) =>
+                          `- v${version.versionNum} ${version.title} (${version.versionType})`
                       )
                       .join('\n')
-                  : 'No snapshots yet.',
+                  : 'No versions yet.',
             },
           ],
-          details: snapshots,
+          details: versions,
         };
       },
     },
     {
-      name: 'create_snapshot',
-      label: 'Create Snapshot',
+      name: 'create_version',
+      label: 'Save Version',
       description:
-        'Save the current workspace files as a visible milestone snapshot.',
+        'Save the current workspace files as a visible milestone version.',
       parameters: Type.Object({
         title: Type.Optional(Type.String({ minLength: 1 })),
       }),
       async execute(_toolCallId, params) {
         const input = params as { title?: string };
-        const snapshot = await createWorkspaceSnapshot(
+        const version = await createWorkspaceVersion(
           {
             deviceId: originDeviceId,
             organizationId,
@@ -1161,24 +1110,24 @@ export function createWorkspaceAgentTools({
             workspaceId,
           }
         );
-        rememberToolSummary(`Saved milestone "${snapshot.title}".`);
+        rememberToolSummary(`Saved milestone "${version.title}".`);
 
         return {
           content: [
             {
               type: 'text',
-              text: `Saved milestone v${snapshot.versionNum}.`,
+              text: `Saved milestone v${version.versionNum}.`,
             },
           ],
-          details: snapshot,
+          details: version,
         };
       },
     },
     {
       name: 'branch_conversation',
-      label: 'Branch Conversation',
+      label: 'Continue in New Chat',
       description:
-        'Create a new conversation branch from a message in the current thread.',
+        'Create a new conversation from a message in the current thread.',
       parameters: Type.Object({
         messageId: Type.String({ minLength: 1 }),
         title: Type.Optional(Type.String({ minLength: 1 })),
@@ -1202,7 +1151,7 @@ export function createWorkspaceAgentTools({
           content: [
             {
               type: 'text',
-              text: `Created branch "${result.conversation.title}".`,
+              text: `Opened a new chat continuation "${result.conversation.title}".`,
             },
           ],
           details: result,
@@ -1220,11 +1169,28 @@ export function createWorkspaceAgentTools({
             query: Type.String({ minLength: 1 }),
           }),
           async execute(_toolCallId: string, params: unknown) {
+            if (researchMode === 'light' && remainingSearchBudget <= 0) {
+              return {
+                content: [
+                  {
+                    type: 'text',
+                    text: '[System] 联网搜索预算已耗尽，请基于现有搜索结果和已有知识继续完成任务。',
+                  },
+                ],
+                details: {
+                  budgetExhausted: true,
+                },
+              };
+            }
+
             const input = params as { maxResults?: number; query: string };
             const result = await searchProvider.search({
               maxResults: input.maxResults,
               query: input.query,
             });
+            if (researchMode === 'light') {
+              remainingSearchBudget -= 1;
+            }
 
             return {
               content: [
@@ -1247,13 +1213,16 @@ export function createWorkspaceAgentTools({
         status: Type.Optional(
           Type.Union([
             Type.Literal('open'),
+            Type.Literal('applied'),
             Type.Literal('resolved'),
             Type.Literal('all'),
           ])
         ),
       }),
       async execute(_toolCallId, params) {
-        const input = params as { status?: 'open' | 'resolved' | 'all' };
+        const input = params as {
+          status?: 'open' | 'applied' | 'resolved' | 'all';
+        };
         const status = input.status || 'open';
 
         const threads = await prisma.commentThread.findMany({
@@ -1424,14 +1393,6 @@ function extractTitleFromMarkdown(markdown: string) {
   return heading?.[1]?.trim() || 'Generated Workspace';
 }
 
-function normalizeDraftKind(kind: string | null | undefined) {
-  if (kind === 'markdown' || kind === 'text' || kind === 'code') {
-    return kind;
-  }
-
-  return 'richtext';
-}
-
 function serializeWikiContent(content: string) {
   try {
     return plateToMarkdown(JSON.parse(content));
@@ -1505,7 +1466,7 @@ function getDefaultLiveDraftPath(deliverableType: DeliverableType) {
     return 'index.ts';
   }
 
-  return 'main.md';
+  return 'main';
 }
 
 function inferFileLanguageFromPath(filePath: string) {

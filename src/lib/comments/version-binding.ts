@@ -24,16 +24,20 @@ export async function getBoundVersionIdForWiki(wikiId: string) {
   return version?.id ?? null;
 }
 
-export async function bindResolvedThreadsToVersion(
+export async function bindDraftThreadsToVersion(
   wikiId: string,
-  versionId: string
+  versionId: string,
+  draftRevision: number
 ) {
   await prisma.commentThread.updateMany({
     where: {
       deletedAt: null,
       documentId: wikiId,
-      status: 'resolved',
       versionId: null,
+      draftRevision,
+      status: {
+        in: ['open', 'applied'],
+      },
     },
     data: {
       versionId,
@@ -42,6 +46,24 @@ export async function bindResolvedThreadsToVersion(
       },
     },
   });
+}
+
+export async function getCurrentDraftRevisionForDocument(
+  organizationId: string,
+  wikiId: string
+) {
+  const wiki = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: wikiId,
+      organizationId,
+    },
+    select: {
+      draftRevision: true,
+    },
+  });
+
+  return wiki?.draftRevision ?? 0;
 }
 
 export const getBoundVersionIdForDocument = getBoundVersionIdForWiki;

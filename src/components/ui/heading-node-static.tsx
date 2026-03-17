@@ -5,7 +5,7 @@ import type { SlateElementProps } from 'platejs/static';
 import { type VariantProps, cva } from 'class-variance-authority';
 import { SlateElement } from 'platejs/static';
 
-const headingVariants = cva('relative mb-1', {
+const headingVariants = cva('relative mb-1 scroll-mt-7', {
   variants: {
     variant: {
       h1: 'mt-[1.6em] pb-1 font-bold font-heading text-4xl',

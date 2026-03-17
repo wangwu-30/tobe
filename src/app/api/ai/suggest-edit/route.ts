@@ -21,6 +21,12 @@ export async function POST(req: NextRequest) {
       model: modelOverride,
     } = await req.json();
 
+    if (process.env.DAO_E2E === '1') {
+      return NextResponse.json({
+        suggestion: resolveE2ESuggestion(threadDiscussion, anchorText),
+      });
+    }
+
     const systemPrompt = await buildSuggestionContext({
       anchorText,
       organizationId: actor.organizationId,
@@ -65,4 +71,24 @@ export async function POST(req: NextRequest) {
       { status: info.statusCode }
     );
   }
+}
+
+function resolveE2ESuggestion(
+  threadDiscussion: string | null | undefined,
+  anchorText: string | null | undefined
+) {
+  const lastAssistantReply = (threadDiscussion || '')
+    .split(/\n{2,}/)
+    .map((segment) => segment.trim())
+    .reverse()
+    .find((segment) => segment.startsWith('AI:'));
+
+  if (lastAssistantReply) {
+    const suggestion = lastAssistantReply.slice(3).trim();
+    if (suggestion) {
+      return suggestion;
+    }
+  }
+
+  return anchorText?.trim() || '';
 }

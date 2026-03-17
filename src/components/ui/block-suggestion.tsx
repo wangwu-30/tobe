@@ -251,39 +251,65 @@ export const useResolveSuggestion = (
   blockPath: Path
 ) => {
   const discussions = usePluginOption(discussionPlugin, 'discussions');
+  const uniquePathMap = usePluginOption(suggestionPlugin, 'uniquePathMap');
 
-  const { api, editor, getOption, setOption } =
-    useEditorPlugin(suggestionPlugin);
+  const { api, editor, setOption } = useEditorPlugin(suggestionPlugin);
 
-  suggestionNodes.forEach(([node]) => {
-    const id = api.suggestion.nodeId(node);
-    const map = getOption('uniquePathMap');
+  const pendingPathEntries = React.useMemo(() => {
+    const nextEntries = new Map<string, Path>();
 
-    if (!id) return;
+    suggestionNodes.forEach(([node]) => {
+      const id = api.suggestion.nodeId(node);
+      if (!id) return;
 
-    const previousPath = map.get(id);
+      const previousPath = uniquePathMap.get(id);
 
-    // If there are no suggestion nodes in the corresponding path in the map, then update it.
-    if (PathApi.isPath(previousPath)) {
-      const nodes = api.suggestion.node({ id, at: previousPath, isText: true });
-      const parentNode = api.node(previousPath);
-      let lineBreakId: string | null = null;
+      // If there are no suggestion nodes in the corresponding path in the map, then update it.
+      if (PathApi.isPath(previousPath)) {
+        const nodes = api.suggestion.node({ id, at: previousPath, isText: true });
+        const parentNode = api.node(previousPath);
+        let lineBreakId: string | null = null;
 
-      if (parentNode && ElementApi.isElement(parentNode[0])) {
-        lineBreakId = api.suggestion.nodeId(parentNode[0]) ?? null;
+        if (parentNode && ElementApi.isElement(parentNode[0])) {
+          lineBreakId = api.suggestion.nodeId(parentNode[0]) ?? null;
+        }
+
+        if (!nodes && lineBreakId !== id) {
+          nextEntries.set(id, blockPath);
+        }
+        return;
       }
 
-      if (!nodes && lineBreakId !== id) {
-        setOption('uniquePathMap', new Map(map).set(id, blockPath));
-      }
-    } else {
-      setOption('uniquePathMap', new Map(map).set(id, blockPath));
+      nextEntries.set(id, blockPath);
+    });
+
+    return [...nextEntries.entries()];
+  }, [api, blockPath, suggestionNodes, uniquePathMap]);
+
+  React.useEffect(() => {
+    if (pendingPathEntries.length === 0) {
+      return;
     }
-  });
+
+    const nextMap = new Map(uniquePathMap);
+    let changed = false;
+
+    pendingPathEntries.forEach(([id, path]) => {
+      const previousPath = nextMap.get(id);
+      if (PathApi.isPath(previousPath) && PathApi.equals(previousPath, path)) {
+        return;
+      }
+
+      nextMap.set(id, path);
+      changed = true;
+    });
+
+    if (changed) {
+      setOption('uniquePathMap', nextMap);
+    }
+  }, [pendingPathEntries, setOption, uniquePathMap]);
 
   const resolvedSuggestion: ResolvedSuggestion[] = React.useMemo(() => {
-    const map = getOption('uniquePathMap');
-
     if (suggestionNodes.length === 0) return [];
 
     const suggestionIds = new Set(
@@ -317,7 +343,7 @@ export const useResolveSuggestion = (
     suggestionIds.forEach((id) => {
       if (!id) return;
 
-      const path = map.get(id);
+      const path = uniquePathMap.get(id);
 
       if (!path || !PathApi.isPath(path)) return;
       if (!PathApi.equals(path, blockPath)) return;
@@ -463,8 +489,8 @@ export const useResolveSuggestion = (
     blockPath,
     discussions,
     editor.api,
-    getOption,
     suggestionNodes,
+    uniquePathMap,
   ]);
 
   return resolvedSuggestion;

@@ -1,14 +1,17 @@
 'use client';
 
 import * as React from 'react';
-import { MessageSquarePlus } from 'lucide-react';
+import { MessageSquarePlus, Search } from 'lucide-react';
+import { CommentAgentTextarea } from '@/components/comments/comment-agent-textarea';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { useAiReply } from '@/hooks/use-ai-reply';
+import { useCommentAgents } from '@/hooks/use-comment-agents';
+import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
+import { resolveSingleResearchTarget } from '@/lib/comments/agents';
+import { useT } from '@/components/providers/language-provider';
 import type { CommentThreadData } from '@/types';
 import {
   OPEN_SELECTION_COMMENT_COMPOSER_EVENT,
-  readCommentReplyMode,
   requestCommentThreadFocus,
 } from '@/lib/comments/constants';
 
@@ -20,29 +23,35 @@ type ComposerState = {
 };
 
 export function WebSelectionCommentTrigger({
+  draftRevision,
   documentContent,
   fileId,
   iframeRef,
   onThreadsChanged,
-  snapshotId,
+  versionId,
   workspaceId,
 }: {
+  draftRevision?: number | null;
   documentContent: string;
   fileId?: string | null;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   onThreadsChanged: () => Promise<void>;
-  snapshotId?: string | null;
+  versionId?: string | null;
   workspaceId: string;
 }) {
+  const t = useT();
   const { sendCommentReply } = useAiReply();
+  const commentAgents = useCommentAgents();
   const containerRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const [selectionState, setSelectionState] = React.useState<ComposerState | null>(null);
   const [composerState, setComposerState] = React.useState<ComposerState | null>(null);
   const [commentText, setCommentText] = React.useState('');
+  const [researchMode, setResearchMode] = React.useState<'light' | 'deep'>('light');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [selectionAvailable, setSelectionAvailable] = React.useState(true);
 
   const readSelectionState = React.useCallback(() => {
     const iframe = iframeRef.current;
@@ -98,6 +107,7 @@ export function WebSelectionCommentTrigger({
   const closeComposer = React.useCallback(() => {
     setComposerState(null);
     setCommentText('');
+    setResearchMode('light');
     setError(null);
     setSelectionState(null);
   }, []);
@@ -126,9 +136,13 @@ export function WebSelectionCommentTrigger({
     try {
       const response = await fetch('/api/threads', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...getStoredAISettingsHeader(),
+        },
         body: JSON.stringify({
           documentId: workspaceId,
+          draftRevision: versionId ? null : draftRevision,
           fileId: fileId || null,
           firstMessage: commentText.trim(),
           anchorText: composerState.anchorText,
@@ -139,13 +153,13 @@ export function WebSelectionCommentTrigger({
               excerpt: composerState.anchorText,
               selector: composerState.selector,
             },
-            previewSnapshotId: snapshotId || null,
+            previewVersionId: versionId || null,
             sourceMapping: {
               fileId: fileId || null,
               selector: composerState.selector,
             },
           }),
-          snapshotId: snapshotId || null,
+          versionId: versionId || null,
         }),
       });
 
@@ -157,18 +171,61 @@ export function WebSelectionCommentTrigger({
       await onThreadsChanged();
       requestCommentThreadFocus(thread.id);
 
-      if (readCommentReplyMode() === 'auto') {
-        try {
-          await sendCommentReply({
+      if (researchMode === 'deep') {
+        const researchTarget = resolveSingleResearchTarget({
+          agents: commentAgents,
+          content: commentText.trim(),
+        });
+
+        if (researchTarget.error === 'multiple') {
+          throw new Error(t('comments.researchNeedsSingleAgent'));
+        }
+
+        if (!researchTarget.target) {
+          throw new Error(t('comments.researchNeedsSingleAgent'));
+        }
+
+        const researchResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
+          body: JSON.stringify({
+            agentId: researchTarget.target.agentId,
             anchorText: composerState.anchorText,
+            content: commentText.trim(),
             documentContent,
-            documentId: workspaceId,
-            threadId: thread.id,
-          });
+            persistMessage: false,
+          }),
+        });
+
+        if (!researchResponse.ok) {
+          const payload = await researchResponse.json().catch(() => null);
+          throw new Error(payload?.error || t('comments.researchPlanFailed'));
+        }
+
+        await onThreadsChanged();
+        requestCommentThreadFocus(thread.id);
+        closeComposer();
+        return;
+      }
+
+      if (thread.agentBindings.length > 0) {
+        try {
+          for (const binding of thread.agentBindings) {
+            await sendCommentReply({
+              agentId: binding.agentId,
+              anchorText: composerState.anchorText,
+              documentContent,
+              documentId: workspaceId,
+              threadId: thread.id,
+            });
+          }
           await onThreadsChanged();
           requestCommentThreadFocus(thread.id);
         } catch {
-          // Comment creation succeeds even if auto reply fails.
+          // Comment creation succeeds even if agent replies fail.
         }
       }
 
@@ -181,12 +238,16 @@ export function WebSelectionCommentTrigger({
   }, [
     closeComposer,
     commentText,
+    commentAgents,
     composerState,
     documentContent,
+    draftRevision,
     fileId,
     onThreadsChanged,
+    researchMode,
     sendCommentReply,
-    snapshotId,
+    t,
+    versionId,
     workspaceId,
   ]);
 
@@ -200,8 +261,9 @@ export function WebSelectionCommentTrigger({
       try {
         const iframeDocument = iframe.contentDocument;
         iframeDocument?.addEventListener('selectionchange', updateSelectionState);
+        setSelectionAvailable(true);
       } catch {
-        // Cross-origin or unavailable preview. No inline selection comments.
+        setSelectionAvailable(false);
       }
     };
 
@@ -254,7 +316,15 @@ export function WebSelectionCommentTrigger({
   }, [closeComposer]);
 
   if (!selectionState && !composerState) {
-    return <div ref={containerRef} className="pointer-events-none absolute inset-0" />;
+    return (
+      <div ref={containerRef} className="pointer-events-none absolute inset-0 z-10">
+        {!selectionAvailable ? (
+          <div className="absolute right-3 top-3 rounded-full border border-border bg-background/95 px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
+            {t('comments.webSelectionUnavailable')}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   const anchor = composerState || selectionState;
@@ -295,15 +365,36 @@ export function WebSelectionCommentTrigger({
           <div className="mb-2 text-xs font-medium text-foreground">
             {composerState.anchorText}
           </div>
-          <Textarea
+          <CommentAgentTextarea
+            agents={commentAgents}
             ref={textareaRef}
             value={commentText}
-            onChange={(event) => setCommentText(event.target.value)}
+            onChange={setCommentText}
             placeholder="让 AI 调整这里的页面表现……"
             className="min-h-[96px]"
           />
+          <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+            {researchMode === 'deep'
+              ? t('comments.deepResearchHint')
+              : t('comments.agentMentionHint')}
+          </p>
           {error ? <div className="mt-2 text-xs text-destructive">{error}</div> : null}
           <div className="mt-3 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={researchMode === 'deep' ? 'secondary' : 'outline'}
+              className="rounded-full"
+              onClick={() =>
+                setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
+              }
+              disabled={isSubmitting}
+            >
+              <Search className="mr-1 h-3.5 w-3.5" />
+              {researchMode === 'deep'
+                ? t('comments.deepResearchEnabled')
+                : t('comments.deepResearch')}
+            </Button>
             <Button type="button" size="sm" variant="ghost" onClick={closeComposer}>
               取消
             </Button>
@@ -313,7 +404,13 @@ export function WebSelectionCommentTrigger({
               onClick={() => void submitComment()}
               disabled={isSubmitting || !commentText.trim()}
             >
-              {isSubmitting ? '提交中…' : '提交评论'}
+              {isSubmitting
+                ? researchMode === 'deep'
+                  ? t('comments.researchPlanning')
+                  : '提交中…'
+                : researchMode === 'deep'
+                  ? t('comments.createResearchPlan')
+                  : '提交评论'}
             </Button>
           </div>
         </div>

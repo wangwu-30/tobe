@@ -1,4 +1,3 @@
-import { searchWithPlaywrightFallback } from '@/lib/search/browser-fallback';
 import {
   BRAVE_SEARCH_PROVIDER_ID,
   DEFAULT_BRAVE_SEARCH_ENDPOINT,
@@ -38,7 +37,7 @@ type BraveWebSearchApiResponse = {
 export class BraveSearchProvider implements SearchProvider {
   readonly id = BRAVE_SEARCH_PROVIDER_ID;
   readonly label = 'Brave Search';
-  readonly description = 'Brave Search API with Playwright browser fallback';
+  readonly description = 'Brave Search API';
 
   private readonly apiKey: string | null;
   private readonly endpoint: string;
@@ -50,26 +49,9 @@ export class BraveSearchProvider implements SearchProvider {
 
   async search(input: SearchQuery): Promise<SearchResult> {
     if (!this.apiKey) {
-      return searchWithPlaywrightFallback({
-        providerId: this.id,
-        providerLabel: this.label,
-        query: input,
-      });
+      throw new SearchProviderError('Brave Search API key is missing.', 400);
     }
-
-    try {
-      return await this.searchWithApi(input);
-    } catch (error) {
-      if (error instanceof SearchProviderError) {
-        return searchWithPlaywrightFallback({
-          providerId: this.id,
-          providerLabel: this.label,
-          query: input,
-        });
-      }
-
-      throw error;
-    }
+    return this.searchWithApi(input);
   }
 
   private async searchWithApi(input: SearchQuery): Promise<SearchResult> {

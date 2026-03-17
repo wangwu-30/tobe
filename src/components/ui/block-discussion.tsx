@@ -128,6 +128,7 @@ const BlockCommentContent = function BlockCommentContent({
                 variant="ghost"
                 className="!px-1.5 flex h-6 gap-1 py-0 text-muted-foreground/80 hover:text-muted-foreground/80"
                 contentEditable={false}
+                data-testid={`block-discussion-trigger-${primaryDiscussionId}`}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => requestCommentThreadFocus(primaryDiscussionId)}
               >
@@ -180,32 +181,56 @@ const useResolvedDiscussion = (
   commentNodes: NodeEntry<TCommentText>[],
   blockPath: Path
 ) => {
-  const { api, getOption, setOption } = useEditorPlugin(commentPlugin);
-
+  const { api, setOption } = useEditorPlugin(commentPlugin);
   const discussions = usePluginOption(discussionPlugin, 'discussions');
+  const uniquePathMap = usePluginOption(commentPlugin, 'uniquePathMap');
 
-  commentNodes.forEach(([node]) => {
-    const id = api.comment.nodeId(node);
-    const map = getOption('uniquePathMap');
+  const pendingPathEntries = React.useMemo(() => {
+    const nextEntries = new Map<string, Path>();
 
-    if (!id) return;
+    commentNodes.forEach(([node]) => {
+      const id = api.comment.nodeId(node);
+      if (!id) return;
 
-    const previousPath = map.get(id);
+      const previousPath = uniquePathMap.get(id);
 
-    // If there are no comment nodes in the corresponding path in the map, then update it.
-    if (PathApi.isPath(previousPath)) {
-      const nodes = api.comment.node({ id, at: previousPath });
-
-      if (!nodes) {
-        setOption('uniquePathMap', new Map(map).set(id, blockPath));
+      // If there are no comment nodes in the corresponding path in the map, then update it.
+      if (PathApi.isPath(previousPath)) {
+        const nodes = api.comment.node({ id, at: previousPath });
+        if (!nodes) {
+          nextEntries.set(id, blockPath);
+        }
         return;
       }
 
+      nextEntries.set(id, blockPath);
+    });
+
+    return [...nextEntries.entries()];
+  }, [api.comment, blockPath, commentNodes, uniquePathMap]);
+
+  React.useEffect(() => {
+    if (pendingPathEntries.length === 0) {
       return;
     }
-    // TODO: fix throw error
-    setOption('uniquePathMap', new Map(map).set(id, blockPath));
-  });
+
+    const nextMap = new Map(uniquePathMap);
+    let changed = false;
+
+    pendingPathEntries.forEach(([id, path]) => {
+      const previousPath = nextMap.get(id);
+      if (PathApi.isPath(previousPath) && PathApi.equals(previousPath, path)) {
+        return;
+      }
+
+      nextMap.set(id, path);
+      changed = true;
+    });
+
+    if (changed) {
+      setOption('uniquePathMap', nextMap);
+    }
+  }, [pendingPathEntries, setOption, uniquePathMap]);
 
   const commentsIds = new Set(
     commentNodes.map(([node]) => api.comment.nodeId(node)).filter(Boolean)
@@ -218,8 +243,7 @@ const useResolvedDiscussion = (
     }))
     .filter((item: TDiscussion) => {
       /** If comment cross blocks just show it in the first block */
-      const commentsPathMap = getOption('uniquePathMap');
-      const firstBlockPath = commentsPathMap.get(item.id);
+      const firstBlockPath = uniquePathMap.get(item.id);
 
       if (!firstBlockPath) return false;
       if (!PathApi.equals(firstBlockPath, blockPath)) return false;

@@ -23,7 +23,11 @@ export function getSearchSettingsFromHeaders(headers: Headers): SearchSettings {
   try {
     return normalizeSearchSettings(JSON.parse(settingsHeader));
   } catch {
-    return normalizeSearchSettings({});
+    try {
+      return normalizeSearchSettings(JSON.parse(decodeURIComponent(settingsHeader)));
+    } catch {
+      return normalizeSearchSettings({});
+    }
   }
 }
 

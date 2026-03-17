@@ -35,6 +35,7 @@ export async function POST(
       name: body.name,
       nodeType: body.nodeType,
       parentId: body.parentId,
+      role: body.role,
       workspaceId,
     });
 

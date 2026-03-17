@@ -7,30 +7,70 @@ import {
   looksLikeHtmlDocument,
 } from '@/lib/workspace/preview';
 
-type SnapshotMirrorFile = {
+type VersionMirrorFile = {
   content?: string;
   nodeType?: string;
   path: string;
   type?: string;
 };
 
+const workspaceMirrorQueues = new Map<string, Promise<string>>();
+
 export interface WorkspaceMirrorManager {
   getWorkspaceMirrorPath(organizationId: string, workspaceId: string): string;
   materializeWorkspaceMirror(params: {
     organizationId: string;
-    snapshotId?: string | null;
+    versionId?: string | null;
     workspaceId: string;
   }): Promise<string>;
 }
 
 export async function materializeWorkspaceMirror(params: {
   organizationId: string;
-  snapshotId?: string | null;
+  versionId?: string | null;
   workspaceId: string;
 }) {
-  const mirrorDir = getWorkspaceMirrorPath(params.organizationId, params.workspaceId);
-  const files = params.snapshotId
-    ? await listSnapshotMirrorFiles(params.organizationId, params.snapshotId)
+  const queueKey = `${params.organizationId}:${params.workspaceId}`;
+  const queuedTask = (workspaceMirrorQueues.get(queueKey) || Promise.resolve(''))
+    .catch(() => '')
+    .then(() => materializeWorkspaceMirrorInternal(params));
+
+  workspaceMirrorQueues.set(queueKey, queuedTask);
+
+  try {
+    return await queuedTask;
+  } finally {
+    if (workspaceMirrorQueues.get(queueKey) === queuedTask) {
+      workspaceMirrorQueues.delete(queueKey);
+    }
+  }
+}
+
+async function materializeWorkspaceMirrorInternal(params: {
+  organizationId: string;
+  versionId?: string | null;
+  workspaceId: string;
+}) {
+  const workspace = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: params.workspaceId,
+      organizationId: params.organizationId,
+    },
+    select: {
+      projectRootPath: true,
+    },
+  });
+
+  if (!workspace) {
+    throw new Error('Workspace not found.');
+  }
+
+  const mirrorDir =
+    workspace.projectRootPath?.trim() ||
+    getWorkspaceMirrorPath(params.organizationId, params.workspaceId);
+  const files = params.versionId
+    ? await listVersionMirrorFiles(params.organizationId, params.versionId)
     : await prisma.workspaceFile.findMany({
         where: {
           deletedAt: null,
@@ -77,11 +117,11 @@ function sanitizeMirrorPath(filePath: string) {
   return normalized || 'untitled.txt';
 }
 
-async function listSnapshotMirrorFiles(organizationId: string, snapshotId: string) {
-  const snapshot = await prisma.version.findFirst({
+async function listVersionMirrorFiles(organizationId: string, versionId: string) {
+  const version = await prisma.version.findFirst({
     where: {
       deletedAt: null,
-      id: snapshotId,
+      id: versionId,
       organizationId,
     },
     select: {
@@ -89,18 +129,18 @@ async function listSnapshotMirrorFiles(organizationId: string, snapshotId: strin
     },
   });
 
-  if (!snapshot) {
-    throw new Error('Snapshot not found.');
+  if (!version) {
+    throw new Error('Version not found.');
   }
 
-  const parsed = JSON.parse(snapshot.content || '{}') as {
-    files?: SnapshotMirrorFile[];
+  const parsed = JSON.parse(version.content || '{}') as {
+    files?: VersionMirrorFile[];
   };
 
   return (parsed.files || []).filter((file) => typeof file.path === 'string');
 }
 
-function injectLegacyPreviewEntrypoint(files: SnapshotMirrorFile[]) {
+function injectLegacyPreviewEntrypoint(files: VersionMirrorFile[]) {
   const existingIndexHtml = files.find((file) => file.path === 'index.html') || null;
   if (
     existingIndexHtml &&
@@ -112,7 +152,7 @@ function injectLegacyPreviewEntrypoint(files: SnapshotMirrorFile[]) {
 
   const legacyHtmlSource = findLegacyHtmlPreviewSource(
     files
-      .filter((file): file is SnapshotMirrorFile & { content: string } => typeof file.content === 'string')
+      .filter((file): file is VersionMirrorFile & { content: string } => typeof file.content === 'string')
       .map((file) => ({
         content: file.content,
         nodeType: file.nodeType === 'folder' ? 'folder' : 'file',
