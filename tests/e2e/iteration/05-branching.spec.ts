@@ -24,6 +24,21 @@ async function openVersionHistory(page: Page) {
   return historyDialog;
 }
 
+async function dismissVisibleFirstUseGuidance(page: Page) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const visibleGotIt = page
+      .locator('button:visible')
+      .filter({ hasText: /知道了|Got It/ })
+      .first();
+
+    if (!(await visibleGotIt.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await visibleGotIt.click();
+  }
+}
+
 test('opening a new chat from a message preserves the selected version surface', async ({
   page,
 }) => {
@@ -91,10 +106,7 @@ test('continuing from version history promotes that point into the live draft an
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
   );
 
-  const gotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await gotIt.isVisible().catch(() => false)) {
-    await gotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   const historyDialog = await openVersionHistory(page);
   await expect(historyDialog.getByTestId(`version-continue-${workspace.versionId}`)).toBeEnabled();
@@ -108,10 +120,7 @@ test('continuing from version history promotes that point into the live draft an
   }).toBeNull();
 
   await page.getByTestId('assistant-tab-chat').click();
-  const chatGotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await chatGotIt.isVisible().catch(() => false)) {
-    await chatGotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   await expect(page.getByTestId('chat-base-version-label')).toContainText('从 版本里程碑 V1 继续');
   await page.getByTestId('assistant-tab-status').click();
@@ -152,10 +161,7 @@ test('switching to another visible branch head from history moves the live draft
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
   );
 
-  const gotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await gotIt.isVisible().catch(() => false)) {
-    await gotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   const historyDialog = await openVersionHistory(page);
   await historyDialog.getByTestId(`version-continue-${workspace.versionId}`).click();
@@ -174,11 +180,9 @@ test('switching to another visible branch head from history moves the live draft
   expect(continuedConversationId).not.toBeNull();
 
   const branchHistoryDialog = await openVersionHistory(page);
-  const targetBranchOverviewSwitch = branchHistoryDialog
-    .locator('[data-testid^="version-branch-overview-card-"]')
-    .filter({ hasText: '版本里程碑 V2' })
-    .locator('[data-testid^="version-branch-overview-switch-"]')
-    .first();
+  const targetBranchOverviewSwitch = branchHistoryDialog.getByTestId(
+    `version-branch-overview-switch-${workspace.secondVersionId!}`
+  );
   await expect(targetBranchOverviewSwitch).toBeVisible();
   const switchedBranchTestId = await targetBranchOverviewSwitch.getAttribute('data-testid');
   expect(switchedBranchTestId).not.toBeNull();
@@ -207,10 +211,7 @@ test('switching to another visible branch head from history moves the live draft
   await page.keyboard.press('Escape');
 
   await page.getByTestId('assistant-tab-chat').click();
-  const chatGotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await chatGotIt.isVisible().catch(() => false)) {
-    await chatGotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
   await expect(page.getByTestId('chat-base-version-label')).toContainText(/版本里程碑 V2/);
   await page.getByTestId('assistant-tab-status').click();
   await expect(page.getByTestId('plan-current-branch-card')).toContainText(/版本里程碑 V2/);
@@ -228,10 +229,7 @@ test('branch overview groups visible heads and can switch the live draft to anot
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
   );
 
-  const gotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await gotIt.isVisible().catch(() => false)) {
-    await gotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   const historyDialog = await openVersionHistory(page);
   await historyDialog.getByTestId(`version-continue-${workspace.versionId}`).click();
@@ -251,6 +249,9 @@ test('branch overview groups visible heads and can switch the live draft to anot
 
   const branchHistoryDialog = await openVersionHistory(page);
   await expect(branchHistoryDialog.getByText(/^分支$|^Branches$/)).toBeVisible();
+  await expect(
+    branchHistoryDialog.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
+  ).toBeVisible();
   expect(
     await branchHistoryDialog.locator('[data-testid^="version-branch-overview-card-"]').count()
   ).toBeGreaterThanOrEqual(2);
@@ -286,11 +287,64 @@ test('branch overview groups visible heads and can switch the live draft to anot
   await page.keyboard.press('Escape');
 
   await page.getByTestId('assistant-tab-chat').click();
-  const chatGotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await chatGotIt.isVisible().catch(() => false)) {
-    await chatGotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
   await expect(page.getByTestId('chat-base-version-label')).toContainText('版本里程碑 V2');
+});
+
+test('branch overview can focus the milestone list on a single branch lineage', async ({
+  page,
+}) => {
+  const seedState = readSeedState();
+  const workspace = seedState.branchVersionWorkspace;
+  const initialConversationId = workspace.conversationId;
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
+  );
+
+  await dismissVisibleFirstUseGuidance(page);
+
+  const historyDialog = await openVersionHistory(page);
+  await historyDialog.getByTestId(`version-continue-${workspace.versionId}`).click();
+
+  await expect.poll(() => {
+    return new URL(page.url()).searchParams.get('conversationId');
+  }).not.toBe(initialConversationId);
+  await expect.poll(() => {
+    return new URL(page.url()).searchParams.get('versionId');
+  }).toBeNull();
+  await expect(
+    page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
+  ).toBeVisible();
+
+  const branchHistoryDialog = await openVersionHistory(page);
+  await branchHistoryDialog
+    .getByTestId(`version-branch-overview-focus-${workspace.secondVersionId!}`)
+    .click();
+
+  await expect(branchHistoryDialog.getByTestId('version-branch-focus-banner')).toContainText(
+    '版本里程碑 V2'
+  );
+  await expect(
+    branchHistoryDialog.getByTestId(`version-history-card-${workspace.versionId}`)
+  ).toBeVisible();
+  await expect(
+    branchHistoryDialog.getByTestId(`version-history-card-${workspace.secondVersionId!}`)
+  ).toBeVisible();
+  await expect(
+    branchHistoryDialog
+      .locator('[data-testid^="version-history-card-"]')
+      .filter({ hasText: '从 版本里程碑 V1 继续' })
+  ).toHaveCount(0);
+
+  await branchHistoryDialog.getByTestId('version-branch-focus-clear').click();
+  await expect(
+    branchHistoryDialog
+      .locator('[data-testid^="version-history-card-"]')
+      .filter({ hasText: '从 版本里程碑 V1 继续' })
+      .first()
+  ).toBeVisible();
 });
 
 test('continuing from an older milestone only inherits actionable review from that ancestor branch', async ({
@@ -304,10 +358,7 @@ test('continuing from an older milestone only inherits actionable review from th
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
   );
 
-  const gotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await gotIt.isVisible().catch(() => false)) {
-    await gotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   const historyDialog = await openVersionHistory(page);
 
@@ -324,10 +375,7 @@ test('continuing from an older milestone only inherits actionable review from th
   }).toBeNull();
 
   await page.getByRole('tab', { name: /评审|Review/ }).click();
-  const reviewGotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await reviewGotIt.isVisible().catch(() => false)) {
-    await reviewGotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   await expect(page.getByText(/继承评论上下文|Inherited Context/)).toBeVisible();
   await expect(
@@ -355,10 +403,7 @@ test('version compare supports visible milestone against visible milestone, not 
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
   );
 
-  const gotIt = page.getByRole('button', { name: /知道了|Got It/ }).first();
-  if (await gotIt.isVisible().catch(() => false)) {
-    await gotIt.click();
-  }
+  await dismissVisibleFirstUseGuidance(page);
 
   await page.getByRole('button', { name: /比较|Compare/ }).first().click();
 

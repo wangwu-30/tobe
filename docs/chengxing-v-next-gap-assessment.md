@@ -27,8 +27,8 @@
 
 ### 2. 版本树和分支语义还没有完成树状化
 
-- 当前版本、恢复、比较、评论继承都已经可用；`Version` 历史也已经能从里程碑 / 回退点把 live draft 切到新的正式 head，并显式展示当前草稿基线和对话基线来源，比较也支持任意可见里程碑之间的双边选择，里程碑区还能按 visible lineage 标出非当前叶子分支的 `Branch Head`，卡片本身可直接进入对应只读版本视图，也允许直接把当前 live draft 切回另一条可见 branch head；历史顶部还新增了专门的 branch overview，用来摘要当前草稿分支和其他可见 branch head，`Status` 里也会同步显示当前 live draft 的分支基线。
-- 但真正的分支仍未升级为完整的交付物版本树，当前还没有独立的整条分支线管理、跨多历史节点的正式演进操作，branch overview 也还只是历史里的摘要层，而不是完整 branch workspace。
+- 当前版本、恢复、比较、评论继承都已经可用；`Version` 历史也已经能从里程碑 / 回退点把 live draft 切到新的正式 head，并显式展示当前草稿基线和对话基线来源，比较也支持任意可见里程碑之间的双边选择，里程碑区还能按 visible lineage 标出非当前叶子分支的 `Branch Head`，卡片本身可直接进入对应只读版本视图，也允许直接把当前 live draft 切回另一条可见 branch head；历史顶部还新增了专门的 branch overview，用来摘要当前草稿分支和其他可见 branch head，支持把里程碑列表临时聚焦到单条 branch lineage，`Status` 里也会同步显示当前 live draft 的分支基线。
+- 但真正的分支仍未升级为完整的交付物版本树，当前还没有独立的整条分支线管理、跨多历史节点的正式演进操作；branch focus 仍只是历史里的局部视图，不是完整 branch workspace。
 - 北极星里的版本树要求任意分叉、比较、回滚都围绕交付物本身，而不是围绕聊天线路。
 - 所以当前更接近“正式版本续写与当前 head 基线已补齐，树状版本管理尚未完成”。
 

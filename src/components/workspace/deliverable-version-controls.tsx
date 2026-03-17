@@ -54,6 +54,9 @@ export function DeliverableVersionControls({
   const [allVersions, setAllVersions] = React.useState<WorkspaceVersionData[]>([]);
   const [compareLeftId, setCompareLeftId] = React.useState<string>('draft');
   const [compareRightId, setCompareRightId] = React.useState<string>('draft');
+  const [historyFocusedBranchHeadId, setHistoryFocusedBranchHeadId] = React.useState<string | null>(
+    null
+  );
   const [isContinuingId, setIsContinuingId] = React.useState<string | null>(null);
   const [isRestoringId, setIsRestoringId] = React.useState<string | null>(null);
   const [isSwitchingId, setIsSwitchingId] = React.useState<string | null>(null);
@@ -129,6 +132,19 @@ export function DeliverableVersionControls({
       }),
     [currentDraftBaseVersionId, visibleVersionTree]
   );
+  const focusedBranch = React.useMemo(
+    () =>
+      visibleBranchOverview.find((branch) => branch.head.id === historyFocusedBranchHeadId) || null,
+    [historyFocusedBranchHeadId, visibleBranchOverview]
+  );
+  const historyVisibleVersionTree = React.useMemo(() => {
+    if (!focusedBranch) {
+      return visibleVersionTree;
+    }
+
+    const branchIds = new Set(focusedBranch.path.map((version) => version.id));
+    return visibleVersionTree.filter((node) => branchIds.has(node.version.id));
+  }, [focusedBranch, visibleVersionTree]);
 
   React.useEffect(() => {
     if (!compareOpen || visibleVersions.length === 0) {
@@ -143,6 +159,22 @@ export function DeliverableVersionControls({
       setCompareRightId(visibleVersions[1].id);
     }
   }, [compareLeftId, compareOpen, compareRightId, visibleVersions]);
+
+  React.useEffect(() => {
+    if (historyOpen) {
+      return;
+    }
+
+    setHistoryFocusedBranchHeadId(null);
+  }, [historyOpen]);
+
+  React.useEffect(() => {
+    if (!historyFocusedBranchHeadId || focusedBranch) {
+      return;
+    }
+
+    setHistoryFocusedBranchHeadId(null);
+  }, [focusedBranch, historyFocusedBranchHeadId]);
 
   const compareLeftVersion =
     visibleVersions.find((version) => version.id === compareLeftId) || null;
@@ -421,11 +453,27 @@ export function DeliverableVersionControls({
                                 onClick={() => void handleSwitchBranch(branch.head)}
                                 disabled={isSwitchingId === branch.head.id}
                               >
-                                {isSwitchingId === branch.head.id
-                                  ? t('version.switchBranchStarting')
-                                  : t('version.switchToBranch')}
+                                  {isSwitchingId === branch.head.id
+                                    ? t('version.switchBranchStarting')
+                                    : t('version.switchToBranch')}
                               </Button>
                             ) : null}
+                            <Button
+                              size="sm"
+                              variant={
+                                historyFocusedBranchHeadId === branch.head.id
+                                  ? 'secondary'
+                                  : 'ghost'
+                              }
+                              className="h-8"
+                              data-testid={`version-branch-overview-focus-${branch.head.id}`}
+                              onClick={() => setHistoryFocusedBranchHeadId(branch.head.id)}
+                              disabled={historyFocusedBranchHeadId === branch.head.id}
+                            >
+                              {historyFocusedBranchHeadId === branch.head.id
+                                ? t('version.viewingBranch')
+                                : t('version.viewBranch')}
+                            </Button>
                             <Button
                               size="sm"
                               variant="ghost"
@@ -456,14 +504,55 @@ export function DeliverableVersionControls({
                 </section>
               ) : null}
 
+              {focusedBranch ? (
+                <section className="space-y-3">
+                  <div
+                    className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
+                    data-testid="version-branch-focus-banner"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary" className="text-[10px]">
+                          {t('version.viewingBranch')}
+                        </Badge>
+                        <div className="text-sm font-medium text-foreground">
+                          {t('version.branchFocusTitle', {
+                            title: focusedBranch.head.title,
+                          })}
+                        </div>
+                      </div>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {t('version.branchFocusDescription')}
+                      </p>
+                      <div className="text-xs leading-5 text-muted-foreground">
+                        <span className="font-medium text-foreground/80">
+                          {t('version.branchLineage')}
+                        </span>
+                        {': '}
+                        {focusedBranch.path.map((version) => version.title).join(' -> ')}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 shrink-0"
+                      data-testid="version-branch-focus-clear"
+                      onClick={() => setHistoryFocusedBranchHeadId(null)}
+                    >
+                      {t('version.showAllBranches')}
+                    </Button>
+                  </div>
+                </section>
+              ) : null}
+
               <section className="space-y-2">
                 <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
                   {t('version.milestone')}
                 </div>
-                {visibleVersions.length === 0 ? (
+                {historyVisibleVersionTree.length === 0 ? (
                   <EmptyHistoryCard text={t('version.noVersions')} />
                 ) : (
-                  visibleVersionTree.map((node) => (
+                  historyVisibleVersionTree.map((node) => (
                     <HistoryCard
                       key={node.version.id}
                       actions={

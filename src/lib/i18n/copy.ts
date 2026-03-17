@@ -649,6 +649,9 @@ const COPY = {
     'version.branchMilestonesCount': '{count} milestones',
     'version.branchOverviewDescription':
       'See the current draft branch and other visible branch heads before diving into milestone-by-milestone history.',
+    'version.branchFocusDescription':
+      'Filter the milestone list to a single branch lineage when you need to inspect one branch without the rest of the tree.',
+    'version.branchFocusTitle': 'Viewing branch {title}',
     'version.switchToBranch': 'Switch to This Branch',
     'version.switchBranchSafetyCheckpointTitle': 'Safety Checkpoint before Switch',
     'version.switchBranchFailed': 'Could not switch the current draft to this branch.',
@@ -679,6 +682,7 @@ const COPY = {
     'version.pinnedRecoveryPoints': 'Pinned Recovery Points',
     'version.pendingStagedChanges': 'Advanced: staged changes',
     'version.recoveryPoint': 'Recovery Point',
+    'version.showAllBranches': 'Show All Branches',
     'version.restore': 'Restore',
     'version.restoring': 'Restoring…',
     'version.restoreDescription':
@@ -688,6 +692,8 @@ const COPY = {
     'version.temporaryRecoveryPoint': 'Temporary Recovery Point',
     'version.unpin': 'Unpin',
     'version.unlockForEditing': 'Unlock for editing',
+    'version.viewBranch': 'View Branch',
+    'version.viewingBranch': 'Viewing Branch',
     'workflow.blockedDescription':
       'The live draft exists, but preview is still blocked. Restore a recent recovery point or make the entrypoint previewable.',
     'workflow.blockedTitle': 'Preview is blocked',
@@ -1358,6 +1364,9 @@ const COPY = {
     'version.branchMilestonesCount': '{count} 个里程碑',
     'version.branchOverviewDescription':
       '先看清当前草稿所在分支和其他可见 branch head，再进入逐个里程碑的历史细节。',
+    'version.branchFocusDescription':
+      '需要单独检查某条分支时，把里程碑列表临时收成这一条分支的 lineage，不再和整棵树混在一起。',
+    'version.branchFocusTitle': '正在查看分支 {title}',
     'version.switchToBranch': '切到这条分支',
     'version.switchBranchSafetyCheckpointTitle': '切换前安全回退点',
     'version.switchBranchFailed': '无法把当前草稿切到这条分支上。',
@@ -1388,6 +1397,7 @@ const COPY = {
     'version.pinnedRecoveryPoints': '已 Pin 回退点',
     'version.pendingStagedChanges': '高级：staged changes',
     'version.recoveryPoint': '回退点',
+    'version.showAllBranches': '返回全部分支',
     'version.restore': '恢复',
     'version.restoring': '恢复中……',
     'version.restoreDescription':
@@ -1397,6 +1407,8 @@ const COPY = {
     'version.temporaryRecoveryPoint': '临时回退点',
     'version.unpin': '取消 Pin',
     'version.unlockForEditing': '解锁以编辑',
+    'version.viewBranch': '查看这条分支',
+    'version.viewingBranch': '正在查看分支',
     'workflow.blockedDescription':
       'live draft 已经存在，但预览仍然被阻塞。可以恢复最近的回退点，或把入口文件整理成可预览状态。',
     'workflow.blockedTitle': '预览被阻塞',
