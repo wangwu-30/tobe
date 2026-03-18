@@ -61,6 +61,8 @@ const MIGRATION_PROBES = {
     ).every(Boolean),
   '20260314210000_add_workflow_playbook_archiving': async (inspector) =>
     inspector.hasColumn('WorkflowPlaybook', 'archivedAt'),
+  '20260318170000_add_workflow_playbook_extension_hints': async (inspector) =>
+    inspector.hasColumn('WorkflowPlaybook', 'extensionHints'),
 };
 
 function quoteSqliteIdentifier(value) {

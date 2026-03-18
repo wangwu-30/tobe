@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, extractWorkspaceIdFromLocation, primeClientState } from './helpers';
 
-test('home starter keeps the chosen deliverable and shows the no-workflow fallback', async ({
+test('home starter exposes built-in workflows and can start from the research workflow', async ({
   page,
 }) => {
   await primeClientState(page);
@@ -17,14 +17,26 @@ test('home starter keeps the chosen deliverable and shows the no-workflow fallba
     /敬请期待|Coming Soon/
   );
 
-  await page.getByTestId('starter-option-slides').click();
+  await page.getByTestId('starter-option-document').click();
 
-  await expect(page.getByTestId('goal-deliverable-pill')).toHaveText(/幻灯片|Slides/);
-  await expect(page.getByTestId('goal-workflow-empty-state')).toContainText(
-    /当前还没有可复用 Workflow|No reusable workflow yet/
-  );
+  await expect(page.getByTestId('goal-deliverable-pill')).toHaveText(/文档|Document/);
+  const workflowSelect = page.getByRole('combobox').first();
+  await workflowSelect.click();
+  const workflowList = page.getByRole('listbox');
+  await expect(
+    workflowList.getByRole('option', { name: /需求规格到网页上线|Built-in/ }).first()
+  ).toBeVisible();
+  await workflowList
+    .getByRole('option', { name: /成形类产品市场分析报告|Built-in/ })
+    .first()
+    .click();
 
-  await page.locator('#goal').fill('为董事会准备一份 8 页演示稿');
+  await expect(workflowSelect).toContainText(/成形类产品市场分析报告/);
+  await expect(page.getByTestId('goal-workflow-extension-tools')).toBeVisible();
+  await expect(page.getByTestId('goal-workflow-extension-mcp')).toBeVisible();
+  await expect(page.getByTestId('goal-workflow-extension-skills')).toBeVisible();
+
+  await page.locator('#goal').fill('调研成形类产品的市场机会与竞争格局。');
   const createButton = page.getByRole('button', { name: /创建项目|Create Project/ });
   await expect(createButton).toBeEnabled();
   await Promise.all([
@@ -34,10 +46,12 @@ test('home starter keeps the chosen deliverable and shows the no-workflow fallba
 
   expect(extractWorkspaceIdFromLocation(page.url())).toBeTruthy();
   await expect(
-    page.getByRole('heading', { name: '为董事会准备一份 8 页演示稿' })
+    page
+      .getByRole('tabpanel', { name: /状态|Status/ })
+      .getByText('成形类产品市场分析报告', { exact: true })
   ).toBeVisible();
   await expect(
-    page.getByText(/准备生成第一稿 · 幻灯片|Ready to generate.*Slides/)
+    page.getByText(/准备生成第一稿 · 文档|Ready to generate.*Document/)
   ).toBeVisible();
   const firstPassButton = page.getByRole('button', {
     name: /生成第一稿|Generate First Pass/,
@@ -87,11 +101,12 @@ test('home project list summarizes deliverables and opens the latest deliverable
   await primeClientState(page);
   await page.goto('/');
 
-  await expect(page.getByText(projectTitle, { exact: true })).toBeVisible();
-  await expect(page.getByText(/2 份交付物|2 deliverables/)).toBeVisible();
+  const projectCard = page.getByRole('button', { name: new RegExp(projectTitle) });
+  await expect(projectCard).toBeVisible();
+  await expect(projectCard).toContainText(/2 份交付物|2 deliverables/);
   await expect(
-    page.getByText(new RegExp(`最近：${latestDeliverableTitle}|Latest: ${latestDeliverableTitle}`))
-  ).toBeVisible();
+    projectCard
+  ).toContainText(new RegExp(`最近：${latestDeliverableTitle}|Latest: ${latestDeliverableTitle}`));
 
   await Promise.all([
     page.waitForURL(new RegExp(`/workspace/${latestWorkspace.workspace.id}`)),

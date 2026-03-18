@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { WorkspaceCurrentStatusData, WorkspacePlanData } from '@/types';
 import { useT } from '@/components/providers/language-provider';
+import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
 import { useAppRouter } from '@/lib/app-router';
 import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
 
@@ -180,6 +181,9 @@ export function PlanPanel({
                     {plan.activeWorkflowPlaybook.summary}
                   </p>
                 ) : null}
+                <div className="mt-2">
+                  <WorkflowExtensionHints hints={plan.activeWorkflowPlaybook.extensionHints} />
+                </div>
                 {plan.activeWorkflowPlaybook.steps.length > 0 ? (
                   <div className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
                     {plan.activeWorkflowPlaybook.steps.slice(0, 3).map((step, index) => (

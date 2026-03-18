@@ -1,6 +1,10 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { Type } from '@mariozechner/pi-ai';
 import { prisma } from '@/lib/db/prisma';
+import {
+  formatProjectAiContext,
+  loadProjectAiContextData,
+} from '@/lib/ai/project-context';
 import { markdownToPlate, plateToMarkdown } from '@/lib/ai/serializer';
 import {
   getBoundVersionIdForWiki,
@@ -109,6 +113,47 @@ export function createWorkspaceAgentTools({
       });
 
     return cachedDeliverableType;
+  };
+
+  const loadCurrentProjectContext = async () =>
+    loadProjectAiContextData({
+      organizationId,
+      workspaceId,
+    });
+
+  const assertProjectTargetWorkspace = async (targetWorkspaceId: string) => {
+    const projectContext = await loadCurrentProjectContext();
+    if (!projectContext) {
+      throw new Error('No current project context.');
+    }
+
+    const targetDeliverable = projectContext.deliverables.find(
+      (deliverable) => deliverable.id === targetWorkspaceId
+    );
+
+    if (!targetDeliverable) {
+      throw new Error('The requested deliverable is not in the current project.');
+    }
+
+    return {
+      projectContext,
+      targetDeliverable,
+    };
+  };
+
+  const buildScopedDocumentIds = (projectId?: string | null) =>
+    Array.from(new Set([wikiId, projectId].filter(Boolean))) as string[];
+
+  const resolveContextScopeLabel = (documentId: string | null, projectId?: string | null) => {
+    if (documentId && documentId === wikiId) {
+      return 'current';
+    }
+
+    if (documentId && projectId && documentId === projectId) {
+      return 'project';
+    }
+
+    return 'global';
   };
 
   const ensureLiveDraftRecoveryCheckpoint = async () => {
@@ -424,96 +469,117 @@ export function createWorkspaceAgentTools({
       name: 'get_workspace_context',
       label: 'Get Workspace Context',
       description:
-        'Inspect the current deliverable workspace, including the live draft, shared brief, visible versions, staged changes, review threads, knowledge items, and memories.',
+        'Inspect the current deliverable workspace, including project deliverable summaries, the live draft, shared brief, visible versions, staged changes, review threads, knowledge items, and memories.',
       parameters: Type.Object({}),
       async execute() {
-        const wiki = await prisma.document.findFirst({
-          where: {
-            deletedAt: null,
-            id: wikiId,
-            organizationId,
-          },
-          include: {
-            versions: {
-              where: { deletedAt: null },
-              orderBy: { versionNum: 'desc' },
-              take: 5,
+        const [
+          wiki,
+          conversation,
+          projectContext,
+          workspacePlan,
+          stagedChangeSets,
+          workspaceRuns,
+        ] = await Promise.all([
+          prisma.document.findFirst({
+            where: {
+              deletedAt: null,
+              id: wikiId,
+              organizationId,
             },
-            threads: {
-              where: { deletedAt: null },
-              include: {
-                messages: {
-                  where: { deletedAt: null },
-                  orderBy: { createdAt: 'asc' },
-                },
-                version: true,
+            include: {
+              versions: {
+                where: { deletedAt: null },
+                orderBy: { versionNum: 'desc' },
+                take: 5,
               },
-              orderBy: { updatedAt: 'desc' },
-              take: 20,
+              threads: {
+                where: { deletedAt: null },
+                include: {
+                  messages: {
+                    where: { deletedAt: null },
+                    orderBy: { createdAt: 'asc' },
+                  },
+                  version: true,
+                },
+                orderBy: { updatedAt: 'desc' },
+                take: 20,
+              },
+              knowledgeItems: {
+                where: { deletedAt: null },
+                orderBy: { createdAt: 'desc' },
+                take: 20,
+              },
+              files: {
+                where: { deletedAt: null },
+                orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+                take: 50,
+              },
             },
-            knowledgeItems: {
-              where: { deletedAt: null },
-              orderBy: { createdAt: 'desc' },
-              take: 20,
+          }),
+          prisma.session.findFirst({
+            where: {
+              deletedAt: null,
+              id: conversationId,
+              organizationId,
             },
-            files: {
-              where: { deletedAt: null },
-              orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-              take: 50,
+            include: {
+              messages: {
+                where: { deletedAt: null },
+                orderBy: { createdAt: 'asc' },
+                take: 12,
+              },
             },
-          },
-        });
-
-        const conversation = await prisma.session.findFirst({
-          where: {
-            deletedAt: null,
-            id: conversationId,
-            organizationId,
-          },
-          include: {
-            messages: {
-              where: { deletedAt: null },
-              orderBy: { createdAt: 'asc' },
-              take: 12,
+          }),
+          loadCurrentProjectContext(),
+          prisma.workspacePlan.findFirst({
+            where: {
+              deletedAt: null,
+              documentId: wikiId,
+              organizationId,
             },
-          },
-        });
-
-        const memories = await prisma.memory.findMany({
-          where: {
-            active: true,
-            deletedAt: null,
+          }),
+          prisma.stagedChangeSet.findMany({
+            where: {
+              deletedAt: null,
+              documentId: wikiId,
+              organizationId,
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 10,
+          }),
+          listWorkspaceRuns({
             organizationId,
-            OR: [
-              { documentId: wikiId },
-              { documentId: null },
-            ],
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-        });
-
-        const workspacePlan = await prisma.workspacePlan.findFirst({
-          where: {
-            deletedAt: null,
-            documentId: wikiId,
-            organizationId,
-          },
-        });
-
-        const stagedChangeSets = await prisma.stagedChangeSet.findMany({
-          where: {
-            deletedAt: null,
-            documentId: wikiId,
-            organizationId,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        });
-        const workspaceRuns = await listWorkspaceRuns({
-          organizationId,
-          workspaceId,
-        });
+            workspaceId,
+          }),
+        ]);
+        const scopedDocumentIds = buildScopedDocumentIds(projectContext?.id || null);
+        const [memories, knowledgeItems] = await Promise.all([
+          prisma.memory.findMany({
+            where: {
+              active: true,
+              deletedAt: null,
+              organizationId,
+              OR: [
+                { documentId: { in: scopedDocumentIds } },
+                { documentId: null },
+              ],
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+          }),
+          prisma.knowledgeItem.findMany({
+            where: {
+              deletedAt: null,
+              organizationId,
+              OR: [
+                { documentId: { in: scopedDocumentIds } },
+                { documentId: null },
+              ],
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+          }),
+        ]);
         const previewCapability = detectWorkspacePreviewCapability(wiki?.files || []);
         const activePreviewRun =
           workspaceRuns.find(
@@ -527,6 +593,9 @@ export function createWorkspaceAgentTools({
           wiki
             ? `Deliverable Workspace: ${wiki.title} (${wiki.status}, v${wiki.currentVersion})`
             : 'Deliverable Workspace: none',
+          '',
+          'Current project deliverables:',
+          projectContext ? formatProjectAiContext(projectContext, { includeWorkspaceIds: true }) : 'No current project context.',
           '',
           'Current deliverable content:',
           wiki ? serializeWikiContent(wiki.content) : 'No deliverable yet.',
@@ -606,15 +675,23 @@ export function createWorkspaceAgentTools({
             : 'No deliverable yet.',
           '',
           'Knowledge items:',
-          wiki && wiki.knowledgeItems.length > 0
-            ? wiki.knowledgeItems
-                .map((item) => `- ${item.title}: ${item.content}`)
+          knowledgeItems.length > 0
+            ? knowledgeItems
+                .map(
+                  (item) =>
+                    `- [${resolveContextScopeLabel(item.documentId, projectContext?.id || null)}] ${item.title}: ${item.content}`
+                )
                 .join('\n')
             : 'None.',
           '',
           'Active memories:',
           memories.length > 0
-            ? memories.map((memory) => `- [${memory.category}] ${memory.content}`).join('\n')
+            ? memories
+                .map(
+                  (memory) =>
+                    `- [${resolveContextScopeLabel(memory.documentId, projectContext?.id || null)} / ${memory.category}] ${memory.content}`
+                )
+                .join('\n')
             : 'None.',
         ].join('\n');
 
@@ -622,11 +699,102 @@ export function createWorkspaceAgentTools({
           content: [{ type: 'text', text: summary }],
           details: {
             conversation,
+            knowledgeItems,
             memories,
+            projectContext,
             stagedChangeSets,
             workspaceRuns,
             workspacePlan,
             wiki,
+          },
+        };
+      },
+    },
+    {
+      name: 'list_project_deliverables',
+      label: 'List Project Deliverables',
+      description:
+        'List the current deliverable and sibling deliverables in the same project, including workspace ids for follow-up reads.',
+      parameters: Type.Object({}),
+      async execute() {
+        const projectContext = await loadCurrentProjectContext();
+        const summary = projectContext
+          ? formatProjectAiContext(projectContext, { includeWorkspaceIds: true })
+          : 'No current project context.';
+
+        return {
+          content: [{ type: 'text', text: summary }],
+          details: projectContext,
+        };
+      },
+    },
+    {
+      name: 'read_project_deliverable_file',
+      label: 'Read Project Deliverable File',
+      description:
+        'Read the primary file or a specific file from another deliverable in the same project.',
+      parameters: Type.Object({
+        fileId: Type.Optional(Type.String({ minLength: 1 })),
+        path: Type.Optional(Type.String({ minLength: 1 })),
+        targetWorkspaceId: Type.String({ minLength: 1 }),
+      }),
+      async execute(_toolCallId, params) {
+        const input = params as {
+          fileId?: string;
+          path?: string;
+          targetWorkspaceId: string;
+        };
+        const { targetDeliverable } = await assertProjectTargetWorkspace(
+          input.targetWorkspaceId
+        );
+        const files = await listWorkspaceFiles({
+          organizationId,
+          workspaceId: input.targetWorkspaceId,
+        });
+
+        const targetFile =
+          (input.fileId
+            ? files.find((file) => file.id === input.fileId)
+            : input.path
+              ? files.find((file) => file.path === input.path)
+              : null) ||
+          files.find((file) => file.nodeType === 'file' && file.isPrimary) ||
+          files.find((file) => file.nodeType === 'file') ||
+          null;
+
+        if (!targetFile) {
+          throw new Error('No readable file found in the requested deliverable.');
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: [
+                `Deliverable: ${targetDeliverable.title}`,
+                `Workspace ID: ${targetDeliverable.id}`,
+                `Type: ${targetDeliverable.deliverableType}`,
+                `Status: ${targetDeliverable.status}`,
+                '',
+                'Files:',
+                files
+                  .filter((file) => file.nodeType === 'file')
+                  .map(
+                    (file) =>
+                      `- ${file.path} (${file.kind}${file.isPrimary ? ', primary' : ''})`
+                  )
+                  .join('\n'),
+                '',
+                `# ${targetFile.path}`,
+                '',
+                targetFile.content,
+              ].join('\n'),
+            },
+          ],
+          details: {
+            file: targetFile,
+            files,
+            targetDeliverable,
           },
         };
       },

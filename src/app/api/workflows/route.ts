@@ -40,6 +40,45 @@ function readWorkflowStatus(value: unknown) {
   return undefined;
 }
 
+function readWorkflowExtensionHints(value: unknown) {
+  if (value === null) {
+    return null;
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+
+      const record = item as Record<string, unknown>;
+      if (
+        (record.kind !== 'tools' && record.kind !== 'mcp' && record.kind !== 'skills') ||
+        typeof record.summary !== 'string' ||
+        !record.summary.trim()
+      ) {
+        return null;
+      }
+
+      return {
+        kind: record.kind,
+        summary: record.summary.trim(),
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        kind: 'tools' | 'mcp' | 'skills';
+        summary: string;
+      } => Boolean(item)
+    );
+}
+
 export async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
@@ -66,6 +105,7 @@ export async function POST(req: NextRequest) {
       checklist: readStructuredList(body.checklist),
       content: typeof body.content === 'string' ? body.content : null,
       constraints: readStructuredList(body.constraints),
+      extensionHints: readWorkflowExtensionHints(body.extensionHints),
       forceActivate: body.forceActivate === true,
       sourceThreadId:
         typeof body.sourceThreadId === 'string' ? body.sourceThreadId : null,
@@ -116,6 +156,10 @@ export async function PATCH(req: NextRequest) {
       content:
         body.content === null || typeof body.content === 'string' ? body.content : undefined,
       constraints: readStructuredList(body.constraints),
+      extensionHints:
+        body.extensionHints === null
+          ? null
+          : readWorkflowExtensionHints(body.extensionHints),
       forceActivate: body.forceActivate === true,
       id: body.id.trim(),
       status:

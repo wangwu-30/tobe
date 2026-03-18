@@ -380,6 +380,7 @@ model WorkflowPlaybook {
   steps           String        @default("")
   constraints     String        @default("")
   checklist       String        @default("")
+  extensionHints  String        @default("[]")
   content         String        @default("")
   archivedAt      DateTime?
   createdByUserId String?

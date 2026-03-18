@@ -52,13 +52,108 @@ test('status and context surfaces show draft, active, and archived workflows', a
   await page.getByRole('tab', { name: /上下文|Context/ }).click();
 
   const contextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
-  await expect(contextPanel.getByText('已激活 Workflow（1）')).toBeVisible();
+  await expect(contextPanel.getByText(/已激活 Workflow（\d+）/)).toBeVisible();
   await expect(contextPanel.getByText('草稿 Workflow（1）')).toBeVisible();
   await expect(contextPanel.getByText('已归档 Workflow（1）')).toBeVisible();
   await expect(contextPanel.getByText(activeTitle, { exact: true })).toBeVisible();
   await expect(contextPanel.getByText(draftTitle, { exact: true })).toBeVisible();
   await expect(contextPanel.getByText(archivedTitle, { exact: true })).toBeVisible();
   expect(draftWorkflow.id).toBeTruthy();
+});
+
+test('built-in workflows can be applied from context and become the active method', async ({
+  page,
+}, testInfo) => {
+  const seedState = readSeedState();
+  const workspace = seedState.baseWorkspace;
+
+  await primeClientState(page);
+  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
+  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+
+  const contextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
+  await expect(contextPanel.getByText('内置 Workflow（2）')).toBeVisible();
+
+  const builtinCard = contextPanel
+    .locator('div.rounded-lg.border.p-3.text-xs')
+    .filter({ hasText: /需求规格到网页上线/ })
+    .first();
+  await expect(builtinCard).toBeVisible();
+  await expect(builtinCard).toContainText(/Tools/);
+  await expect(builtinCard).toContainText(/MCP/);
+  await expect(builtinCard).toContainText(/Skills/);
+  await builtinCard.getByRole('button', { name: /用于当前任务|Use for Task/ }).click();
+
+  await page.getByRole('tab', { name: /状态|Status/ }).click();
+  await expect(
+    page.getByRole('tabpanel', { name: /状态|Status/ }).getByText(/需求规格到网页上线/)
+  ).toBeVisible();
+  await expect(
+    page.getByRole('tabpanel', { name: /状态|Status/ }).getByText(/开放扩展|Open Extensions/)
+  ).toBeVisible();
+});
+
+test('custom workflow extension hints persist across context and status surfaces', async ({
+  page,
+}) => {
+  const seedState = readSeedState();
+  const workspace = seedState.baseWorkspace;
+  const suffix = Date.now();
+  const title = `开放扩展 Workflow ${suffix}`;
+  const toolsHint = '调用页面预览与自动验收工具。';
+  const mcpHint = '接入部署平台与设计系统。';
+  const skillsHint = '沉淀实现与验收方法。';
+
+  await primeClientState(page);
+  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
+  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+
+  const contextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
+  await contextPanel.getByPlaceholder(/Workflow title|Workflow 标题/).fill(title);
+  await contextPanel.getByLabel(/步骤|Steps/).fill('澄清目标\n实现结果\n确认交付');
+  await contextPanel.getByLabel(/约束|Constraints/).fill('保持范围收敛\n沿用当前项目语境');
+  await contextPanel.getByLabel(/检查项|Checklist/).fill('确认结果可复用\n确认验收闭环');
+  await contextPanel.getByLabel(/^Tools$/).fill(toolsHint);
+  await contextPanel.getByLabel(/^MCP$/).fill(mcpHint);
+  await contextPanel.getByLabel(/^Skills$/).fill(skillsHint);
+  await contextPanel.getByRole('button', { name: /保存 Workflow|Save Workflow/ }).click();
+
+  const draftCard = contextPanel
+    .locator('div.rounded-lg.border.p-3.text-xs')
+    .filter({ hasText: title })
+    .first();
+  await expect(draftCard).toBeVisible();
+  await expect(draftCard).toContainText(toolsHint);
+  await expect(draftCard).toContainText(mcpHint);
+  await expect(draftCard).toContainText(skillsHint);
+  await draftCard.getByRole('button', { name: /激活|Activate/ }).click();
+
+  const activeCard = contextPanel
+    .locator('div.rounded-lg.border.p-3.text-xs')
+    .filter({ hasText: title })
+    .first();
+  await expect(activeCard).toContainText(/已激活|Active/);
+  await activeCard.getByRole('button', { name: /用于当前任务|Use for Task/ }).click();
+
+  await page.reload();
+  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+
+  const reloadedContextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
+  const persistedCard = reloadedContextPanel
+    .locator('div.rounded-lg.border.p-3.text-xs')
+    .filter({ hasText: title })
+    .first();
+  await expect(persistedCard).toContainText(toolsHint);
+  await expect(persistedCard).toContainText(mcpHint);
+  await expect(persistedCard).toContainText(skillsHint);
+
+  await page.getByRole('tab', { name: /状态|Status/ }).click();
+  const statusPanel = page.getByRole('tabpanel', { name: /状态|Status/ });
+  await expect(statusPanel.getByText(title, { exact: true })).toBeVisible();
+  await expect(statusPanel.getByText(/^开放扩展$|^Open Extensions$/)).toBeVisible();
+  await expect(statusPanel).toContainText(/Tools/);
+  await expect(statusPanel).toContainText(/MCP/);
+  await expect(statusPanel).toContainText(/Skills/);
 });
 
 test('finalized deliverables can start the next deliverable in the same project with the active workflow', async ({

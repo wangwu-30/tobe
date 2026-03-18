@@ -25,7 +25,7 @@ import {
 } from '@/lib/workspace/service';
 import {
   formatWorkflowPlaybookForPrompt,
-  getWorkflowPlaybook,
+  materializeWorkflowPlaybookSelection,
 } from '@/lib/workflows/service';
 import type { DeliverableType } from '@/types';
 
@@ -224,10 +224,7 @@ async function createWorkspaceForRequest(
   }
 
   const workflowPlaybook = requestedWorkflowPlaybookId
-    ? await getWorkflowPlaybook({
-        id: requestedWorkflowPlaybookId,
-        organizationId: actor.organizationId,
-      })
+    ? await materializeWorkflowPlaybookSelection(actor, requestedWorkflowPlaybookId)
     : null;
 
   if (requestedWorkflowPlaybookId && !workflowPlaybook) {

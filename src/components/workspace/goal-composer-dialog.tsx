@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import type { DeliverableType, WorkflowPlaybookData } from '@/types';
 import { useT } from '@/components/providers/language-provider';
+import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
 import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
 
 export type GoalComposerValues = {
@@ -254,14 +255,16 @@ export function GoalComposerDialog({
                   }
                   disabled={disableInputs || isSubmitting}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('goal.selectWorkflow')} />
-                  </SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('goal.selectWorkflow')} />
+                    </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="none">{t('goal.noWorkflow')}</SelectItem>
                     {workflowPlaybooks.map((workflow) => (
                       <SelectItem key={workflow.id} value={workflow.id}>
-                        {workflow.title}
+                        {workflow.builtin
+                          ? `${workflow.title} · ${t('goal.workflowBuiltinBadge')}`
+                          : workflow.title}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -269,6 +272,12 @@ export function GoalComposerDialog({
                 <p className="text-xs leading-5 text-muted-foreground">
                   {selectedWorkflow?.summary || t('goal.workflowDescription')}
                 </p>
+                {selectedWorkflow ? (
+                  <WorkflowExtensionHints
+                    hints={selectedWorkflow.extensionHints}
+                    testIdPrefix="goal-workflow-extension"
+                  />
+                ) : null}
               </>
             ) : (
               <div

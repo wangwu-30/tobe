@@ -1,6 +1,11 @@
 import { prisma } from '@/lib/db/prisma';
 import { buildReplyLanguageInstruction } from '@/lib/ai/language';
+import {
+  formatProjectAiContext,
+  loadProjectAiContextData,
+} from '@/lib/ai/project-context';
 import type { AppLanguage } from '@/lib/i18n/language';
+import { resolveWorkflowExtensionHints } from '@/lib/workflows/extension-hints';
 import { formatWorkflowPlaybookForPrompt } from '@/lib/workflows/service';
 
 type ActiveWorkflowPlanRecord = {
@@ -9,6 +14,8 @@ type ActiveWorkflowPlanRecord = {
     checklist: string;
     content: string;
     constraints: string;
+    extensionHints?: string | null;
+    originDeviceId?: string | null;
     steps: string;
     summary: string;
     title: string;
@@ -22,6 +29,26 @@ function parseStructuredList(raw: string) {
     .filter(Boolean)
     .map((line) => line.replace(/^[-*•]\s+/, '').replace(/^\d+\.\s+/, '').trim())
     .filter(Boolean);
+}
+
+function buildScopedDocumentIds(workspaceId: string | null | undefined, projectId?: string | null) {
+  return Array.from(new Set([workspaceId, projectId].filter(Boolean))) as string[];
+}
+
+function resolveContextScopeLabel(
+  documentId: string | null,
+  workspaceId: string | null | undefined,
+  projectId?: string | null
+) {
+  if (documentId && workspaceId && documentId === workspaceId) {
+    return 'current';
+  }
+
+  if (documentId && projectId && documentId === projectId) {
+    return 'project';
+  }
+
+  return 'global';
 }
 
 export async function buildCommentContext(params: {
@@ -122,23 +149,7 @@ export async function buildChatSystemPrompt(params: {
   const findWorkspacePlan = prisma.workspacePlan.findFirst as unknown as (
     args: object
   ) => Promise<ActiveWorkflowPlanRecord>;
-  const [memories, activePlan] = await Promise.all([
-    prisma.memory.findMany({
-      where: {
-        active: true,
-        deletedAt: null,
-        organizationId: params.organizationId,
-        ...(workspaceId
-          ? {
-              OR: [
-                { documentId: workspaceId },
-                { documentId: null },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    }),
+  const [activePlan, projectContext] = await Promise.all([
     workspaceId
       ? findWorkspacePlan({
           where: {
@@ -151,6 +162,46 @@ export async function buildChatSystemPrompt(params: {
           },
         })
       : Promise.resolve(null),
+    workspaceId
+      ? loadProjectAiContextData({
+          organizationId: params.organizationId,
+          workspaceId,
+        })
+      : Promise.resolve(null),
+  ]);
+  const scopedDocumentIds = buildScopedDocumentIds(workspaceId, projectContext?.id || null);
+  const [memories, knowledgeItems] = await Promise.all([
+    prisma.memory.findMany({
+      where: {
+        active: true,
+        deletedAt: null,
+        organizationId: params.organizationId,
+        ...(scopedDocumentIds.length > 0
+          ? {
+              OR: [
+                { documentId: { in: scopedDocumentIds } },
+                { documentId: null },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.knowledgeItem.findMany({
+      where: {
+        deletedAt: null,
+        organizationId: params.organizationId,
+        ...(scopedDocumentIds.length > 0
+          ? {
+              OR: [
+                { documentId: { in: scopedDocumentIds } },
+                { documentId: null },
+              ],
+            }
+          : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+    }),
   ]);
 
   const parts: string[] = [
@@ -166,7 +217,8 @@ export async function buildChatSystemPrompt(params: {
     'Do not dump the full deliverable only into chat when a tool can write it into the workspace.',
     'Use `create_file` only when you truly need a new implementation asset.',
     'For web deliverables, default to a React implementation. Keep a thin previewable `index.html` mount shell when needed, but put the real UI in React source files.',
-    'When context is unclear, call `get_workspace_context` first. That includes the current deliverable, plan, versions, files, review threads, and staged changes.',
+    'When context is unclear, call `get_workspace_context` first. That includes the current deliverable, project deliverable summaries, plan, versions, files, review threads, and staged changes.',
+    'If the user references another deliverable in the same project, use `list_project_deliverables` and `read_project_deliverable_file` before reusing its copy, structure, or implementation details.',
     'Treat visible versions as milestones. Recovery checkpoints are internal and should not be described as user-facing versions.',
     'When the user asks to freeze a milestone, call `create_version`.',
     'When the user asks about local feedback, treat comments as precise revision requests and stay anchored to the affected section.',
@@ -191,8 +243,27 @@ export async function buildChatSystemPrompt(params: {
   if (memories.length > 0) {
     parts.push('', '## Memories to Always Apply');
     memories.forEach((memory) => {
-      parts.push(`- [${memory.category}] ${memory.content}`);
+      parts.push(
+        `- [${resolveContextScopeLabel(memory.documentId, workspaceId, projectContext?.id || null)} / ${memory.category}] ${memory.content}`
+      );
     });
+  }
+
+  if (knowledgeItems.length > 0) {
+    parts.push('', '## Knowledge to Reuse');
+    knowledgeItems.forEach((item) => {
+      parts.push(
+        `- [${resolveContextScopeLabel(item.documentId, workspaceId, projectContext?.id || null)}] ${item.title}: ${item.content}`
+      );
+    });
+  }
+
+  if (projectContext) {
+    parts.push('', '## Current Project Context');
+    parts.push(formatProjectAiContext(projectContext));
+    parts.push(
+      'Only the current deliverable content is injected deeply by default. Read sibling deliverables explicitly before copying their structure, code, or copy.'
+    );
   }
 
   if (activePlan?.activeWorkflowPlaybook?.status === 'active') {
@@ -204,6 +275,10 @@ export async function buildChatSystemPrompt(params: {
         steps: parseStructuredList(activePlan.activeWorkflowPlaybook.steps),
         constraints: parseStructuredList(activePlan.activeWorkflowPlaybook.constraints),
         checklist: parseStructuredList(activePlan.activeWorkflowPlaybook.checklist),
+        extensionHints: resolveWorkflowExtensionHints({
+          originDeviceId: activePlan.activeWorkflowPlaybook.originDeviceId || null,
+          serialized: activePlan.activeWorkflowPlaybook.extensionHints,
+        }),
         content: activePlan.activeWorkflowPlaybook.content,
       })
     );

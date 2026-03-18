@@ -53,6 +53,7 @@ import {
   isPlateBackedWorkspaceFile,
 } from '@/lib/workspace/file-presentation';
 import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
+import { extractSlidePageCards } from '@/lib/workspace/slide-pages';
 import { generateWorkspacePlan } from '@/lib/workspace/plan-client';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import { listProjectFolderPath } from '@/lib/workspace/project-summary';
@@ -545,47 +546,70 @@ export default function WorkspacePage() {
     </DropdownMenu>
   ) : undefined;
 
+  const loadWorkspaceView = React.useCallback(
+    async (target?: {
+      conversationId?: string | null;
+      fileId?: string | null;
+      versionId?: string | null;
+      workspaceId?: string;
+    }) => {
+      const resolvedWorkspaceId = target?.workspaceId || workspaceId;
+      const conversationId =
+        target && 'conversationId' in target
+          ? target.conversationId || null
+          : requestedConversationId;
+      const fileId =
+        target && 'fileId' in target ? target.fileId || null : requestedFileId;
+      const versionId =
+        target && 'versionId' in target ? target.versionId || null : requestedVersionId;
+      const query = new URLSearchParams();
+      if (conversationId) query.set('conversationId', conversationId);
+      if (fileId) query.set('fileId', fileId);
+      if (versionId) query.set('versionId', versionId);
+
+      const response = await fetch(
+        `/api/workspaces/${resolvedWorkspaceId}${
+          query.size > 0 ? `?${query.toString()}` : ''
+        }`
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const nextView = (await response.json()) as WorkspaceViewData;
+      setWorkspaceView(nextView);
+      setInitialMessages(nextView.currentConversation?.messages || []);
+
+      const nextContent = nextView.currentFile?.content || '';
+      const nextSurface = {
+        content: nextContent,
+        fileId: nextView.currentFile?.id || null,
+        versionId: nextView.selectedVersion?.id || null,
+      };
+      const shouldResetEditor =
+        loadedSurfaceRef.current?.content !== nextSurface.content ||
+        loadedSurfaceRef.current?.fileId !== nextSurface.fileId ||
+        loadedSurfaceRef.current?.versionId !== nextSurface.versionId;
+
+      if (shouldResetEditor) {
+        setFileContent(nextContent);
+        setEditorContent(parsePlateContent(nextContent));
+      }
+      loadedSurfaceRef.current = nextSurface;
+
+      if (nextView.deliverable?.deliverableType === 'document') {
+        setShowImplementation(false);
+      }
+
+      return nextView;
+    },
+    [requestedConversationId, requestedFileId, requestedVersionId, workspaceId]
+  );
+
   const loadWorkspace = React.useCallback(async () => {
-    const query = new URLSearchParams();
-    if (requestedConversationId) query.set('conversationId', requestedConversationId);
-    if (requestedFileId) query.set('fileId', requestedFileId);
-    if (requestedVersionId) query.set('versionId', requestedVersionId);
-
-    const response = await fetch(
-      `/api/workspaces/${workspaceId}${query.size > 0 ? `?${query.toString()}` : ''}`
-    );
-
-    if (!response.ok) {
-      return null;
-    }
-
-    const nextView = (await response.json()) as WorkspaceViewData;
-    setWorkspaceView(nextView);
-    setInitialMessages(nextView.currentConversation?.messages || []);
-
-    const nextContent = nextView.currentFile?.content || '';
-    const nextSurface = {
-      content: nextContent,
-      fileId: nextView.currentFile?.id || null,
-      versionId: nextView.selectedVersion?.id || null,
-    };
-    const shouldResetEditor =
-      loadedSurfaceRef.current?.content !== nextSurface.content ||
-      loadedSurfaceRef.current?.fileId !== nextSurface.fileId ||
-      loadedSurfaceRef.current?.versionId !== nextSurface.versionId;
-
-    if (shouldResetEditor) {
-      setFileContent(nextContent);
-      setEditorContent(parsePlateContent(nextContent));
-    }
-    loadedSurfaceRef.current = nextSurface;
-
-    if (nextView.deliverable?.deliverableType === 'document') {
-      setShowImplementation(false);
-    }
-
-    return nextView;
-  }, [requestedConversationId, requestedFileId, requestedVersionId, workspaceId]);
+    return loadWorkspaceView();
+  }, [loadWorkspaceView]);
 
   const loadRuns = React.useCallback(async () => {
     const response = await fetch(`/api/workspaces/${workspaceId}/runs`);
@@ -979,8 +1003,14 @@ export default function WorkspacePage() {
         baseVersion: WorkspaceVersionData;
         conversation: { id: string };
       };
+      const nextView = await loadWorkspaceView({
+        conversationId: nextState.conversation.id,
+        fileId: null,
+        versionId: null,
+      });
       syncLocation({
         conversationId: nextState.conversation.id,
+        fileId: nextView?.currentFile?.id || null,
         versionId: null,
       });
       setWorkspaceNotice({
@@ -990,7 +1020,7 @@ export default function WorkspacePage() {
         }),
       });
     },
-    [currentConversationId, currentFileId, syncLocation, t, workspaceId]
+    [currentConversationId, currentFileId, loadWorkspaceView, syncLocation, t, workspaceId]
   );
 
   const switchConversationToVersionBranch = React.useCallback(
@@ -1021,8 +1051,14 @@ export default function WorkspacePage() {
         baseVersion: WorkspaceVersionData;
         conversation: { id: string };
       };
+      const nextView = await loadWorkspaceView({
+        conversationId: nextState.conversation.id,
+        fileId: null,
+        versionId: null,
+      });
       syncLocation({
         conversationId: nextState.conversation.id,
+        fileId: nextView?.currentFile?.id || null,
         versionId: null,
       });
       setWorkspaceNotice({
@@ -1032,7 +1068,7 @@ export default function WorkspacePage() {
         }),
       });
     },
-    [currentConversationId, currentFileId, syncLocation, t, workspaceId]
+    [currentConversationId, currentFileId, loadWorkspaceView, syncLocation, t, workspaceId]
   );
 
   const startPreview = React.useCallback(async () => {
@@ -2690,7 +2726,7 @@ function buildDeliverablePanel(params: {
         currentStatus={params.currentStatus}
         isAssistantBusy={params.isAssistantBusy}
         onGenerateFirstPass={params.onGenerateFirstPass}
-        text={params.currentText}
+        value={params.editorContent || parsePlateContent(params.fileContent)}
         subtitle={params.readOnlyLabel}
         title={params.deliverableTitle}
       />
@@ -2802,7 +2838,7 @@ function SlidesDeliverableCanvas({
   isAssistantBusy,
   onGenerateFirstPass,
   subtitle,
-  text,
+  value,
   title,
 }: {
   actions: React.ReactNode;
@@ -2810,11 +2846,11 @@ function SlidesDeliverableCanvas({
   isAssistantBusy: boolean;
   onGenerateFirstPass: () => void;
   subtitle: string;
-  text: string;
+  value: Value;
   title: string;
 }) {
   const t = useT();
-  const slides = React.useMemo(() => buildSlidesPreviewCards(text, title), [text, title]);
+  const slides = React.useMemo(() => extractSlidePageCards(value, title), [title, value]);
   const hasSlides = slides.length > 0;
   const statusTitle = hasSlides
     ? currentStatus?.statusTitle || t('workspace.slidesPreviewTitle')
@@ -2873,6 +2909,11 @@ function SlidesDeliverableCanvas({
                       <p>{t('workspace.slidesCardEmpty')}</p>
                     )}
                   </div>
+                  {slide.notes ? (
+                    <div className="mt-auto pt-4 text-xs leading-5 text-muted-foreground/90">
+                      Notes: {slide.notes}
+                    </div>
+                  ) : null}
                 </section>
               ))}
             </div>
@@ -3203,78 +3244,6 @@ function parsePlateContent(content: string): Value {
   } catch {
     return [{ type: 'p', children: [{ text: '' }] }];
   }
-}
-
-type SlidePreviewCard = {
-  body: string[];
-  id: string;
-  title: string;
-};
-
-function buildSlidesPreviewCards(text: string, fallbackTitle: string): SlidePreviewCard[] {
-  const slides: SlidePreviewCard[] = [];
-  let current: { body: string[]; title: string } | null = null;
-
-  const commitCurrent = () => {
-    if (!current) {
-      return;
-    }
-
-    const normalizedBody = current.body
-      .map((line) => normalizeSlidesPreviewLine(line))
-      .filter(Boolean);
-    const normalizedTitle = normalizeSlidesPreviewLine(current.title) || fallbackTitle;
-
-    if (!normalizedTitle && normalizedBody.length === 0) {
-      current = null;
-      return;
-    }
-
-    slides.push({
-      body: normalizedBody,
-      id: `slide-${slides.length}`,
-      title: normalizedTitle || fallbackTitle,
-    });
-    current = null;
-  };
-
-  for (const rawLine of text.split('\n')) {
-    const trimmed = rawLine.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      commitCurrent();
-      current = {
-        body: [],
-        title: headingMatch[2].trim(),
-      };
-      continue;
-    }
-
-    if (!current) {
-      current = {
-        body: [],
-        title: fallbackTitle,
-      };
-    }
-
-    current.body.push(trimmed);
-  }
-
-  commitCurrent();
-
-  return slides;
-}
-
-function normalizeSlidesPreviewLine(line: string) {
-  return line
-    .replace(/^[-*+]\s+/, '')
-    .replace(/^\d+\.\s+/, '')
-    .replace(/^>\s+/, '')
-    .trim();
 }
 
 function normalizeDeliverableText(content: string) {

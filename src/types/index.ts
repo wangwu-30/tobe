@@ -571,6 +571,13 @@ export type MemoryData = {
   updatedAt: Date | string;
 };
 
+export type WorkflowExtensionKind = 'tools' | 'mcp' | 'skills';
+
+export type WorkflowExtensionHintData = {
+  kind: WorkflowExtensionKind;
+  summary: string;
+};
+
 export type WorkflowPlaybookData = {
   id: string;
   organizationId: string;
@@ -578,11 +585,13 @@ export type WorkflowPlaybookData = {
   sourceVersionId: string | null;
   sourceThreadId: string | null;
   status: WorkflowPlaybookStatus;
+  builtin?: boolean;
   title: string;
   summary: string;
   steps: string[];
   constraints: string[];
   checklist: string[];
+  extensionHints: WorkflowExtensionHintData[];
   content: string;
   archivedAt: Date | string | null;
   createdByUserId: string | null;
@@ -607,6 +616,7 @@ export type WorkflowPlaybookDraftData = {
   steps: string[];
   constraints: string[];
   checklist: string[];
+  extensionHints: WorkflowExtensionHintData[];
   content: string;
   warnings: WorkflowPlaybookDraftWarningKey[];
 };

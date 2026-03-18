@@ -22,6 +22,7 @@ import {
 import type {
   KnowledgeItemData,
   MemoryData,
+  WorkflowExtensionHintData,
   WorkflowPlaybookData,
   WorkflowPlaybookDraftData,
   WorkflowPlaybookDraftWarningKey,
@@ -30,6 +31,7 @@ import type {
 import { cn } from '@/lib/utils';
 import { useT } from '@/components/providers/language-provider';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
+import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
 
 export function KnowledgePanel({
   activeWorkflowPlaybookId,
@@ -63,6 +65,9 @@ export function KnowledgePanel({
   const [newWorkflowSteps, setNewWorkflowSteps] = React.useState('');
   const [newWorkflowConstraints, setNewWorkflowConstraints] = React.useState('');
   const [newWorkflowChecklist, setNewWorkflowChecklist] = React.useState('');
+  const [newWorkflowToolsHint, setNewWorkflowToolsHint] = React.useState('');
+  const [newWorkflowMcpHint, setNewWorkflowMcpHint] = React.useState('');
+  const [newWorkflowSkillsHint, setNewWorkflowSkillsHint] = React.useState('');
   const [newWorkflowContent, setNewWorkflowContent] = React.useState('');
   const [editingWorkflowId, setEditingWorkflowId] = React.useState<string | null>(null);
   const [editingWorkflowStatus, setEditingWorkflowStatus] =
@@ -152,6 +157,11 @@ export function KnowledgePanel({
         steps: toStructuredLines(newWorkflowSteps),
         constraints: toStructuredLines(newWorkflowConstraints),
         checklist: toStructuredLines(newWorkflowChecklist),
+        extensionHints: buildWorkflowExtensionHints({
+          mcp: newWorkflowMcpHint,
+          skills: newWorkflowSkillsHint,
+          tools: newWorkflowToolsHint,
+        }),
         content: newWorkflowContent,
         status: editingWorkflowId ? editingWorkflowStatus : 'draft',
         wikiId,
@@ -165,6 +175,9 @@ export function KnowledgePanel({
       setNewWorkflowSteps('');
       setNewWorkflowConstraints('');
       setNewWorkflowChecklist('');
+      setNewWorkflowToolsHint('');
+      setNewWorkflowMcpHint('');
+      setNewWorkflowSkillsHint('');
       setNewWorkflowContent('');
       setEditingWorkflowId(null);
       setEditingWorkflowStatus('draft');
@@ -203,6 +216,7 @@ export function KnowledgePanel({
         steps: workflow.steps,
         constraints: workflow.constraints,
         checklist: workflow.checklist,
+        extensionHints: workflow.extensionHints,
         content: workflow.content,
         status: 'draft',
         wikiId,
@@ -234,6 +248,9 @@ export function KnowledgePanel({
     setNewWorkflowSteps(fromStructuredLines(workflow.steps));
     setNewWorkflowConstraints(fromStructuredLines(workflow.constraints));
     setNewWorkflowChecklist(fromStructuredLines(workflow.checklist));
+    setNewWorkflowToolsHint(getWorkflowExtensionHintValue(workflow.extensionHints, 'tools'));
+    setNewWorkflowMcpHint(getWorkflowExtensionHintValue(workflow.extensionHints, 'mcp'));
+    setNewWorkflowSkillsHint(getWorkflowExtensionHintValue(workflow.extensionHints, 'skills'));
     setNewWorkflowContent(workflow.content);
     setWorkflowDraftWarnings([]);
     setWorkflowSourceVersionId(workflow.sourceVersionId);
@@ -249,6 +266,9 @@ export function KnowledgePanel({
     setNewWorkflowSteps('');
     setNewWorkflowConstraints('');
     setNewWorkflowChecklist('');
+    setNewWorkflowToolsHint('');
+    setNewWorkflowMcpHint('');
+    setNewWorkflowSkillsHint('');
     setNewWorkflowContent('');
     setWorkflowSourceVersionId(null);
     setWorkflowSourceThreadId(null);
@@ -284,15 +304,22 @@ export function KnowledgePanel({
     setNewWorkflowSteps(fromStructuredLines(payload.steps || []));
     setNewWorkflowConstraints(fromStructuredLines(payload.constraints || []));
     setNewWorkflowChecklist(fromStructuredLines(payload.checklist || []));
+    setNewWorkflowToolsHint(
+      getWorkflowExtensionHintValue(payload.extensionHints || [], 'tools')
+    );
+    setNewWorkflowMcpHint(getWorkflowExtensionHintValue(payload.extensionHints || [], 'mcp'));
+    setNewWorkflowSkillsHint(
+      getWorkflowExtensionHintValue(payload.extensionHints || [], 'skills')
+    );
     setNewWorkflowContent(payload.content || '');
-      setWorkflowDraftWarnings(
-        Array.isArray(payload.warnings)
-          ? payload.warnings.filter(
-              (warning): warning is WorkflowPlaybookDraftWarningKey =>
-                typeof warning === 'string'
-            )
-          : []
-      );
+    setWorkflowDraftWarnings(
+      Array.isArray(payload.warnings)
+        ? payload.warnings.filter(
+            (warning): warning is WorkflowPlaybookDraftWarningKey =>
+              typeof warning === 'string'
+          )
+        : []
+    );
     setWorkflowSourceVersionId(payload.sourceVersionId || null);
     setWorkflowSourceThreadId(payload.sourceThreadId || null);
     setWorkflowNotice({
@@ -308,6 +335,7 @@ export function KnowledgePanel({
 
     try {
       await onApplyWorkflow(workflowId);
+      await loadData();
       setWorkflowNotice({
         tone: 'info',
         text: workflowId ? t('context.workflowApplied') : t('context.workflowCleared'),
@@ -322,14 +350,15 @@ export function KnowledgePanel({
   };
 
   if (!isOpen) return null;
+  const builtinWorkflowPlaybooks = workflowPlaybooks.filter((workflow) => workflow.builtin);
   const draftWorkflowPlaybooks = workflowPlaybooks.filter(
-    (workflow) => workflow.status === 'draft'
+    (workflow) => !workflow.builtin && workflow.status === 'draft'
   );
   const activeWorkflowPlaybooks = workflowPlaybooks.filter(
-    (workflow) => workflow.status === 'active'
+    (workflow) => !workflow.builtin && workflow.status === 'active'
   );
   const archivedWorkflowPlaybooks = workflowPlaybooks.filter(
-    (workflow) => workflow.status === 'archived'
+    (workflow) => !workflow.builtin && workflow.status === 'archived'
   );
 
   const categoryColors: Record<string, string> = {
@@ -566,12 +595,14 @@ export function KnowledgePanel({
               ) : null}
               <Input
                 placeholder={t('context.workflowTitlePlaceholder')}
+                aria-label={t('context.workflowTitlePlaceholder')}
                 value={newWorkflowTitle}
                 onChange={(event) => setNewWorkflowTitle(event.target.value)}
                 className="h-8 text-xs"
               />
               <Input
                 placeholder={t('context.workflowOverviewPlaceholder')}
+                aria-label={t('context.workflowOverviewPlaceholder')}
                 value={newWorkflowSummary}
                 onChange={(event) => setNewWorkflowSummary(event.target.value)}
                 className="h-8 text-xs"
@@ -597,11 +628,33 @@ export function KnowledgePanel({
                 value={newWorkflowChecklist}
                 onChange={setNewWorkflowChecklist}
               />
+              <WorkflowField
+                label={t('context.workflowExtensionTools')}
+                placeholder={t('context.workflowExtensionToolsPlaceholder')}
+                rows={2}
+                value={newWorkflowToolsHint}
+                onChange={setNewWorkflowToolsHint}
+              />
+              <WorkflowField
+                label={t('context.workflowExtensionMcp')}
+                placeholder={t('context.workflowExtensionMcpPlaceholder')}
+                rows={2}
+                value={newWorkflowMcpHint}
+                onChange={setNewWorkflowMcpHint}
+              />
+              <WorkflowField
+                label={t('context.workflowExtensionSkills')}
+                placeholder={t('context.workflowExtensionSkillsPlaceholder')}
+                rows={2}
+                value={newWorkflowSkillsHint}
+                onChange={setNewWorkflowSkillsHint}
+              />
               <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                 {t('context.workflowNotesLabel')}
               </div>
               <Textarea
                 placeholder={t('context.workflowContentPlaceholder')}
+                aria-label={t('context.workflowNotesLabel')}
                 value={newWorkflowContent}
                 onChange={(event) => setNewWorkflowContent(event.target.value)}
                 className="min-h-[88px] resize-none text-xs"
@@ -668,6 +721,47 @@ export function KnowledgePanel({
               />
             ) : (
               <div className="space-y-2">
+                {builtinWorkflowPlaybooks.length > 0 ? (
+                  <div className="space-y-2 rounded-lg border border-border/70 bg-muted/5 p-3">
+                    <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                      {t('context.builtinWorkflows', {
+                        count: builtinWorkflowPlaybooks.length,
+                      })}
+                    </div>
+                    {builtinWorkflowPlaybooks.map((workflow) => (
+                      <div key={workflow.id} className="rounded-lg border p-3 text-xs">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-medium">{workflow.title}</h4>
+                              <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
+                                {t('context.workflowBuiltinBadge')}
+                              </Badge>
+                            </div>
+                            {workflow.summary ? (
+                              <p className="mt-1 leading-relaxed text-muted-foreground">
+                                {workflow.summary}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {onApplyWorkflow ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[11px]"
+                                onClick={() => applyWorkflowPlaybook(workflow.id)}
+                              >
+                                {t('context.useWorkflow')}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <WorkflowPlaybookPreview workflow={workflow} />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {draftWorkflowPlaybooks.length > 0 ? (
                   <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/10 p-3">
                     <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -902,6 +996,25 @@ function fromStructuredLines(items: string[]) {
   return items.join('\n');
 }
 
+function buildWorkflowExtensionHints(input: {
+  mcp?: string;
+  skills?: string;
+  tools?: string;
+}): WorkflowExtensionHintData[] {
+  return [
+    { kind: 'tools' as const, summary: input.tools?.trim() || '' },
+    { kind: 'mcp' as const, summary: input.mcp?.trim() || '' },
+    { kind: 'skills' as const, summary: input.skills?.trim() || '' },
+  ].filter((item) => item.summary);
+}
+
+function getWorkflowExtensionHintValue(
+  hints: WorkflowExtensionHintData[],
+  kind: WorkflowExtensionHintData['kind']
+) {
+  return hints.find((hint) => hint.kind === kind)?.summary || '';
+}
+
 function WorkflowField({
   label,
   onChange,
@@ -922,6 +1035,7 @@ function WorkflowField({
       </div>
       <Textarea
         placeholder={placeholder}
+        aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="min-h-[72px] resize-none text-xs"
@@ -940,6 +1054,7 @@ function WorkflowPlaybookPreview({
 
   return (
     <div className="mt-2 space-y-2">
+      <WorkflowExtensionHints detailed hints={workflow.extensionHints} />
       {workflow.steps.length > 0 ? (
         <WorkflowPreviewSection
           items={workflow.steps}

@@ -18,6 +18,29 @@ function nodeToMarkdown(node: any, depth = 0): string {
     .join('') || '';
 
   switch (node.type) {
+    case 'slide_page': {
+      const explicitTitle =
+        typeof node.title === 'string' && node.title.trim() ? node.title.trim() : '';
+      const firstHeadingChild =
+        !explicitTitle &&
+        Array.isArray(node.children) &&
+        /^h[1-6]$/.test(String(node.children[0]?.type || ''))
+          ? node.children[0]
+          : null;
+      const derivedTitle = firstHeadingChild ? childrenToPlainText(firstHeadingChild.children) : '';
+      const title = explicitTitle || derivedTitle || 'Slide';
+      const bodyChildren =
+        firstHeadingChild && Array.isArray(node.children) ? node.children.slice(1) : node.children;
+      const body = (bodyChildren || [])
+        .map((child: any) => nodeToMarkdown(child, depth + 1))
+        .join('\n')
+        .trim();
+      const notes =
+        typeof node.notes === 'string' && node.notes.trim()
+          ? `\n> Notes: ${node.notes.trim()}`
+          : '';
+      return [`# ${title}`, body || '', notes].filter(Boolean).join('\n') + '\n';
+    }
     case 'h1':
       return `# ${children}\n`;
     case 'h2':
@@ -58,6 +81,28 @@ function inlineToMarkdown(node: any): string {
   if (node.code) text = `\`${text}\``;
   if (node.underline) text = `<u>${text}</u>`;
   return text;
+}
+
+function childrenToPlainText(children: unknown[] | undefined): string {
+  return (children || [])
+    .map((child) => {
+      if (!child || typeof child !== 'object') {
+        return '';
+      }
+
+      if ('text' in child) {
+        return String((child as { text?: unknown }).text || '');
+      }
+
+      if (Array.isArray((child as { children?: unknown }).children)) {
+        return childrenToPlainText((child as { children: unknown[] }).children);
+      }
+
+      return '';
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // Convert Markdown string to Plate JSON value

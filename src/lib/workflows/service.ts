@@ -1,4 +1,13 @@
 import { prisma } from '@/lib/db/prisma';
+import {
+  normalizeWorkflowExtensionHints,
+  resolveWorkflowExtensionHints,
+  serializeWorkflowExtensionHints,
+} from '@/lib/workflows/extension-hints';
+import {
+  getBuiltinWorkflowPlaybook,
+  listBuiltinWorkflowPlaybooks,
+} from '@/lib/workflows/builtin-playbooks';
 import { getWorkspacePlan } from '@/lib/workspace/planning';
 import type {
   WorkflowPlaybookData,
@@ -25,6 +34,7 @@ type WorkflowPlaybookRecord = {
   steps?: string | null;
   constraints?: string | null;
   checklist?: string | null;
+  extensionHints?: string | null;
   content: string;
   archivedAt?: Date | null;
   createdByUserId: string | null;
@@ -140,11 +150,16 @@ export function mapWorkflowPlaybook(
     sourceVersionId: item.sourceVersionId,
     sourceThreadId: item.sourceThreadId,
     status: normalizeWorkflowPlaybookStatus(item.status),
+    builtin: false,
     title: item.title,
     summary: item.summary,
     steps: parseStructuredList(item.steps),
     constraints: parseStructuredList(item.constraints),
     checklist: parseStructuredList(item.checklist),
+    extensionHints: resolveWorkflowExtensionHints({
+      originDeviceId: item.originDeviceId,
+      serialized: item.extensionHints,
+    }),
     content: item.content,
     archivedAt: item.archivedAt || null,
     createdByUserId: item.createdByUserId,
@@ -173,7 +188,7 @@ export async function listWorkflowPlaybooks(params: {
     orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
   });
 
-  return items.map(mapWorkflowPlaybook);
+  return [...listBuiltinWorkflowPlaybooks(), ...items.map(mapWorkflowPlaybook)];
 }
 
 export async function getWorkflowPlaybook(params: {
@@ -181,6 +196,11 @@ export async function getWorkflowPlaybook(params: {
   id: string;
   organizationId: string;
 }) {
+  const builtin = getBuiltinWorkflowPlaybook(params.id);
+  if (builtin) {
+    return builtin;
+  }
+
   const item = await findWorkflowPlaybook({
     where: {
       deletedAt: null,
@@ -196,12 +216,61 @@ export async function getWorkflowPlaybook(params: {
   return item ? mapWorkflowPlaybook(item) : null;
 }
 
+export async function materializeWorkflowPlaybookSelection(
+  actor: ActorContext,
+  workflowPlaybookId: string
+) {
+  const builtin = getBuiltinWorkflowPlaybook(workflowPlaybookId);
+  if (!builtin) {
+    return getWorkflowPlaybook({
+      id: workflowPlaybookId,
+      organizationId: actor.organizationId,
+    });
+  }
+
+  const existing = await findWorkflowPlaybook({
+    where: {
+      deletedAt: null,
+      organizationId: actor.organizationId,
+      originDeviceId: builtin.originDeviceId,
+      status: 'active',
+    },
+  });
+
+  if (existing) {
+    return mapWorkflowPlaybook(existing);
+  }
+
+  const item = await createWorkflowPlaybookRecord({
+    data: {
+      organizationId: actor.organizationId,
+      documentId: null,
+      sourceVersionId: null,
+      sourceThreadId: null,
+      status: 'active',
+      title: builtin.title,
+      summary: builtin.summary,
+      steps: serializeStructuredList(builtin.steps),
+      constraints: serializeStructuredList(builtin.constraints),
+      checklist: serializeStructuredList(builtin.checklist),
+      extensionHints: serializeWorkflowExtensionHints(builtin.extensionHints),
+      content: builtin.content,
+      archivedAt: null,
+      createdByUserId: actor.userId,
+      originDeviceId: builtin.originDeviceId,
+    },
+  });
+
+  return mapWorkflowPlaybook(item);
+}
+
 export async function createWorkflowPlaybook(
   actor: ActorContext,
   input: {
     checklist?: string[] | string | null;
     content?: string | null;
     constraints?: string[] | string | null;
+    extensionHints?: WorkflowPlaybookData['extensionHints'] | null;
     forceActivate?: boolean;
     sourceThreadId?: string | null;
     sourceVersionId?: string | null;
@@ -215,6 +284,7 @@ export async function createWorkflowPlaybook(
   const steps = parseStructuredList(serializeStructuredList(input.steps));
   const constraints = parseStructuredList(serializeStructuredList(input.constraints));
   const checklist = parseStructuredList(serializeStructuredList(input.checklist));
+  const extensionHints = normalizeWorkflowExtensionHints(input.extensionHints);
   const nextStatus = normalizeWorkflowPlaybookStatus(input.status);
   const warnings = evaluateWorkflowDraftWarnings({
     checklist,
@@ -240,6 +310,7 @@ export async function createWorkflowPlaybook(
       steps: serializeStructuredList(steps),
       constraints: serializeStructuredList(constraints),
       checklist: serializeStructuredList(checklist),
+      extensionHints: serializeWorkflowExtensionHints(extensionHints),
       content: input.content?.trim() || '',
       archivedAt: nextStatus === 'archived' ? new Date() : null,
       createdByUserId: actor.userId,
@@ -256,6 +327,7 @@ export async function updateWorkflowPlaybook(
     checklist?: string[] | string | null;
     content?: string | null;
     constraints?: string[] | string | null;
+    extensionHints?: WorkflowPlaybookData['extensionHints'] | null;
     forceActivate?: boolean;
     id: string;
     status?: WorkflowPlaybookStatus | null;
@@ -293,6 +365,13 @@ export async function updateWorkflowPlaybook(
     input.checklist !== undefined
       ? parseStructuredList(serializeStructuredList(input.checklist))
       : parseStructuredList(existing.checklist);
+  const nextExtensionHints =
+    input.extensionHints !== undefined
+      ? normalizeWorkflowExtensionHints(input.extensionHints)
+      : resolveWorkflowExtensionHints({
+          originDeviceId: existing.originDeviceId,
+          serialized: existing.extensionHints,
+        });
   const warnings = evaluateWorkflowDraftWarnings({
     checklist: nextChecklist,
     constraints: nextConstraints,
@@ -326,9 +405,10 @@ export async function updateWorkflowPlaybook(
       ...(input.checklist !== undefined
         ? { checklist: serializeStructuredList(nextChecklist) }
         : {}),
+      extensionHints: serializeWorkflowExtensionHints(nextExtensionHints),
       ...(input.content !== undefined ? { content: input.content?.trim() || '' } : {}),
       createdByUserId: actor.userId,
-      originDeviceId: actor.deviceId,
+      originDeviceId: existing.originDeviceId || actor.deviceId,
       revision: {
         increment: 1,
       },
@@ -403,7 +483,7 @@ export async function deleteWorkflowPlaybook(
 export function formatWorkflowPlaybookForPrompt(
   playbook: Pick<
     WorkflowPlaybookData,
-    'title' | 'summary' | 'steps' | 'constraints' | 'checklist' | 'content'
+    'title' | 'summary' | 'steps' | 'constraints' | 'checklist' | 'extensionHints' | 'content'
   >
 ) {
   const parts = [`Workflow Playbook: ${playbook.title}`];
@@ -430,6 +510,13 @@ export function formatWorkflowPlaybookForPrompt(
     parts.push('', 'Review checklist:');
     playbook.checklist.forEach((item) => {
       parts.push(`- ${item}`);
+    });
+  }
+
+  if (playbook.extensionHints.length > 0) {
+    parts.push('', 'Open extension rails:');
+    playbook.extensionHints.forEach((hint) => {
+      parts.push(`- ${hint.kind.toUpperCase()}: ${hint.summary}`);
     });
   }
 
@@ -555,6 +642,7 @@ export async function buildWorkflowPlaybookDraft(params: {
             'Verify the structure is complete before saving a milestone.',
             'Resolve or confirm applied comments before closing review.',
           ],
+    extensionHints: plan?.activeWorkflowPlaybook?.extensionHints || [],
     content,
     warnings: evaluateWorkflowDraftWarnings({
       checklist: uniqueChecklist,

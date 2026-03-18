@@ -19,6 +19,23 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(memories.map(mapMemory));
 }
 
+export async function POST(req: NextRequest) {
+  const actor = await getPlatformContextFromHeaders(req.headers);
+  const body = await req.json();
+  const memory = await prisma.memory.create({
+    data: {
+      active: body.active ?? true,
+      category: body.category || 'preference',
+      content: body.content,
+      createdByUserId: actor.userId,
+      documentId: body.wikiId || body.documentId || null,
+      organizationId: actor.organizationId,
+      originDeviceId: actor.deviceId,
+    },
+  });
+  return NextResponse.json(mapMemory(memory));
+}
+
 export async function PATCH(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json();

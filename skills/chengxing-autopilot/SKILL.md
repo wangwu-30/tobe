@@ -39,6 +39,15 @@ Use them as distinct sources of truth:
 
 Do not create a parallel master plan in chat once these files exist. Update the repo docs instead.
 
+When a long-running workstream is explicitly active and the repo does not already have a dedicated tracker for it, create one under `docs/` and keep it updated after each bounded slice. The tracker should record:
+
+- current scope and confirmed decisions
+- phase / slice status
+- current slice goal and remaining items
+- verification history
+
+Treat this tracker as restart state for future turns. If a tracker already exists for the active workstream, update it instead of creating a second one.
+
 Treat onboarding as unfinished if the repo still only has one global welcome modal and lacks progressive, feature-first guidance that appears the first time a user opens the real surface.
 
 ## Core Loop
@@ -114,6 +123,7 @@ Minimum update rules:
 - shipped fact changed: update `docs/chengxing-project-status.md`
 - acceptance/gate changed: update `docs/testing/iteration-regression-plan.md`
 - lesson or pitfall changed: update `docs/chengxing-lessons-learned.md`
+- active long-running workstream changed state: update its dedicated tracker in `docs/`
 
 ## Remaining Work Detection
 

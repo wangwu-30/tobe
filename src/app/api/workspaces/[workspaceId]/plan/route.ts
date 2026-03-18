@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { materializeWorkflowPlaybookSelection } from '@/lib/workflows/service';
 import {
   getWorkspacePlan,
   updateWorkspacePlan,
@@ -78,14 +79,21 @@ export async function POST(
       : 'document';
 
   try {
+    const nextWorkflowPlaybook =
+      typeof body.activeWorkflowPlaybookId === 'string' && body.activeWorkflowPlaybookId.trim()
+        ? await materializeWorkflowPlaybookSelection(
+            actor,
+            body.activeWorkflowPlaybookId.trim()
+          )
+        : body.activeWorkflowPlaybookId === null
+          ? null
+          : undefined;
     const plan = await upsertWorkspacePlan(actor, {
       activeStageId:
         typeof body.activeStageId === 'string' ? body.activeStageId : undefined,
       activeWorkflowPlaybookId:
-        body.activeWorkflowPlaybookId === null ||
-        typeof body.activeWorkflowPlaybookId === 'string'
-          ? body.activeWorkflowPlaybookId
-          : undefined,
+        nextWorkflowPlaybook?.id ||
+        (body.activeWorkflowPlaybookId === null ? null : undefined),
       constraints: body.constraints,
       deliverableType,
       goal: body.goal || 'Create a new deliverable',
@@ -115,16 +123,23 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
 
   try {
+    const nextWorkflowPlaybook =
+      typeof body.activeWorkflowPlaybookId === 'string' && body.activeWorkflowPlaybookId.trim()
+        ? await materializeWorkflowPlaybookSelection(
+            actor,
+            body.activeWorkflowPlaybookId.trim()
+          )
+        : body.activeWorkflowPlaybookId === null
+          ? null
+          : undefined;
     const plan = await updateWorkspacePlan(actor, {
       activeStageId:
         body.activeStageId === null || typeof body.activeStageId === 'string'
           ? body.activeStageId
           : undefined,
       activeWorkflowPlaybookId:
-        body.activeWorkflowPlaybookId === null ||
-        typeof body.activeWorkflowPlaybookId === 'string'
-          ? body.activeWorkflowPlaybookId
-          : undefined,
+        nextWorkflowPlaybook?.id ||
+        (body.activeWorkflowPlaybookId === null ? null : undefined),
       constraints:
         body.constraints === null || typeof body.constraints === 'string'
           ? body.constraints

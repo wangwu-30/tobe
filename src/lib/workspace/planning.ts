@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { resolveWorkflowExtensionHints } from '@/lib/workflows/extension-hints';
 import { buildDefaultPlanStages } from '@/lib/workspace/plan-blueprints';
 import type {
   AssistantRunData,
@@ -61,6 +62,7 @@ type WorkspacePlanRecord = {
     steps?: string | null;
     constraints?: string | null;
     checklist?: string | null;
+    extensionHints?: string | null;
     content: string;
     archivedAt?: Date | null;
     createdByUserId: string | null;
@@ -661,6 +663,10 @@ function mapWorkflowPlaybook(
     steps: parseStructuredList(playbook.steps),
     constraints: parseStructuredList(playbook.constraints),
     checklist: parseStructuredList(playbook.checklist),
+    extensionHints: resolveWorkflowExtensionHints({
+      originDeviceId: playbook.originDeviceId,
+      serialized: playbook.extensionHints,
+    }),
     content: playbook.content,
     archivedAt: playbook.archivedAt || null,
     createdByUserId: playbook.createdByUserId,
