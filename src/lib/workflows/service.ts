@@ -589,7 +589,6 @@ export async function buildWorkflowPlaybookDraft(params: {
     throw new Error('Save a milestone before extracting a workflow draft.');
   }
 
-  const deliverableType = plan?.deliverableType || 'document';
   const recommendedSteps =
     plan?.stages.length
       ? plan.stages.map(
@@ -617,7 +616,7 @@ export async function buildWorkflowPlaybookDraft(params: {
     .filter((item): item is string => Boolean(item));
   const uniqueChecklist = [...new Set(checklist)];
   const content = [
-    `Use this method for ${deliverableType} deliverables that need a repeatable path from first pass to milestone.`,
+    'Use this method for results that need a repeatable path from first pass to milestone.',
     'Work in the live draft first, then save a visible milestone when the result is stable.',
     'Use comments for local, anchored revisions instead of broad chat-only rewrites.',
   ].join('\n\n');
@@ -634,7 +633,7 @@ export async function buildWorkflowPlaybookDraft(params: {
     constraints:
       constraints.length > 0
         ? constraints
-        : ['Keep the method aligned with the current goal and deliverable type.'],
+        : ['Keep the method aligned with the current goal and result shape.'],
     checklist:
       uniqueChecklist.length > 0
         ? uniqueChecklist

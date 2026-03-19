@@ -922,7 +922,7 @@ export function createWorkspaceAgentTools({
       name: 'write_file',
       label: 'Write File',
       description:
-        'Create or overwrite any deliverable file (document, web, slides, code) in the current workspace and update the live draft directly.',
+        'Create or overwrite the live deliverable files in the current workspace directly. Treat slide decks as document content instead of a separate result shape.',
       parameters: Type.Object({
         content: Type.String(),
         fileId: Type.Optional(Type.String({ minLength: 1 })),

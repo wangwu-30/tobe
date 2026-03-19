@@ -29,9 +29,9 @@ test('slide_page content renders as structured slide cards', async ({ page }, te
           ],
         },
       ]),
-      deliverableType: 'slides',
-      goal: '验证 slide_page block 渲染。',
-      title: `Slide Page 验证 ${suffix}`,
+      deliverableType: 'document',
+      goal: '验证文档里的 slide_page block 会投影成幻灯片结果面。',
+      title: `Slide Page Projection ${suffix}`,
     },
     method: 'POST',
   });
@@ -39,8 +39,8 @@ test('slide_page content renders as structured slide cards', async ({ page }, te
   await apiRequest(baseURL, `/api/workspaces/${payload.workspace.id}/plan`, {
     body: {
       activeStageId: 'review',
-      deliverableType: 'slides',
-      goal: '验证 slide_page block 渲染。',
+      deliverableType: 'document',
+      goal: '验证文档里的 slide_page block 会投影成幻灯片结果面。',
       stages: [
         {
           checkpoint: true,
@@ -69,4 +69,5 @@ test('slide_page content renders as structured slide cards', async ({ page }, te
     slidesCanvas.getByText('演讲时先讲行业拐点，再讲我们的切入优势。')
   ).toBeVisible();
   await expect(slidesCanvas.getByText('产品方案')).toBeVisible();
+  await expect(slidesCanvas).not.toContainText(/按新类型重整结果|Regenerate for this type/);
 });

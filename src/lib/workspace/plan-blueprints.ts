@@ -1,3 +1,4 @@
+import { getCanonicalDeliverableType, type CanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import type { DeliverableType, WorkspacePlanStageData } from '@/types';
 
 type StageBlueprint = {
@@ -7,39 +8,7 @@ type StageBlueprint = {
   kind: string;
 };
 
-const PLAN_STAGE_BLUEPRINTS: Record<DeliverableType, StageBlueprint[]> = {
-  code: [
-    {
-      kind: 'clarify',
-      defaultTitle: 'Clarify',
-      defaultDescription: 'Clarify the technical target, scope, and constraints.',
-      checkpoint: true,
-    },
-    {
-      kind: 'structure',
-      defaultTitle: 'Structure',
-      defaultDescription: 'Shape the implementation approach before touching code.',
-      checkpoint: true,
-    },
-    {
-      kind: 'implement',
-      defaultTitle: 'Implement',
-      defaultDescription: 'Produce the working code or staged implementation changes.',
-      checkpoint: false,
-    },
-    {
-      kind: 'verify',
-      defaultTitle: 'Verify',
-      defaultDescription: 'Verify behavior, fix risks, and tighten the result.',
-      checkpoint: true,
-    },
-    {
-      kind: 'finalize',
-      defaultTitle: 'Finalize',
-      defaultDescription: 'Save a stable version worth comparing or handing off.',
-      checkpoint: true,
-    },
-  ],
+const PLAN_STAGE_BLUEPRINTS: Record<CanonicalDeliverableType, StageBlueprint[]> = {
   document: [
     {
       kind: 'clarify',
@@ -69,38 +38,6 @@ const PLAN_STAGE_BLUEPRINTS: Record<DeliverableType, StageBlueprint[]> = {
       kind: 'finalize',
       defaultTitle: 'Finalize',
       defaultDescription: 'Save a milestone once this version is stable.',
-      checkpoint: true,
-    },
-  ],
-  slides: [
-    {
-      kind: 'clarify',
-      defaultTitle: 'Clarify',
-      defaultDescription: 'Clarify audience, presentation goal, and narrative arc.',
-      checkpoint: true,
-    },
-    {
-      kind: 'structure',
-      defaultTitle: 'Structure',
-      defaultDescription: 'Shape the slide sequence, pacing, and section order.',
-      checkpoint: true,
-    },
-    {
-      kind: 'draft',
-      defaultTitle: 'Draft',
-      defaultDescription: 'Render the live slide draft and keep recovery points available.',
-      checkpoint: false,
-    },
-    {
-      kind: 'review',
-      defaultTitle: 'Review',
-      defaultDescription: 'Refine slide-level clarity, pacing, and emphasis.',
-      checkpoint: true,
-    },
-    {
-      kind: 'finalize',
-      defaultTitle: 'Finalize',
-      defaultDescription: 'Save a milestone when the deck reaches a stable state.',
       checkpoint: true,
     },
   ],
@@ -145,13 +82,13 @@ const PLAN_STAGE_BLUEPRINTS: Record<DeliverableType, StageBlueprint[]> = {
 };
 
 export function getWorkspacePlanBlueprint(deliverableType: DeliverableType) {
-  return PLAN_STAGE_BLUEPRINTS[deliverableType];
+  return PLAN_STAGE_BLUEPRINTS[getCanonicalDeliverableType(deliverableType)];
 }
 
 export function buildDefaultPlanStages(
   deliverableType: DeliverableType
 ): WorkspacePlanStageData[] {
-  return PLAN_STAGE_BLUEPRINTS[deliverableType].map((stage, index) => ({
+  return getWorkspacePlanBlueprint(deliverableType).map((stage, index) => ({
     id: stage.kind,
     kind: stage.kind,
     title: stage.defaultTitle,
@@ -165,7 +102,7 @@ export function normalizePlanStageKind(
   deliverableType: DeliverableType,
   kind: string
 ) {
-  const blueprint = PLAN_STAGE_BLUEPRINTS[deliverableType];
+  const blueprint = getWorkspacePlanBlueprint(deliverableType);
   return blueprint.some((stage) => stage.kind === kind)
     ? kind
     : blueprint[0]?.kind || 'clarify';

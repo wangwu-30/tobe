@@ -2,6 +2,7 @@ import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
 import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
 import { generatePlanStepsWithAI } from '@/lib/ai/plan-generator';
 import type { Settings } from '@/lib/ai/providers';
+import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
 import type {
   AssistantPlanProposalData,
   DeliverableType,
@@ -89,7 +90,7 @@ async function classifyReplanNeed(params: {
       systemPrompt: [
         'You decide whether a user request should keep the current workspace plan or propose a new high-level plan.',
         'Return JSON only. No markdown fences, no prose.',
-        'Choose "replan" only when the request materially changes the goal, scope, deliverable type, audience, or top-level structure.',
+        'Choose "replan" only when the request materially changes the goal, scope, result shape, audience, or top-level structure.',
         'Local revisions, polishing, feature tweaks, layout changes, and scoped additions stay as "continue".',
         'When returning "replan", provide a concise new goal and one-sentence summary.',
       ].join('\n'),
@@ -97,7 +98,7 @@ async function classifyReplanNeed(params: {
         {
           role: 'user',
           content: [
-            `Current deliverable type: ${params.currentPlan.deliverableType}`,
+            `Current result shape: ${params.currentPlan.deliverableType}`,
             `Current goal: ${params.currentPlan.goal}`,
             params.currentPlan.constraints
               ? `Current constraints: ${params.currentPlan.constraints}`
@@ -156,9 +157,7 @@ function parseDecisionResponse(raw: string): ReplanDecision | null {
 }
 
 function normalizeDeliverableType(value: unknown): DeliverableType | undefined {
-  return value === 'web' || value === 'code' || value === 'slides' || value === 'document'
-    ? value
-    : undefined;
+  return normalizeStoredDeliverableType(value) || undefined;
 }
 
 function normalizeNullableString(value: string | null | undefined) {

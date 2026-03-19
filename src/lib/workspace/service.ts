@@ -1,9 +1,16 @@
 import { Prisma } from '@/generated/prisma/client';
+import {
+  buildReviewAnchorFingerprint,
+  parseReviewAnchor,
+} from '@/lib/comments/review-anchor';
 import { normalizeCommentThreadStatus } from '@/lib/comments/status';
 import { prisma } from '@/lib/db/prisma';
 import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
-import { listWorkspaceRuns, startWorkspacePreview } from '@/lib/platform/run-service';
+import {
+  listWorkspaceRuns,
+  startWorkspacePreview,
+} from '@/lib/platform/run-service';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage } from '@/lib/i18n/language';
 import { parseAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
@@ -2268,6 +2275,7 @@ export async function getWorkspaceView(params: {
       conversationTree: [],
       conversationRuns: [],
       activeAssistantRun: null,
+      activePreviewRun: null,
       selectedVersion: null,
       stagedChangeSets: [],
       workspacePlan: null,
@@ -2547,6 +2555,7 @@ export async function getWorkspaceView(params: {
     ),
     conversationRuns,
     activeAssistantRun: activeAssistantRun ? mapAssistantRun(activeAssistantRun) : null,
+    activePreviewRun,
     selectedVersion,
     stagedChangeSets,
     workspacePlan: hydratedWorkspacePlan,
@@ -3575,30 +3584,6 @@ export function parseVersionFiles(content: string): WorkspaceVersionFileData[] {
   ];
 }
 
-function parseReviewAnchor(selectionAnchor: string | null): ReviewAnchorData | null {
-  if (!selectionAnchor) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(selectionAnchor);
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof parsed.surfaceType === 'string' &&
-      typeof parsed.bindingType === 'string' &&
-      parsed.anchorPayload &&
-      typeof parsed.anchorPayload === 'object'
-    ) {
-      return parsed;
-    }
-  } catch {
-    // Legacy anchors may not be JSON; keep them as opaque strings.
-  }
-
-  return null;
-}
-
 function serializeWorkspaceVersion(payload: VersionPayload) {
   return JSON.stringify(payload);
 }
@@ -3708,13 +3693,12 @@ function buildCommentAnchorFingerprint(params: {
   fileId: string | null;
   selectionAnchor: string | null;
 }) {
-  const parsedAnchor = parseReviewAnchor(params.selectionAnchor);
-  const excerpt =
-    parsedAnchor?.anchorPayload?.excerpt ||
-    params.anchorText ||
-    '';
-  const normalized = excerpt.replace(/\s+/g, ' ').trim().toLowerCase();
-  return `${params.fileId || 'workspace'}::${normalized}`;
+  return buildReviewAnchorFingerprint({
+    anchorText: params.anchorText,
+    fileId: params.fileId,
+    reviewAnchor: null,
+    selectionAnchor: params.selectionAnchor,
+  });
 }
 
 function normalizeAttachmentKind(kind?: string | null): ChatAttachmentData['kind'] {

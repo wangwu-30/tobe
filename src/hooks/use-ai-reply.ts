@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { describeAIError } from '@/lib/ai/error-utils';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { useAppLanguage } from '@/components/providers/language-provider';
+import { stripAIStreamControlTokens } from '@/lib/ai/stream-protocol';
 
 export function useAiReply() {
   const language = useAppLanguage();
@@ -60,7 +61,7 @@ export function useAiReply() {
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-          fullText += chunk;
+          fullText += stripAIStreamControlTokens(chunk);
           setStreamingContent(fullText);
         }
 

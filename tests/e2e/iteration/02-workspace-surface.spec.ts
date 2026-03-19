@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { primeClientState, readSeedState } from './helpers';
+import { apiRequest, primeClientState, readSeedState } from './helpers';
 
 test('outline jump keeps the target heading near the top and status stays visible', async ({
   page,
@@ -42,25 +42,52 @@ test('outline jump keeps the target heading near the top and status stays visibl
   }).toBeLessThan(110);
 });
 
-test('deliverable type switch keeps slides and web inside result shells instead of falling back to source', async ({
+test('slide and web deliverables stay inside result shells instead of falling back to source', async ({
   page,
-}) => {
-  const seedState = readSeedState();
-  const workspace = seedState.baseWorkspace;
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const slidesWorkspace = await apiRequest<{
+    conversation: { id: string };
+    workspace: { id: string };
+  }>(baseURL, '/api/workspaces', {
+    body: {
+      content: JSON.stringify([
+        {
+          type: 'slide_page',
+          title: '结果壳验证',
+          children: [{ type: 'p', children: [{ text: '这页内容用于验证 slide 结果面。' }] }],
+        },
+      ]),
+      deliverableType: 'document',
+      goal: '验证文档中的 slide_page 会自动投影成 slide 结果面。',
+      title: `Slide Projection ${suffix}`,
+    },
+    method: 'POST',
+  });
+  const webWorkspace = await apiRequest<{
+    conversation: { id: string };
+    workspace: { id: string };
+  }>(baseURL, '/api/workspaces', {
+    body: {
+      deliverableType: 'web',
+      goal: '验证 web 结果壳稳定可见。',
+      title: `Web Result Shell ${suffix}`,
+    },
+    method: 'POST',
+  });
 
   await primeClientState(page);
   await page.goto(
-    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
+    `/workspace/${slidesWorkspace.workspace.id}?conversationId=${slidesWorkspace.conversation.id}`
   );
-
-  const statusPanel = page.getByRole('tabpanel', { name: /状态|Status/ });
-
-  await statusPanel.getByRole('button', { name: '幻灯片' }).click();
   await expect(page.getByTestId('slides-deliverable-canvas')).toBeVisible();
   await expect(page.getByTestId('source-deliverable-canvas')).toHaveCount(0);
   await expect(page.getByText(/^#\s*交付物总览$/)).toHaveCount(0);
 
-  await statusPanel.getByRole('button', { name: '网页' }).click();
+  await page.goto(
+    `/workspace/${webWorkspace.workspace.id}?conversationId=${webWorkspace.conversation.id}`
+  );
   await expect(page.getByTestId('web-deliverable-canvas')).toBeVisible();
   await expect(page.getByTestId('source-deliverable-canvas')).toHaveCount(0);
 });

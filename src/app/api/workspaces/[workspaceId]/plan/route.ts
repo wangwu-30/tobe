@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { materializeWorkflowPlaybookSelection } from '@/lib/workflows/service';
+import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
 import {
   getWorkspacePlan,
   updateWorkspacePlan,
@@ -70,13 +71,7 @@ export async function POST(
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { workspaceId } = await params;
   const body = await req.json().catch(() => ({}));
-  const deliverableType =
-    body.deliverableType === 'document' ||
-    body.deliverableType === 'web' ||
-    body.deliverableType === 'code' ||
-    body.deliverableType === 'slides'
-      ? body.deliverableType
-      : 'document';
+  const deliverableType = normalizeStoredDeliverableType(body.deliverableType) || 'document';
 
   try {
     const nextWorkflowPlaybook =
@@ -145,12 +140,7 @@ export async function PATCH(
           ? body.constraints
           : undefined,
       deliverableType:
-        body.deliverableType === 'document' ||
-        body.deliverableType === 'web' ||
-        body.deliverableType === 'code' ||
-        body.deliverableType === 'slides'
-          ? body.deliverableType
-          : undefined,
+        normalizeStoredDeliverableType(body.deliverableType) || undefined,
       incrementVersion: body.incrementVersion === true,
       lastProgressNote:
         body.lastProgressNote === null || typeof body.lastProgressNote === 'string'

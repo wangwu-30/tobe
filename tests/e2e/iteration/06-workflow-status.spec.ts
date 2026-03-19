@@ -197,7 +197,7 @@ test('finalized deliverables can start the next deliverable in the same project 
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(activeWorkflow.title);
-  await expect(dialog.getByTestId('goal-deliverable-pill')).toContainText(/文档|Document/);
+  await expect(dialog.getByTestId('goal-deliverable-pill')).toHaveCount(0);
   await expect(
     dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ })
   ).toBeVisible();
@@ -206,6 +206,15 @@ test('finalized deliverables can start the next deliverable in the same project 
     .getByLabel(/目标|Goal/)
     .fill('为同一项目继续创建下一份执行摘要。');
   await dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ }).click();
+  const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
+  if (
+    await clarifyAfterNextDeliverable
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
+    await clarifyAfterNextDeliverable.getByRole('button', { name: /选择|Select/ }).click();
+  }
 
   await expect
     .poll(() => {
@@ -281,6 +290,15 @@ test('workspace header shows the project path and keeps sibling creation in the 
   await expect(dialog).toContainText(projectTitle);
   await dialog.getByLabel(/目标|Goal/).fill('沿着同一项目目录继续创建下一份交付物。');
   await dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ }).click();
+  const clarifyAfterSiblingCreate = dialog.getByTestId('goal-intent-option-document');
+  if (
+    await clarifyAfterSiblingCreate
+      .waitFor({ state: 'visible', timeout: 1500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
+    await clarifyAfterSiblingCreate.getByRole('button', { name: /选择|Select/ }).click();
+  }
 
   await expect
     .poll(() => {

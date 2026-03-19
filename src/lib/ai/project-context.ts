@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import { inferDeliverableType } from '@/lib/workspace/planning';
 import type { DeliverableType } from '@/types';
 
@@ -67,13 +68,15 @@ function resolveDeliverableType(workspace: ProjectContextWorkspaceRecord): Deliv
     workspace.files.find((file) => file.type === 'file') ||
     null;
 
-  return inferDeliverableType({
-    explicitType: workspace.workspacePlan?.deliverableType || null,
-    fileKind: primaryFile?.kind || null,
-    files: workspace.files.map((file) => ({ kind: file.kind, path: file.path })),
-    goal: workspace.workspacePlan?.goal || workspace.title,
-    title: primaryFile?.name || workspace.title,
-  });
+  return getCanonicalDeliverableType(
+    inferDeliverableType({
+      explicitType: workspace.workspacePlan?.deliverableType || null,
+      fileKind: primaryFile?.kind || null,
+      files: workspace.files.map((file) => ({ kind: file.kind, path: file.path })),
+      goal: workspace.workspacePlan?.goal || workspace.title,
+      title: primaryFile?.name || workspace.title,
+    })
+  );
 }
 
 export async function loadProjectAiContextData(params: {

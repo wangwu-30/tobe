@@ -2,6 +2,7 @@ import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
 import { buildPlanLanguageInstruction } from '@/lib/ai/language';
 import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
 import type { Settings } from '@/lib/ai/providers';
+import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import { getWorkspacePlanBlueprint } from '@/lib/workspace/plan-blueprints';
 import type { DeliverableType, PlanStepData } from '@/types';
 
@@ -38,7 +39,7 @@ export async function generatePlanStepsWithAI(params: {
           role: 'user',
           content: [
             `Goal: ${params.goal.trim() || 'Create a new deliverable'}`,
-            `Deliverable type: ${params.deliverableType}`,
+            `Deliverable type: ${getCanonicalDeliverableType(params.deliverableType)}`,
             params.styleGuide?.trim() ? `Style / tone: ${params.styleGuide.trim()}` : null,
             params.constraints?.trim() ? `Constraints: ${params.constraints.trim()}` : null,
             '',

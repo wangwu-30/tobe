@@ -14,6 +14,11 @@ import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import { WORKSPACE_CREATE_IDEMPOTENCY_HEADER } from '@/lib/workspace/create-request';
+import {
+  mapDeliverableTypeToCreateIntent,
+  normalizeWorkspaceCreateIntent,
+} from '@/lib/workspace/create-intent';
+import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
 import { createInitialWorkspacePlan } from '@/lib/workspace/planning';
 import {
   getNextProjectTreeSortOrder,
@@ -31,6 +36,8 @@ import type { DeliverableType } from '@/types';
 
 class WorkspaceCreateValidationError extends Error {}
 
+type CreatedWorkspaceRecord = Awaited<ReturnType<typeof createWorkspaceForRequest>>;
+
 export async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const workspaces = await listWorkspaces(actor.organizationId);
@@ -42,13 +49,26 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const settings = getSettingsFromHeaders(req.headers);
   const language = settings.language || 'zh-CN';
+  const requestedCreateMode = normalizeWorkspaceCreateIntent(body.createMode);
+  const legacyDeliverableType = normalizeStoredDeliverableType(body.deliverableType);
+  const createMode =
+    requestedCreateMode ||
+    mapDeliverableTypeToCreateIntent(legacyDeliverableType) ||
+    'document';
   const deliverableType =
-    body.deliverableType === 'document' ||
-    body.deliverableType === 'web' ||
-    body.deliverableType === 'code' ||
-    body.deliverableType === 'slides'
-      ? body.deliverableType
-      : 'document';
+    requestedCreateMode === 'web'
+      ? 'web'
+      : requestedCreateMode === 'document'
+        ? 'document'
+        : legacyDeliverableType || 'document';
+  const selectedIntentNote =
+    typeof body.selectedIntentNote === 'string' && body.selectedIntentNote.trim()
+      ? body.selectedIntentNote.trim()
+      : null;
+  const mergedConstraints = mergeIntentDetailIntoConstraints(
+    typeof body.constraints === 'string' ? body.constraints : null,
+    selectedIntentNote
+  );
   const suggestedTitle = deriveWorkspaceTitle(body.title || body.goal);
   const projectParentPath =
     typeof body.projectParentPath === 'string' && body.projectParentPath.trim()
@@ -79,13 +99,15 @@ export async function POST(req: NextRequest) {
   }
   const requestKey = req.headers.get(WORKSPACE_CREATE_IDEMPOTENCY_HEADER)?.trim() || null;
   const requestHash = JSON.stringify({
-    constraints: body.constraints || null,
+    constraints: mergedConstraints,
+    createMode,
     deliverableType,
     goal: body.goal || null,
     projectFolderId,
     projectParentPath,
     projectId,
     projectTitle,
+    selectedIntentNote,
     styleGuide: body.styleGuide || null,
     title: suggestedTitle || null,
     workflowPlaybookId,
@@ -94,30 +116,49 @@ export async function POST(req: NextRequest) {
   try {
     const workspace = await withIdempotency({
       action: async () => {
-        const created = await createWorkspaceForRequest(actor, {
-          constraints: body.constraints,
-          conversationTitle: body.conversationTitle,
-          deliverableType,
-          goal: body.goal,
-          initialContent: typeof body.content === 'string' ? body.content : null,
-          initialPlanNote: translate(language, 'plan.generatingDescription'),
-          projectFolderId,
-          projectParentPath,
-          projectId,
-          projectTitle,
-          styleGuide: body.styleGuide,
-          title: suggestedTitle || undefined,
-          workflowPlaybookId,
-        });
-        await finalizeWorkspaceCreation(actor, created).catch((error) => {
-          console.error('Workspace creation side effects failed.', error);
-        });
+        const createdItems =
+          createMode === 'both'
+            ? await createWorkspacePairForRequest(actor, {
+                constraints: mergedConstraints,
+                conversationTitle: body.conversationTitle,
+                goal: body.goal,
+                initialContent: typeof body.content === 'string' ? body.content : null,
+                initialPlanNote: translate(language, 'plan.generatingDescription'),
+                language,
+                projectFolderId,
+                projectParentPath,
+                projectId,
+                projectTitle,
+                styleGuide: body.styleGuide,
+                title: suggestedTitle || undefined,
+                workflowPlaybookId,
+              })
+            : [
+                await createWorkspaceForRequest(actor, {
+                  constraints: mergedConstraints,
+                  conversationTitle: body.conversationTitle,
+                  deliverableType,
+                  goal: body.goal,
+                  initialContent: typeof body.content === 'string' ? body.content : null,
+                  initialPlanNote: translate(language, 'plan.generatingDescription'),
+                  projectFolderId,
+                  projectParentPath,
+                  projectId,
+                  projectTitle,
+                  styleGuide: body.styleGuide,
+                  title: suggestedTitle || undefined,
+                  workflowPlaybookId,
+                }),
+              ];
+        await Promise.all(
+          createdItems.map((created) =>
+            finalizeWorkspaceCreation(actor, created).catch((error) => {
+              console.error('Workspace creation side effects failed.', error);
+            })
+          )
+        );
 
-        return {
-          conversation: mapConversation(created.conversation),
-          primaryFile: mapWorkspaceFile(created.primaryFile),
-          workspace: mapWorkspace(created.workspace),
-        };
+        return mapWorkspaceCreateResponse(createdItems);
       },
       key: requestKey,
       operation: 'workspace:create',
@@ -429,6 +470,48 @@ async function createWorkspaceForRequest(
   });
 }
 
+async function createWorkspacePairForRequest(
+  actor: { deviceId: string; organizationId: string; userId: string },
+  input: {
+    constraints?: string | null;
+    conversationTitle?: unknown;
+    goal?: unknown;
+    initialContent?: string | null;
+    initialPlanNote?: string | null;
+    language?: string | null;
+    projectFolderId?: string | null;
+    projectParentPath?: string | null;
+    projectId?: string | null;
+    projectTitle?: string | null;
+    styleGuide?: string | null;
+    title?: string;
+    workflowPlaybookId?: string | null;
+  }
+) {
+  const documentWorkspace = await createWorkspaceForRequest(actor, {
+    ...input,
+    deliverableType: 'document',
+  });
+
+  const webWorkspace = await createWorkspaceForRequest(actor, {
+    ...input,
+    conversationTitle: null,
+    deliverableType: 'web',
+    projectId: documentWorkspace.workspace.projectId || documentWorkspace.workspace.id,
+    projectParentPath: null,
+    projectTitle:
+      input.projectTitle?.trim() ||
+      documentWorkspace.workspace.projectTitle ||
+      documentWorkspace.workspace.title,
+    title: buildCompanionWebWorkspaceTitle(
+      documentWorkspace.workspace.title,
+      input.language || null
+    ),
+  });
+
+  return [documentWorkspace, webWorkspace];
+}
+
 async function finalizeWorkspaceCreation(
   actor: { deviceId: string; organizationId: string; userId: string },
   created: Awaited<ReturnType<typeof createWorkspaceForRequest>>
@@ -482,6 +565,24 @@ async function finalizeWorkspaceCreation(
   });
 }
 
+function mapWorkspaceCreateResponse(createdItems: CreatedWorkspaceRecord[]) {
+  const primary = createdItems[0];
+  if (!primary) {
+    throw new WorkspaceCreateValidationError('Workspace creation did not produce a result.');
+  }
+
+  return {
+    conversation: mapConversation(primary.conversation),
+    createdDeliverables: createdItems.map((created) => ({
+      conversation: mapConversation(created.conversation),
+      primaryFile: mapWorkspaceFile(created.primaryFile),
+      workspace: mapWorkspace(created.workspace),
+    })),
+    primaryFile: mapWorkspaceFile(primary.primaryFile),
+    workspace: mapWorkspace(primary.workspace),
+  };
+}
+
 function buildWorkspaceFileSeeds(params: {
   deliverableType: DeliverableType;
   heading: string;
@@ -526,18 +627,6 @@ function buildWorkspaceFileSeeds(params: {
         kind: 'code' as const,
         language: 'typescript',
         name: 'index.ts',
-      },
-    };
-  }
-
-  if (params.deliverableType === 'slides') {
-    return {
-      additional: [],
-      primary: {
-        content: params.initialContent || '[]',
-        kind: 'markdown' as const,
-        language: 'markdown',
-        name: 'slides',
       },
     };
   }
@@ -616,6 +705,29 @@ function deriveWorkspaceTitle(value: unknown) {
   const candidate = firstClause || strippedLead;
 
   return candidate.length > 28 ? `${candidate.slice(0, 25).trimEnd()}...` : candidate;
+}
+
+function mergeIntentDetailIntoConstraints(
+  constraints: string | null,
+  selectedIntentNote: string | null
+) {
+  const detail = selectedIntentNote?.trim() || '';
+  const base = constraints?.trim() || '';
+
+  if (!detail) {
+    return base || null;
+  }
+
+  return [base, `Supplementary result-shape note: ${detail}`]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function buildCompanionWebWorkspaceTitle(title: string, language: string | null) {
+  const trimmedTitle = title.trim() || 'Untitled Project';
+  return language?.startsWith('zh')
+    ? `${trimmedTitle} 配套网页`
+    : `${trimmedTitle} Companion Site`;
 }
 
 function buildReactWebIndexHtml() {

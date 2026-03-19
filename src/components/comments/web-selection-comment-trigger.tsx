@@ -14,10 +14,14 @@ import {
   OPEN_SELECTION_COMMENT_COMPOSER_EVENT,
   requestCommentThreadFocus,
 } from '@/lib/comments/constants';
+import {
+  WEB_PREVIEW_BRIDGE_CHANNEL,
+  type WebPreviewAnchorPayloadData,
+  type WebPreviewBridgeMessage,
+} from '@/lib/workspace/preview-bridge';
 
 type ComposerState = {
-  anchorText: string;
-  selector: string | null;
+  anchorPayload: WebPreviewAnchorPayloadData;
   x: number;
   y: number;
 };
@@ -45,64 +49,45 @@ export function WebSelectionCommentTrigger({
   const containerRef = React.useRef<HTMLDivElement>(null);
   const composerRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const readinessTimeoutRef = React.useRef<number | null>(null);
   const [selectionState, setSelectionState] = React.useState<ComposerState | null>(null);
   const [composerState, setComposerState] = React.useState<ComposerState | null>(null);
   const [commentText, setCommentText] = React.useState('');
   const [researchMode, setResearchMode] = React.useState<'light' | 'deep'>('light');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [selectionAvailable, setSelectionAvailable] = React.useState(true);
+  const [selectionAvailable, setSelectionAvailable] = React.useState<boolean | null>(null);
 
-  const readSelectionState = React.useCallback(() => {
-    const iframe = iframeRef.current;
-    const container = containerRef.current;
-    if (!iframe || !container) {
-      return null;
+  const clearReadinessTimeout = React.useCallback(() => {
+    if (readinessTimeoutRef.current) {
+      window.clearTimeout(readinessTimeoutRef.current);
+      readinessTimeoutRef.current = null;
     }
+  }, []);
 
-    try {
-      const iframeWindow = iframe.contentWindow;
-      const iframeDocument = iframe.contentDocument;
-      const selection = iframeWindow?.getSelection();
-      const selectedText = selection?.toString().trim();
-      if (!selection || !selectedText || selection.rangeCount === 0) {
-        return null;
-      }
-
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
-      if (!rect || rect.width === 0 || rect.height === 0) {
+  const buildComposerState = React.useCallback(
+    (payload: WebPreviewAnchorPayloadData) => {
+      const iframe = iframeRef.current;
+      const container = containerRef.current;
+      if (!iframe || !container || !payload.excerpt?.trim()) {
         return null;
       }
 
       const iframeRect = iframe.getBoundingClientRect();
       const containerRect = container.getBoundingClientRect();
-      const x = iframeRect.left - containerRect.left + rect.left + rect.width / 2;
-      const y = iframeRect.top - containerRect.top + rect.top;
-      const anchorNode = range.commonAncestorContainer;
-      const element =
-        anchorNode.nodeType === Node.ELEMENT_NODE
-          ? (anchorNode as Element)
-          : anchorNode.parentElement;
+      const rect = payload.boundingRect;
 
       return {
-        anchorText: selectedText,
-        selector: element && iframeDocument ? buildSelector(element, iframeDocument) : null,
-        x,
-        y,
-      };
-    } catch {
-      return null;
-    }
-  }, [iframeRef]);
-
-  const updateSelectionState = React.useCallback(() => {
-    if (composerState) {
-      return;
-    }
-
-    setSelectionState(readSelectionState());
-  }, [composerState, readSelectionState]);
+        anchorPayload: payload,
+        x:
+          iframeRect.left -
+          containerRect.left +
+          (rect ? rect.x + rect.width / 2 : iframeRect.width / 2),
+        y: iframeRect.top - containerRect.top + (rect ? rect.y : 24),
+      } satisfies ComposerState;
+    },
+    [iframeRef]
+  );
 
   const closeComposer = React.useCallback(() => {
     setComposerState(null);
@@ -113,23 +98,23 @@ export function WebSelectionCommentTrigger({
   }, []);
 
   const openComposer = React.useCallback(() => {
-    const nextState = selectionState || readSelectionState();
-    if (!nextState) {
+    if (!selectionState) {
       return;
     }
 
-    setComposerState(nextState);
+    setComposerState(selectionState);
     setSelectionState(null);
     setCommentText('');
     setError(null);
     window.setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [readSelectionState, selectionState]);
+  }, [selectionState]);
 
   const submitComment = React.useCallback(async () => {
     if (!composerState || !commentText.trim()) {
       return;
     }
 
+    const anchorPayload = composerState.anchorPayload;
     setIsSubmitting(true);
     setError(null);
 
@@ -145,18 +130,21 @@ export function WebSelectionCommentTrigger({
           draftRevision: versionId ? null : draftRevision,
           fileId: fileId || null,
           firstMessage: commentText.trim(),
-          anchorText: composerState.anchorText,
+          anchorText: anchorPayload.excerpt,
           selectionAnchor: JSON.stringify({
             surfaceType: 'web-component',
             bindingType: 'selection',
             anchorPayload: {
-              excerpt: composerState.anchorText,
-              selector: composerState.selector,
+              excerpt: anchorPayload.excerpt,
+              cssSelector: anchorPayload.cssSelector,
+              domContext: anchorPayload.domContext,
+              boundingRect: anchorPayload.boundingRect,
+              selector: anchorPayload.cssSelector,
             },
             previewVersionId: versionId || null,
             sourceMapping: {
               fileId: fileId || null,
-              selector: composerState.selector,
+              selector: anchorPayload.cssSelector,
             },
           }),
           versionId: versionId || null,
@@ -177,11 +165,7 @@ export function WebSelectionCommentTrigger({
           content: commentText.trim(),
         });
 
-        if (researchTarget.error === 'multiple') {
-          throw new Error(t('comments.researchNeedsSingleAgent'));
-        }
-
-        if (!researchTarget.target) {
+        if (researchTarget.error === 'multiple' || !researchTarget.target) {
           throw new Error(t('comments.researchNeedsSingleAgent'));
         }
 
@@ -193,7 +177,7 @@ export function WebSelectionCommentTrigger({
           },
           body: JSON.stringify({
             agentId: researchTarget.target.agentId,
-            anchorText: composerState.anchorText,
+            anchorText: anchorPayload.excerpt,
             content: commentText.trim(),
             documentContent,
             persistMessage: false,
@@ -216,7 +200,7 @@ export function WebSelectionCommentTrigger({
           for (const binding of thread.agentBindings) {
             await sendCommentReply({
               agentId: binding.agentId,
-              anchorText: composerState.anchorText,
+              anchorText: anchorPayload.excerpt,
               documentContent,
               documentId: workspaceId,
               threadId: thread.id,
@@ -237,8 +221,8 @@ export function WebSelectionCommentTrigger({
     }
   }, [
     closeComposer,
-    commentText,
     commentAgents,
+    commentText,
     composerState,
     documentContent,
     draftRevision,
@@ -252,38 +236,66 @@ export function WebSelectionCommentTrigger({
   ]);
 
   React.useEffect(() => {
+    const handleMessage = (event: MessageEvent<WebPreviewBridgeMessage>) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+
+      const message = event.data;
+      if (!message || message.channel !== WEB_PREVIEW_BRIDGE_CHANNEL) {
+        return;
+      }
+
+      if (message.type === 'ready') {
+        clearReadinessTimeout();
+        setSelectionAvailable(true);
+        return;
+      }
+
+      if (message.type !== 'selection' && message.type !== 'element') {
+        return;
+      }
+
+      clearReadinessTimeout();
+      setSelectionAvailable(true);
+
+      if (composerState) {
+        return;
+      }
+
+      setSelectionState(message.payload ? buildComposerState(message.payload) : null);
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [buildComposerState, clearReadinessTimeout, composerState, iframeRef]);
+
+  React.useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) {
       return;
     }
 
-    const bindSelection = () => {
-      try {
-        const iframeDocument = iframe.contentDocument;
-        iframeDocument?.addEventListener('selectionchange', updateSelectionState);
-        setSelectionAvailable(true);
-      } catch {
+    const handleLoad = () => {
+      setSelectionState(null);
+      setSelectionAvailable(null);
+      clearReadinessTimeout();
+      readinessTimeoutRef.current = window.setTimeout(() => {
         setSelectionAvailable(false);
-      }
+        readinessTimeoutRef.current = null;
+      }, 1200);
     };
 
-    const unbindSelection = () => {
-      try {
-        const iframeDocument = iframe.contentDocument;
-        iframeDocument?.removeEventListener('selectionchange', updateSelectionState);
-      } catch {
-        // Ignore cleanup errors.
-      }
-    };
-
-    iframe.addEventListener('load', bindSelection);
-    bindSelection();
+    iframe.addEventListener('load', handleLoad);
+    handleLoad();
 
     return () => {
-      iframe.removeEventListener('load', bindSelection);
-      unbindSelection();
+      iframe.removeEventListener('load', handleLoad);
+      clearReadinessTimeout();
     };
-  }, [iframeRef, updateSelectionState]);
+  }, [clearReadinessTimeout, iframeRef]);
 
   React.useEffect(() => {
     const handleOpen = () => {
@@ -318,7 +330,7 @@ export function WebSelectionCommentTrigger({
   if (!selectionState && !composerState) {
     return (
       <div ref={containerRef} className="pointer-events-none absolute inset-0 z-10">
-        {!selectionAvailable ? (
+        {selectionAvailable === false ? (
           <div className="absolute right-3 top-3 rounded-full border border-border bg-background/95 px-3 py-1 text-[11px] text-muted-foreground shadow-sm">
             {t('comments.webSelectionUnavailable')}
           </div>
@@ -344,6 +356,7 @@ export function WebSelectionCommentTrigger({
             type="button"
             size="sm"
             className="pointer-events-auto h-8 gap-1.5 rounded-full shadow-lg"
+            data-testid="web-selection-comment-trigger"
             onClick={openComposer}
           >
             <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -355,6 +368,7 @@ export function WebSelectionCommentTrigger({
       {composerState && anchor ? (
         <div
           ref={composerRef}
+          data-testid="web-selection-comment-composer"
           className="pointer-events-auto absolute w-[320px] rounded-2xl border border-border/70 bg-background/95 p-3 shadow-2xl"
           style={{
             left: clamp(anchor.x, 180, (containerRef.current?.clientWidth || 400) - 180),
@@ -363,7 +377,7 @@ export function WebSelectionCommentTrigger({
           }}
         >
           <div className="mb-2 text-xs font-medium text-foreground">
-            {composerState.anchorText}
+            {composerState.anchorPayload.excerpt}
           </div>
           <CommentAgentTextarea
             agents={commentAgents}
@@ -417,32 +431,6 @@ export function WebSelectionCommentTrigger({
       ) : null}
     </div>
   );
-}
-
-function buildSelector(element: Element, rootDocument: Document) {
-  if (element.id) {
-    return `#${element.id}`;
-  }
-
-  const segments: string[] = [];
-  let current: Element | null = element;
-  while (current && current !== rootDocument.body && segments.length < 4) {
-    const tag = current.tagName.toLowerCase();
-    const parent: Element | null = current.parentElement;
-    if (!parent) {
-      segments.unshift(tag);
-      break;
-    }
-
-    const siblings = Array.from(parent.children).filter(
-      (sibling) => sibling.tagName === current!.tagName
-    );
-    const index = siblings.indexOf(current) + 1;
-    segments.unshift(siblings.length > 1 ? `${tag}:nth-of-type(${index})` : tag);
-    current = parent;
-  }
-
-  return segments.join(' > ') || null;
 }
 
 function clamp(value: number, min: number, max: number) {

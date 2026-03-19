@@ -1,5 +1,6 @@
 type PreviewableWorkspaceFile =
   | {
+      id?: string | null;
       content: string;
       isPrimary?: boolean;
       nodeType?: 'file' | 'folder';
@@ -87,6 +88,34 @@ export function detectWorkspacePreviewCapability(
       'No preview target is available yet. Add an index.html file or a package.json with a dev script.',
     target: null,
   };
+}
+
+export function resolveWebPreviewAnchorFile(
+  files: PreviewableWorkspaceFile[],
+  capability: WorkspacePreviewCapability
+) {
+  if (!capability.canPreview || capability.target !== 'static-html') {
+    return null;
+  }
+
+  const staticIndexFile = files.find((file) => {
+    if (!file) {
+      return false;
+    }
+
+    return isFileNode(file) && file.path === 'index.html' && looksLikeHtmlDocument(file.content);
+  });
+
+  if (staticIndexFile?.id) {
+    return staticIndexFile;
+  }
+
+  const legacyHtmlSource = findLegacyHtmlPreviewSource(files);
+  if (legacyHtmlSource?.id) {
+    return legacyHtmlSource;
+  }
+
+  return null;
 }
 
 function isFileNode(file: PreviewableWorkspaceFile) {

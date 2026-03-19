@@ -411,7 +411,7 @@ async function getRequiredWorkspaceRun(runId: string) {
   return mapWorkspaceRun(run);
 }
 
-function mapWorkspaceRun(run: {
+export function mapWorkspaceRun(run: {
   command: string;
   createdAt: Date;
   createdByUserId: string | null;

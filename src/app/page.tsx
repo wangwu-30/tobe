@@ -16,7 +16,6 @@ import {
   GoalComposerDialog,
   type GoalComposerValues,
 } from '@/components/workspace/goal-composer-dialog';
-import { WorkspaceStarterDialog } from '@/components/workspace/workspace-starter-dialog';
 import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { useT } from '@/components/providers/language-provider';
 import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
@@ -25,15 +24,12 @@ export default function HomePage() {
   const t = useT();
   const router = useAppRouter();
   const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
-  const [workspaceStarterOpen, setWorkspaceStarterOpen] = React.useState(false);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = React.useState<string | null>(null);
   const [createWorkspaceRecoveryActive, setCreateWorkspaceRecoveryActive] =
     React.useState(false);
   const [createWorkspaceRecoveryValues, setCreateWorkspaceRecoveryValues] =
     React.useState<GoalComposerValues | null>(null);
-  const [goalDialogSeedValues, setGoalDialogSeedValues] =
-    React.useState<Partial<GoalComposerValues> | null>(null);
   const [workspaceCreateContext, setWorkspaceCreateContext] = React.useState<{
     projectFolderId: string | null;
     projectId: string | null;
@@ -65,12 +61,13 @@ export default function HomePage() {
 
   const openWorkspaceCreateEntry = React.useCallback(() => {
     if (createWorkspaceRecoveryActive) {
-      setGoalDialogSeedValues(null);
       setGoalDialogOpen(true);
       return;
     }
 
-    setWorkspaceStarterOpen(true);
+    setCreateWorkspaceError(null);
+    setWorkspaceCreateContext(null);
+    setGoalDialogOpen(true);
   }, [createWorkspaceRecoveryActive]);
 
   React.useEffect(() => {
@@ -161,7 +158,6 @@ export default function HomePage() {
           clearWorkspaceCreateRecovery();
           setCreateWorkspaceError(null);
           setCreateWorkspaceRecoveryValues(null);
-          setGoalDialogSeedValues(null);
           setWorkspaceCreateContext(null);
           createWorkspaceRequestIdRef.current = null;
         }
@@ -169,18 +165,6 @@ export default function HomePage() {
 
     setGoalDialogOpen(open);
   }, [createWorkspaceRecoveryActive]);
-
-  const handleWorkspaceStarterSelect = React.useCallback(
-    (deliverableType: GoalComposerValues['deliverableType']) => {
-      setWorkspaceStarterOpen(false);
-      setGoalDialogSeedValues({
-        deliverableType,
-        projectParentPath: '',
-      });
-      setGoalDialogOpen(true);
-    },
-    []
-  );
 
   return (
     <AppShell
@@ -247,19 +231,11 @@ export default function HomePage() {
         </div>
       </main>
 
-      <WorkspaceStarterDialog
-        open={workspaceStarterOpen}
-        onOpenChange={setWorkspaceStarterOpen}
-        onSelect={handleWorkspaceStarterSelect}
-      />
-
       <GoalComposerDialog
         disableInputs={createWorkspaceRecoveryActive}
         open={goalDialogOpen}
         errorMessage={createWorkspaceError}
-        initialValues={
-          createWorkspaceRecoveryValues || goalDialogSeedValues || undefined
-        }
+        initialValues={createWorkspaceRecoveryValues || undefined}
         onOpenChange={handleGoalDialogOpenChange}
         isSubmitting={isCreatingWorkspace}
         submitLabel={

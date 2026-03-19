@@ -1,6 +1,20 @@
 'use client';
 
 import * as React from 'react';
+import { Combine, FileText, Globe, MessageSquareText } from 'lucide-react';
+
+import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
+import {
+  mapCreateIntentToDeliverableType,
+  mapDeliverableTypeToCreateIntent,
+  normalizeWorkspaceCreateIntentChoice,
+  type WorkspaceCreateIntent,
+  type WorkspaceCreateIntentChoice,
+} from '@/lib/workspace/create-intent';
+import type { DeliverableType, WorkflowPlaybookData } from '@/types';
+import { useT } from '@/components/providers/language-provider';
+import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -9,10 +23,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -20,28 +32,65 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { DeliverableType, WorkflowPlaybookData } from '@/types';
-import { useT } from '@/components/providers/language-provider';
-import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
-import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
+
+type GoalComposerIntentOption = {
+  description: string;
+  detailPlaceholder: string;
+  id: WorkspaceCreateIntentChoice;
+  title: string;
+};
 
 export type GoalComposerValues = {
   constraints: string;
-  deliverableType: DeliverableType;
+  createMode: WorkspaceCreateIntent | null;
+  deliverableType?: DeliverableType | null;
   goal: string;
   projectParentPath: string;
+  selectedIntent: WorkspaceCreateIntentChoice | null;
+  selectedIntentNote: string;
   styleGuide: string;
   workflowPlaybookId: string;
 };
 
 const DEFAULT_VALUES: GoalComposerValues = {
   constraints: '',
-  deliverableType: 'document',
+  createMode: null,
+  deliverableType: null,
   goal: '',
   projectParentPath: '',
+  selectedIntent: null,
+  selectedIntentNote: '',
   styleGuide: '',
   workflowPlaybookId: '',
 };
+
+const EMPTY_INTENT_NOTES: Record<WorkspaceCreateIntentChoice, string> = {
+  both: '',
+  document: '',
+  other: '',
+  web: '',
+};
+
+const INTENT_ICON: Record<
+  WorkspaceCreateIntentChoice,
+  React.ComponentType<{ className?: string }>
+> = {
+  both: Combine,
+  document: FileText,
+  other: MessageSquareText,
+  web: Globe,
+};
+
+function resolveInitialCreateMode(
+  initialValues?: Partial<GoalComposerValues>
+): WorkspaceCreateIntent | null {
+  return (
+    initialValues?.createMode ||
+    mapDeliverableTypeToCreateIntent(initialValues?.deliverableType || null)
+  );
+}
 
 export function GoalComposerDialog({
   creationMode = 'project',
@@ -70,16 +119,33 @@ export function GoalComposerDialog({
 }) {
   const t = useT();
   const [isDesktop, setIsDesktop] = React.useState(false);
-  const [workflowPlaybooks, setWorkflowPlaybooks] = React.useState<WorkflowPlaybookData[]>([]);
-  const resolvedInitialValues = React.useMemo(
-    () => ({
+  const [workflowPlaybooks, setWorkflowPlaybooks] = React.useState<WorkflowPlaybookData[]>(
+    []
+  );
+  const resolvedInitialValues = React.useMemo(() => {
+    const createMode = resolveInitialCreateMode(initialValues);
+    const selectedIntent =
+      normalizeWorkspaceCreateIntentChoice(initialValues?.selectedIntent) || createMode;
+
+    return {
       ...DEFAULT_VALUES,
       ...initialValues,
-    }),
-    [initialValues]
-  );
+      createMode,
+      deliverableType:
+        initialValues?.deliverableType ?? mapCreateIntentToDeliverableType(createMode),
+      selectedIntent,
+      selectedIntentNote: initialValues?.selectedIntentNote || '',
+    } satisfies GoalComposerValues;
+  }, [initialValues]);
   const [values, setValues] = React.useState<GoalComposerValues>(resolvedInitialValues);
   const [locationError, setLocationError] = React.useState<string | null>(null);
+  const [intentClarifyPrompt, setIntentClarifyPrompt] = React.useState<string | null>(
+    null
+  );
+  const [intentOptions, setIntentOptions] = React.useState<GoalComposerIntentOption[]>([]);
+  const [intentNotes, setIntentNotes] = React.useState(EMPTY_INTENT_NOTES);
+  const [intentError, setIntentError] = React.useState<string | null>(null);
+  const [isResolvingIntent, setIsResolvingIntent] = React.useState(false);
 
   React.useEffect(() => {
     setIsDesktop(Boolean(window.daoDesktop?.isDesktop));
@@ -111,6 +177,17 @@ export function GoalComposerDialog({
 
     setValues(resolvedInitialValues);
     setLocationError(null);
+    setIntentClarifyPrompt(null);
+    setIntentOptions([]);
+    setIntentError(null);
+    setIntentNotes({
+      ...EMPTY_INTENT_NOTES,
+      ...(resolvedInitialValues.selectedIntent
+        ? {
+            [resolvedInitialValues.selectedIntent]: resolvedInitialValues.selectedIntentNote,
+          }
+        : {}),
+    });
   }, [open, resolvedInitialValues]);
 
   React.useEffect(() => {
@@ -128,9 +205,7 @@ export function GoalComposerDialog({
       .then((items: WorkflowPlaybookData[]) => {
         if (!cancelled) {
           setWorkflowPlaybooks(
-            Array.isArray(items)
-              ? items.filter((item) => item?.status === 'active')
-              : []
+            Array.isArray(items) ? items.filter((item) => item?.status === 'active') : []
           );
         }
       })
@@ -152,8 +227,7 @@ export function GoalComposerDialog({
   const showProjectLocation = isDesktop && !isDeliverableCreation;
   const dialogDescription = isDeliverableCreation
     ? t('goal.deliverableDescription', {
-        projectTitle:
-          currentProjectTitle?.trim() || t('workspace.untitledProject'),
+        projectTitle: currentProjectTitle?.trim() || t('workspace.untitledProject'),
       })
     : t('goal.description');
   const submitActionLabel = isDeliverableCreation
@@ -162,12 +236,123 @@ export function GoalComposerDialog({
   const submittingActionLabel = isDeliverableCreation
     ? t('goal.creatingDeliverable')
     : t('goal.creatingProject');
+  const showClarifyCards = intentOptions.length > 0;
+
+  const submitResolvedValues = React.useCallback(
+    async (nextValues: GoalComposerValues) => {
+      setValues(nextValues);
+      setIntentClarifyPrompt(null);
+      setIntentOptions([]);
+      setIntentError(null);
+      await onSubmit(nextValues);
+    },
+    [onSubmit]
+  );
+
+  const resolveIntent = React.useCallback(
+    async (selection?: WorkspaceCreateIntentChoice) => {
+      const selectedIntent = selection || values.selectedIntent;
+      const selectedIntentNote = selectedIntent ? intentNotes[selectedIntent] || '' : '';
+
+      setIsResolvingIntent(true);
+      setIntentError(null);
+
+      try {
+        const response = await fetch('/api/workspaces/intent', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getStoredAISettingsHeader(),
+          },
+          body: JSON.stringify({
+            constraints: values.constraints,
+            goal: values.goal,
+            selectedIntent,
+            selectedIntentNote,
+            styleGuide: values.styleGuide,
+            workflowPlaybookId: values.workflowPlaybookId,
+          }),
+        });
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok || !payload) {
+          throw new Error(payload?.error || t('goal.intentResolveFailed'));
+        }
+
+        if (payload.status === 'resolved') {
+          const nextCreateMode =
+            payload.intent === 'document' ||
+            payload.intent === 'web' ||
+            payload.intent === 'both'
+              ? payload.intent
+              : null;
+
+          if (!nextCreateMode) {
+            throw new Error(t('goal.intentResolveFailed'));
+          }
+
+          const nextValues: GoalComposerValues = {
+            ...values,
+            createMode: nextCreateMode,
+            deliverableType: mapCreateIntentToDeliverableType(nextCreateMode),
+            selectedIntent: selectedIntent || nextCreateMode,
+            selectedIntentNote,
+          };
+          await submitResolvedValues(nextValues);
+          return;
+        }
+
+        const clarifyOptions = Array.isArray(payload.options)
+          ? (payload.options.filter(
+              (option: unknown): option is GoalComposerIntentOption => {
+                if (!option || typeof option !== 'object') {
+                  return false;
+                }
+
+                const candidate = option as Record<string, unknown>;
+                return (
+                  typeof candidate.description === 'string' &&
+                  typeof candidate.detailPlaceholder === 'string' &&
+                  typeof candidate.title === 'string' &&
+                  normalizeWorkspaceCreateIntentChoice(candidate.id) !== null
+                );
+              }
+            ) as GoalComposerIntentOption[])
+          : [];
+
+        setValues((current) => ({
+          ...current,
+          createMode: null,
+          deliverableType: null,
+          selectedIntent: selectedIntent || current.selectedIntent,
+          selectedIntentNote,
+        }));
+        setIntentClarifyPrompt(
+          typeof payload.prompt === 'string' ? payload.prompt : t('goal.intentClarifyPrompt')
+        );
+        setIntentOptions(clarifyOptions);
+      } catch (error) {
+        setIntentError(
+          error instanceof Error ? error.message : t('goal.intentResolveFailed')
+        );
+      } finally {
+        setIsResolvingIntent(false);
+      }
+    },
+    [intentNotes, submitResolvedValues, t, values]
+  );
+
+  const submitDisabled =
+    isSubmitting ||
+    isResolvingIntent ||
+    !values.goal.trim() ||
+    (showProjectLocation && !values.projectParentPath.trim());
 
   return (
     <Dialog
       open={open}
       onOpenChange={(nextOpen) => {
-        if (isSubmitting) {
+        if (isSubmitting || isResolvingIntent) {
           return;
         }
 
@@ -175,14 +360,14 @@ export function GoalComposerDialog({
       }}
     >
       <DialogContent
-        className="sm:max-w-[560px]"
+        className="sm:max-w-[640px]"
         onEscapeKeyDown={(event) => {
-          if (isSubmitting) {
+          if (isSubmitting || isResolvingIntent) {
             event.preventDefault();
           }
         }}
         onInteractOutside={(event) => {
-          if (isSubmitting) {
+          if (isSubmitting || isResolvingIntent) {
             event.preventDefault();
           }
         }}
@@ -198,7 +383,7 @@ export function GoalComposerDialog({
             <Textarea
               id="goal"
               value={values.goal}
-              disabled={disableInputs || isSubmitting}
+              disabled={disableInputs || isSubmitting || isResolvingIntent}
               onChange={(event) =>
                 setValues((current) => ({ ...current, goal: event.target.value }))
               }
@@ -209,26 +394,11 @@ export function GoalComposerDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>{t('goal.deliverableType')}</Label>
-              <div className="space-y-2 rounded-2xl border border-border/70 bg-muted/10 px-3 py-3">
-                <div
-                  data-testid="goal-deliverable-pill"
-                  className="inline-flex items-center rounded-full border border-border/70 bg-background px-3 py-1.5 text-sm font-medium text-foreground"
-                >
-                  {formatDeliverableTypeLabel(values.deliverableType, t)}
-                </div>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t('goal.deliverableTypeLockedHint')}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-2">
               <Label htmlFor="style-guide">{t('goal.styleTone')}</Label>
               <Textarea
                 id="style-guide"
                 value={values.styleGuide}
-                disabled={disableInputs || isSubmitting}
+                disabled={disableInputs || isSubmitting || isResolvingIntent}
                 onChange={(event) =>
                   setValues((current) => ({
                     ...current,
@@ -239,59 +409,59 @@ export function GoalComposerDialog({
                 className="min-h-[88px]"
               />
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label>{t('goal.workflow')}</Label>
-            {hasWorkflowChoices ? (
-              <>
-                <Select
-                  value={values.workflowPlaybookId || 'none'}
-                  onValueChange={(value) =>
-                    setValues((current) => ({
-                      ...current,
-                      workflowPlaybookId: value === 'none' ? '' : value,
-                    }))
-                  }
-                  disabled={disableInputs || isSubmitting}
-                >
+            <div className="space-y-2">
+              <Label>{t('goal.workflow')}</Label>
+              {hasWorkflowChoices ? (
+                <>
+                  <Select
+                    value={values.workflowPlaybookId || 'none'}
+                    onValueChange={(value) =>
+                      setValues((current) => ({
+                        ...current,
+                        workflowPlaybookId: value === 'none' ? '' : value,
+                      }))
+                    }
+                    disabled={disableInputs || isSubmitting || isResolvingIntent}
+                  >
                     <SelectTrigger>
                       <SelectValue placeholder={t('goal.selectWorkflow')} />
                     </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">{t('goal.noWorkflow')}</SelectItem>
-                    {workflowPlaybooks.map((workflow) => (
-                      <SelectItem key={workflow.id} value={workflow.id}>
-                        {workflow.builtin
-                          ? `${workflow.title} · ${t('goal.workflowBuiltinBadge')}`
-                          : workflow.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {selectedWorkflow?.summary || t('goal.workflowDescription')}
-                </p>
-                {selectedWorkflow ? (
-                  <WorkflowExtensionHints
-                    hints={selectedWorkflow.extensionHints}
-                    testIdPrefix="goal-workflow-extension"
-                  />
-                ) : null}
-              </>
-            ) : (
-              <div
-                data-testid="goal-workflow-empty-state"
-                className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-3"
-              >
-                <div className="text-sm font-medium text-foreground">
-                  {t('goal.noWorkflowAvailableTitle')}
+                    <SelectContent>
+                      <SelectItem value="none">{t('goal.noWorkflow')}</SelectItem>
+                      {workflowPlaybooks.map((workflow) => (
+                        <SelectItem key={workflow.id} value={workflow.id}>
+                          {workflow.builtin
+                            ? `${workflow.title} · ${t('goal.workflowBuiltinBadge')}`
+                            : workflow.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {selectedWorkflow?.summary || t('goal.workflowDescription')}
+                  </p>
+                  {selectedWorkflow ? (
+                    <WorkflowExtensionHints
+                      hints={selectedWorkflow.extensionHints}
+                      testIdPrefix="goal-workflow-extension"
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <div
+                  data-testid="goal-workflow-empty-state"
+                  className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-3 py-3"
+                >
+                  <div className="text-sm font-medium text-foreground">
+                    {t('goal.noWorkflowAvailableTitle')}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {t('goal.noWorkflowAvailableDescription')}
+                  </p>
                 </div>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t('goal.noWorkflowAvailableDescription')}
-                </p>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -299,7 +469,7 @@ export function GoalComposerDialog({
             <Textarea
               id="constraints"
               value={values.constraints}
-              disabled={disableInputs || isSubmitting}
+              disabled={disableInputs || isSubmitting || isResolvingIntent}
               onChange={(event) =>
                 setValues((current) => ({
                   ...current,
@@ -325,7 +495,7 @@ export function GoalComposerDialog({
                   type="button"
                   variant="outline"
                   onClick={() => void pickProjectLocation()}
-                  disabled={disableInputs || isSubmitting}
+                  disabled={disableInputs || isSubmitting || isResolvingIntent}
                 >
                   {values.projectParentPath
                     ? t('goal.changeProjectLocation')
@@ -342,11 +512,91 @@ export function GoalComposerDialog({
               ) : null}
             </div>
           ) : null}
+
+          {showClarifyCards ? (
+            <div
+              data-testid="goal-intent-clarify"
+              className="space-y-3 rounded-[28px] border border-border/70 bg-muted/10 p-4"
+            >
+              <div
+                data-testid="goal-intent-clarify-prompt"
+                className="text-sm leading-6 text-foreground"
+              >
+                {intentClarifyPrompt}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {intentOptions.map((option) => {
+                  const Icon = INTENT_ICON[option.id];
+                  const selected = values.selectedIntent === option.id;
+                  return (
+                    <div
+                      key={option.id}
+                      data-testid={`goal-intent-option-${option.id}`}
+                      className={cn(
+                        'rounded-3xl border bg-background/90 p-4 shadow-sm transition-colors',
+                        selected
+                          ? 'border-primary/40 bg-primary/5'
+                          : 'border-border/70'
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-2xl border border-border/70 bg-background p-2.5">
+                          <Icon className="h-4 w-4 text-foreground" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-foreground">
+                            {option.title}
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {option.description}
+                          </p>
+                        </div>
+                      </div>
+                      <Textarea
+                        value={intentNotes[option.id] || ''}
+                        disabled={disableInputs || isSubmitting || isResolvingIntent}
+                        onChange={(event) => {
+                          const nextNote = event.target.value;
+                          setIntentNotes((current) => ({
+                            ...current,
+                            [option.id]: nextNote,
+                          }));
+                          setValues((current) => ({
+                            ...current,
+                            selectedIntent: option.id,
+                            selectedIntentNote: nextNote,
+                          }));
+                        }}
+                        placeholder={option.detailPlaceholder}
+                        className="mt-3 min-h-[88px]"
+                      />
+                      <Button
+                        type="button"
+                        variant={selected ? 'default' : 'outline'}
+                        className="mt-3 w-full"
+                        disabled={disableInputs || isSubmitting || isResolvingIntent}
+                        onClick={() => {
+                          setValues((current) => ({
+                            ...current,
+                            selectedIntent: option.id,
+                            selectedIntentNote: intentNotes[option.id] || '',
+                          }));
+                          void resolveIntent(option.id);
+                        }}
+                      >
+                        {t('goal.intentSelect')}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
 
-        {errorMessage ? (
+        {errorMessage || intentError ? (
           <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive">
-            {errorMessage}
+            {errorMessage || intentError}
           </div>
         ) : null}
 
@@ -354,22 +604,22 @@ export function GoalComposerDialog({
           <Button
             variant="ghost"
             onClick={() => onOpenChange(false)}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isResolvingIntent}
           >
             {t('common.cancel')}
           </Button>
-          <Button
-            onClick={() => void onSubmit(values)}
-            disabled={
-              isSubmitting ||
-              !values.goal.trim() ||
-              (showProjectLocation && !values.projectParentPath.trim())
-            }
-          >
-            {isSubmitting
-              ? submittingActionLabel
-              : submitLabel || submitActionLabel}
-          </Button>
+          {!showClarifyCards ? (
+            <Button
+              onClick={() => void resolveIntent()}
+              disabled={submitDisabled}
+            >
+              {isSubmitting
+                ? submittingActionLabel
+                : isResolvingIntent
+                  ? t('goal.resolvingIntent')
+                  : submitLabel || submitActionLabel}
+            </Button>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>

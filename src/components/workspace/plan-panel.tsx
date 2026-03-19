@@ -16,25 +16,18 @@ import type { WorkspaceCurrentStatusData, WorkspacePlanData } from '@/types';
 import { useT } from '@/components/providers/language-provider';
 import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
 import { useAppRouter } from '@/lib/app-router';
-import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
 
 export function PlanPanel({
   currentDraftBranchTitle,
   currentStatus,
   isAssistantBusy = false,
-  isSwitchingDeliverableIntent = false,
   onCreateNextDeliverable,
-  onChangeDeliverableIntent,
-  onRegenerateWithIntent,
   plan,
 }: {
   currentDraftBranchTitle?: string | null;
   currentStatus?: WorkspaceCurrentStatusData | null;
   isAssistantBusy?: boolean;
-  isSwitchingDeliverableIntent?: boolean;
   onCreateNextDeliverable?: () => void;
-  onChangeDeliverableIntent?: (deliverableType: WorkspacePlanData['deliverableType']) => void;
-  onRegenerateWithIntent?: () => void;
   plan?: WorkspacePlanData | null;
 }) {
   const t = useT();
@@ -61,9 +54,6 @@ export function PlanPanel({
     (isPlanGenerating ? t('plan.generatingDescription') : null) ||
     null;
   const aiStatusValue = aiWorking ? t('status.aiBusy') : t('status.aiIdle');
-  const canRegenerateWithDeliverableType = Boolean(
-    onRegenerateWithIntent && currentStatus?.primaryAction !== 'generate_first_pass'
-  );
 
   if (!plan && !currentStatus) {
     return (
@@ -101,46 +91,6 @@ export function PlanPanel({
               </div>
               <Badge variant="secondary">{t('assistant.status')}</Badge>
             </div>
-
-            {plan ? (
-              <div className="mt-4 rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">
-                <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-                  {t('goal.deliverableType')}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {(['document', 'slides', 'web'] as const).map((type) => (
-                    <Button
-                      key={type}
-                      type="button"
-                      size="sm"
-                      variant={plan.deliverableType === type ? 'default' : 'outline'}
-                      className="h-8 rounded-full px-3 text-xs"
-                      disabled={isSwitchingDeliverableIntent}
-                      onClick={() => onChangeDeliverableIntent?.(type)}
-                    >
-                      {formatDeliverableTypeLabel(type, t)}
-                    </Button>
-                  ))}
-                </div>
-                <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                  {t('plan.deliverableTypeDescription')}
-                </p>
-                {canRegenerateWithDeliverableType ? (
-                  <div className="mt-3">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      disabled={isAssistantBusy || isSwitchingDeliverableIntent}
-                      onClick={onRegenerateWithIntent}
-                    >
-                      {t('plan.regenerateWithDeliverableType')}
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
 
             {plan?.goal ? (
               <div className="mt-4 rounded-2xl border border-border/70 bg-muted/15 px-3 py-3">

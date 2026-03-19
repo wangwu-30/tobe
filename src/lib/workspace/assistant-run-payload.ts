@@ -1,3 +1,4 @@
+import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
 import type {
   AssistantPlanProposalData,
   DeepResearchPlanProposalData,
@@ -132,9 +133,7 @@ function parsePlanStages(
 }
 
 function normalizeDeliverableType(value: unknown): DeliverableType | null {
-  return value === 'web' || value === 'code' || value === 'slides' || value === 'document'
-    ? value
-    : null;
+  return normalizeStoredDeliverableType(value);
 }
 
 function parseResearchPlanProposal(

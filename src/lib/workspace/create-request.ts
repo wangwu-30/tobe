@@ -1,4 +1,12 @@
 import type { DeliverableType } from '@/types';
+import {
+  mapDeliverableTypeToCreateIntent,
+  normalizeWorkspaceCreateIntent,
+  normalizeWorkspaceCreateIntentChoice,
+  type WorkspaceCreateIntent,
+  type WorkspaceCreateIntentChoice,
+} from '@/lib/workspace/create-intent';
+import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
 
 export const WORKSPACE_CREATE_IDEMPOTENCY_HEADER = 'x-dao-idempotency-key';
 
@@ -13,9 +21,12 @@ export type WorkspaceCreateRecovery = {
   requestId: string;
   values: {
     constraints: string;
-    deliverableType: DeliverableType;
+    createMode?: WorkspaceCreateIntent | null;
+    deliverableType?: DeliverableType | null;
     goal: string;
     projectParentPath: string;
+    selectedIntent?: WorkspaceCreateIntentChoice | null;
+    selectedIntentNote?: string;
     styleGuide: string;
     workflowPlaybookId: string;
   };
@@ -33,6 +44,12 @@ export function loadWorkspaceCreateRecovery() {
     }
 
     const parsed = JSON.parse(raw) as Partial<WorkspaceCreateRecovery> | null;
+    const createMode = normalizeWorkspaceCreateIntent(parsed?.values?.createMode);
+    const deliverableType = normalizeStoredDeliverableType(parsed?.values?.deliverableType);
+    const selectedIntent = normalizeWorkspaceCreateIntentChoice(
+      parsed?.values?.selectedIntent
+    );
+
     if (
       !parsed ||
       typeof parsed.requestId !== 'string' ||
@@ -42,10 +59,8 @@ export function loadWorkspaceCreateRecovery() {
       typeof parsed.values.projectParentPath !== 'string' ||
       typeof parsed.values.styleGuide !== 'string' ||
       typeof parsed.values.workflowPlaybookId !== 'string' ||
-      (parsed.values.deliverableType !== 'document' &&
-        parsed.values.deliverableType !== 'slides' &&
-        parsed.values.deliverableType !== 'web' &&
-        parsed.values.deliverableType !== 'code')
+      (parsed.values.selectedIntentNote !== undefined &&
+        typeof parsed.values.selectedIntentNote !== 'string')
     ) {
       return null;
     }
@@ -65,7 +80,20 @@ export function loadWorkspaceCreateRecovery() {
       return null;
     }
 
-    return parsed as WorkspaceCreateRecovery;
+    return {
+      context: parsed.context,
+      requestId: parsed.requestId,
+      values: {
+        ...parsed.values,
+        createMode: createMode || mapDeliverableTypeToCreateIntent(deliverableType),
+        deliverableType,
+        selectedIntent,
+        selectedIntentNote:
+          typeof parsed.values.selectedIntentNote === 'string'
+            ? parsed.values.selectedIntentNote
+            : '',
+      },
+    } satisfies WorkspaceCreateRecovery;
   } catch {
     return null;
   }

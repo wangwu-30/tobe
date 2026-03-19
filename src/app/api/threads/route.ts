@@ -10,6 +10,10 @@ import { prisma } from '@/lib/db/prisma';
 import {
   getCurrentDraftRevisionForDocument,
 } from '@/lib/comments/version-binding';
+import {
+  extractReviewAnchorIdentityCandidates,
+  extractReviewAnchorSearchCandidates,
+} from '@/lib/comments/review-anchor';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { parseVersionFiles } from '@/lib/workspace/service';
 import { mapCommentThread } from '@/lib/wiki/service';
@@ -114,7 +118,13 @@ export async function GET(req: NextRequest) {
       .filter((thread) => thread.status === 'open' || thread.status === 'applied')
       .map((thread) => thread.anchorFingerprint)
   );
+  const directIdentityCandidates = new Set(
+    mappedDirectThreads
+      .filter((thread) => thread.status === 'open' || thread.status === 'applied')
+      .flatMap((thread) => collectIdentityCandidates(thread))
+  );
   const seenInheritedFingerprints = new Set<string>();
+  const seenInheritedIdentityCandidates = new Set<string>();
   const versionRank = new Map(inheritedVersionIds.map((id, index) => [id, index]));
   const surfaceFilesById = new Map(
     surfaceFiles
@@ -141,7 +151,9 @@ export async function GET(req: NextRequest) {
       const mapped = mapCommentThread(thread);
       const state = classifyInheritedThread({
         combinedSurfaceText,
+        directIdentityCandidates,
         directFingerprints,
+        seenInheritedIdentityCandidates,
         seenInheritedFingerprints,
         surfaceFilesById,
         thread: mapped,
@@ -149,6 +161,9 @@ export async function GET(req: NextRequest) {
 
       if (state !== 'stale') {
         seenInheritedFingerprints.add(mapped.anchorFingerprint);
+        collectIdentityCandidates(mapped).forEach((candidate) => {
+          seenInheritedIdentityCandidates.add(candidate);
+        });
       }
 
       return mapThreadResponse(thread, state);
@@ -235,7 +250,9 @@ function mapThreadResponse(
 
 function classifyInheritedThread(params: {
   combinedSurfaceText: string;
+  directIdentityCandidates: Set<string>;
   directFingerprints: Set<string>;
+  seenInheritedIdentityCandidates: Set<string>;
   seenInheritedFingerprints: Set<string>;
   surfaceFilesById: Map<string, SurfaceFileRecord>;
   thread: CommentThreadData;
@@ -252,7 +269,12 @@ function classifyInheritedThread(params: {
 
   if (
     params.directFingerprints.has(params.thread.anchorFingerprint) ||
-    params.seenInheritedFingerprints.has(params.thread.anchorFingerprint)
+    params.seenInheritedFingerprints.has(params.thread.anchorFingerprint) ||
+    collectIdentityCandidates(params.thread).some(
+      (candidate) =>
+        params.directIdentityCandidates.has(candidate) ||
+        params.seenInheritedIdentityCandidates.has(candidate)
+    )
   ) {
     return 'superseded';
   }
@@ -310,38 +332,44 @@ function canMapThreadToCurrentSurface(params: {
     params.thread.fileId !== null
       ? params.surfaceFilesById.get(params.thread.fileId)?.content || null
       : null;
-
-  if (params.thread.fileId !== null && !fileContent) {
-    return false;
-  }
-
-  const searchableSurface = fileContent
-    ? buildSearchableContent(fileContent)
-    : params.combinedSurfaceText;
   const anchorCandidates = collectAnchorCandidates(params.thread);
 
   if (anchorCandidates.length === 0) {
     return true;
   }
 
-  return anchorCandidates.some((candidate) => searchableSurface.includes(candidate));
+  const fileSearchableContent =
+    fileContent !== null ? buildSearchableContent(fileContent) : null;
+  const fileMatches =
+    fileSearchableContent !== null
+      ? anchorCandidates.some((candidate) => fileSearchableContent.includes(candidate))
+      : false;
+
+  if (fileMatches) {
+    return true;
+  }
+
+  if (!isWebComponentThread(params.thread)) {
+    return params.thread.fileId !== null
+      ? false
+      : anchorCandidates.some((candidate) => params.combinedSurfaceText.includes(candidate));
+  }
+
+  return anchorCandidates.some((candidate) => params.combinedSurfaceText.includes(candidate));
 }
 
 function collectAnchorCandidates(thread: CommentThreadData) {
-  const candidates = new Set<string>();
-  const excerpt =
-    typeof thread.reviewAnchor?.anchorPayload?.excerpt === 'string'
-      ? thread.reviewAnchor.anchorPayload.excerpt
-      : null;
+  return extractReviewAnchorSearchCandidates({
+    anchorText: thread.anchorText,
+    reviewAnchor: thread.reviewAnchor,
+  }).map((candidate) => normalizeSearchText(candidate));
+}
 
-  [thread.anchorText, excerpt].forEach((value) => {
-    const normalized = normalizeSearchText(value || '');
-    if (normalized) {
-      candidates.add(normalized);
-    }
-  });
-
-  return [...candidates];
+function collectIdentityCandidates(thread: CommentThreadData) {
+  return extractReviewAnchorIdentityCandidates({
+    anchorText: thread.anchorText,
+    reviewAnchor: thread.reviewAnchor,
+  }).map((candidate) => normalizeSearchText(candidate));
 }
 
 function buildCombinedSurfaceText(surfaceFiles: SurfaceFileRecord[]) {
@@ -394,6 +422,10 @@ function collectJsonText(value: unknown, target: string[]) {
 
 function normalizeSearchText(value: string) {
   return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function isWebComponentThread(thread: CommentThreadData) {
+  return thread.reviewAnchor?.surfaceType === 'web-component';
 }
 
 async function resolveInheritedVersionIds(params: {

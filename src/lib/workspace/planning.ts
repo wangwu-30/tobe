@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
 import { resolveWorkflowExtensionHints } from '@/lib/workflows/extension-hints';
 import { buildDefaultPlanStages } from '@/lib/workspace/plan-blueprints';
 import type {
@@ -103,12 +104,13 @@ export function inferDeliverableType(input: {
   title?: string | null;
   files?: Array<{ path: string; kind?: string | null }> | null;
 }): DeliverableType {
-  if (input.explicitType === 'web' || input.explicitType === 'code') {
-    return input.explicitType;
+  const normalizedExplicitType = normalizeStoredDeliverableType(input.explicitType);
+  if (normalizedExplicitType === 'web') {
+    return normalizedExplicitType;
   }
 
-  if (input.explicitType === 'slides') {
-    return 'slides';
+  if (normalizedExplicitType === 'document' || normalizedExplicitType === 'code') {
+    return 'document';
   }
 
   const corpus = [
@@ -122,7 +124,7 @@ export function inferDeliverableType(input: {
   if (
     /slides|deck|presentation|ppt|pptx|幻灯片|演示文稿|课件/.test(corpus)
   ) {
-    return 'slides';
+    return 'document';
   }
 
   if (
@@ -132,14 +134,6 @@ export function inferDeliverableType(input: {
     )
   ) {
     return 'web';
-  }
-
-  if (
-    /api|service|script|sdk|cli|程序|代码|code|typescript|javascript|python|go|rust/.test(
-      corpus
-    )
-  ) {
-    return 'code';
   }
 
   return 'document';
@@ -756,11 +750,7 @@ export function hydrateWorkspacePlanForView(params: {
 }
 
 function normalizeDeliverableType(value: string): DeliverableType {
-  if (value === 'web' || value === 'code' || value === 'slides') {
-    return value;
-  }
-
-  return 'document';
+  return normalizeStoredDeliverableType(value) || 'document';
 }
 
 function normalizeChangeStatus(

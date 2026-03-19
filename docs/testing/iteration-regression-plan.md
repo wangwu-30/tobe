@@ -30,21 +30,24 @@
 ## 浏览器场景矩阵
 
 - 创建与起始流
-  - home -> starter -> goal
+  - home / workspace -> Goal Composer
   - 首页不再弹阻断式 welcome modal；首次进入只显示可关闭的轻量起步提示
   - Goal Composer 会直接暴露系统内置 workflow 模板；至少覆盖“需求规格到网页上线”和“成形类产品市场分析报告”
   - 选中内置 workflow 后，Goal Composer 会同步显示该方法暴露的 `Tools / MCP / Skills` 开放扩展提示
-  - `slides` 选择会传到下一步
-  - 代码交付物保持禁用并显示“敬请期待”
+  - 创建流不再暴露 `document / slides / web / code` 类型选择器
+  - 明确网页类目标会直接创建网页交付物
+  - 歧义目标会在创建流内展示结构化追问卡片
+  - 选择“两者都要”后，会在同项目下自动创建文档 + sibling web
   - 新建后若第一稿尚未启动，中央主表面保持准备态且只出现一个“生成第一稿”主动作，不提前显示进行中动画
 - 主交付物表面
   - 正文可见
   - 点击大纲后，目标标题会滚动到顶部附近
   - 状态面板继续显示当前阶段
-  - `document -> slides -> web` 切换时，中央主表面始终停留在对应的结果壳里，不会默认回退到 Markdown / 实现源码
-  - `slides` 结果面既要兼容旧的 heading 内容，也要能直接渲染结构化 `slide_page` block
+  - 打开 `web` 交付物，或打开内容全为 `slide_page` 的文档交付物时，中央主表面始终停留在对应的结果壳里，不会默认回退到 Markdown / 实现源码
+  - slide 结果面既要兼容 legacy `slides` 交付物，也要能直接渲染文档里的结构化 `slide_page` block
+  - slide 结果面的空态 / 预览文案不再引用“按新类型重整结果”这类已删除动作
   - 若当前内容暂时无法形成合法预览，中央主表面展示结果空态或引导，而不是直接露出源码
-  - 交付类型切换只保留在右侧 `Status` 面板，不再从标题栏暴露第二个入口
+  - `Status` 面板不再暴露人工类型切换器或“按新类型重整结果”入口
 - 支持资料树
   - 创建支持资料
   - 重命名支持资料
@@ -55,6 +58,13 @@
   - 首条评论不 `@` 时，只保留人工讨论，不自动触发回复
   - `@assistant` 后会进入等待态，并显式显示监听中的 agent chip
   - 手动停止等待后，未 `@` 的跟帖不会继续自动续给该角色
+  - web preview 通过同源 bridge 载入后，iframe 内选中文本可以创建 `web-component` 线程
+  - 在 `Review` 选中该 web 线程时，iframe 内对应元素会重新定位并临时高亮
+  - web preview 评论要绑定到真实 preview 源文件或整份 deliverable surface，不能被当前活动源码文件误绑
+  - 创建 version 后即使文案变化，只要稳定 selector 仍存在，继承的 web 线程仍应保持 `actionable` 并能从 `Review` 回放高亮
+  - 如果元素迁移后用户已经在新位置留下新的 direct 评论，旧 inherited web 线程必须变成 `superseded` 并移入 `Earlier Context`，不能和当前可执行线程并列
+- `web-component` 线程里的 `@assistant` 必须走可修改 live draft 的 revision run，而不是只返回文本建议；评论后预览源码和 bridge 结果都要同步更新
+- 启动 preview 后即使立刻刷新页面，web 结果面也不能卡在“预览已启动”空态；iframe 需要能基于当前 view / runs 恢复 bridge 预览，即使 bridge 首次请求短暂返回 `502` 也必须自动回稳
 - 编辑器块级线程
   - 带 comment mark 的块级讨论可以正常渲染
   - 跨段线程只在首个 block 显示入口，不会在后续 block 重复显示
@@ -88,7 +98,7 @@
   - 工作区顶栏会显示当前交付物的项目路径；从顶栏“新建同级交付物”进入 goal composer 后，新交付物仍落在同一 `projectId / projectFolderId`
   - 当同一项目下已有多个交付物时，标题栏切换器可以直接切到另一份交付物，URL 和当前中心/右侧上下文同步更新
   - 完成态且存在 active workflow 时，`Status` 面板会显示“沿用这套方法继续开工”，并在当前项目里带着该 workflow 创建下一个交付物
-  - `Status` 面板在准备阶段只显示摘要与交付类型切换，不重复展示“生成第一稿”的第二张同主题卡
+  - `Status` 面板在准备阶段只显示摘要与当前 workflow / 下一步动作，不重复展示“生成第一稿”的第二张同主题卡，也不再承担类型管理
   - 首次打开 `Status / Review / Chat / Context` 时，会出现一次性 contextual guide
   - 首次进入 `Context` 时，workflow 区域会显示一次性 guide；打开只读 `Version` 时，会显示对应的版本 guide
 

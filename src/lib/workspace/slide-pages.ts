@@ -58,6 +58,11 @@ export function extractSlidePageCards(
   return extractLegacySlides(nodes, fallbackTitle);
 }
 
+export function hasOnlySlidePageBlocks(value: Value | null | undefined) {
+  const nodes = Array.isArray(value) ? value : [];
+  return nodes.length > 0 && nodes.every(isSlidePageNode);
+}
+
 function extractLegacySlides(value: Value, fallbackTitle: string) {
   const slides: SlidePageCard[] = [];
   let current: { body: string[]; title: string } | null = null;

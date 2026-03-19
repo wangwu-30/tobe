@@ -244,12 +244,8 @@ const COPY = {
     'goal.retryProjectCheck': 'Retry Same Request',
     'goal.creatingProject': 'Creating project...',
     'goal.creatingDeliverable': 'Creating deliverable...',
-    'goal.chooseWorkspaceTitle': 'Choose a deliverable type',
-    'goal.chooseWorkspaceDescription':
-      'Pick the kind of deliverable you want first, then describe the target in the next step.',
-    'goal.chooseWorkspaceFootnote':
-      'This first choice only sets the starting surface. You will define the real outcome in the next step.',
-    'goal.deliverableType': 'Deliverable Type',
+    'goal.resolvingIntent': 'Choosing the best result shape...',
+    'goal.chooseWorkspaceTitle': 'Choose a result shape',
     'goal.description':
       'Let AI take the first pass. You define the target; the project starts from a plan instead of a blank file.',
     'goal.deliverableDescription':
@@ -264,6 +260,23 @@ const COPY = {
       'This desktop build cannot open the folder picker yet.',
     'goal.document': 'Document',
     'goal.documentDescription': 'Reports, proposals, briefs, and long-form writing.',
+    'goal.intentClarifyPrompt':
+      'I want to understand the shape of the result a bit better so I can choose the best way to build it.',
+    'goal.intentDocumentDescription':
+      'Best for content meant to be read, shared, or exported as PDF, Word, or slides.',
+    'goal.intentWebDescription':
+      'Best for something people can open and interact with directly, such as a page, site, or lightweight tool.',
+    'goal.intentBoth': 'Both',
+    'goal.intentBothDescription':
+      'Start from a written spec or brief, then create the companion web deliverable in the same project.',
+    'goal.intentOther': 'Other',
+    'goal.intentOtherDescription':
+      'Describe the result shape in your own words if none of these fit cleanly.',
+    'goal.intentOtherPlaceholder': 'Describe the result shape you expect...',
+    'goal.intentOptionalDetailPlaceholder': 'Optional details...',
+    'goal.intentResolveFailed':
+      'Could not determine the best result shape right now. Try once more.',
+    'goal.intentSelect': 'Select',
     'goal.goal': 'Goal',
     'goal.goalPlaceholder':
       'Describe the deliverable you want, who it is for, and the outcome you want.',
@@ -277,7 +290,7 @@ const COPY = {
       'Keep comments local and anchored. Review is for targeted edits, not broad task steering.',
     'guide.reviewTitle': 'Use Review for anchored revisions',
     'guide.statusDescription':
-      'Check the phase, deliverable type, active workflow, and next action here before switching surfaces.',
+      'Check the phase, current result surface, active workflow, and next action here before switching surfaces.',
     'guide.statusTitle': 'Status is the single source of current state',
     'guide.versionDescription':
       'Versions are read-only milestones. Compare or restore them here, but keep discussion in Review and broader steering in Chat.',
@@ -295,19 +308,13 @@ const COPY = {
       'This run can start directly from the goal. Once the method feels stable, save it from Context and reuse it next time.',
     'goal.workflowDescription':
       'Optionally start from a saved local method instead of re-explaining the same working pattern.',
-    'goal.slides': 'Slides',
+    'goal.slides': 'Presentation',
     'goal.slidesDescription': 'Decks, speaking outlines, and presentation structure.',
     'goal.stylePlaceholder': 'Optional: concise, executive, technical, narrative...',
     'goal.styleTone': 'Style / Tone',
-    'goal.deliverableTypeLockedHint':
-      'This is only the starting deliverable type. You can adjust it later from the Status panel.',
     'goal.webPage': 'Web Page',
     'goal.webPageDescription': 'Landing pages, small sites, and previewable web deliverables.',
-    'goal.codeDeliverable': 'Code Deliverable',
-    'goal.codeDeliverableDescription':
-      'Implementation-heavy workspaces that start closer to code and structure.',
-    'goal.codeDeliverableDisabledDescription':
-      'This entry is not open in the current build yet. For now, use document, slides, or web.',
+    'goal.implementation': 'Implementation',
     'goal.comingSoon': 'Coming Soon',
     'context.addKnowledge': 'Add Knowledge',
     'context.addWorkflow': 'Save Workflow',
@@ -419,12 +426,10 @@ const COPY = {
     'plan.currentBranch': 'Current Branch',
     'plan.currentBranchDescription':
       'The live draft is based on this branch head. Compare or switch branches from Version history when needed.',
-    'plan.deliverableTypeDescription':
-      'Switch the current deliverable type here. Files, versions, and comments stay untouched until you explicitly regenerate.',
     'plan.discard': 'Discard',
     'plan.firstPassAction': 'Generate First Pass',
     'plan.firstPassDescription':
-      'Confirm the goal and deliverable type first. Start the first pass when you are ready, and only then will AI enter the live drafting state.',
+      'Confirm the goal and result shape first. Start the first pass when you are ready, and only then will AI enter the live drafting state.',
     'plan.firstPassTitle': 'Start the first pass',
     'plan.generatingTitle': 'AI is generating the plan',
     'plan.generatingDescription':
@@ -434,7 +439,6 @@ const COPY = {
     'plan.nextDeliverableDescription':
       'Reuse "{workflow}" as the starting method for the next deliverable in this project.',
     'plan.nextDeliverableTitle': 'Carry this method forward',
-    'plan.regenerateWithDeliverableType': 'Regenerate for this type',
     'plan.workflow': 'Workflow',
     'plan.blockedTitle': 'Plan generation is blocked',
     'plan.noPlanDescription':
@@ -717,7 +721,7 @@ const COPY = {
       'AI is writing directly into the live draft now. Each pass creates one temporary recovery point, and you can pin up to 3 of them.',
     'workflow.implementingTitle': 'AI is rendering the next pass',
     'workflow.planDescription':
-      'Confirm the goal and deliverable type first. Once you manually start the first pass, AI will begin drafting into the live result.',
+      'Confirm the goal and result shape first. Once you manually start the first pass, AI will begin drafting into the live result.',
     'workflow.planTitle': 'Ready to generate the first pass',
     'workflow.previewReadyDescription':
       'The live draft is ready to inspect. Open preview to review the rendered result instead of reading source first.',
@@ -740,7 +744,7 @@ const COPY = {
     'workspace.previewCouldNotStart': 'Preview could not be started for this deliverable.',
     'workspace.previewCouldNotStop': 'Preview could not be stopped.',
     'workspace.previewUnavailableReason':
-      'No preview target is available yet. Add an index.html file or a package.json with a dev script, or regenerate the result for this type from the Status panel.',
+      'No preview target is available yet. Add an index.html file or a package.json with a dev script, then try preview again.',
     'workspace.previewStarted': 'Preview started.',
     'workspace.previewStopped': 'Preview stopped.',
     'workspace.projectTitleFallback': 'Project',
@@ -773,12 +777,12 @@ const COPY = {
     'workspace.showImplementation': 'Show Implementation',
     'workspace.slideCardLabel': 'Slide {index}',
     'workspace.slidesCardEmpty':
-      'This slide is still mostly structure. Regenerate for this type if you want a deck-shaped rewrite.',
+      'This slide is still mostly structure. Keep refining the slide_page content and this view will update with it.',
     'workspace.slidesEmptyDescription':
-      'The current draft is not ready as a slide result yet. Use "Regenerate for this type" from the Status panel when you want the deck rewritten.',
+      'The current draft is not ready as a slide result yet. Add slide_page content and this view will update automatically.',
     'workspace.slidesEmptyTitle': 'No slide preview yet',
     'workspace.slidesPreviewDescription':
-      'The current draft stays in a slide-shaped result shell. Review the flow here, then regenerate for this type when you want it rewritten into a clearer deck.',
+      'The current draft is already projected into the slide result view. Review the flow here while continuing to refine the document blocks.',
     'workspace.slidesPreviewTitle': 'Review the slide flow',
     'workspace.startPreview': 'Start Preview',
     'workspace.starting': 'Starting…',
@@ -1023,11 +1027,8 @@ const COPY = {
     'goal.retryProjectCheck': '重试同一请求',
     'goal.creatingProject': '正在创建项目……',
     'goal.creatingDeliverable': '正在创建交付物……',
-    'goal.chooseWorkspaceTitle': '先选择一个交付类型',
-    'goal.chooseWorkspaceDescription': '先决定这次要产出什么交付物，下一步再填写具体目标。',
-    'goal.chooseWorkspaceFootnote':
-      '这个选择只决定工作区的起始形态；真正的交付目标会在下一步继续定义。',
-    'goal.deliverableType': '交付类型',
+    'goal.resolvingIntent': '正在判断最合适的结果形态……',
+    'goal.chooseWorkspaceTitle': '先选择一种结果形态',
     'goal.description': '让 AI 先起第一稿。你只需要定义目标，项目会从计划开始，而不是从空白文件开始。',
     'goal.deliverableDescription':
       '让 AI 先起第一稿。你只需要定义目标，下一份交付物会在“{projectTitle}”里从计划开始，而不是从空白文件开始。',
@@ -1039,6 +1040,20 @@ const COPY = {
     'goal.projectLocationUnavailable': '当前桌面构建暂时无法打开文件夹选择器。',
     'goal.document': '文档',
     'goal.documentDescription': '适合报告、方案、brief 和其他长文交付物。',
+    'goal.intentClarifyPrompt': '我想更了解你期望的结果形态，以便选择最合适的完成方式。',
+    'goal.intentDocumentDescription':
+      '适合阅读、发送和导出的内容，也可以继续投影成 PDF、Word 或幻灯片。',
+    'goal.intentWebDescription':
+      '适合可以直接打开和交互的页面、站点或轻量工具。',
+    'goal.intentBoth': '两者都要',
+    'goal.intentBothDescription':
+      '先完成文字化说明或需求，再在同一项目下生成配套的网页交付物。',
+    'goal.intentOther': '其他',
+    'goal.intentOtherDescription': '如果这些都不贴切，可以直接描述你想要的结果形态。',
+    'goal.intentOtherPlaceholder': '描述你想要的结果形态……',
+    'goal.intentOptionalDetailPlaceholder': '补充说明（可选）',
+    'goal.intentResolveFailed': '暂时无法判断最合适的结果形态，请再试一次。',
+    'goal.intentSelect': '选择',
     'goal.goal': '目标',
     'goal.goalPlaceholder': '描述你想要的交付物、它面向谁，以及你期待的结果。',
     'guide.chatDescription':
@@ -1051,7 +1066,7 @@ const COPY = {
       '把评论保持在局部、锚定的修改请求上。Review 不负责大范围任务推进。',
     'guide.reviewTitle': '用 Review 处理锚定修改',
     'guide.statusDescription':
-      '在切去别的面板前，先在这里看当前阶段、交付类型、正在使用的 Workflow 和下一步动作。',
+      '在切去别的面板前，先在这里看当前阶段、结果面、正在使用的 Workflow 和下一步动作。',
     'guide.statusTitle': 'Status 是当前状态的唯一主家',
     'guide.versionDescription':
       'Version 是只读里程碑。你可以在这里比较或恢复，但讨论仍放在 Review，更大的推进仍放在 Chat。',
@@ -1069,17 +1084,13 @@ const COPY = {
       '这次可以先直接从目标开始。等方法稳定后，再从右侧上文把它保存成 Workflow，下次直接复用。',
     'goal.workflowDescription':
       '可选：直接沿用一套已沉淀的方法，而不是每次重新解释同样的工作方式。',
-    'goal.slides': '幻灯片',
+    'goal.slides': '演示稿',
     'goal.slidesDescription': '适合演示文稿、大纲和讲述节奏清晰的内容。',
     'goal.stylePlaceholder': '可选：简洁、面向管理层、技术化、叙事风格……',
     'goal.styleTone': '风格 / 语气',
-    'goal.deliverableTypeLockedHint': '这里只是起始交付类型，之后还可以在状态面板里调整。',
     'goal.webPage': '网页',
     'goal.webPageDescription': '适合落地页、小型站点和可直接预览的网页交付物。',
-    'goal.codeDeliverable': '代码交付物',
-    'goal.codeDeliverableDescription': '适合实现导向更强、需要代码与结构并行推进的工作区。',
-    'goal.codeDeliverableDisabledDescription':
-      '当前版本暂不开放代码交付物，先用文档、幻灯片或网页工作区即可。',
+    'goal.implementation': '实现面',
     'goal.comingSoon': '敬请期待',
     'context.addKnowledge': '添加知识',
     'context.addWorkflow': '保存 Workflow',
@@ -1175,11 +1186,10 @@ const COPY = {
     'plan.currentBranch': '当前分支',
     'plan.currentBranchDescription':
       '当前 live draft 就是从这条 branch head 往前推进的；需要比较或切分支时，回到 Version 历史处理。',
-    'plan.deliverableTypeDescription': '这里只切换当前交付类型，不会重写文件、版本或评论。',
     'plan.discard': '丢弃',
     'plan.firstPassAction': '生成第一稿',
     'plan.firstPassDescription':
-      '先确认目标和交付类型。等你手动启动后，AI 才会进入 live draft 的起草状态。',
+      '先确认目标和结果形态。等你手动启动后，AI 才会进入 live draft 的起草状态。',
     'plan.firstPassTitle': '先生成第一稿',
     'plan.generatingTitle': 'AI 正在生成计划',
     'plan.generatingDescription': 'AI 正在把目标整理成分阶段计划，随后才会进入第一稿。',
@@ -1187,7 +1197,6 @@ const COPY = {
     'plan.nextDeliverableAction': '沿用方法创建下一个交付物',
     'plan.nextDeliverableDescription': '把“{workflow}”直接作为当前项目下一个交付物的起始方法。',
     'plan.nextDeliverableTitle': '沿用这套方法继续开工',
-    'plan.regenerateWithDeliverableType': '按新类型重整结果',
     'plan.workflow': 'Workflow',
     'plan.blockedTitle': '计划生成受阻',
     'plan.noPlanDescription': '从一个目标开始，AI 会把它转成分阶段的计划。',
@@ -1442,7 +1451,7 @@ const COPY = {
       'AI 正在直接写入 live draft。每次输出都会生成 1 个临时回退点，你最多可以再 Pin 住 3 个。',
     'workflow.implementingTitle': 'AI 正在渲染下一版',
     'workflow.planDescription':
-      '先确认目标和交付类型。只有在你手动启动第一稿之后，AI 才会进入 live draft 的起草状态。',
+      '先确认目标和结果形态。只有在你手动启动第一稿之后，AI 才会进入 live draft 的起草状态。',
     'workflow.planTitle': '准备生成第一稿',
     'workflow.previewReadyDescription':
       'live draft 已经可以检查。先打开预览看渲染结果，而不是先读源码。',
@@ -1464,7 +1473,7 @@ const COPY = {
     'workspace.previewCouldNotStart': '这个交付物暂时无法启动预览。',
     'workspace.previewCouldNotStop': '预览无法停止。',
     'workspace.previewUnavailableReason':
-      '还没有可用的预览目标。请补充一个 index.html 文件，或一个带 dev script 的 package.json；如果只是先想按网页类型收口，也可以去右侧状态里点“按新类型重整结果”。',
+      '还没有可用的预览目标。请补充一个 index.html 文件，或一个带 dev script 的 package.json，然后再启动预览。',
     'workspace.previewStarted': '预览已启动。',
     'workspace.previewStopped': '预览已停止。',
     'workspace.projectTitleFallback': '项目',
@@ -1492,12 +1501,13 @@ const COPY = {
     'workspace.showDeliverable': '显示交付物',
     'workspace.showImplementation': '显示实现',
     'workspace.slideCardLabel': '第 {index} 页',
-    'workspace.slidesCardEmpty': '这一页目前还更像结构骨架；如果要改成更像 deck 的表达，可以再点“按新类型重整结果”。',
+    'workspace.slidesCardEmpty':
+      '这一页目前还更像结构骨架；继续完善 slide_page 内容后，这里会跟着更新。',
     'workspace.slidesEmptyDescription':
-      '当前内容还没有整理成可预览的幻灯片结果。需要时可去右侧状态里点“按新类型重整结果”。',
+      '当前内容还没有整理成可预览的幻灯片结果。补齐 slide_page 内容后，这里会自动更新。',
     'workspace.slidesEmptyTitle': '还没有幻灯片预览',
     'workspace.slidesPreviewDescription':
-      '当前内容已经先留在幻灯片结果壳里。你可以先审阅节奏和结构；如果要真正改成 deck 表达，再手动点“按新类型重整结果”。',
+      '当前内容已经投影到幻灯片结果视图。你可以先在这里审阅节奏和结构，同时继续完善文档里的 block。',
     'workspace.slidesPreviewTitle': '审阅当前幻灯片节奏',
     'workspace.startPreview': '启动预览',
     'workspace.starting': '启动中……',

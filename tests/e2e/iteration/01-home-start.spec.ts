@@ -12,14 +12,13 @@ test('home starter exposes built-in workflows and can start from the research wo
 
   await page.getByRole('main').getByRole('button', { name: /从目标开始|Start with a Goal/ }).click();
 
-  await expect(page.getByTestId('starter-option-code')).toBeDisabled();
-  await expect(page.getByTestId('starter-option-code')).toContainText(
-    /敬请期待|Coming Soon/
-  );
+  const goalDialog = page.getByRole('dialog');
+  await expect(goalDialog).toBeVisible();
+  await expect(goalDialog.getByLabel(/目标|Goal/)).toBeVisible();
+  await expect(goalDialog.getByTestId('goal-deliverable-pill')).toHaveCount(0);
+  await expect(page.getByTestId('starter-option-document')).toHaveCount(0);
+  await expect(page.getByTestId('starter-option-code')).toHaveCount(0);
 
-  await page.getByTestId('starter-option-document').click();
-
-  await expect(page.getByTestId('goal-deliverable-pill')).toHaveText(/文档|Document/);
   const workflowSelect = page.getByRole('combobox').first();
   await workflowSelect.click();
   const workflowList = page.getByRole('listbox');
@@ -51,7 +50,10 @@ test('home starter exposes built-in workflows and can start from the research wo
       .getByText('成形类产品市场分析报告', { exact: true })
   ).toBeVisible();
   await expect(
-    page.getByText(/准备生成第一稿 · 文档|Ready to generate.*Document/)
+    page
+      .getByRole('tabpanel', { name: /状态|Status/ })
+      .getByText(/^准备生成第一稿$|^Ready to generate the first pass$/)
+      .first()
   ).toBeVisible();
   const firstPassButton = page.getByRole('button', {
     name: /生成第一稿|Generate First Pass/,
@@ -62,6 +64,33 @@ test('home starter exposes built-in workflows and can start from the research wo
       .getByRole('tabpanel', { name: /状态|Status/ })
       .getByRole('button', { name: /生成第一稿|Generate First Pass/ })
   ).toHaveCount(0);
+});
+
+test('home create flow surfaces clarify cards for ambiguous goals', async ({ page }) => {
+  await primeClientState(page);
+  await page.goto('/');
+
+  await page.getByRole('main').getByRole('button', { name: /从目标开始|Start with a Goal/ }).click();
+
+  const goalDialog = page.getByRole('dialog');
+  await expect(goalDialog).toBeVisible();
+
+  await goalDialog.getByLabel(/目标|Goal/).fill('介绍一下我们的服务。');
+  await goalDialog.getByRole('button', { name: /创建项目|Create Project/ }).click();
+
+  await expect(goalDialog).toContainText(/更了解你期望的结果形态|结果形态|最佳方式/);
+  await expect(goalDialog.getByTestId('goal-intent-option-document')).toBeVisible();
+  await expect(goalDialog.getByTestId('goal-intent-option-web')).toBeVisible();
+  await expect(goalDialog.getByTestId('goal-intent-option-both')).toBeVisible();
+  await expect(goalDialog.getByTestId('goal-intent-option-other')).toBeVisible();
+
+  await Promise.all([
+    page.waitForURL(/\/workspace\//),
+    goalDialog
+      .getByTestId('goal-intent-option-document')
+      .getByRole('button', { name: /选择|Select/ })
+      .click(),
+  ]);
 });
 
 test('home project list summarizes deliverables and opens the latest deliverable', async ({

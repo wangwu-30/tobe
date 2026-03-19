@@ -50,7 +50,6 @@ import { useT } from '@/components/providers/language-provider';
 import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { cn } from '@/lib/utils';
 import { getWorkspaceFileDisplayName } from '@/lib/workspace/file-presentation';
-import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
 import { formatProjectListMeta } from '@/lib/workspace/project-summary';
 import type { ProjectDeliverableItem } from '@/types';
 import type { ProjectFolderItem } from '@/types';
@@ -2013,12 +2012,7 @@ function ProjectTreeNodeRow({
             }}
           >
             <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm">{node.title}</span>
-              <span className="block truncate text-[11px] text-muted-foreground/80">
-                {formatDeliverableKindLabel(node.deliverableType, t)}
-              </span>
-            </span>
+            <span className="block min-w-0 flex-1 truncate text-sm">{node.title}</span>
           </button>
         )}
 
@@ -2392,13 +2386,6 @@ function collectProjectFolderDescendantIds(
 
   visit(folderId);
   return descendants;
-}
-
-function formatDeliverableKindLabel(
-  deliverableType: ProjectDeliverableItem['deliverableType'],
-  t: ReturnType<typeof useT>
-) {
-  return formatDeliverableTypeLabel(deliverableType, t);
 }
 
 function SupportMaterialTree({

@@ -209,7 +209,7 @@ export async function buildChatSystemPrompt(params: {
     'The deliverable is the product. The workspace is only its container.',
     'A conversation is one continuation thread around the same deliverable. It is not a formal deliverable branch or version.',
     'Use tools instead of pretending to edit content in your head.',
-    'Use `write_file` to update any deliverable file (document, web, slides, code) directly.',
+    'Use `write_file` to update the live deliverable files directly. Treat slide decks as document content, not as a separate result shape.',
     'Direct live-draft updates create a recovery point automatically. Keep only the recent recovery points in mind; they are not user-facing milestones.',
     'Do not claim a result is live unless a tool response confirms the live draft or preview state.',
     'When the user wants to inspect a web deliverable, use `start_preview` after the relevant changes are live. Use `list_workspace_runs` to confirm preview state when needed.',

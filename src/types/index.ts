@@ -212,6 +212,14 @@ export type ReviewAnchorPointData = {
 };
 
 export type ReviewAnchorPayloadData = Record<string, unknown> & {
+  boundingRect?: {
+    height?: number;
+    width?: number;
+    x?: number;
+    y?: number;
+  } | null;
+  cssSelector?: string | null;
+  domContext?: string | null;
   excerpt?: string;
   selector?: string;
   start?: ReviewAnchorPointData;
@@ -723,6 +731,7 @@ export type WorkspaceViewData = {
   conversationTree: ConversationBranchSummary[];
   conversationRuns: AssistantRunData[];
   activeAssistantRun: AssistantRunData | null;
+  activePreviewRun: WorkspaceRunData | null;
   selectedVersion: WorkspaceVersionData | null;
   stagedChangeSets: StagedChangeSetData[];
   workspacePlan: WorkspacePlanData | null;

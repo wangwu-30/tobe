@@ -49,13 +49,28 @@ import {
   WORKSPACE_CREATE_IDEMPOTENCY_HEADER,
 } from '@/lib/workspace/create-request';
 import {
+  buildPreviewBridgeUrl,
+  WEB_PREVIEW_BRIDGE_CHANNEL,
+} from '@/lib/workspace/preview-bridge';
+import {
+  clearPendingPreviewStart,
+  loadPendingPreviewStart,
+  persistPendingPreviewStart,
+} from '@/lib/workspace/preview-start-recovery';
+import {
   getWorkspaceFileDisplayName,
   isPlateBackedWorkspaceFile,
 } from '@/lib/workspace/file-presentation';
-import { formatDeliverableTypeLabel } from '@/lib/workspace/deliverable-labels';
-import { extractSlidePageCards } from '@/lib/workspace/slide-pages';
+import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
+import {
+  extractSlidePageCards,
+  hasOnlySlidePageBlocks,
+} from '@/lib/workspace/slide-pages';
 import { generateWorkspacePlan } from '@/lib/workspace/plan-client';
-import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
+import {
+  detectWorkspacePreviewCapability,
+  resolveWebPreviewAnchorFile,
+} from '@/lib/workspace/preview';
 import { listProjectFolderPath } from '@/lib/workspace/project-summary';
 import type {
   ChatMessageData,
@@ -74,7 +89,6 @@ import { DeliverableSidebar, type DeliverableOutlineItem } from '@/components/wo
 import { AssistantRail } from '@/components/workspace/assistant-rail';
 import { PlanPanel } from '@/components/workspace/plan-panel';
 import { DeliverableVersionControls } from '@/components/workspace/deliverable-version-controls';
-import { WorkspaceStarterDialog } from '@/components/workspace/workspace-starter-dialog';
 
 type PaneOrder = 'deliverable-left' | 'assistant-left';
 type WorkspaceNoticeAction = {
@@ -233,7 +247,6 @@ export default function WorkspacePage() {
   const requestedVersionId = searchParams.get('versionId');
 
   const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
-  const [workspaceStarterOpen, setWorkspaceStarterOpen] = React.useState(false);
   const [paneOrder, setPaneOrder] = React.useState<PaneOrder>('deliverable-left');
   const [workspaceView, setWorkspaceView] = React.useState<WorkspaceViewData | null>(null);
   const [initialMessages, setInitialMessages] = React.useState<ChatMessageData[]>([]);
@@ -260,8 +273,6 @@ export default function WorkspacePage() {
   const [workspaceRuns, setWorkspaceRuns] = React.useState<WorkspaceRunData[]>([]);
   const [queuedPrompt, setQueuedPrompt] = React.useState<QueuedPrompt | null>(null);
   const [isAssistantBusy, setIsAssistantBusy] = React.useState(false);
-  const [isSwitchingDeliverableIntent, setIsSwitchingDeliverableIntent] =
-    React.useState(false);
   const [chatError, setChatError] = React.useState<{
     error: { detail: string; message: string; retryable: boolean; kind: string };
     retryFn?: () => void;
@@ -384,13 +395,12 @@ export default function WorkspacePage() {
         ).join(' / ');
 
         return {
-          deliverableTypeLabel: formatDeliverableTypeLabel(item.deliverableType, t),
           folderPathLabel,
           id: item.id,
           title: item.title,
         };
       }),
-    [projectDeliverables, projectFolders, t]
+    [projectDeliverables, projectFolders]
   );
 
   const deliverableType: DeliverableType = deliverable?.deliverableType || 'document';
@@ -413,14 +423,20 @@ export default function WorkspacePage() {
       }
     );
   }, [currentConversationBaseVersion, t]);
-  const previewCapability = React.useMemo(
-    () => {
-      const nextFiles = currentVersion
+  const currentDeliverableFiles = React.useMemo(
+    () =>
+      currentVersion
         ? (workspaceView?.versionFiles || []).filter((file) => file.role === 'deliverable')
-        : (workspaceView?.files || []).filter((file) => file.role === 'deliverable');
-      return detectWorkspacePreviewCapability(nextFiles);
-    },
+        : (workspaceView?.files || []).filter((file) => file.role === 'deliverable'),
     [currentVersion, workspaceView?.files, workspaceView?.versionFiles]
+  );
+  const previewCapability = React.useMemo(
+    () => detectWorkspacePreviewCapability(currentDeliverableFiles),
+    [currentDeliverableFiles]
+  );
+  const previewAnchorFileId = React.useMemo(
+    () => resolveWebPreviewAnchorFile(currentDeliverableFiles, previewCapability)?.id || null,
+    [currentDeliverableFiles, previewCapability]
   );
   const activePreviewRun = React.useMemo(
     () =>
@@ -428,8 +444,10 @@ export default function WorkspacePage() {
         (run) =>
           run.kind === 'preview' &&
           (run.status === 'pending' || run.status === 'running')
-      ) || null,
-    [workspaceRuns]
+      ) ||
+      workspaceView?.activePreviewRun ||
+      null,
+    [workspaceRuns, workspaceView?.activePreviewRun]
   );
   const comparableDeliverableText = React.useMemo(
     () => normalizeDeliverableText(fileContent),
@@ -535,9 +553,7 @@ export default function WorkspacePage() {
             <div className="min-w-0">
               <div className="truncate text-sm font-medium">{option.title}</div>
               <div className="truncate text-xs text-muted-foreground">
-                {[option.folderPathLabel || null, option.deliverableTypeLabel]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {option.folderPathLabel || t('workspace.projectTitleFallback')}
               </div>
             </div>
           </DropdownMenuItem>
@@ -620,7 +636,9 @@ export default function WorkspacePage() {
 
   const loadThreads = React.useCallback(async () => {
     const params = new URLSearchParams({ workspaceId });
-    if (currentFileId) params.set('fileId', currentFileId);
+    if (deliverableType !== 'web' && currentFileId) {
+      params.set('fileId', currentFileId);
+    }
     if (currentVersionId) {
       params.set('versionId', currentVersionId);
     } else {
@@ -630,7 +648,7 @@ export default function WorkspacePage() {
     if (!response.ok) return;
 
     setReviewThreads((await response.json()) as CommentThreadData[]);
-  }, [currentFileId, currentVersionId, workspaceId]);
+  }, [currentFileId, currentVersionId, deliverableType, workspaceId]);
 
   React.useEffect(() => {
     const storedPaneOrder = window.localStorage.getItem(PANE_ORDER_STORAGE_KEY);
@@ -684,6 +702,8 @@ export default function WorkspacePage() {
       return;
     }
 
+    clearPendingPreviewStart(workspaceId);
+
     const intervalId = window.setInterval(() => {
       void loadRuns();
     }, 3000);
@@ -691,7 +711,46 @@ export default function WorkspacePage() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [activePreviewRun, loadRuns]);
+  }, [activePreviewRun, loadRuns, workspaceId]);
+
+  React.useEffect(() => {
+    if (!workspaceView || !previewCapability.canPreview || activePreviewRun) {
+      return;
+    }
+
+    if (currentStatus?.primaryAction !== 'start_preview') {
+      return;
+    }
+
+    const navigationEntry = window.performance
+      .getEntriesByType('navigation')
+      .find((entry): entry is PerformanceNavigationTiming => entry instanceof PerformanceNavigationTiming);
+
+    if (navigationEntry?.type !== 'reload') {
+      return;
+    }
+
+    void loadRuns();
+
+    const intervalId = window.setInterval(() => {
+      void loadRuns();
+    }, 500);
+
+    const timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+    }, 5000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    activePreviewRun,
+    currentStatus?.primaryAction,
+    loadRuns,
+    previewCapability.canPreview,
+    workspaceView,
+  ]);
 
   React.useEffect(() => {
     const shouldPollConversation =
@@ -1071,18 +1130,34 @@ export default function WorkspacePage() {
     [currentConversationId, currentFileId, loadWorkspaceView, syncLocation, t, workspaceId]
   );
 
-  const startPreview = React.useCallback(async () => {
+  const startPreview = React.useCallback(async (options?: {
+    fromRecovery?: boolean;
+    versionId?: string | null;
+  }) => {
+    const targetVersionId =
+      options && 'versionId' in options ? options.versionId || null : currentVersionId;
+
+    if (!options?.fromRecovery) {
+      persistPendingPreviewStart({
+        versionId: targetVersionId,
+        workspaceId,
+      });
+    }
+
     setIsStartingPreview(true);
     try {
       const response = await fetch(`/api/workspaces/${workspaceId}/preview/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Preview start should survive an immediate reload from the result surface.
+        keepalive: true,
         body: JSON.stringify({
-          versionId: currentVersionId,
+          versionId: targetVersionId,
         }),
       });
 
       if (!response.ok) {
+        clearPendingPreviewStart(workspaceId);
         const payload = await response.json().catch(() => null);
         setWorkspaceNotice({
           tone: 'error',
@@ -1091,15 +1166,74 @@ export default function WorkspacePage() {
         return;
       }
 
+      clearPendingPreviewStart(workspaceId);
+      const startedRun = (await response.json().catch(() => null)) as WorkspaceRunData | null;
+      if (startedRun?.id) {
+        setWorkspaceRuns((currentRuns) => [
+          startedRun,
+          ...currentRuns.filter((run) => run.id !== startedRun.id),
+        ]);
+      }
+
       await loadRuns();
       setWorkspaceNotice({
         tone: 'success',
         text: t('workspace.previewStarted'),
       });
+    } catch (error) {
+      clearPendingPreviewStart(workspaceId);
+      setWorkspaceNotice({
+        tone: 'error',
+        text: error instanceof Error ? error.message : t('workspace.previewCouldNotStart'),
+      });
     } finally {
       setIsStartingPreview(false);
     }
   }, [currentVersionId, loadRuns, t, workspaceId]);
+
+  React.useEffect(() => {
+    const pendingPreviewStart = loadPendingPreviewStart(workspaceId);
+    if (!pendingPreviewStart) {
+      return;
+    }
+
+    if (activePreviewRun) {
+      clearPendingPreviewStart(workspaceId);
+      return;
+    }
+
+    if (!workspaceView || !previewCapability.canPreview) {
+      return;
+    }
+
+    const pollIntervalId = window.setInterval(() => {
+      void loadRuns();
+    }, 500);
+
+    const recoveryTimeoutId = window.setTimeout(() => {
+      if (isStartingPreview || activePreviewRun) {
+        return;
+      }
+
+      void startPreview({
+        fromRecovery: true,
+        versionId: pendingPreviewStart.versionId,
+      });
+    }, 1500);
+
+    return () => {
+      window.clearInterval(pollIntervalId);
+      window.clearTimeout(recoveryTimeoutId);
+    };
+  }, [
+    activePreviewRun,
+    isStartingPreview,
+    loadRuns,
+    previewCapability.canPreview,
+    startPreview,
+    workspaceId,
+    workspaceView,
+  ]);
 
   const stopPreview = React.useCallback(async () => {
     setIsStoppingPreview(true);
@@ -1131,18 +1265,18 @@ export default function WorkspacePage() {
       setWorkspaceCreateContext(context);
 
       if (createWorkspaceRecoveryActive) {
-        setGoalDialogSeedValues(null);
         setGoalDialogOpen(true);
         return;
       }
 
-      setWorkspaceStarterOpen(true);
+      setCreateWorkspaceError(null);
+      setGoalDialogSeedValues(null);
+      setGoalDialogOpen(true);
     },
     [createWorkspaceRecoveryActive]
   );
   const openProjectDeliverableComposer = React.useCallback(
     (params: {
-      deliverableType?: DeliverableType;
       projectFolderId: string | null;
       workflowPlaybookId?: string | null;
     }) => {
@@ -1154,14 +1288,11 @@ export default function WorkspacePage() {
       });
 
       if (createWorkspaceRecoveryActive) {
-        setGoalDialogSeedValues(null);
         setGoalDialogOpen(true);
         return;
       }
 
-      setWorkspaceStarterOpen(false);
       setGoalDialogSeedValues({
-        deliverableType: params.deliverableType || deliverableType,
         projectParentPath: '',
         workflowPlaybookId: params.workflowPlaybookId || '',
       });
@@ -1175,7 +1306,6 @@ export default function WorkspacePage() {
       currentWorkspace?.projectId,
       currentWorkspace?.projectTitle,
       currentWorkspace?.title,
-      deliverableType,
     ]
   );
 
@@ -1265,13 +1395,11 @@ export default function WorkspacePage() {
   );
   const createNextDeliverableWithWorkflow = React.useCallback(() => {
     openProjectDeliverableComposer({
-      deliverableType,
       projectFolderId: currentWorkspace?.projectFolderId || null,
       workflowPlaybookId: workspaceBrief?.activeWorkflowPlaybookId || '',
     });
   }, [
     currentWorkspace?.projectFolderId,
-    deliverableType,
     openProjectDeliverableComposer,
     workspaceBrief?.activeWorkflowPlaybookId,
   ]);
@@ -1512,17 +1640,6 @@ export default function WorkspacePage() {
     [moveSupportFile, supportFiles]
   );
 
-  const handleWorkspaceStarterSelect = React.useCallback(
-    (deliverableType: GoalComposerValues['deliverableType']) => {
-      setWorkspaceStarterOpen(false);
-      setGoalDialogSeedValues({
-        deliverableType,
-        projectParentPath: '',
-      });
-      setGoalDialogOpen(true);
-    },
-    []
-  );
   const createProjectDeliverable = React.useCallback(
     (projectFolderId: string | null) => {
       openWorkspaceCreateEntry({
@@ -1927,50 +2044,6 @@ export default function WorkspacePage() {
     workspaceId,
   ]);
 
-  const handleChangeDeliverableIntent = React.useCallback(
-    async (nextDeliverableType: DeliverableType) => {
-      if (!workspaceId || nextDeliverableType === 'code') {
-        return;
-      }
-
-      setIsSwitchingDeliverableIntent(true);
-      try {
-        const response = await fetch(`/api/workspaces/${workspaceId}/plan`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deliverableType: nextDeliverableType,
-          }),
-        });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          throw new Error(payload?.error || 'Could not change deliverable type.');
-        }
-
-        await loadWorkspace();
-        setShowImplementation(false);
-        setWorkspaceNotice({
-          tone: 'info',
-          text: t('workspace.deliverableTypeChanged', {
-            label: formatDeliverableTypeLabel(nextDeliverableType, t),
-          }),
-        });
-      } catch (error) {
-        setWorkspaceNotice({
-          tone: 'error',
-          text:
-            error instanceof Error
-              ? error.message
-              : 'Could not change deliverable type.',
-        });
-      } finally {
-        setIsSwitchingDeliverableIntent(false);
-      }
-    },
-    [loadWorkspace, t, workspaceId]
-  );
-
   const handleQueuedPromptHandled = React.useCallback((promptId: string) => {
     setQueuedPrompt((current) => (current?.id === promptId ? null : current));
   }, []);
@@ -1996,10 +2069,7 @@ export default function WorkspacePage() {
         <PlanPanel
           currentDraftBranchTitle={currentDraftBaseVersion?.title || null}
           isAssistantBusy={isAssistantBusy}
-          isSwitchingDeliverableIntent={isSwitchingDeliverableIntent}
-          onChangeDeliverableIntent={handleChangeDeliverableIntent}
           onCreateNextDeliverable={createNextDeliverableWithWorkflow}
-          onRegenerateWithIntent={handleGenerateFirstPass}
           plan={workspaceBrief}
           currentStatus={currentStatus}
         />
@@ -2168,10 +2238,12 @@ export default function WorkspacePage() {
     onStartPreview: startPreview,
     onStopPreview: stopPreview,
     previewCapability,
+    previewAnchorFileId,
     previewEmptyDescription: t('workspace.previewReadyDescription'),
     previewEmptyTitle: t('workspace.previewReadyTitle'),
     previewNotReadyTitle: t('workspace.previewNotReady'),
     previewUnavailableDescription: t('workspace.previewUnavailableReason'),
+    previewRunId: activePreviewRun?.id || null,
     previewUrl: activePreviewRun?.previewUrl || null,
     readOnlyLabel:
       currentFile?.role === 'support'
@@ -2183,6 +2255,7 @@ export default function WorkspacePage() {
       currentStatus?.latestRestorableVersionId
         ? () => void restoreVersion(currentStatus.latestRestorableVersionId!)
         : undefined,
+    reviewThreads,
     onThreadsChanged: loadThreads,
     savingLabel: t('common.saving'),
     showImplementation,
@@ -2540,12 +2613,6 @@ export default function WorkspacePage() {
         />
       </div>
 
-      <WorkspaceStarterDialog
-        open={workspaceStarterOpen}
-        onOpenChange={setWorkspaceStarterOpen}
-        onSelect={handleWorkspaceStarterSelect}
-      />
-
       <GoalComposerDialog
         creationMode={workspaceCreateContext?.projectId ? 'deliverable' : 'project'}
         currentProjectTitle={workspaceCreateContext?.projectTitle || null}
@@ -2605,12 +2672,15 @@ function buildDeliverablePanel(params: {
   onStartPreview: () => void;
   onStopPreview: () => void;
   previewCapability: ReturnType<typeof detectWorkspacePreviewCapability>;
+  previewAnchorFileId: string | null;
   previewEmptyDescription: string;
   previewEmptyTitle: string;
   previewNotReadyTitle: string;
+  previewRunId: string | null;
   previewUnavailableDescription: string;
   previewUrl: string | null;
   readOnlyLabel: string;
+  reviewThreads: CommentThreadData[];
   supportMaterialLabel: string;
   onRestoreLatest?: (() => void) | undefined;
   onThreadsChanged: () => Promise<void>;
@@ -2632,6 +2702,9 @@ function buildDeliverablePanel(params: {
   const isSupportFile = params.currentFile?.role === 'support';
   const richtextLikeFile = isPlateBackedWorkspaceFile(params.currentFile);
   const isErrorState = !params.selectedVersion && !!params.chatError;
+  const projectedRichtextValue = params.editorContent || parsePlateContent(params.fileContent);
+  const shouldProjectDocumentAsSlides =
+    params.deliverableType === 'document' && hasOnlySlidePageBlocks(projectedRichtextValue);
   const statusTitle = isErrorState
     ? params.chatError!.error.message
     : params.currentStatus?.statusTitle || params.noDocumentTitle;
@@ -2647,7 +2720,9 @@ function buildDeliverablePanel(params: {
   const showIntentCanvas =
     !isSupportFile &&
     !params.showImplementation &&
-    (params.deliverableType === 'slides' || params.deliverableType === 'web');
+    (params.deliverableType === 'slides' ||
+      params.deliverableType === 'web' ||
+      shouldProjectDocumentAsSlides);
   const editorStatusTone = params.selectedVersion
     ? 'locked'
     : params.currentStatus?.phase === 'blocked'
@@ -2691,7 +2766,7 @@ function buildDeliverablePanel(params: {
         currentStatus={params.currentStatus}
         draftRevision={params.draftRevision}
         documentContent={params.commentContextContent}
-        fileId={params.currentFile?.id || null}
+        fileId={params.previewAnchorFileId}
         isAssistantBusy={params.isAssistantBusy}
         isStartingPreview={params.isStartingPreview}
         isStoppingPreview={params.isStoppingPreview}
@@ -2702,8 +2777,10 @@ function buildDeliverablePanel(params: {
         previewEmptyDescription={params.previewEmptyDescription}
         previewEmptyTitle={params.previewEmptyTitle}
         previewNotReadyTitle={params.previewNotReadyTitle}
+        previewRunId={params.previewRunId}
         previewUnavailableDescription={params.previewUnavailableDescription}
         previewUrl={params.previewUrl}
+        reviewThreads={params.reviewThreads}
         onRestoreLatest={params.onRestoreLatest}
         onThreadsChanged={params.onThreadsChanged}
         versionId={params.selectedVersion?.id || null}
@@ -2719,14 +2796,17 @@ function buildDeliverablePanel(params: {
     );
   }
 
-  if (showIntentCanvas && params.deliverableType === 'slides') {
+  if (
+    showIntentCanvas &&
+    (params.deliverableType === 'slides' || shouldProjectDocumentAsSlides)
+  ) {
     return (
       <SlidesDeliverableCanvas
         actions={params.headerActions}
         currentStatus={params.currentStatus}
         isAssistantBusy={params.isAssistantBusy}
         onGenerateFirstPass={params.onGenerateFirstPass}
-        value={params.editorContent || parsePlateContent(params.fileContent)}
+        value={projectedRichtextValue}
         subtitle={params.readOnlyLabel}
         title={params.deliverableTitle}
       />
@@ -2953,8 +3033,10 @@ function WebDeliverableCanvas({
   previewEmptyDescription,
   previewEmptyTitle,
   previewNotReadyTitle,
+  previewRunId,
   previewUnavailableDescription,
   previewUrl,
+  reviewThreads,
   onRestoreLatest,
   onThreadsChanged,
   versionId,
@@ -2982,8 +3064,10 @@ function WebDeliverableCanvas({
   previewEmptyDescription: string;
   previewEmptyTitle: string;
   previewNotReadyTitle: string;
+  previewRunId: string | null;
   previewUnavailableDescription: string;
   previewUrl: string | null;
+  reviewThreads: CommentThreadData[];
   onRestoreLatest?: (() => void) | undefined;
   onThreadsChanged: () => Promise<void>;
   versionId?: string | null;
@@ -3001,6 +3085,12 @@ function WebDeliverableCanvas({
 }) {
   const t = useT();
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
+  const iframePreviewUrl = previewRunId
+    ? buildPreviewBridgeUrl({
+        runId: previewRunId,
+        workspaceId,
+      })
+    : previewUrl;
   const isErrorState = !!chatError;
   const statusTitle = isErrorState
     ? chatError!.error.message
@@ -3031,6 +3121,53 @@ function WebDeliverableCanvas({
     <Button size="sm" onClick={chatError.retryFn}>{t('chat.retry')}</Button>
   ) : null;
 
+  React.useEffect(() => {
+    const handleThreadFocus = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      if (!detail?.threadId || !iframeRef.current?.contentWindow) {
+        return;
+      }
+
+      const thread = reviewThreads.find((item) => item.id === detail.threadId);
+      if (thread?.reviewAnchor?.surfaceType !== 'web-component') {
+        return;
+      }
+
+      iframeRef.current.contentWindow.postMessage(
+        {
+          channel: WEB_PREVIEW_BRIDGE_CHANNEL,
+          type: 'focus',
+          payload: {
+            excerpt:
+              typeof thread.reviewAnchor.anchorPayload?.excerpt === 'string'
+                ? thread.reviewAnchor.anchorPayload.excerpt
+                : null,
+            cssSelector:
+              typeof thread.reviewAnchor.anchorPayload?.cssSelector === 'string'
+                ? thread.reviewAnchor.anchorPayload.cssSelector
+                : typeof thread.reviewAnchor.anchorPayload?.selector === 'string'
+                  ? thread.reviewAnchor.anchorPayload.selector
+                  : null,
+            domContext:
+              typeof thread.reviewAnchor.anchorPayload?.domContext === 'string'
+                ? thread.reviewAnchor.anchorPayload.domContext
+                : null,
+            selector:
+              typeof thread.reviewAnchor.anchorPayload?.selector === 'string'
+                ? thread.reviewAnchor.anchorPayload.selector
+                : null,
+          },
+        },
+        '*'
+      );
+    };
+
+    window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
+    return () => {
+      window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
+    };
+  }, [reviewThreads]);
+
   return (
     <div
       className="flex h-full min-h-0 flex-col overflow-hidden"
@@ -3042,7 +3179,7 @@ function WebDeliverableCanvas({
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          {previewUrl ? (
+          {iframePreviewUrl ? (
             <Button
               size="sm"
               variant="outline"
@@ -3058,11 +3195,11 @@ function WebDeliverableCanvas({
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden bg-muted/20">
-        {previewUrl ? (
+        {iframePreviewUrl ? (
           <div className="relative h-full">
             <iframe
               ref={iframeRef}
-              src={previewUrl}
+              src={iframePreviewUrl}
               className="h-full w-full border-0 bg-white"
               title={title}
             />
@@ -3328,7 +3465,7 @@ function buildFirstPassPrompt(params: {
     'Use the main deliverable file when possible.',
     'After using tools, reply with a short summary of what you rendered or saved.',
     '',
-    `Deliverable type: ${params.deliverableType}`,
+    `Current result shape: ${getCanonicalDeliverableType(params.deliverableType)}`,
     `Goal: ${params.goal}`,
   ];
 
@@ -3357,10 +3494,7 @@ function describeWorkspaceState(params: {
     return params.t('workspace.openProjectToContinue');
   }
 
-  return `${describeWorkspaceStatusLabel(params)} · ${formatDeliverableTypeLabel(
-    params.deliverable.deliverableType,
-    params.t
-  )}`;
+  return describeWorkspaceStatusLabel(params);
 }
 
 function describeWorkspaceStatusLabel(params: {
