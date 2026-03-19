@@ -76,6 +76,7 @@ import type {
   ChatMessageData,
   CommentThreadData,
   DeliverableType,
+  LegacyDeliverableType,
   ProjectDeliverableItem,
   ProjectFolderItem,
   ResearchMode,
@@ -404,6 +405,8 @@ export default function WorkspacePage() {
   );
 
   const deliverableType: DeliverableType = deliverable?.deliverableType || 'document';
+  const storedDeliverableType: LegacyDeliverableType | null =
+    deliverable?.storedDeliverableType || null;
   const isVersionView = Boolean(currentVersion);
   const isRichtextFile = isPlateBackedWorkspaceFile(currentFile);
   const currentConversationId = currentConversation?.id || requestedConversationId || null;
@@ -2216,6 +2219,7 @@ export default function WorkspacePage() {
       currentWorkspace?.title ||
       t('workspace.untitledDeliverable'),
     deliverableType,
+    storedDeliverableType,
     documentPlaceholder:
       !hasDeliverableContent &&
       currentStatus?.phase === 'reviewing' &&
@@ -2655,6 +2659,7 @@ function buildDeliverablePanel(params: {
   draftRevision: number | null;
   deliverableTitle: string;
   deliverableType: DeliverableType;
+  storedDeliverableType: LegacyDeliverableType | null;
   documentPlaceholder: string;
   editorContent: Value | null;
   fileContent: string;
@@ -2720,7 +2725,7 @@ function buildDeliverablePanel(params: {
   const showIntentCanvas =
     !isSupportFile &&
     !params.showImplementation &&
-    (params.deliverableType === 'slides' ||
+    (params.storedDeliverableType === 'slides' ||
       params.deliverableType === 'web' ||
       shouldProjectDocumentAsSlides);
   const editorStatusTone = params.selectedVersion
@@ -2798,7 +2803,7 @@ function buildDeliverablePanel(params: {
 
   if (
     showIntentCanvas &&
-    (params.deliverableType === 'slides' || shouldProjectDocumentAsSlides)
+    (params.storedDeliverableType === 'slides' || shouldProjectDocumentAsSlides)
   ) {
     return (
       <SlidesDeliverableCanvas
@@ -2959,7 +2964,7 @@ function SlidesDeliverableCanvas({
             <div className="rounded-[28px] border border-primary/15 bg-background/95 px-5 py-5 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.45)]">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-primary/80">
-                  {t('goal.slides')}
+                  {t('workspace.slideResultBadge')}
                 </span>
                 <span className="text-sm font-medium text-foreground">{statusTitle}</span>
               </div>

@@ -1,19 +1,31 @@
-import type { DeliverableType } from '@/types';
+import type { DeliverableType, LegacyDeliverableType } from '@/types';
 
 export type CanonicalDeliverableType = 'document' | 'web';
 
-export function normalizeStoredDeliverableType(
+export function parseStoredDeliverableType(
   deliverableType: unknown
-): DeliverableType | null {
+): LegacyDeliverableType | null {
   if (
     deliverableType === 'document' ||
     deliverableType === 'web' ||
+    deliverableType === 'slides' ||
     deliverableType === 'code'
   ) {
     return deliverableType;
   }
 
-  if (deliverableType === 'slides') {
+  return null;
+}
+
+export function normalizeStoredDeliverableType(
+  deliverableType: unknown
+): DeliverableType | null {
+  const parsed = parseStoredDeliverableType(deliverableType);
+  if (parsed === 'web') {
+    return 'web';
+  }
+
+  if (parsed) {
     return 'document';
   }
 
@@ -21,7 +33,7 @@ export function normalizeStoredDeliverableType(
 }
 
 export function getCanonicalDeliverableType(
-  deliverableType: DeliverableType | null | undefined
+  deliverableType: LegacyDeliverableType | null | undefined
 ): CanonicalDeliverableType {
   const normalized = normalizeStoredDeliverableType(deliverableType);
 

@@ -1,6 +1,6 @@
 # 成形统一交付模型进度追踪
 
-更新时间：2026-03-19
+更新时间：2026-03-20
 状态：进行中
 对应技能：[`chengxing-autopilot`](../skills/chengxing-autopilot/SKILL.md)
 相关文档：[项目状态](./chengxing-project-status.md) · [产品落地计划](./chengxing-rollout-plan.md) · [v-next 差距评估](./chengxing-v-next-gap-assessment.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
@@ -17,8 +17,8 @@
   - `GoalComposerDialog` 已内置意图判定；歧义目标会在创建流内展示结构化追问卡片
   - `/api/workspaces` 已支持 `both`，会先创建文档，再在同项目下自动创建 sibling web
 - 当前长期 active goal 仍未完成：
-  - `slides` 虽已有 `slide_page` block，但仍是独立 `DeliverableType`
-  - web 评论仍依赖父页面直读 iframe 选区；当前 raw preview 为跨源 `127.0.0.1`，闭环未成立
+  - 公共 `DeliverableType` 契约已收成 canonical `document | web`，但 `slides / code` 仍留在部分 stored plan / read compatibility 分支里，尚未彻底压回更深的内部兼容层
+  - `slide_page` 与 web anchor 的主闭环已完成，但仍需继续复查剩余兼容层，避免旧类型语义从 helper / type alias 回流
 
 ## 已确认决策
 
@@ -35,8 +35,8 @@
 | Phase 0 | 项目级 AI 上下文基线 | 已完成 | 当前 iteration goal，作为后续前提 |
 | Phase 1 | 创建流去类型化 | 已完成 | 已完成创建流意图判定、结构化追问卡片、`both` 同项目双交付物创建与回归 |
 | Phase 2 | `slides` 并入 `document` | 进行中 | 已完成 Phase 2.1：`document + slide_page` 自动投影成 slide 结果面；已完成 Phase 2.2：公共默认语义开始把 `slides` 折叠回 `document`；已完成 Phase 2.3：create / plan / payload 契约把 legacy `slides` 统一归一到 `document` |
-| Phase 3 | web 画词评论闭环 | 进行中 | 已完成 Phase 3.1 同源 preview bridge、选区评论创建和 Review 回放高亮；已完成 Phase 3.2：锚点绑定、继承重定位、`@assistant` revision run 与 preview run 回流；已完成 Phase 3.3：迁移后重复评论的 superseded 收口 |
-| Phase 4 | 语义收口与 plan 动态化 | 进行中 | 已完成 Phase 4.1 `Status` 面板人工类型切换清理；已完成 Phase 4.2 旧结果形态术语与 dead copy 清理；已完成 Phase 4.3 `code` 公共 canonical 语义收口 |
+| Phase 3 | web 画词评论闭环 | 已完成 | 已完成 Phase 3.1 同源 preview bridge、选区评论创建和 Review 回放高亮；已完成 Phase 3.2：锚点绑定、继承重定位、`@assistant` revision run 与 preview run 回流；已完成 Phase 3.3：迁移后重复评论的 superseded 收口；已完成 Phase 3.4：selector / excerpt / domContext 全漂移时的 stale 边界收口 |
+| Phase 4 | 语义收口与 plan 动态化 | 进行中 | 已完成 Phase 4.1 `Status` 面板人工类型切换清理；已完成 Phase 4.2 旧结果形态术语与 dead copy 清理；已完成 Phase 4.3 `code` 公共 canonical 语义收口；已完成 Phase 4.4 legacy `code` create / runtime 默认折回 `document`；已完成 Phase 4.5 slide 结果面旧类型文案清理；已完成 Phase 4.6 `fileKind=code` 残余推断收口；已完成 Phase 4.7 公共 `DeliverableType` 契约与 stored legacy type 拆分；已完成 Phase 4.8 prompt/tool/project-context 的 result-shape 术语收口；已完成 Phase 4.9 `implementation` 残留心智文案清理；已完成 Phase 4.10 AI debug / inspection plan 详情 canonical 收口 |
 
 ## 当前切片
 
@@ -149,6 +149,154 @@
 - 保留底层 file kind 和 legacy 读取兼容，不影响 web/slides 现有闭环
 - 已再次通过全量 `npm run verify:iteration`
 
+### 已完成：Phase 4.4 legacy `code` create / runtime 默认归一
+
+目标：
+
+- 把剩余还会主动长出 `code` 主路径的 create / runtime 默认值继续压回 `document`
+- 避免 legacy `code` 请求继续生成 `index.ts`、`kind=code` 这类新的主文件默认值
+- 让 plan / live draft / create route 在收到旧 `code` 输入时也保持当前产品只认 `document | web` 的外层语义
+
+当前进度：
+
+- `src/app/api/workspaces/route.ts` 已把 create route 的非 web 请求统一折回 `document`，并删除 `deliverableType=code` 的专属 file seed；legacy `code` 创建现在默认生成 `main` + `markdown`
+- `src/lib/ai/pi-agent-tools.ts` 已把 live draft upsert 的默认 `kind / path` 折回 `markdown / main`，不再继续给 legacy `code` 生成 `index.ts`
+- `src/lib/workspace/planning.ts` 已删除 `code` 专属阶段 fallback；legacy `code` 现在和文档一样走 `draft / review` 主路径，而不是继续落到 `implement / verify`
+- `tests/e2e/iteration/10-deliverable-intent.spec.ts` 已补 API 级回归，确保 legacy `code` 创建请求不会再生成新的 `index.ts` 主文件
+- 定向 `npx tsc --noEmit` 与 `npx playwright test tests/e2e/iteration/10-deliverable-intent.spec.ts tests/e2e/iteration/15-web-preview-comments.spec.ts --config=playwright.config.ts` 已通过
+
+已完成项：
+
+- 完成 legacy `code` 在 create route / live draft / plan runtime 默认值上的继续收口
+- 保留底层 file kind 兼容，但不再让新的主文件默认语义长回 `code`
+- 已再次通过全量 `npm run verify:iteration`
+
+### 已完成：Phase 4.5 slide 结果面旧类型文案清理
+
+目标：
+
+- 清掉 slide 结果面还在直接使用旧 create-time 类型词的文案
+- 删除共享 copy 表里已经不再被消费的旧 `slides / implementation / deliverableTypeChanged` 残留 key
+- 用一个稳定 E2E 断言防止 slide 结果壳再次回流旧类型标签
+
+当前进度：
+
+- `src/app/workspace/[workspaceId]/page.tsx` 已把 slide 结果面的 badge 从 `goal.slides` 改成新的 `workspace.slideResultBadge`，明确表述当前结果面，而不是旧的创建类型
+- `src/lib/i18n/copy.ts` 已删除不再被消费的 `goal.slides`、`goal.slidesDescription`、`goal.implementation`、`workspace.deliverableTypeChanged` 等残留 key，并补 `workspace.slideResultBadge`
+- `tests/e2e/iteration/12-slides-blocks.spec.ts` 已补 slide 结果面 badge 断言，确认当前展示的是 `Slide View / 幻灯片视图`，而不是旧的 `Presentation / 演示稿`
+- 定向 `npx tsc --noEmit` 与 `npx playwright test tests/e2e/iteration/12-slides-blocks.spec.ts --config=playwright.config.ts` 已通过
+
+已完成项：
+
+- 完成 slide 结果面的当前表面文案收口
+- 清掉一批不再被消费的旧类型 dead copy key
+- 补齐 slide 结果面 badge 的定向 Playwright 验收
+
+### 已完成：Phase 4.6 `fileKind=code` 残余推断收口
+
+目标：
+
+- 清掉共享类型推断里“只要 primary file kind 是 `code` 就直接推成 web”的残余分支
+- 避免无 plan 或 legacy plan 缺失的交付物，在项目级 AI 摘要、工具上下文和结果面推断里被误标成网页
+- 用项目级 AI context 的可执行回归覆盖这条边界，而不是只靠静态代码审查
+
+当前进度：
+
+- `src/lib/workspace/planning.ts` 已删除 `input.fileKind === 'code' -> web` 的直推条件；只有 goal / title / file path 等 corpus 明确出现网页信号时，才会继续推断为 `web`
+- `tests/e2e/iteration/14-project-ai-context.spec.ts` 已新增 API 级回归：直接把同项目兄弟交付物改成 `primary file kind=code` 且删除其 plan，再验证项目级 AI context 仍将其摘要成 `document`，不会误标成 `web`
+
+已完成项：
+
+- 完成共享 deliverable 推断里的 `fileKind=code` 残余语义清理
+- 补齐“无 plan + code-like primary file”下的项目级 AI context 回归
+- 已再次通过全量 `npm run verify:iteration`
+
+### 已完成：Phase 4.7 公共 `DeliverableType` 契约与 stored legacy type 拆分
+
+目标：
+
+- 让公共类型契约真正表达当前产品承认的 canonical 语义，而不是继续把 legacy `slides / code` 混在同一个 `DeliverableType` union 里
+- 把存量计划值和旧结果面兼容显式收进 stored legacy 字段，避免 helper、workspace view 和 AI context 再从类型别名层把旧语义带回产品表面
+- 用一个可执行回归同时守住两条边界：无 plan 的 code-like 文件仍按 `document` 摘要；stored `slides` 仍能通过统一 slide surface 打开
+
+当前进度：
+
+- `src/types/index.ts` 已把公共 `DeliverableType` 收成 `document | web`，并新增显式 `LegacyDeliverableType` 与 `storedDeliverableType`
+- `src/lib/workspace/deliverable-types.ts` 已补 `parseStoredDeliverableType`，公共 helper 统一读取 canonical 语义，legacy `slides / code` 只在 stored/read compatibility 层保留
+- `src/lib/workspace/service.ts`、`src/lib/ai/pi-agent-tools.ts`、`src/lib/workspace/planning.ts`、`src/app/workspace/[workspaceId]/page.tsx` 已改成“对外走 canonical deliverable，对内按 stored legacy 做兼容投影”
+- `src/app/api/debug/workspaces/[workspaceId]/plan/route.ts` 已补 `PATCH`，仅在 `DAO_E2E=1` 下允许把 raw stored deliverable type 改成 legacy 值，方便稳定验旧
+- `tests/e2e/iteration/12-slides-blocks.spec.ts` 已补“stored `slides` 仍会进入统一 slide surface”的回归；`tests/e2e/iteration/14-project-ai-context.spec.ts` 继续守住“无 plan + code-like primary file 不会误判成 web”
+- 定向 `npx tsc --noEmit` 与 `npx playwright test tests/e2e/iteration/12-slides-blocks.spec.ts tests/e2e/iteration/14-project-ai-context.spec.ts --config=playwright.config.ts` 已通过
+
+已完成项：
+
+- 完成公共 `DeliverableType` 与 stored legacy type 的显式拆分
+- 保持 legacy `slides` 结果面兼容与无 plan code-like 摘要边界不回退
+- 已再次通过全量 `npm run verify:iteration`
+
+### 已完成：Phase 4.8 prompt/tool/project-context 的 result-shape 术语收口
+
+目标：
+
+- 清掉 plan generator、workspace tool summary 和项目级 AI 上下文里残留的 `Deliverable type` / `Type` 旧术语
+- 确保这些 prompt-facing 摘要统一输出 canonical `result shape`，不把 stored legacy 值直接回流给 AI
+- 用现有项目级 AI context 回归覆盖这条文案与语义边界，而不是只做静态搜索
+
+当前进度：
+
+- `src/lib/ai/plan-generator.ts` 已把 prompt 输入里的 `Deliverable type` 改成 `Result shape`
+- `src/lib/ai/pi-agent-tools.ts` 已把 `get_workspace_context` 和 `read_project_deliverable_file` 的摘要文案统一改成 `Result shape`，并在 workspace brief 里显式 canonicalize stored plan deliverable 语义
+- `src/lib/ai/project-context.ts` 已把项目交付物列表摘要从 `(document, status: ...)` 改成 `(shape: document, status: ...)`，避免把 canonical 值继续按“type”语义拼进 AI 上下文
+- `tests/e2e/iteration/14-project-ai-context.spec.ts` 已更新并补充断言，覆盖 system prompt、workspace context tool 和 sibling read tool 的新 `result shape` 语义
+- 定向 `npx tsc --noEmit` 与 `npx playwright test tests/e2e/iteration/14-project-ai-context.spec.ts --config=playwright.config.ts` 已通过
+
+已完成项：
+
+- 完成 plan/tool/project-context 的 prompt-facing result-shape 术语收口
+- 保持项目级 AI context 的 canonical 语义和 sibling read 能力不回退
+- 已再次通过全量 `npm run verify:iteration`
+
+### 已完成：Phase 4.9 `implementation` 残留心智文案清理
+
+目标：
+
+- 清掉首页引导、通用 AI 指令和 plan blueprint 里还会把 `implementation` 当成主要结果形态示例的残留文案
+- 避免产品明明已经收成“结果形态 + supporting/source asset”语义，但首页和通用提示仍在偷偷把用户往旧 `code/implementation` 心智上带
+- 用最小改动收掉这一簇 copy residue，不引入新的交互分支
+
+当前进度：
+
+- `src/lib/i18n/copy.ts` 已把首页 hero 文案里的 “report, proposal, page, or implementation” 改成更中性的 “report, proposal, page, or result”
+- `src/lib/ai/context-builder.ts` 已把通用 AI 指令里的 `implementation asset / implementation details` 改成 `supporting asset / source details`
+- `src/lib/workspace/plan-blueprints.ts` 已把 web review 阶段默认描述从 `implementation` 改成更贴近结果面的 `interaction details`
+- 定向 `npx tsc --noEmit` 已通过
+
+已完成项：
+
+- 完成首页、通用 AI 指令和 web plan blueprint 的 `implementation` 残留文案清理
+- 保持现有统一结果形态语义不回退
+- 已再次通过全量 `npm run verify:iteration`
+
+### 已完成：Phase 4.10 AI debug / inspection plan 详情 canonical 收口
+
+目标：
+
+- 避免 `get_workspace_context` 的 debug / inspection `details.workspacePlan` 继续把 raw stored `slides / code` 直接暴露给调试面和 E2E 辅助链路
+- 让 AI 调试视图和正式产品面使用同一套 canonical `deliverableType + storedDeliverableType` 语义，而不是 summary 已收口、details 仍泄漏 legacy 值
+- 用一条可执行回归守住“legacy `slides` 只在 stored compatibility 层可见”的边界
+
+当前进度：
+
+- `src/lib/ai/pi-agent-tools.ts` 已为 `get_workspace_context` 增加 debug plan details 归一逻辑；返回的 `workspacePlan` 现在显式区分 canonical `deliverableType` 与 `storedDeliverableType`
+- `tests/e2e/iteration/14-project-ai-context.spec.ts` 已新增调试面回归：当 raw stored deliverable type 被设成 `slides` 时，tool summary 仍显示 `Result shape: document`，而 `details.workspacePlan` 只会暴露 `deliverableType=document` 与 `storedDeliverableType=slides`
+- 定向 `npx tsc --noEmit` 与 `npx playwright test tests/e2e/iteration/14-project-ai-context.spec.ts --config=playwright.config.ts` 已通过
+
+已完成项：
+
+- 完成 AI debug / inspection plan details 的 canonical 收口
+- 补齐 legacy stored type 只留在 compatibility 字段的定向 Playwright 验收
+- 已再次通过全量 `npm run verify:iteration`
+
 ### 已完成：Phase 3.1 同源 preview bridge 与 Review 回放
 
 目标：
@@ -241,13 +389,35 @@
 - 补齐迁移后重复评论的定向 Playwright 验收
 - 已再次通过全量 `npm run verify:iteration`
 
+### 已完成：Phase 3.4 web stale/fallback 边界收口
+
+目标：
+
+- 避免旧 web 继承线程只因为页面里还残留零散 selector token，就被错误地继续判成 actionable
+- 让 `selector / excerpt / domContext` 都漂移后的旧线程稳定进入 `stale`
+- 把 web 线程可重定位的判断标准从弱 token 命中收紧到真正能反证“当前表面仍是同一目标”的强信号
+
+当前进度：
+
+- `src/app/api/threads/route.ts` 已把 `web-component` 线程的当前表面映射判断拆成独立分支，不再沿用普通文本线程的弱匹配逻辑
+- web stale 判定现在只接受三类强信号：完整 selector 或其稳定 `id` 来源、完整 excerpt、完整 domContext 或至少两个稳定上下文片段；仅剩零散 selector token 时不会再误判为可重定位
+- `tests/e2e/iteration/15-web-preview-comments.spec.ts` 已新增“selector、excerpt、domContext 都漂移后旧线程变 stale”的回归，并刻意保留无关 `hero-*` token 验证不会假阳性存活
+- 定向 `npx tsc --noEmit` 与 `npx playwright test tests/e2e/iteration/15-web-preview-comments.spec.ts --config=playwright.config.ts` 已通过
+
+已完成项：
+
+- 完成 web 继承线程 stale/fallback 边界的强信号收口
+- 清掉 selector token 残留导致 inherited 线程假阳性存活的判定路径
+- 补齐“完全漂移 -> stale / Earlier Context” 的定向 Playwright 验收
+- 已再次通过全量 `npm run verify:iteration`
+
 ### 下一切片
 
 优先顺序：
 
-1. Phase 3.4：继续评估 selector、excerpt、domContext 都漂移后的 web 锚点 stale/fallback 边界
-2. Phase 4.4：继续评估剩余 raw `code` 兼容路径，尽量限制在 create/tool/runtime 内部实现层
-3. 继续检查是否还有共享 copy / prompt / workflow fallback 会把旧类型术语带回主语义
+1. 继续审计更深层 stored plan / create / read fallback，确认 `slides / code` 不会从内部兼容分支重新泄漏到公共 view model
+2. 继续复查 Phase 2 / Phase 3 的交叉边界，确认 `slide_page` 投影和 web anchor 兼容层不会重新长回旧类型分支
+3. 继续扫描剩余共享 copy / blueprint fallback，确认不再有新的 `implementation / legacy result-shape` 语义回流点
 
 ## 验收记录
 
@@ -263,6 +433,14 @@
 - 2026-03-19：Phase 4.2 旧结果形态术语与 dead copy 清理完成，workflow draft / replan / first-pass / tool 描述统一改成 result-shape 语义，并删除未使用的 deliverable-type 旧 key；静态检查通过后再次通过 `npm run verify:iteration`，结果为 `44 passed (1.2m)`。
 - 2026-03-19：Phase 3.3 迁移后重复评论的 superseded 收口完成，高信号 identity candidate 会把“新位置上的 direct 评论”与旧 inherited 线程判成覆盖关系；定向 `tsc` 与 `tests/e2e/iteration/15-web-preview-comments.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `45 passed (1.3m)`。
 - 2026-03-19：Phase 4.3 `code` 公共 canonical 语义收口完成，共享 helper / label / plan blueprint / 默认推断现在只认 `document | web`；定向 `tsc` 与 create/workflow/slides/web 相关 Playwright 通过后，再次通过 `npm run verify:iteration`，结果为 `45 passed (1.3m)`。
+- 2026-03-19：Phase 3.4 web stale/fallback 边界收口完成；web 继承线程只有在 selector / excerpt / domContext 仍有强源证据时才保持 actionable，三者都漂移时会稳定转入 `stale`；定向 `tsc` 与 `tests/e2e/iteration/15-web-preview-comments.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `47 passed (1.3m)`。
+- 2026-03-19：Phase 4.4 legacy `code` create / runtime 默认归一完成；旧 `code` 请求现在会落到 `main + markdown` 和文档式阶段默认，而不会继续生成新的 `index.ts` 主路径；定向 `tsc` 与 create/web 相关 Playwright 通过后，再次通过 `npm run verify:iteration`，结果为 `47 passed (1.3m)`。
+- 2026-03-19：Phase 4.5 slide 结果面旧类型文案清理完成；slide 结果壳改用 `Slide View / 幻灯片视图` 这类当前视图语义，并删除不再被消费的旧 `slides / implementation / deliverableTypeChanged` copy key；定向 `tsc` 与 `tests/e2e/iteration/12-slides-blocks.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `47 passed (1.7m)`。
+- 2026-03-19：Phase 4.6 `fileKind=code` 残余推断收口完成；共享 deliverable 推断不再因为 primary file `kind=code` 就把无 plan 的历史交付物误标成 `web`，项目级 AI context 已补 API 级回归；定向 `tsc` 与 `tests/e2e/iteration/14-project-ai-context.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `48 passed (1.8m)`。
+- 2026-03-19：Phase 4.7 公共 `DeliverableType` 契约与 stored legacy type 拆分完成；workspace view、公共 helper 和项目级 AI context 对外只再暴露 canonical `document | web`，legacy `slides / code` 改为显式 stored compatibility 语义；定向 `tsc` 与 `tests/e2e/iteration/12-slides-blocks.spec.ts`、`tests/e2e/iteration/14-project-ai-context.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `49 passed (1.7m)`。
+- 2026-03-19：Phase 4.8 prompt/tool/project-context 的 result-shape 术语收口完成；plan generator、workspace tools 和项目级 AI 摘要不再使用 `Deliverable type / Type` 旧文案，且 workspace brief 会先 canonicalize stored plan deliverable 语义后再注入 prompt；定向 `tsc` 与 `tests/e2e/iteration/14-project-ai-context.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `49 passed (1.7m)`。
+- 2026-03-19：Phase 4.9 `implementation` 残留心智文案清理完成；首页 hero、通用 AI 指令和 web plan blueprint 不再把 `implementation` 当作统一结果形态的主示例；定向 `tsc` 通过后，再次通过 `npm run verify:iteration`，结果为 `49 passed (1.8m)`。
+- 2026-03-20：Phase 4.10 AI debug / inspection plan 详情 canonical 收口完成；`get_workspace_context` 的 debug details 不再直接泄漏 raw stored `slides / code`，而是显式返回 canonical `deliverableType` 与 `storedDeliverableType`；定向 `tsc` 与 `tests/e2e/iteration/14-project-ai-context.spec.ts` 通过后，再次通过 `npm run verify:iteration`，结果为 `50 passed (2.0m)`。
 
 ## 进度更新规则
 

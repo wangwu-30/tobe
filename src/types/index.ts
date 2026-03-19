@@ -183,7 +183,9 @@ export type ChatAttachmentData = {
   updatedAt?: Date | string;
 };
 
-export type DeliverableType = 'document' | 'slides' | 'web' | 'code';
+export type DeliverableType = 'document' | 'web';
+
+export type LegacyDeliverableType = DeliverableType | 'slides' | 'code';
 
 export type CommentAgentConfigData = {
   id: string;
@@ -243,6 +245,7 @@ export type DeliverableData = {
   workspaceId: string;
   title: string;
   deliverableType: DeliverableType;
+  storedDeliverableType: LegacyDeliverableType | null;
   persistedStatus: string;
   content: string;
   primaryFileId: string | null;

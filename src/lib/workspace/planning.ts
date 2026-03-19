@@ -1,5 +1,8 @@
 import { prisma } from '@/lib/db/prisma';
-import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
+import {
+  normalizeStoredDeliverableType,
+  parseStoredDeliverableType,
+} from '@/lib/workspace/deliverable-types';
 import { resolveWorkflowExtensionHints } from '@/lib/workflows/extension-hints';
 import { buildDefaultPlanStages } from '@/lib/workspace/plan-blueprints';
 import type {
@@ -109,7 +112,7 @@ export function inferDeliverableType(input: {
     return normalizedExplicitType;
   }
 
-  if (normalizedExplicitType === 'document' || normalizedExplicitType === 'code') {
+  if (normalizedExplicitType === 'document') {
     return 'document';
   }
 
@@ -128,7 +131,6 @@ export function inferDeliverableType(input: {
   }
 
   if (
-    input.fileKind === 'code' ||
     /landing|frontend|front-end|website|web app|page|页面|网页|组件|next\.js|react|vite|html|css/.test(
       corpus
     )
@@ -501,6 +503,7 @@ export function buildDeliverable(params: {
   currentVersion: number;
   files: WorkspaceFileData[];
   plan: WorkspacePlanData | null;
+  storedDeliverableType?: string | null;
   workspace: WorkspaceRecord;
 }): DeliverableData {
   const deliverableFiles = params.files.filter((file) => file.role === 'deliverable');
@@ -521,6 +524,7 @@ export function buildDeliverable(params: {
     workspaceId: params.workspace.id,
     title: params.workspace.title,
     deliverableType: inferredType,
+    storedDeliverableType: parseStoredDeliverableType(params.storedDeliverableType),
     persistedStatus: params.workspace.status,
     content: primaryFile?.content || params.workspace.content,
     primaryFileId: primaryFile?.id || null,
@@ -877,10 +881,6 @@ function resolveActiveStageKind(params: {
       return 'structure';
     }
 
-    if (params.deliverableType === 'code') {
-      return 'implement';
-    }
-
     if (params.deliverableType === 'web') {
       return 'render';
     }
@@ -896,7 +896,7 @@ function resolveActiveStageKind(params: {
   }
 
   if (params.currentStatus?.phase === 'reviewing' || params.currentStatus?.phase === 'blocked') {
-    return params.deliverableType === 'code' ? 'verify' : 'review';
+    return 'review';
   }
 
   if (params.currentStatus?.phase === 'finalized') {

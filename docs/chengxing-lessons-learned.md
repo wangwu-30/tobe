@@ -1,6 +1,6 @@
 # 成形经验教训台账
 
-更新时间：2026-03-19
+更新时间：2026-03-20
 状态：持续维护中
 相关文档：[项目状态](./chengxing-project-status.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
 
@@ -382,6 +382,54 @@
 - 结论：像 `code` 这类历史类型，如果产品层已经明确只剩两条主路径，就不要继续让它占据共享 canonical helper、label、blueprint 和默认推断；但也不必一次性删掉底层存储字段和 file kind。
 - 为什么：直接硬删底层兼容会把风险扩散到历史数据和运行时；但如果继续把历史类型留在公共 canonical 层，新的 plan、label 和 AI 默认语义又会不断把它重新长回产品表面。
 - 默认做法：先把公共 canonical helper 收成产品真正承认的那几条主路径，再把 legacy 类型限制到 normalize / read / file-kind 这类内部兼容层；只有在外层语义稳定后，再逐步清理更深的存量分支。
+
+### 23. web 继承线程的 stale 判定，不能把零散 selector token 当成仍可定位的证据
+
+- 结论：对于 `web-component` 线程，只要 selector、excerpt 和 domContext 都已经漂移，就不能因为页面里还残留一个同名 token 或无关 id 片段，继续把旧线程判成 actionable。
+- 为什么：selector token 往往会在重构后的新节点、样式类名或无关元素里残留；如果 stale 判定只靠这些碎片命中，旧 inherited 线程就会假阳性存活，用户会把早已失效的评论继续当成当前待处理事项。
+- 默认做法：web stale/fallback 只认强信号来源。selector 至少要能匹配完整 selector 或稳定 id 来源；excerpt 要命中完整片段；domContext 要命中完整上下文或至少两个稳定片段。做不到这三类证据时，线程直接转 `stale` 并收进 `Earlier Context`。
+
+### 24. 收口 legacy 类型时，要把 file seed、默认路径、默认 kind 和阶段 fallback 一起归一
+
+- 结论：把历史类型从公共 canonical 语义里收掉还不够，create route、live draft 默认路径、文件 kind 和 plan 阶段 fallback 也必须一起折回当前主语义。
+- 为什么：如果只改 label、blueprint 和推断，但 file seed 仍在生成 `index.ts`、runtime 仍默认 `kind=code`、plan 仍走 `implement / verify`，系统就会在更深的 create/runtime 层重新长回被收掉的旧类型。
+- 默认做法：做 legacy 类型收口时，统一检查 create seed、live draft upsert、默认文件路径、默认 kind 和阶段 fallback；确保新的写入路径只产生当前产品承认的默认值，历史类型只留在 normalize / read / file-kind 兼容层。
+
+### 25. 结果面标签必须描述当前投影，而不是借用创建时的类型词
+
+- 结论：像 slide 结果面这种由内容投影出来的当前表面，badge 和说明文案应该描述“你现在看到的是什么视图”，而不是沿用创建流里的旧类型名。
+- 为什么：一旦结果面继续显示 `Presentation / 演示稿` 这类历史类型词，用户会把当前表面误解成“又回到了旧 deliverable type”，而不是统一内容模型下的一种投影；共享 copy 里的旧 key 也会继续给后续组件提供回流点。
+- 默认做法：结果面 badge、空态和说明统一用当前视图语义命名，例如 `Slide View / 幻灯片视图`；不再复用创建流或旧类型切换遗留下来的 key，dead copy 一旦失效就直接删除。
+
+### 26. `fileKind=code` 只是实现线索，不能单独当成网页语义证据
+
+- 结论：在统一交付模型里，primary file 的 `kind=code` 只能说明“这份内容当前以源码文件存放”，不能单独推出它一定是网页交付物。
+- 为什么：历史实现说明、技术附录、无 plan 的迁移中间态都可能暂时落成 `code` 文件；如果共享推断只看 file kind，就会把项目级摘要、AI context 和结果壳语义误导到 `web` 主路径上。
+- 默认做法：网页推断至少要同时看到 goal、title、文件路径或其它 corpus 里的明确网页信号；`fileKind=code` 只作为辅助线索，不单独决定最终 deliverable 语义。
+
+### 27. 公共 canonical 类型和 stored legacy 类型要拆成两个字段，不能继续共用一个 union
+
+- 结论：一旦产品层已经确定只承认 `document | web` 这类 canonical 语义，就不要再让 legacy `slides / code` 混在同一个公共 `DeliverableType` union 里。
+- 为什么：只要公共 union 还带着 legacy 值，workspace view、项目级 AI context、label helper 和其它共享代码就会不断把旧语义重新带回产品表面；但如果直接删掉 legacy 值，又会失去对存量 plan 值和旧结果面的安全兼容。
+- 默认做法：公共字段只暴露 canonical 类型，另加显式 stored compatibility 字段承载 legacy 值；normalize / read / projection 层专门消费 legacy 字段，新的写入和公共 view model 一律不再回流旧类型。
+
+### 28. AI prompt/tool 摘要也必须先 canonicalize，再决定怎么命名语义
+
+- 结论：当 stored plan 里还允许 legacy `slides / code` 值存在时，plan generator、workspace tools 和项目级摘要不能直接把原始值按 `Deliverable type` 拼进 prompt。
+- 为什么：哪怕 UI 和公共类型契约已经收口，只要 prompt-facing 摘要还直接发出旧值或旧标签，AI 就会继续把历史兼容语义当成当前产品表面事实，后续总结、计划和跨交付物读取都会被旧词污染。
+- 默认做法：所有进入 AI prompt 的 deliverable 摘要先 canonicalize 成当前产品承认的 result shape，再用 `result shape / shape` 这类当前命名输出；不要让 stored legacy 值和 `Deliverable type / Type` 旧术语直接进入 prompt。
+
+### 29. 结果形态收口不要只改显式类型词，`implementation` 这类隐性心智也要一起清
+
+- 结论：当产品已经不再把 `code/implementation` 当成独立主结果形态时，首页 hero、通用 AI 指令和 plan blueprint 里仍然把 `implementation` 当主示例的文案也要同步清掉。
+- 为什么：这些词虽然不总是直接表现为旧类型选择器，但会持续把用户和 AI 往“做一个实现物/代码产物”的旧心智上带，稀释统一结果形态模型的主语义。
+- 默认做法：面向用户和 AI 的通用文案优先使用 `result`、`supporting asset`、`source details`、`interaction details` 这类当前语义；只有在确实讨论底层实现时，才局部使用 `implementation`。
+
+### 30. 调试面和验收辅助链路也必须跟产品主契约同步收口
+
+- 结论：像 `get_workspace_context` 这类既服务 AI、又服务 debug/E2E inspection 的详情面，不能因为“不是正式 UI”就继续透传 raw stored `slides / code`。
+- 为什么：summary 文案即使已经 canonicalize，只要 debug details 还在直接暴露旧值，测试辅助链路、调试工具和后续实现者就会继续把 legacy union 当成真实公共契约，旧语义会从非 UI 面重新回流。
+- 默认做法：inspection/details 返回值也要与正式 view model 对齐，统一输出 canonical `deliverableType`，并把历史兼容值压进显式 `storedDeliverableType`；任何辅助调试接口都不应绕过这条边界。
 
 ## 技术踩坑记录
 

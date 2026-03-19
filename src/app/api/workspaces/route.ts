@@ -60,7 +60,9 @@ export async function POST(req: NextRequest) {
       ? 'web'
       : requestedCreateMode === 'document'
         ? 'document'
-        : legacyDeliverableType || 'document';
+        : legacyDeliverableType === 'web'
+          ? 'web'
+          : 'document';
   const selectedIntentNote =
     typeof body.selectedIntentNote === 'string' && body.selectedIntentNote.trim()
       ? body.selectedIntentNote.trim()
@@ -615,18 +617,6 @@ function buildWorkspaceFileSeeds(params: {
         kind: 'code' as const,
         language: 'javascript',
         name: 'App.js',
-      },
-    };
-  }
-
-  if (params.deliverableType === 'code') {
-    return {
-      additional: [],
-      primary: {
-        content: params.initialContent || '',
-        kind: 'code' as const,
-        language: 'typescript',
-        name: 'index.ts',
       },
     };
   }

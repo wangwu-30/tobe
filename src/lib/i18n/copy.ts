@@ -259,7 +259,6 @@ const COPY = {
     'goal.projectLocationUnavailable':
       'This desktop build cannot open the folder picker yet.',
     'goal.document': 'Document',
-    'goal.documentDescription': 'Reports, proposals, briefs, and long-form writing.',
     'goal.intentClarifyPrompt':
       'I want to understand the shape of the result a bit better so I can choose the best way to build it.',
     'goal.intentDocumentDescription':
@@ -308,13 +307,9 @@ const COPY = {
       'This run can start directly from the goal. Once the method feels stable, save it from Context and reuse it next time.',
     'goal.workflowDescription':
       'Optionally start from a saved local method instead of re-explaining the same working pattern.',
-    'goal.slides': 'Presentation',
-    'goal.slidesDescription': 'Decks, speaking outlines, and presentation structure.',
     'goal.stylePlaceholder': 'Optional: concise, executive, technical, narrative...',
     'goal.styleTone': 'Style / Tone',
     'goal.webPage': 'Web Page',
-    'goal.webPageDescription': 'Landing pages, small sites, and previewable web deliverables.',
-    'goal.implementation': 'Implementation',
     'goal.comingSoon': 'Coming Soon',
     'context.addKnowledge': 'Add Knowledge',
     'context.addWorkflow': 'Save Workflow',
@@ -403,7 +398,7 @@ const COPY = {
       'Plans, review, chat, and context stay available without turning the product into an IDE.',
     'home.configureModels': 'Configure models',
     'home.heroDescription':
-      'Chengxing is built for iterative content production. Describe the report, proposal, page, or implementation you want. AI lays out the plan, prepares the first structure, and keeps revisions local and reviewable.',
+      'Chengxing is built for iterative content production. Describe the report, proposal, page, or result you want. AI lays out the plan, prepares the first structure, and keeps revisions local and reviewable.',
     'home.heroTitle': 'Start with the outcome. Let AI take the first pass.',
     'home.startWithGoal': 'Start with a Goal',
     'home.subtitle': 'Start from a goal, not a blank file',
@@ -775,6 +770,7 @@ const COPY = {
       'Start preview to comment on visible page sections instead of editing source first.',
     'workspace.showDeliverable': 'Show Deliverable',
     'workspace.showImplementation': 'Show Implementation',
+    'workspace.slideResultBadge': 'Slide View',
     'workspace.slideCardLabel': 'Slide {index}',
     'workspace.slidesCardEmpty':
       'This slide is still mostly structure. Keep refining the slide_page content and this view will update with it.',
@@ -797,8 +793,6 @@ const COPY = {
     'workspace.view': 'View',
     'workspace.aiPreparingFirstPass':
       'AI is starting the first live draft and preparing a recovery point.',
-    'workspace.deliverableTypeChanged':
-      'Switched to {label}. The current result was not rewritten automatically; regenerate when you want it reshaped for this type.',
     'workspace.appliedStagedChanges':
       'Applied staged changes to the current draft.',
     'workspace.discardedStagedChanges': 'Discarded staged changes.',
@@ -1039,7 +1033,6 @@ const COPY = {
     'goal.changeProjectLocation': '更换文件夹',
     'goal.projectLocationUnavailable': '当前桌面构建暂时无法打开文件夹选择器。',
     'goal.document': '文档',
-    'goal.documentDescription': '适合报告、方案、brief 和其他长文交付物。',
     'goal.intentClarifyPrompt': '我想更了解你期望的结果形态，以便选择最合适的完成方式。',
     'goal.intentDocumentDescription':
       '适合阅读、发送和导出的内容，也可以继续投影成 PDF、Word 或幻灯片。',
@@ -1084,13 +1077,9 @@ const COPY = {
       '这次可以先直接从目标开始。等方法稳定后，再从右侧上文把它保存成 Workflow，下次直接复用。',
     'goal.workflowDescription':
       '可选：直接沿用一套已沉淀的方法，而不是每次重新解释同样的工作方式。',
-    'goal.slides': '演示稿',
-    'goal.slidesDescription': '适合演示文稿、大纲和讲述节奏清晰的内容。',
     'goal.stylePlaceholder': '可选：简洁、面向管理层、技术化、叙事风格……',
     'goal.styleTone': '风格 / 语气',
     'goal.webPage': '网页',
-    'goal.webPageDescription': '适合落地页、小型站点和可直接预览的网页交付物。',
-    'goal.implementation': '实现面',
     'goal.comingSoon': '敬请期待',
     'context.addKnowledge': '添加知识',
     'context.addWorkflow': '保存 Workflow',
@@ -1500,6 +1489,7 @@ const COPY = {
     'workspace.previewReadyDescription': '启动预览后，你可以直接针对可见页面区域评论，而不是先去编辑源码。',
     'workspace.showDeliverable': '显示交付物',
     'workspace.showImplementation': '显示实现',
+    'workspace.slideResultBadge': '幻灯片视图',
     'workspace.slideCardLabel': '第 {index} 页',
     'workspace.slidesCardEmpty':
       '这一页目前还更像结构骨架；继续完善 slide_page 内容后，这里会跟着更新。',
@@ -1521,8 +1511,6 @@ const COPY = {
     'workspace.untitledProject': '未命名项目',
     'workspace.view': '视图',
     'workspace.aiPreparingFirstPass': 'AI 正在启动第一版 live draft，并准备回退点。',
-    'workspace.deliverableTypeChanged':
-      '已切换为{label}。当前结果未自动改写；如需按这个类型重整，请手动触发。',
     'workspace.appliedStagedChanges': '已将 staged changes 应用到当前草稿。',
     'workspace.discardedStagedChanges': '已丢弃 staged changes。',
     'workspace.stagedChangesCouldNotApply': 'staged changes 无法应用。',

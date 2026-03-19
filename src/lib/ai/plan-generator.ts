@@ -39,7 +39,7 @@ export async function generatePlanStepsWithAI(params: {
           role: 'user',
           content: [
             `Goal: ${params.goal.trim() || 'Create a new deliverable'}`,
-            `Deliverable type: ${getCanonicalDeliverableType(params.deliverableType)}`,
+            `Result shape: ${getCanonicalDeliverableType(params.deliverableType)}`,
             params.styleGuide?.trim() ? `Style / tone: ${params.styleGuide.trim()}` : null,
             params.constraints?.trim() ? `Constraints: ${params.constraints.trim()}` : null,
             '',

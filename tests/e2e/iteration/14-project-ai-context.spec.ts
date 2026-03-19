@@ -77,8 +77,8 @@ test('project AI context exposes sibling deliverable summaries and explicit cros
   expect(debugContext.systemPrompt).toContain('## Current Project Context');
   expect(debugContext.systemPrompt).toContain(projectTitle);
   expect(debugContext.systemPrompt).toContain(faqTitle);
-  expect(debugContext.systemPrompt).toContain('(web, status:');
-  expect(debugContext.systemPrompt).toContain('(document, status:');
+  expect(debugContext.systemPrompt).toContain('(shape: web, status:');
+  expect(debugContext.systemPrompt).toContain('(shape: document, status:');
   expect(debugContext.systemPrompt).toContain(projectKnowledge);
   expect(debugContext.systemPrompt).toContain(projectMemory);
 
@@ -95,6 +95,7 @@ test('project AI context exposes sibling deliverable summaries and explicit cros
   expect(workspaceContextTool?.text).toContain('Current project deliverables:');
   expect(workspaceContextTool?.text).toContain(projectTitle);
   expect(workspaceContextTool?.text).toContain(faqTitle);
+  expect(workspaceContextTool?.text).toContain('- Result shape: document');
   expect(workspaceContextTool?.text).toContain(projectKnowledge);
   expect(workspaceContextTool?.text).toContain(projectMemory);
 
@@ -103,7 +104,109 @@ test('project AI context exposes sibling deliverable summaries and explicit cros
   );
   expect(siblingReadTool?.text).toContain(`Deliverable: ${projectTitle}`);
   expect(siblingReadTool?.text).toContain(`Workspace ID: ${homepage.id}`);
+  expect(siblingReadTool?.text).toContain('Result shape: web');
   expect(siblingReadTool?.text).toContain(homepageCopy);
+});
+
+test('project AI context does not misclassify code-like primary files as web without a plan', async ({
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const projectTitle = `兼容项目 ${suffix}`;
+  const referenceTitle = `历史实现说明 ${suffix}`;
+  const currentTitle = `当前说明 ${suffix}`;
+
+  const referenceWorkspace = await createWorkspace(baseURL, referenceTitle);
+  const referenceView = await getWorkspaceView(
+    baseURL,
+    referenceWorkspace.id,
+    referenceWorkspace.conversationId
+  );
+  const projectId =
+    referenceView.currentProject?.id || referenceView.workspace?.projectId || null;
+  const referencePrimaryFileId =
+    referenceView.files.find((file) => file.nodeType === 'file' && file.isPrimary)?.id ||
+    referenceView.files.find((file) => file.nodeType === 'file')?.id ||
+    null;
+
+  expect(projectId).toBeTruthy();
+  expect(referencePrimaryFileId).toBeTruthy();
+  if (!projectId || !referencePrimaryFileId) {
+    throw new Error('Project context fallback coverage requires a project id and primary file.');
+  }
+
+  await updateWorkspaceFile(baseURL, referenceWorkspace.id, referencePrimaryFileId, {
+    content: 'export const legacySpec = "keep structured notes for implementation handoff";',
+    kind: 'code',
+  });
+  await deleteWorkspacePlan(baseURL, referenceWorkspace.id);
+
+  const currentWorkspace = await createWorkspace(baseURL, currentTitle, {
+    goal: '整理当前交付物说明，并读取同项目里的既有需求背景。',
+    projectId,
+    projectTitle,
+  });
+  await updateWorkspacePlan(baseURL, currentWorkspace.id, {
+    deliverableType: 'document',
+    goal: '整理当前交付物说明，并参考同项目的历史实现背景。',
+  });
+
+  const debugContext = await inspectAiContext(
+    baseURL,
+    currentWorkspace.id,
+    currentWorkspace.conversationId,
+    [{ name: 'list_project_deliverables' }, { name: 'get_workspace_context' }]
+  );
+
+  expect(debugContext.systemPrompt).toContain(projectTitle);
+  expect(debugContext.systemPrompt).toContain(referenceTitle);
+  expect(debugContext.systemPrompt).toContain(currentTitle);
+  expect(debugContext.systemPrompt).toContain(`- ${referenceTitle} (shape: document, status:`);
+  expect(debugContext.systemPrompt).not.toContain(`- ${referenceTitle} (shape: web, status:`);
+
+  const projectListTool = debugContext.toolResults.find(
+    (result) => result.name === 'list_project_deliverables'
+  );
+  expect(projectListTool?.text).toContain(`- ${referenceTitle} [workspaceId: ${referenceWorkspace.id}] (shape: document, status:`);
+  expect(projectListTool?.text).not.toContain(`- ${referenceTitle} [workspaceId: ${referenceWorkspace.id}] (shape: web, status:`);
+
+  const workspaceContextTool = debugContext.toolResults.find(
+    (result) => result.name === 'get_workspace_context'
+  );
+  expect(workspaceContextTool?.text).toContain(`- ${referenceTitle} [workspaceId: ${referenceWorkspace.id}] (shape: document, status:`);
+  expect(workspaceContextTool?.text).not.toContain(`- ${referenceTitle} [workspaceId: ${referenceWorkspace.id}] (shape: web, status:`);
+});
+
+test('debug AI workspace context details canonicalize legacy stored deliverable types', async ({
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const title = `Legacy slides 调试面 ${suffix}`;
+
+  const workspace = await createWorkspace(baseURL, title, {
+    goal: '验证 AI debug 详情面不会直接泄漏 legacy slides 类型。',
+  });
+
+  await updateWorkspacePlan(baseURL, workspace.id, {
+    deliverableType: 'document',
+    goal: '把这份交付物作为 slide_page 文档继续推进。',
+  });
+  await setStoredWorkspaceDeliverableType(baseURL, workspace.id, 'slides');
+
+  const debugContext = await inspectAiContext(
+    baseURL,
+    workspace.id,
+    workspace.conversationId,
+    [{ name: 'get_workspace_context' }]
+  );
+
+  const workspaceContextTool = debugContext.toolResults.find(
+    (result) => result.name === 'get_workspace_context'
+  );
+
+  expect(workspaceContextTool?.text).toContain('- Result shape: document');
+  expect(workspaceContextTool?.details?.workspacePlan?.deliverableType).toBe('document');
+  expect(workspaceContextTool?.details?.workspacePlan?.storedDeliverableType).toBe('slides');
 });
 
 type CreateWorkspaceOptions = {
@@ -194,6 +297,12 @@ async function inspectAiContext(
   return apiRequest<{
     systemPrompt: string;
     toolResults: Array<{
+      details?: {
+        workspacePlan?: {
+          deliverableType: 'document' | 'web';
+          storedDeliverableType: 'document' | 'web' | 'slides' | 'code' | null;
+        } | null;
+      };
       name: string;
       text: string;
     }>;
@@ -204,6 +313,23 @@ async function inspectAiContext(
       workspaceId,
     },
     method: 'POST',
+  });
+}
+
+async function deleteWorkspacePlan(baseURL: string, workspaceId: string) {
+  return apiRequest<{ ok: true }>(baseURL, `/api/debug/workspaces/${workspaceId}/plan`, {
+    method: 'DELETE',
+  });
+}
+
+async function setStoredWorkspaceDeliverableType(
+  baseURL: string,
+  workspaceId: string,
+  deliverableType: 'document' | 'web' | 'slides' | 'code'
+) {
+  return apiRequest<{ ok: true }>(baseURL, `/api/debug/workspaces/${workspaceId}/plan`, {
+    body: { deliverableType },
+    method: 'PATCH',
   });
 }
 

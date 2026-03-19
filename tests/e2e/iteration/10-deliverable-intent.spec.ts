@@ -1,6 +1,37 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, primeClientState, readSeedState } from './helpers';
 
+test('legacy code create requests fold back into document defaults', async ({
+  page: _page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+
+  const created = await apiRequest<{
+    primaryFile: { kind: string; path: string };
+    workspace: { id: string };
+  }>(baseURL, '/api/workspaces', {
+    body: {
+      deliverableType: 'code',
+      goal: `兼容旧 code 创建请求 ${suffix}`,
+      title: `Legacy Code Fallback ${suffix}`,
+    },
+    method: 'POST',
+  });
+
+  expect(created.primaryFile.path).toBe('main');
+  expect(created.primaryFile.kind).toBe('markdown');
+
+  const files = await apiRequest<
+    Array<{ isPrimary: boolean; kind: string; path: string }>
+  >(baseURL, `/api/workspaces/${created.workspace.id}/files`);
+  const primaryFile = files.find((file) => file.isPrimary) || null;
+
+  expect(primaryFile?.path).toBe('main');
+  expect(primaryFile?.kind).toBe('markdown');
+  expect(files.some((file) => file.path === 'index.ts')).toBe(false);
+});
+
 test('C2-C7: status panel no longer exposes manual result-shape switching', async ({
   page,
 }, testInfo) => {

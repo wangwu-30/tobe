@@ -15,6 +15,11 @@ import {
   stopWorkspacePreview,
 } from '@/lib/platform/run-service';
 import {
+  getCanonicalDeliverableType,
+  normalizeStoredDeliverableType,
+  parseStoredDeliverableType,
+} from '@/lib/workspace/deliverable-types';
+import {
   branchConversation,
   createWorkspaceFile,
   createWorkspaceVersion,
@@ -31,6 +36,19 @@ import {
 } from '@/lib/workspace/staged-changes';
 import type { SearchProvider } from '@/lib/search/types';
 import type { DeliverableType, ResearchMode, WorkspaceFileData } from '@/types';
+
+type DebugWorkspacePlanDetails = {
+  activeStageId: string | null;
+  constraints: string | null;
+  deliverableType: DeliverableType;
+  goal: string;
+  id: string;
+  lastProgressNote: string | null;
+  status: string;
+  storedDeliverableType: ReturnType<typeof parseStoredDeliverableType>;
+  styleGuide: string | null;
+  version: number;
+};
 
 type CreateWorkspaceAgentToolsParams = {
   actorUserId: string;
@@ -105,7 +123,7 @@ export function createWorkspaceAgentTools({
     ]);
 
     cachedDeliverableType =
-      (workspacePlan?.deliverableType as DeliverableType | undefined) ||
+      normalizeStoredDeliverableType(workspacePlan?.deliverableType) ||
       inferDeliverableType({
         fileKind: workspace?.files[0]?.kind || null,
         files: workspace?.files.map((file) => ({ kind: file.kind, path: file.path })) || [],
@@ -232,6 +250,40 @@ export function createWorkspaceAgentTools({
     };
   };
 
+  const mapDebugWorkspacePlanDetails = (
+    workspacePlan:
+      | {
+          activeStageId?: string | null;
+          constraints?: string | null;
+          deliverableType?: string | null;
+          goal: string;
+          id: string;
+          lastProgressNote?: string | null;
+          status: string;
+          styleGuide?: string | null;
+          version: number;
+        }
+      | null
+      | undefined
+  ): DebugWorkspacePlanDetails | null => {
+    if (!workspacePlan) {
+      return null;
+    }
+
+    return {
+      activeStageId: workspacePlan.activeStageId || null,
+      constraints: workspacePlan.constraints || null,
+      deliverableType: normalizeStoredDeliverableType(workspacePlan.deliverableType) || 'document',
+      goal: workspacePlan.goal,
+      id: workspacePlan.id,
+      lastProgressNote: workspacePlan.lastProgressNote || null,
+      status: workspacePlan.status,
+      storedDeliverableType: parseStoredDeliverableType(workspacePlan.deliverableType),
+      styleGuide: workspacePlan.styleGuide || null,
+      version: workspacePlan.version,
+    };
+  };
+
   const upsertLiveDraftFile = async (input: {
     content: string;
     deliverableType: DeliverableType;
@@ -270,7 +322,7 @@ export function createWorkspaceAgentTools({
       const nextKind =
         input.kind ||
         preferredTarget?.kind ||
-        (input.deliverableType === 'code' ? 'code' : 'markdown');
+        'markdown';
       const nextLanguage =
         input.language !== undefined
           ? input.language
@@ -587,6 +639,11 @@ export function createWorkspaceAgentTools({
               run.kind === 'preview' &&
               (run.status === 'pending' || run.status === 'running')
           ) || null;
+        const workspaceResultShape = workspacePlan?.deliverableType
+          ? getCanonicalDeliverableType(
+              normalizeStoredDeliverableType(workspacePlan.deliverableType)
+            )
+          : null;
 
         const summary = [
           `Conversation: ${conversation?.title || conversationId}`,
@@ -604,7 +661,7 @@ export function createWorkspaceAgentTools({
           workspacePlan
             ? [
                 `- Goal: ${workspacePlan.goal}`,
-                `- Deliverable type: ${workspacePlan.deliverableType}`,
+                workspaceResultShape ? `- Result shape: ${workspaceResultShape}` : null,
                 workspacePlan.constraints
                   ? `- Constraints: ${workspacePlan.constraints}`
                   : null,
@@ -704,7 +761,7 @@ export function createWorkspaceAgentTools({
             projectContext,
             stagedChangeSets,
             workspaceRuns,
-            workspacePlan,
+            workspacePlan: mapDebugWorkspacePlanDetails(workspacePlan),
             wiki,
           },
         };
@@ -773,7 +830,7 @@ export function createWorkspaceAgentTools({
               text: [
                 `Deliverable: ${targetDeliverable.title}`,
                 `Workspace ID: ${targetDeliverable.id}`,
-                `Type: ${targetDeliverable.deliverableType}`,
+                `Result shape: ${targetDeliverable.deliverableType}`,
                 `Status: ${targetDeliverable.status}`,
                 '',
                 'Files:',
@@ -1630,10 +1687,6 @@ function resolveWebTargetPath(params: {
 }
 
 function getDefaultLiveDraftPath(deliverableType: DeliverableType) {
-  if (deliverableType === 'code') {
-    return 'index.ts';
-  }
-
   return 'main';
 }
 

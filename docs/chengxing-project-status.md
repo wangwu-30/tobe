@@ -1,6 +1,6 @@
 # 成形项目状态
 
-更新时间：2026-03-19
+更新时间：2026-03-20
 状态：终版收口完成，进入严格迭代验收维护
 对应规划：[产品落地计划](./chengxing-rollout-plan.md)
 经验台账：[经验教训台账](./chengxing-lessons-learned.md)
@@ -21,13 +21,21 @@
 - 产品层 `snapshot` 语义已退出主表面：`/api/workspaces/[workspaceId]/snapshots` 已删除，工作区、评论、对话、预览、chat、runs 主路径不再接受 `snapshotId / baseSnapshotId / previewSnapshotId` 等外露参数。
 - 已完成一轮 packaged QA 缺陷修补：无 workflow 创建提示已改成说明态，生成中空白画布已替换成动画态并去掉轮询闪屏，大纲跳转改为靠近顶部定位，创建入口已从显式类型选择收口为 Goal Composer 内的意图判定与追问，交付类型切换到 `slides / web` 时主表面已固定留在对应的结果壳而不再默认掉回 Markdown / 源码视图，评论跟进已切到 `@角色 + 监听窗口` 语义，评论“应用到原文”已支持基于锚点候选和归一化文本的安全匹配。
 - `slides` 结果面已不再依赖 markdown 字符串切卡片：`slide_page` 现已成为结构化 block；不仅 legacy `slides` 交付物会按 `slide_page` 渲染，`deliverableType=document` 且内容全为 `slide_page` 的交付物也会自动进入 slide 结果面。旧的 heading 式内容继续兼容，但底层已转向 block 语义，避免再从扁平文本里反推页结构。
+- slide 结果面的表面文案也已继续收口：结果面 badge 现在明确显示 `Slide View / 幻灯片视图` 这类当前表面语义，而不再借用旧的 `Presentation / 演示稿` 创建类型词；共享 copy 里不再保留已失效的 `slides / implementation / deliverableTypeChanged` 残留 key。
 - `slides` 的公共默认语义也开始回收到 `document`：共享 plan blueprint、公共类型标签、项目级 AI 摘要和 first-pass / plan 生成提示现在都会先把 legacy `slides` 折叠成 `document`；新出现的 deck / presentation / PPT 意图默认按文档内容处理，而不是再长出新的独立 `slides` 主路径。slide 结果面的空态 / 预览文案也已去掉“按新类型重整结果”这种过期提示。
 - `slides` 在共享契约层也继续收口：创建恢复态、workspace create / plan route、replan proposal 和 assistant run payload 现在都会把 legacy `slides` 归一成 `document`；新创建路径不再生成独立 `slides` file seed，避免 API / session payload 继续偷偷长出旧类型。
 - 统一结果形态语义也继续往共享层收口：workflow draft、replan prompt、first-pass prompt 和工具描述已不再使用 `deliverable type` 旧话术；未再被调用的 deliverable-type / regenerate / codeDeliverable 旧 copy key 也已删除，避免旧类型术语从 workflow 内容、AI prompt 或共享文案层重新回流。
 - `code` 的公共 canonical 语义也已收回兼容层：共享 deliverable label、create intent 映射、plan blueprint 和默认类型推断现在只认 `document | web`；legacy `code` 只继续留在底层文件 kind 和存量读取兼容里，不再作为新的公共主路径长出来。
+- legacy `code` 的 create / runtime 默认值也已继续折回文档语义：旧 `code` 创建请求现在默认生成 `main + markdown` 主文件，live draft upsert 不会再长出新的 `index.ts`，阶段 fallback 也回到文档式 `draft / review`；`code` 只继续留在底层 file kind、读取兼容和实现细节里。
+- `code` 的残余类型推断也已继续收口：共享 deliverable 推断不再因为 primary file 的 `kind=code` 就把交付物直接误标成网页；只有 goal、title、文件路径或内容线索本身出现明确网页信号时，才会继续落到 `web`。这条边界已经补进项目级 AI context 回归，避免无 plan 的历史实现说明类交付物在同项目摘要里被误归类。
+- 公共 `DeliverableType` 契约也已正式收成 canonical `document | web`：workspace view、项目级 AI context 和共享 helper 对外不再继续暴露 `slides / code`；legacy 类型改为显式 `storedDeliverableType` 兼容字段，仅用于存量 plan 值读取、旧结果面投影和历史数据兼容，避免旧 union 从类型别名层重新回流到产品表面。
+- AI 的计划生成、workspace tool summary 和项目级摘要文案也已跟进当前产品语言：plan generator、`get_workspace_context`、`read_project_deliverable_file` 与 project deliverable 列表不再继续写 `Deliverable type / Type`，统一改成 `result shape / shape` 语义，并在注入 prompt 前先 canonicalize stored legacy deliverable 值。
+- AI 的 debug / inspection 详情面也已跟进同一套契约：`get_workspace_context` 的 `details.workspacePlan` 不再直接泄漏 raw stored `slides / code`，而是显式返回 canonical `deliverableType` 与 `storedDeliverableType`，避免调试面和 E2E 辅助链路重新长回旧 union 心智。
+- 首页引导、通用 AI 指令和 web plan blueprint 里的 `implementation` 残留心智也已继续清理：首页 hero 不再把 implementation 当成和报告/页面并列的主结果示例，通用提示改成 `supporting asset / source details`，web review 阶段描述改成围绕当前结果面的 `interaction details`。
 - web 预览评论已经跨过 cross-origin 阻塞点：中央结果面现在默认通过同源 preview bridge 加载预览，iframe 内会把文本选区 / 元素点击序列化成 `excerpt + cssSelector + domContext + boundingRect` 回传父页面；`Review` 里选中 `web-component` 线程后，页面会把锚点重新发回 iframe 做重定位和临时高亮，至少已打通“预览选区评论 -> Review 聚焦回放”的第一条闭环。
 - web 评论继承的第一刀也已补齐：静态 HTML 预览创建线程时会优先绑定到真实 preview 源文件，而不是错误继承当前活动源码文件；`Review` 在 web 交付物里也不再按 `currentFileId` 过滤线程，因此同一份网页改版后只要稳定 selector 还在，继承线程就能继续保持 actionable 并回放到预览上。
 - web 评论继承的第二刀也已收口：如果元素迁移后用户已经在新位置留下 direct 评论，旧 inherited 线程现在会基于 selector / excerpt / domContext 的高信号 identity candidate 被判成 `superseded`，自动移入 earlier context，不再和当前可执行线程并列。
+- web 评论继承的第三刀也已收口：旧 inherited 线程只有在 selector / excerpt / domContext 仍存在强源证据时才继续保持 actionable；如果三者都漂移，即使页面里还残留无关 selector token，线程也会稳定转成 `stale` 并收进 earlier context，避免假阳性存活。
 - `web-component` 线程里的 `@assistant` 已切到 tool-enabled revision run：它不再只返回轻量文字评论，而是会基于 review anchor 和源码文件树直接修改 live draft，并在需要时刷新预览。为避免刷新后出现“状态显示预览已启动，但中央 iframe 尚未回流”的空窗，workspace view 现在会显式携带 `activePreviewRun`，前端在 `preview/start` 成功后先把 run 写回本地状态；若用户立刻刷新，还会通过短时 pending marker 和 reload-side `runs` warmup polling 恢复 bridge iframe，而不是停在空态。
 - 已建立严格迭代回归门禁：`npm run verify:iteration` 现在是每次功能迭代 / bug 修复后的统一验收入口，使用隔离 app-data-root 跑静态检查和本地 Web Playwright 完整交互；`pre-push` 会自动兜底执行同一条命令。
 - 已建立持续维护的经验教训台账：产品和技术两侧的最佳实践、踩坑记录与待验证方向，统一沉淀在 `docs/chengxing-lessons-learned.md`，后续重要迭代发现新经验时必须同步更新。
@@ -78,6 +86,9 @@
   - UI 代码不再消费 `workflowSummary` prop 名。
   - `/api/workspaces/[workspaceId]/snapshots` 已删除。
   - `WorkflowPlaybookData` 暴露正式 `status`；`CommentThreadData` 暴露 `scope / inheritanceState / sourceVersionId / anchorFingerprint`。
+  - 公共 `DeliverableType` 契约只再暴露 canonical `document | web`；legacy `slides / code` 通过显式 stored compatibility 字段保留，不再混进共享 view model。
+  - plan generator、workspace tools 与项目级摘要的 prompt-facing 文案统一使用 `result shape / shape`，不再继续向 AI 暴露 `Deliverable type / Type` 旧术语。
+  - `get_workspace_context` 的 debug / inspection `details.workspacePlan` 也必须遵守同一条规则：canonical `deliverableType` 对外稳定，legacy 值只通过 `storedDeliverableType` 保留，不允许 raw stored type 直接回流。
 - 评论行为
   - live draft 新评论写入当前 `draftRevision`；创建 version 只绑定该 revision 上仍未关闭的 direct 线程。
   - 继承线程已按 `actionable / stale / superseded` 分类；主列表不混入 `stale / superseded`。
@@ -124,6 +135,6 @@
   - 定向 `npx playwright test tests/e2e/iteration/14-project-ai-context.spec.ts --config=playwright.config.ts`
   - 定向 `npx playwright test tests/e2e/iteration/15-web-preview-comments.spec.ts --config=playwright.config.ts`
   - 稳定性复跑 `npx playwright test tests/e2e/iteration/15-web-preview-comments.spec.ts --config=playwright.config.ts --repeat-each=3`
-  - `npm run verify:iteration` (`45 passed (1.3m)`)
+  - `npm run verify:iteration` (`50 passed (2.0m)`)
   - 浏览器走查已覆盖 home/workspace 壳一致、右栏职责分离、支持资料创建与选中同步、workflow draft/activate(confirm)/archive/restore，以及评论继承 `actionable / stale / superseded` 分区显示。
   - 严格迭代门禁文档、Playwright 配置、隔离 seed 和 `pre-push` 规则已落地；后续功能交付默认改用 `npm run verify:iteration` 关闭验收。

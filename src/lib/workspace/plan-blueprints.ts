@@ -69,7 +69,7 @@ const PLAN_STAGE_BLUEPRINTS: Record<CanonicalDeliverableType, StageBlueprint[]> 
     {
       kind: 'review',
       defaultTitle: 'Review',
-      defaultDescription: 'Refine content, layout, and implementation from feedback.',
+      defaultDescription: 'Refine content, layout, and interaction details from feedback.',
       checkpoint: true,
     },
     {

@@ -186,7 +186,7 @@ export function formatProjectAiContext(
       const workspaceSuffix = options?.includeWorkspaceIds
         ? ` [workspaceId: ${deliverable.id}]`
         : '';
-      return `- ${currentPrefix}${deliverable.title}${workspaceSuffix} (${deliverable.deliverableType}, status: ${deliverable.status})`;
+      return `- ${currentPrefix}${deliverable.title}${workspaceSuffix} (shape: ${deliverable.deliverableType}, status: ${deliverable.status})`;
     }),
   ];
 

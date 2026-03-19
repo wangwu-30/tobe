@@ -63,6 +63,8 @@ test('slide_page content renders as structured slide cards', async ({ page }, te
 
   const slidesCanvas = page.getByTestId('slides-deliverable-canvas');
   await expect(slidesCanvas).toBeVisible();
+  await expect(page.getByText(/幻灯片视图|Slide View/)).toBeVisible();
+  await expect(page.getByText(/演示稿|Presentation/)).toHaveCount(0);
   await expect(slidesCanvas.getByText('市场机会')).toBeVisible();
   await expect(slidesCanvas.getByText('先用一句话交代增长窗口。')).toBeVisible();
   await expect(
@@ -71,3 +73,67 @@ test('slide_page content renders as structured slide cards', async ({ page }, te
   await expect(slidesCanvas.getByText('产品方案')).toBeVisible();
   await expect(slidesCanvas).not.toContainText(/按新类型重整结果|Regenerate for this type/);
 });
+
+test('legacy stored slides still render through the unified slide surface', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const payload = await apiRequest<{
+    conversation: { id: string };
+    workspace: { id: string };
+  }>(baseURL, '/api/workspaces', {
+    body: {
+      content: JSON.stringify([
+        {
+          type: 'h1',
+          children: [{ text: '封面' }],
+        },
+        {
+          type: 'p',
+          children: [{ text: '一句话讲清楚品牌定位与核心价值。' }],
+        },
+        {
+          type: 'h1',
+          children: [{ text: '方案' }],
+        },
+        {
+          type: 'p',
+          children: [{ text: '第二页强调主流程、关键能力和转化路径。' }],
+        },
+      ]),
+      deliverableType: 'document',
+      goal: '验证 legacy slides 仍会通过统一 slide surface 渲染。',
+      title: `Legacy Slide Compatibility ${suffix}`,
+    },
+    method: 'POST',
+  });
+
+  await setStoredWorkspaceDeliverableType(baseURL, payload.workspace.id, 'slides');
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${payload.workspace.id}?conversationId=${payload.conversation.id}`
+  );
+
+  const slidesCanvas = page.getByTestId('slides-deliverable-canvas');
+  await expect(slidesCanvas).toBeVisible();
+  await expect(page.getByText(/幻灯片视图|Slide View/)).toBeVisible();
+  await expect(slidesCanvas.getByText('封面')).toBeVisible();
+  await expect(slidesCanvas.getByText('一句话讲清楚品牌定位与核心价值。')).toBeVisible();
+  await expect(slidesCanvas.getByText('方案')).toBeVisible();
+  await expect(slidesCanvas.getByText('第二页强调主流程、关键能力和转化路径。')).toBeVisible();
+});
+
+async function setStoredWorkspaceDeliverableType(
+  baseURL: string,
+  workspaceId: string,
+  deliverableType: 'document' | 'web' | 'slides' | 'code'
+) {
+  return apiRequest<{ ok: true }>(baseURL, `/api/debug/workspaces/${workspaceId}/plan`, {
+    body: {
+      deliverableType,
+    },
+    method: 'PATCH',
+  });
+}

@@ -1,6 +1,6 @@
 # 严格迭代回归门禁
 
-更新时间：2026-03-18
+更新时间：2026-03-20
 
 ## 何时必须执行
 
@@ -38,6 +38,7 @@
   - 明确网页类目标会直接创建网页交付物
   - 歧义目标会在创建流内展示结构化追问卡片
   - 选择“两者都要”后，会在同项目下自动创建文档 + sibling web
+  - legacy `code` 创建请求会折回当前文档默认语义：primary file 为 `main`、kind 为 `markdown`，不会再生成新的 `index.ts`
   - 新建后若第一稿尚未启动，中央主表面保持准备态且只出现一个“生成第一稿”主动作，不提前显示进行中动画
 - 主交付物表面
   - 正文可见
@@ -45,6 +46,7 @@
   - 状态面板继续显示当前阶段
   - 打开 `web` 交付物，或打开内容全为 `slide_page` 的文档交付物时，中央主表面始终停留在对应的结果壳里，不会默认回退到 Markdown / 实现源码
   - slide 结果面既要兼容 legacy `slides` 交付物，也要能直接渲染文档里的结构化 `slide_page` block
+  - slide 结果面的 badge 必须描述当前结果面本身，例如 `Slide View / 幻灯片视图`，不能回流旧的 `Presentation / 演示稿` 创建类型词
   - slide 结果面的空态 / 预览文案不再引用“按新类型重整结果”这类已删除动作
   - 若当前内容暂时无法形成合法预览，中央主表面展示结果空态或引导，而不是直接露出源码
   - `Status` 面板不再暴露人工类型切换器或“按新类型重整结果”入口
@@ -63,6 +65,7 @@
   - web preview 评论要绑定到真实 preview 源文件或整份 deliverable surface，不能被当前活动源码文件误绑
   - 创建 version 后即使文案变化，只要稳定 selector 仍存在，继承的 web 线程仍应保持 `actionable` 并能从 `Review` 回放高亮
   - 如果元素迁移后用户已经在新位置留下新的 direct 评论，旧 inherited web 线程必须变成 `superseded` 并移入 `Earlier Context`，不能和当前可执行线程并列
+  - 如果旧 web 线程的 selector / excerpt / domContext 都已漂移，即使页面里还残留无关 selector token 或同名 id 片段，线程也必须变成 `stale` 并移入 `Earlier Context`
 - `web-component` 线程里的 `@assistant` 必须走可修改 live draft 的 revision run，而不是只返回文本建议；评论后预览源码和 bridge 结果都要同步更新
 - 启动 preview 后即使立刻刷新页面，web 结果面也不能卡在“预览已启动”空态；iframe 需要能基于当前 view / runs 恢复 bridge 预览，即使 bridge 首次请求短暂返回 `502` 也必须自动回稳
 - 编辑器块级线程
@@ -94,6 +97,10 @@
   - 内置 workflow 卡片和 `Status` 面板会显示同一组 `Tools / MCP / Skills` 开放扩展提示，不允许各写一套分叉文案
   - 自定义 workflow 在 `Context` 中填写并保存 `Tools / MCP / Skills` 后，刷新页面仍能看到同样的提示；应用到当前任务后，`Status` 也会显示同一组开放扩展标签
   - 项目级 AI 上下文需要覆盖一个明确场景：在当前交付物上构建 chat prompt / `get_workspace_context` 时，能够带出同项目其他交付物的标题、类型、状态摘要，以及当前 / 项目 / 全局三层 `Knowledge / Memory`；当 AI 需要参考兄弟交付物时，必须能先列出同项目交付物，再显式读取目标文件内容
+  - 如果同项目里存在无 plan 的历史实现说明类交付物，即使其 primary file `kind=code`，项目级 AI context 也不能仅凭 file kind 把它误标成 `web`；只有明确的网页线索才能进入网页语义
+  - `workspace view`、项目级 AI context 和共享 helper 对外 deliverable 语义只应暴露 canonical `document | web`；legacy `slides` 只通过统一 slide 结果面兼容，不能重新回流到公共类型契约或项目摘要里
+  - plan generator、`get_workspace_context`、`list_project_deliverables` 和 `read_project_deliverable_file` 这类 AI-facing 摘要应统一使用 `result shape / shape` 语义；stored legacy deliverable 值必须先 canonicalize，再进入 prompt 或工具输出
+  - `get_workspace_context` 的 debug / inspection `details.workspacePlan` 也必须只暴露 canonical `deliverableType`，并把 legacy `slides / code` 限制在显式 `storedDeliverableType` 字段里
   - `Status` 面板显示当前绑定的 active workflow
   - 工作区顶栏会显示当前交付物的项目路径；从顶栏“新建同级交付物”进入 goal composer 后，新交付物仍落在同一 `projectId / projectFolderId`
   - 当同一项目下已有多个交付物时，标题栏切换器可以直接切到另一份交付物，URL 和当前中心/右侧上下文同步更新

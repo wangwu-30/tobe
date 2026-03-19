@@ -332,20 +332,25 @@ function canMapThreadToCurrentSurface(params: {
     params.thread.fileId !== null
       ? params.surfaceFilesById.get(params.thread.fileId)?.content || null
       : null;
-  const anchorCandidates = collectAnchorCandidates(params.thread);
+  const fileSearchableContent =
+    fileContent !== null ? buildSearchableContent(fileContent) : null;
+  if (isWebComponentThread(params.thread)) {
+    return canMapWebThreadToCurrentSurface({
+      combinedSurfaceText: params.combinedSurfaceText,
+      fileSearchableContent,
+      thread: params.thread,
+    });
+  }
 
+  const anchorCandidates = collectAnchorCandidates(params.thread);
   if (anchorCandidates.length === 0) {
     return true;
   }
 
-  const fileSearchableContent =
-    fileContent !== null ? buildSearchableContent(fileContent) : null;
-  const fileMatches =
-    fileSearchableContent !== null
-      ? anchorCandidates.some((candidate) => fileSearchableContent.includes(candidate))
-      : false;
-
-  if (fileMatches) {
+  if (
+    fileSearchableContent !== null &&
+    anchorCandidates.some((candidate) => fileSearchableContent.includes(candidate))
+  ) {
     return true;
   }
 
@@ -370,6 +375,97 @@ function collectIdentityCandidates(thread: CommentThreadData) {
     anchorText: thread.anchorText,
     reviewAnchor: thread.reviewAnchor,
   }).map((candidate) => normalizeSearchText(candidate));
+}
+
+function canMapWebThreadToCurrentSurface(params: {
+  combinedSurfaceText: string;
+  fileSearchableContent: string | null;
+  thread: CommentThreadData;
+}) {
+  const searchTargets = Array.from(
+    new Set(
+      [params.fileSearchableContent, params.combinedSurfaceText]
+        .map((value) => value?.trim() || '')
+        .filter(Boolean)
+    )
+  );
+
+  if (searchTargets.length === 0) {
+    return true;
+  }
+
+  return searchTargets.some((target) => webSelectorStillResolvable(target, params.thread)) ||
+    searchTargets.some((target) => webExcerptStillResolvable(target, params.thread)) ||
+    searchTargets.some((target) => webDomContextStillResolvable(target, params.thread));
+}
+
+function webSelectorStillResolvable(searchableContent: string, thread: CommentThreadData) {
+  return collectWebSelectorSourceCandidates(thread).some((candidate) =>
+    searchableContent.includes(candidate)
+  );
+}
+
+function collectWebSelectorSourceCandidates(thread: CommentThreadData) {
+  const selector = readReviewAnchorPayloadString(thread, ['cssSelector', 'selector']);
+  if (!selector) {
+    return [];
+  }
+
+  const candidates = new Set<string>();
+  candidates.add(normalizeSearchText(selector));
+
+  const selectorIds = Array.from(selector.matchAll(/#([A-Za-z][A-Za-z0-9_-]*)/g)).map(
+    (match) => match[1]
+  );
+  selectorIds.forEach((id) => {
+    candidates.add(normalizeSearchText(`id="${id}"`));
+    candidates.add(normalizeSearchText(`id='${id}'`));
+    candidates.add(normalizeSearchText(`"id":"${id}"`));
+    candidates.add(normalizeSearchText(`'id':'${id}'`));
+  });
+
+  return [...candidates];
+}
+
+function webExcerptStillResolvable(searchableContent: string, thread: CommentThreadData) {
+  const excerpt = normalizeSearchText(
+    readReviewAnchorPayloadString(thread, ['excerpt']) || thread.anchorText || ''
+  );
+  return excerpt.length >= 6 && searchableContent.includes(excerpt);
+}
+
+function webDomContextStillResolvable(searchableContent: string, thread: CommentThreadData) {
+  const domContext = readReviewAnchorPayloadString(thread, ['domContext']);
+  const normalizedContext = normalizeSearchText(domContext || '');
+  if (normalizedContext.length >= 24 && searchableContent.includes(normalizedContext)) {
+    return true;
+  }
+
+  const stableSegments = String(domContext || '')
+    .split('|')
+    .map((segment) => normalizeSearchText(segment))
+    .filter((segment) => segment.length >= 8);
+
+  if (stableSegments.length < 2) {
+    return false;
+  }
+
+  const matchedSegments = stableSegments.filter((segment) =>
+    searchableContent.includes(segment)
+  ).length;
+
+  return matchedSegments >= Math.min(2, stableSegments.length);
+}
+
+function readReviewAnchorPayloadString(thread: CommentThreadData, keys: string[]) {
+  for (const key of keys) {
+    const value = thread.reviewAnchor?.anchorPayload?.[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
 }
 
 function buildCombinedSurfaceText(surfaceFiles: SurfaceFileRecord[]) {

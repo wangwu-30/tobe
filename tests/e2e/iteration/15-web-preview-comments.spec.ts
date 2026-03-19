@@ -323,6 +323,109 @@ test('web inherited threads become superseded after a new direct comment lands o
   await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toBeVisible();
 });
 
+test('web inherited threads become stale once selector, excerpt, and dom context all drift', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const setup = await createWebPreviewWorkspace(baseURL);
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${setup.workspace.id}?conversationId=${setup.conversation.id}`
+  );
+
+  const previewFrame = await startPreviewAndGetFrame(page);
+  expect(previewFrame).toBeTruthy();
+
+  await selectPreviewCopy(previewFrame!);
+  await page.getByTestId('web-selection-comment-trigger').click();
+  await page.getByPlaceholder('让 AI 调整这里的页面表现……').fill('这条评论应该在目标彻底漂移后失效。');
+  await page.getByRole('button', { name: '提交评论' }).click();
+
+  await expect
+    .poll(async () => {
+      const threads = await apiRequest<Array<{ id: string }>>(
+        baseURL,
+        `/api/threads?workspaceId=${setup.workspace.id}&draftOnly=1`
+      );
+      return threads.length;
+    })
+    .toBeGreaterThan(0);
+
+  const [firstThread] = await apiRequest<Array<{ id: string }>>(
+    baseURL,
+    `/api/threads?workspaceId=${setup.workspace.id}&draftOnly=1`
+  );
+
+  await apiRequest<{ id: string }>(baseURL, `/api/workspaces/${setup.workspace.id}/versions`, {
+    body: {
+      title: 'Stale Boundary Baseline',
+    },
+    method: 'POST',
+  });
+
+  await apiRequest(baseURL, `/api/workspaces/${setup.workspace.id}/files/${setup.indexFileId}`, {
+    body: {
+      content: [
+        '<!doctype html>',
+        '<html lang="zh-CN">',
+        '  <head>',
+        '    <meta charset="UTF-8" />',
+        '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
+        '    <title>Preview Bridge</title>',
+        '    <style>',
+        '      body { font-family: sans-serif; margin: 0; padding: 32px; }',
+        '      main { max-width: 640px; }',
+        '      h1 { margin-bottom: 12px; }',
+        '    </style>',
+        '  </head>',
+        '  <body>',
+        '    <main>',
+        '      <h1 id="hero-title">全新定位</h1>',
+        '      <p id="value-summary">现在展示的是完全不同的内容。</p>',
+        '    </main>',
+        '  </body>',
+        '</html>',
+      ].join('\n'),
+      kind: 'code',
+      language: 'html',
+    },
+    method: 'PATCH',
+  });
+
+  await apiRequest(baseURL, `/api/workspaces/${setup.workspace.id}/preview/start`, {
+    method: 'POST',
+  });
+
+  await page.reload();
+  await waitForPreviewBridgeFrame(page);
+
+  await expect
+    .poll(async () => {
+      const threads = await apiRequest<
+        Array<{
+          id: string;
+          inheritanceState?: string | null;
+          scope?: string | null;
+        }>
+      >(baseURL, `/api/threads?workspaceId=${setup.workspace.id}&draftOnly=1`);
+      const oldThread = threads.find((thread) => thread.id === firstThread.id) || null;
+      return {
+        oldScope: oldThread?.scope || null,
+        oldState: oldThread?.inheritanceState || null,
+      };
+    })
+    .toEqual({
+      oldScope: 'inherited',
+      oldState: 'stale',
+    });
+
+  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toHaveCount(0);
+  await page.getByRole('button', { name: /更早上下文|Earlier Context/ }).click();
+  await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toBeVisible();
+});
+
 async function waitForPreviewBridgeFrame(page: Page) {
   await expect
     .poll(() => page.frames().some((frame) => /preview\/bridge/.test(frame.url())))

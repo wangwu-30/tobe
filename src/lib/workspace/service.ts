@@ -2255,6 +2255,11 @@ export async function getWorkspaceView(params: {
         where: { deletedAt: null },
         orderBy: { createdAt: 'desc' },
       },
+      workspacePlan: {
+        select: {
+          deliverableType: true,
+        },
+      },
     },
   });
 
@@ -2442,6 +2447,7 @@ export async function getWorkspaceView(params: {
     currentVersion: workspace.currentVersion,
     files: workspaceFiles,
     plan: workspacePlan,
+    storedDeliverableType: workspace.workspacePlan?.deliverableType || null,
     workspace,
   });
   const previewCapability = detectWorkspacePreviewCapability(deliverableFiles);
@@ -2639,6 +2645,7 @@ function buildProjectDeliverables(
         currentVersion: workspace.currentVersion,
         files: workspace.files.map(mapWorkspaceFile),
         plan: workspace.workspacePlan ? mapWorkspacePlan(workspace.workspacePlan) : null,
+        storedDeliverableType: workspace.workspacePlan?.deliverableType || null,
         workspace,
       });
 
