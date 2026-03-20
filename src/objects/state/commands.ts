@@ -2,62 +2,35 @@ import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { ensureWorkspaceFiles } from '@/objects/file/commands';
 import {
-  getParentWorkspacePath,
-  getWorkspacePathDepth,
   mapWorkspaceFile,
   mapWorkspaceFileToVersion,
+  parseVersionFiles,
   resolvePrimaryFile,
   serializeWorkspaceVersion,
 } from '@/objects/file/schema';
-import { isRecoveryVersionType } from '@/lib/workspace/planning';
+import {
+  isPinnedRecoveryVersionType,
+  isRecoveryVersionType,
+} from '@/lib/workspace/planning';
+import { replaceWorkspaceDraftWithVersionFiles } from './draft-commands';
+import { resolveDraftBaseVersionIdForVersion } from './queries';
 import { normalizeWorkspaceVersionType } from './schema';
+import type { WorkspaceVersionType } from '@/types';
 import type {
-  WorkspaceRunData,
-  WorkspaceVersionFileData,
-  WorkspaceVersionType,
-} from '@/types';
+  CreateWorkspaceVersionDependencies,
+  RestoreWorkspaceVersionDependencies,
+  SetWorkspaceVersionPinnedDependencies,
+  WorkspaceStateActorContext,
+} from './shared';
 
-type WorkspaceStateActorContext = {
-  deviceId: string;
-  organizationId: string;
-  userId: string;
-};
-
-type CreateWorkspaceVersionDependencies = {
-  bindDraftThreadsToVersion: (
-    workspaceId: string,
-    versionId: string,
-    draftRevision: number
-  ) => Promise<void>;
-  ensureWorkspaceEditable: (
-    actor: WorkspaceStateActorContext,
-    workspaceId: string
-  ) => Promise<void>;
-  recordSyncEvent: (params: {
-    actorUserId: string;
-    entityId: string;
-    entityType: string;
-    organizationId: string;
-    originDeviceId?: string | null;
-    payload: unknown;
-    revision: number;
-  }) => Promise<void>;
-};
-
-type ReplaceWorkspaceDraftDependencies = {
-  materializeWorkspaceMirror: (params: {
-    organizationId: string;
-    workspaceId: string;
-  }) => Promise<unknown>;
-  startWorkspacePreview: (
-    actor: WorkspaceStateActorContext,
-    input: {
-      workspaceId: string;
-    }
-  ) => Promise<WorkspaceRunData>;
-};
-
+const MAX_PINNED_RECOVERY_POINTS = 3;
 const MAX_TEMPORARY_RECOVERY_POINTS = 1;
+
+export class WorkspaceRecoveryPinLimitError extends Error {
+  constructor() {
+    super('Pinned recovery points are limited to 3.');
+  }
+}
 
 export async function createWorkspaceVersion(
   actor: WorkspaceStateActorContext,
@@ -241,180 +214,134 @@ export async function pruneWorkspaceRecoveryCheckpoints(
   });
 }
 
-export async function replaceWorkspaceDraftWithVersionFiles(
+export async function setWorkspaceVersionPinned(
   actor: WorkspaceStateActorContext,
   input: {
-    draftBaseVersionId?: string | null;
-    hadActivePreview: boolean;
-    preferredActiveFileId?: string | null;
-    versionFiles: WorkspaceVersionFileData[];
+    pinned: boolean;
+    versionId: string;
     workspaceId: string;
   },
-  deps: ReplaceWorkspaceDraftDependencies
+  deps: SetWorkspaceVersionPinnedDependencies
 ) {
-  const existingFiles = await ensureWorkspaceFiles(
-    actor.organizationId,
-    input.workspaceId
-  );
-  const existingById = new Map(existingFiles.map((file) => [file.id, file]));
-  const existingByPath = new Map(existingFiles.map((file) => [file.path, file]));
-  const preferredActiveFilePath = input.preferredActiveFileId
-    ? existingById.get(input.preferredActiveFileId)?.path || null
-    : null;
-  const deletedFileIds = existingFiles
-    .filter((file) => !input.versionFiles.some((versionFile) => versionFile.path === file.path))
-    .map((file) => file.id);
-  const orderedVersionFiles = [...input.versionFiles].sort((left, right) => {
-    const depthDelta =
-      getWorkspacePathDepth(left.path) - getWorkspacePathDepth(right.path);
-    if (depthDelta !== 0) {
-      return depthDelta;
-    }
+  await deps.ensureWorkspaceEditable(actor, input.workspaceId);
 
-    if (left.nodeType === right.nodeType) {
-      return left.path.localeCompare(right.path);
-    }
-
-    return left.nodeType === 'folder' ? -1 : 1;
+  const version = await prisma.version.findFirst({
+    where: {
+      deletedAt: null,
+      documentId: input.workspaceId,
+      id: input.versionId,
+      organizationId: actor.organizationId,
+    },
   });
-  const fileIdsByPath = new Map<string, string>();
-  let resolvedActiveFileId: string | null = null;
 
-  await prisma.$transaction(async (tx) => {
-    if (deletedFileIds.length > 0) {
-      await tx.workspaceFile.updateMany({
-        where: {
-          id: { in: deletedFileIds },
-        },
-        data: {
-          deletedAt: new Date(),
-          revision: {
-            increment: 1,
-          },
-        },
-      });
-    }
+  if (!version) {
+    throw new Error('Version not found.');
+  }
 
-    for (const versionFile of orderedVersionFiles) {
-      const parentPath = getParentWorkspacePath(versionFile.path);
-      const parentId = parentPath ? fileIdsByPath.get(parentPath) || null : null;
-      const existing = existingByPath.get(versionFile.path);
+  const normalizedVersionType = normalizeWorkspaceVersionType(version.versionType);
 
-      if (existing) {
-        const updated = await tx.workspaceFile.update({
-          where: { id: existing.id },
-          data: {
-            content: versionFile.content,
-            createdByUserId: actor.userId,
-            deletedAt: null,
-            isPrimary: versionFile.isPrimary,
-            kind: versionFile.kind,
-            language: versionFile.language,
-            name: versionFile.name,
-            originDeviceId: actor.deviceId,
-            parentId,
-            path: versionFile.path,
-            role: versionFile.role,
-            revision: {
-              increment: 1,
-            },
-            sortOrder: versionFile.sortOrder,
-            type: versionFile.nodeType === 'folder' ? 'folder' : 'file',
-            updatedAt: new Date(),
-          },
-        });
+  if (!isRecoveryVersionType(normalizedVersionType)) {
+    throw new Error('Only recovery points can be pinned.');
+  }
 
-        fileIdsByPath.set(versionFile.path, updated.id);
-        continue;
-      }
-
-      const created = await tx.workspaceFile.create({
-        data: {
-          content: versionFile.content,
-          createdByUserId: actor.userId,
-          documentId: input.workspaceId,
-          isPrimary: versionFile.isPrimary,
-          kind: versionFile.kind,
-          language: versionFile.language,
-          name: versionFile.name,
-          organizationId: actor.organizationId,
-          originDeviceId: actor.deviceId,
-          parentId,
-          path: versionFile.path,
-          role: versionFile.role,
-          sortOrder: versionFile.sortOrder,
-          type: versionFile.nodeType === 'folder' ? 'folder' : 'file',
-        },
-      });
-
-      fileIdsByPath.set(versionFile.path, created.id);
-    }
-
-    const primaryVersionFile =
-      orderedVersionFiles.find(
-        (file) => file.nodeType === 'file' && file.isPrimary
-      ) || orderedVersionFiles.find((file) => file.nodeType === 'file');
-    const primaryFileId = primaryVersionFile
-      ? fileIdsByPath.get(primaryVersionFile.path) || null
-      : null;
-
-    resolvedActiveFileId =
-      (preferredActiveFilePath
-        ? fileIdsByPath.get(preferredActiveFilePath) || null
-        : null) || primaryFileId;
-
-    await tx.document.update({
-      where: { id: input.workspaceId },
-      data: {
-        content: primaryVersionFile?.content || '',
-        draftRevision: {
-          increment: 1,
-        },
-        originDeviceId: actor.deviceId,
-        revision: {
-          increment: 1,
-        },
-        status: 'draft',
-        ...(input.draftBaseVersionId !== undefined
-          ? { draftBaseVersionId: input.draftBaseVersionId }
-          : {}),
+  if (input.pinned && !isPinnedRecoveryVersionType(normalizedVersionType)) {
+    const pinnedCount = await prisma.version.count({
+      where: {
+        deletedAt: null,
+        documentId: input.workspaceId,
+        organizationId: actor.organizationId,
+        versionType: 'checkpoint_pinned',
       },
     });
 
-    if (resolvedActiveFileId) {
-      await tx.session.updateMany({
-        where: {
-          deletedAt: null,
-          organizationId: actor.organizationId,
-          wikiId: input.workspaceId,
-          OR: [
-            { activeFileId: null },
-            { activeFileId: { in: deletedFileIds } },
-          ],
-        },
-        data: {
-          activeFileId: resolvedActiveFileId,
-          revision: {
-            increment: 1,
-          },
-        },
-      });
+    if (pinnedCount >= MAX_PINNED_RECOVERY_POINTS) {
+      throw new WorkspaceRecoveryPinLimitError();
     }
+  }
+
+  const updated = await prisma.version.update({
+    where: {
+      id: version.id,
+    },
+    data: {
+      revision: {
+        increment: 1,
+      },
+      versionType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
+    },
   });
 
-  await deps.materializeWorkspaceMirror({
+  await pruneWorkspaceRecoveryCheckpoints({
     organizationId: actor.organizationId,
     workspaceId: input.workspaceId,
   });
 
-  const restartedPreview = input.hadActivePreview
-    ? await deps.startWorkspacePreview(actor, {
-        workspaceId: input.workspaceId,
-      }).catch(() => null)
-    : null;
+  return updated;
+}
+
+export async function restoreWorkspaceVersion(
+  actor: WorkspaceStateActorContext,
+  input: {
+    versionId: string;
+    workspaceId: string;
+  },
+  deps: RestoreWorkspaceVersionDependencies
+) {
+  await deps.ensureWorkspaceEditable(actor, input.workspaceId);
+
+  const version = await prisma.version.findFirst({
+    where: {
+      deletedAt: null,
+      documentId: input.workspaceId,
+      id: input.versionId,
+      organizationId: actor.organizationId,
+    },
+  });
+
+  if (!version) {
+    throw new Error('Version not found.');
+  }
+
+  const hadActivePreview = (
+    await deps.listWorkspaceRuns({
+      organizationId: actor.organizationId,
+      workspaceId: input.workspaceId,
+    })
+  ).some(
+    (run) =>
+      run.kind === 'preview' &&
+      (run.status === 'pending' || run.status === 'running')
+  );
+  const draftBaseVersionId = await resolveDraftBaseVersionIdForVersion({
+    organizationId: actor.organizationId,
+    versionId: version.id,
+  });
+  const safetyCheckpoint = await createWorkspaceVersion(
+    actor,
+    {
+      bindDraftThreads: true,
+      versionType: 'checkpoint',
+      title: 'Safety Checkpoint before Restore',
+      workspaceId: input.workspaceId,
+    },
+    deps
+  );
+  const { restartedPreview } = await replaceWorkspaceDraftWithVersionFiles(
+    actor,
+    {
+      draftBaseVersionId,
+      hadActivePreview,
+      versionFiles: parseVersionFiles(version.content),
+      workspaceId: input.workspaceId,
+    },
+    deps
+  );
 
   return {
-    activeFileId: resolvedActiveFileId,
+    restoredVersion: version,
     restartedPreview,
+    safetyCheckpoint,
   };
 }
+
+export { replaceWorkspaceDraftWithVersionFiles } from './draft-commands';

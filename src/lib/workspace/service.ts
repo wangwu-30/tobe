@@ -32,6 +32,8 @@ import {
   createWorkspaceVersion as createWorkspaceVersionCommand,
   pruneWorkspaceRecoveryCheckpoints,
   replaceWorkspaceDraftWithVersionFiles,
+  restoreWorkspaceVersion as restoreWorkspaceVersionCommand,
+  setWorkspaceVersionPinned as setWorkspaceVersionPinnedCommand,
 } from '@/objects/state/commands';
 import {
   findNearestVersionBeforeMessage,
@@ -122,6 +124,7 @@ export {
   normalizeWorkspaceFileRole,
   parseVersionFiles,
 } from '@/objects/file/schema';
+export { WorkspaceRecoveryPinLimitError } from '@/objects/state/commands';
 
 type SupportFileEnvelope = {
   base64?: string;
@@ -131,8 +134,6 @@ type SupportFileEnvelope = {
   originalName: string;
   sizeBytes: number | null;
 };
-
-const MAX_PINNED_RECOVERY_POINTS = 3;
 
 export class WorkspaceLockConflictError extends Error {
   readonly detail: LockConflict;
@@ -144,12 +145,6 @@ export class WorkspaceLockConflictError extends Error {
 }
 
 export const WikiLockConflictError = WorkspaceLockConflictError;
-
-export class WorkspaceRecoveryPinLimitError extends Error {
-  constructor() {
-    super('Pinned recovery points are limited to 3.');
-  }
-}
 
 export const listWorkspaces = listProjects;
 
@@ -981,57 +976,8 @@ export async function setWorkspaceVersionPinned(
     workspaceId: string;
   }
 ) {
-  await ensureWorkspaceEditable(actor, input.workspaceId);
-
-  const version = await prisma.version.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      id: input.versionId,
-      organizationId: actor.organizationId,
-    },
-  });
-
-  if (!version) {
-    throw new Error('Version not found.');
-  }
-
-  const normalizedVersionType = normalizeWorkspaceVersionType(version.versionType);
-
-  if (!isRecoveryVersionType(normalizedVersionType)) {
-    throw new Error('Only recovery points can be pinned.');
-  }
-
-  if (input.pinned && !isPinnedRecoveryVersionType(normalizedVersionType)) {
-    const pinnedCount = await prisma.version.count({
-      where: {
-        deletedAt: null,
-        documentId: input.workspaceId,
-        organizationId: actor.organizationId,
-        versionType: 'checkpoint_pinned',
-      },
-    });
-
-    if (pinnedCount >= MAX_PINNED_RECOVERY_POINTS) {
-      throw new WorkspaceRecoveryPinLimitError();
-    }
-  }
-
-  const updated = await prisma.version.update({
-    where: {
-      id: version.id,
-    },
-    data: {
-      revision: {
-        increment: 1,
-      },
-      versionType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
-    },
-  });
-
-  await pruneWorkspaceRecoveryCheckpoints({
-    organizationId: actor.organizationId,
-    workspaceId: input.workspaceId,
+  const updated = await setWorkspaceVersionPinnedCommand(actor, input, {
+    ensureWorkspaceEditable,
   });
 
   return mapWorkspaceVersion(updated);
@@ -1044,60 +990,19 @@ export async function restoreWorkspaceVersion(
     workspaceId: string;
   }
 ) {
-  await ensureWorkspaceEditable(actor, input.workspaceId);
-
-  const version = await prisma.version.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      id: input.versionId,
-      organizationId: actor.organizationId,
-    },
+  const restored = await restoreWorkspaceVersionCommand(actor, input, {
+    bindDraftThreadsToVersion,
+    ensureWorkspaceEditable,
+    listWorkspaceRuns,
+    materializeWorkspaceMirror,
+    recordSyncEvent,
+    startWorkspacePreview,
   });
-
-  if (!version) {
-    throw new Error('Version not found.');
-  }
-
-  const hadActivePreview =
-    (
-      await listWorkspaceRuns({
-        organizationId: actor.organizationId,
-        workspaceId: input.workspaceId,
-      })
-    ).some(
-      (run) =>
-        run.kind === 'preview' &&
-        (run.status === 'pending' || run.status === 'running')
-    );
-  const draftBaseVersionId = await resolveDraftBaseVersionIdForVersion({
-    organizationId: actor.organizationId,
-    versionId: version.id,
-  });
-  const safetyCheckpoint = await createWorkspaceVersion(actor, {
-    bindDraftThreads: true,
-    versionType: 'checkpoint',
-    title: 'Safety Checkpoint before Restore',
-    workspaceId: input.workspaceId,
-  });
-  const { restartedPreview } = await replaceWorkspaceDraftWithVersionFiles(
-    actor,
-    {
-      draftBaseVersionId,
-      hadActivePreview,
-      versionFiles: parseVersionFiles(version.content),
-      workspaceId: input.workspaceId,
-    },
-    {
-      materializeWorkspaceMirror,
-      startWorkspacePreview,
-    }
-  );
 
   return {
-    restoredVersion: mapWorkspaceVersion(version),
-    restartedPreview,
-    safetyCheckpoint,
+    restoredVersion: mapWorkspaceVersion(restored.restoredVersion),
+    restartedPreview: restored.restartedPreview,
+    safetyCheckpoint: mapWorkspaceVersion(restored.safetyCheckpoint),
   };
 }
 

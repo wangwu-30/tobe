@@ -3,16 +3,9 @@
 import * as React from 'react';
 import type { Value } from 'platejs';
 import {
-  ArrowLeftRight,
   Check,
   ChevronDown,
-  Code2,
-  ExternalLink,
-  FilePlus2,
   LoaderCircle,
-  Play,
-  SlidersHorizontal,
-  Square,
 } from 'lucide-react';
 
 import {
@@ -122,13 +115,14 @@ import type {
   WorkspaceViewData,
 } from '@/types';
 import { GoalComposerDialog, type GoalComposerValues } from '@/components/workspace/goal-composer-dialog';
-import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { AssistantRail } from '@/components/workspace/assistant-rail';
 import { DeliverableVersionControls } from '@/components/workspace/deliverable-version-controls';
 import { AssistantPanelSurface } from '@/surfaces/assistant-panel/assistant-panel';
 import { ContextPanelSurface } from '@/surfaces/context-panel/context-panel';
 import { ReviewPanelSurface } from '@/surfaces/review-panel/review-panel';
+import { WorkspaceSidebar } from '@/surfaces/sidebar/workspace-sidebar';
 import { StatusPanelSurface } from '@/surfaces/status-panel/status-panel';
+import { WorkspaceShellActions } from '@/surfaces/workspace/workspace-shell-actions';
 import { WorkspaceScreen } from '@/surfaces/workspace/workspace-screen';
 
 type PaneOrder = 'deliverable-left' | 'assistant-left';
@@ -2203,47 +2197,29 @@ export default function WorkspacePage() {
     collapsed: boolean;
     onNavigate?: () => void;
   }) => (
-    <DeliverableSidebar
+    <WorkspaceSidebar
       activeSupportFileId={activeSupportFileId}
+      canOpenOutline={canOpenOutline}
       collapsed={collapsed}
       currentProjectId={currentProjectId}
       currentWorkspaceId={workspaceId}
       currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
+      isVersionView={isVersionView}
       onCreateWorkspace={() => openWorkspaceCreateEntry(null)}
-      onCreateDeliverable={(context) =>
-        void createProjectDeliverable(context?.projectFolderId || null)
-      }
-      onCreateProjectFolder={
-        isVersionView ? undefined : (parentFolderId) => void createProjectFolder(parentFolderId || null)
-      }
-      onCreateSiblingDeliverable={(targetWorkspaceId) =>
-        void createSiblingDeliverable(targetWorkspaceId)
-      }
-      onDeleteWorkspace={(projectId) => void deleteProject(projectId)}
-      onCreateSupportFile={
-        isVersionView ? undefined : (parentId) => void createSupportFile(parentId)
-      }
-      onCreateSupportFolder={
-        isVersionView ? undefined : (parentId) => void createSupportFolder(parentId)
-      }
-      onDeleteSupportFile={isVersionView ? undefined : (fileId) => void deleteSupportFile(fileId)}
-      onMoveSupportFile={
-        isVersionView
-          ? undefined
-          : (fileId, parentId, sortOrder) => void moveSupportFile(fileId, parentId, sortOrder)
-      }
-      onReorderSupportFile={
-        isVersionView
-          ? undefined
-          : (fileId, direction) => void reorderSupportFile(fileId, direction)
-      }
-      onRenameSupportFile={
-        isVersionView ? undefined : (fileId, name) => void renameSupportFile(fileId, name)
-      }
+      onCreateDeliverable={(context) => createProjectDeliverable(context?.projectFolderId || null)}
+      onCreateProjectFolder={createProjectFolder}
+      onCreateSiblingDeliverable={createSiblingDeliverable}
+      onDeleteWorkspace={deleteProject}
+      onCreateSupportFile={createSupportFile}
+      onCreateSupportFolder={createSupportFolder}
+      onDeleteSupportFile={deleteSupportFile}
+      onMoveSupportFile={moveSupportFile}
+      onReorderSupportFile={reorderSupportFile}
+      onRenameSupportFile={renameSupportFile}
       onOpenDeliverable={(targetWorkspaceId) => router.push(`/workspace/${targetWorkspaceId}`)}
-      onRenameWorkspace={(projectId, title) => renameProject(projectId, title)}
+      onRenameWorkspace={renameProject}
       onNavigate={onNavigate}
-      onOpenOutline={canOpenOutline ? openOutline : undefined}
+      onOpenOutline={openOutline}
       onOpenSupportFile={(fileId) =>
         syncLocation({
           fileId,
@@ -2251,44 +2227,14 @@ export default function WorkspacePage() {
         })
       }
       onOpenWorkspace={(nextWorkspaceId) => router.push(`/workspace/${nextWorkspaceId}`)}
-      onRenameDeliverable={
-        isVersionView
-          ? undefined
-          : (targetWorkspaceId, title) => void renameDeliverable(targetWorkspaceId, title)
-      }
-      onDeleteDeliverable={
-        isVersionView
-          ? undefined
-          : (targetWorkspaceId) => void deleteDeliverable(targetWorkspaceId)
-      }
-      onMoveDeliverable={
-        isVersionView
-          ? undefined
-          : (targetWorkspaceId, projectFolderId) =>
-              void moveDeliverable(targetWorkspaceId, projectFolderId)
-      }
-      onMoveProjectFolder={
-        isVersionView
-          ? undefined
-          : (folderId, parentFolderId) => void moveProjectFolder(folderId, parentFolderId)
-      }
-      onReorderDeliverable={
-        isVersionView
-          ? undefined
-          : (targetWorkspaceId, direction) =>
-              void reorderDeliverable(targetWorkspaceId, direction)
-      }
-      onReorderProjectFolder={
-        isVersionView
-          ? undefined
-          : (folderId, direction) => void reorderProjectFolder(folderId, direction)
-      }
-      onRenameProjectFolder={
-        isVersionView ? undefined : (folderId, title) => void renameProjectFolder(folderId, title)
-      }
-      onDeleteProjectFolder={
-        isVersionView ? undefined : (folderId) => void deleteProjectFolder(folderId)
-      }
+      onRenameDeliverable={renameDeliverable}
+      onDeleteDeliverable={deleteDeliverable}
+      onMoveDeliverable={moveDeliverable}
+      onMoveProjectFolder={moveProjectFolder}
+      onReorderDeliverable={reorderDeliverable}
+      onReorderProjectFolder={reorderProjectFolder}
+      onRenameProjectFolder={renameProjectFolder}
+      onDeleteProjectFolder={deleteProjectFolder}
       projectFolders={projectFolders}
       projectDeliverables={projectDeliverables}
       supportFiles={supportFiles}
@@ -2297,83 +2243,24 @@ export default function WorkspacePage() {
   );
 
   const workspaceShellActions = (
-    <>
-      {currentWorkspace && !isVersionView ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          data-testid="workspace-new-sibling-deliverable"
-          onClick={() =>
-            openProjectDeliverableComposer({
-              projectFolderId: currentWorkspace.projectFolderId || null,
-            })
-          }
-        >
-          <FilePlus2 className="h-4 w-4" />
-          {t('sidebar.newSiblingDeliverable')}
-        </Button>
-      ) : null}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm" className="gap-1.5">
-            <SlidersHorizontal className="h-4 w-4" />
-            {t('workspace.view')}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          {deliverableType !== 'document' ? (
-            <DropdownMenuItem onClick={() => setShowImplementation((open) => !open)}>
-              <Code2 className="h-4 w-4" />
-              {showImplementation
-                ? t('workspace.showDeliverable')
-                : t('workspace.showImplementation')}
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem onClick={togglePaneOrder}>
-            <ArrowLeftRight className="h-4 w-4" />
-            {t('workspace.swapLayout')}
-          </DropdownMenuItem>
-          {previewCapability.canPreview && showImplementation ? (
-            activePreviewRun ? (
-              <>
-                <DropdownMenuItem
-                  onClick={() => void stopPreview()}
-                  disabled={isStoppingPreview}
-                >
-                  {isStoppingPreview ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Square className="h-4 w-4" />
-                  )}
-                  {t('workspace.stopPreview')}
-                </DropdownMenuItem>
-                {activePreviewRun.previewUrl ? (
-                  <DropdownMenuItem asChild>
-                    <a href={activePreviewRun.previewUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink className="h-4 w-4" />
-                      {t('workspace.openPreview')}
-                    </a>
-                  </DropdownMenuItem>
-                ) : null}
-              </>
-            ) : (
-              <DropdownMenuItem
-                onClick={() => void startPreview()}
-                disabled={isStartingPreview}
-              >
-                {isStartingPreview ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                {t('workspace.startPreview')}
-              </DropdownMenuItem>
-            )
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
+    <WorkspaceShellActions
+      canCreateSiblingDeliverable={Boolean(currentWorkspace && !isVersionView)}
+      canToggleImplementation={deliverableType !== 'document'}
+      isStartingPreview={isStartingPreview}
+      isStoppingPreview={isStoppingPreview}
+      onCreateSiblingDeliverable={() =>
+        openProjectDeliverableComposer({
+          projectFolderId: currentWorkspace?.projectFolderId || null,
+        })
+      }
+      onStartPreview={() => void startPreview()}
+      onStopPreview={() => void stopPreview()}
+      onToggleImplementation={() => setShowImplementation((open) => !open)}
+      onTogglePaneOrder={togglePaneOrder}
+      previewUrl={activePreviewRun?.previewUrl || null}
+      showImplementation={showImplementation}
+      showPreviewControls={previewCapability.canPreview && showImplementation}
+    />
   );
 
   const goalDialog = (

@@ -19,6 +19,9 @@
 - 当前重构不是单纯目录搬迁，目标边界是统一 runtime、对象模型、derive 层和 renderAs 扩展缝。
 - Agent 边界按 `Context + ToolKit + Persona + Policy + RenderAdapter` 理解，而不是只按前三项。
 - 迁移顺序遵循“先统一内部 runtime，再统一外部 route”。
+- Phase 2 对 `service.ts` 设止损点：压到约 1500-1800 行后，剩余 `restore / continue / switch branch` 这类版本主流程改在 Phase 3 配合 Label 模型一起收口，不在 Phase 2 里硬拆完。
+- Phase 2 的当前主线优先转向 `src/app/workspace/[workspaceId]/page.tsx`，继续拆 sidebar 渲染、dialog 管理、版本比较和其他不依赖 Phase 3 版本模型的页面逻辑。
+- 通用知识库是非阻塞副线，可以在切片间隙持续积累，但不抢占当前主重构顺序。
 - 地基分两层：
   - 仓库内合约文档：当前 workstream 的强绑定地基，优先落地。
   - 仓库外通用知识库：持续沉淀，但不阻塞主重构。
@@ -39,22 +42,22 @@
 
 ## 当前切片
 
-切片目标：完成 Phase 2 的第二十八个切片，把 `src/lib/workspace/service.ts` 里的 `setWorkspaceVersionPinned` 收进 `src/objects/state/commands.ts`，继续沿着 version command seam 收口 `service.ts`，同时保留现有 pin limit 错误语义和 façade 出口。
+切片目标：完成 Phase 2 的第三十一个切片，把 `src/app/workspace/[workspaceId]/page.tsx` 里的 `workspaceShellActions` 提到独立 surface / helper，继续压缩 route 页本身，同时保留 sibling deliverable 入口、view 菜单、preview start/stop 和实现态切换行为。
 
 当前切片退出条件：
 
-- `service.ts` 不再直接持有 `setWorkspaceVersionPinned` 的主流程实现
-- `src/objects/state/commands.ts` 承载 version pin command seam，并与已下沉的 `pruneWorkspaceRecoveryCheckpoints / replaceWorkspaceDraftWithVersionFiles / createWorkspaceVersion` 处在同一 cluster
-- `WorkspaceRecoveryPinLimitError` 继续保持现有错误语义和 façade 出口
-- pin / unpin recovery point 行为、limit 校验和返回结构保持不变
-- 不在这一刀里直接搬 `restoreWorkspaceVersion / continueWorkspaceFromVersion / switchWorkspaceToVersionBranch` 的主流程
+- `page.tsx` 不再直接持有 `workspaceShellActions` 这块 header action JSX 主体
+- sibling deliverable 按钮、实现态切换、pane swap、preview start/stop / open preview 行为保持不变
+- 相关文案、图标和禁用态继续由现有 route 状态驱动，不在这一刀里改交互语义
+- `WorkspaceScreen` 继续只消费上层传入的 actions 节点，不额外回流业务逻辑
+- 不在这一刀里同时改 goal dialog 管理或 version compare 逻辑
 - 延续“先 façade、后迁移”的拆分方式，不做纯目录迁移式拆分
 - 若改动了产品代码或行为，完成前运行 `npm run verify:iteration`
 
 ## 下一候选切片
 
-1. Phase 2：若 pin command seam 稳定，再评估 `restoreWorkspaceVersion` 或相邻 version branch flow 的 façade 下沉。
-2. Phase 2：继续按同样方式拆 version / plan / action 簇，或评估是否切 Phase 3。
+1. Phase 2：继续拆 `page.tsx`，优先看 goal/dialog 管理、版本比较以及其他仍挂在 route 页上的重型 surface 组装逻辑。
+2. Phase 2：当 `service.ts` 压到约 1500-1800 行前，可按止损点评估是否还值得继续拆非 Phase 3 依赖的 service 簇；其余版本主流程留给 Phase 3。
 3. Phase 3：在 runtime 边界稳定后推进 `State + Label + Draft`。
 
 ## 剩余验收项
@@ -70,6 +73,9 @@
 
 ## Verification History
 
+- 2026-03-20：完成 Phase 2 切片 30，新增 `src/surfaces/sidebar/workspace-sidebar.tsx`，把 `src/app/workspace/[workspaceId]/page.tsx` 里的 `renderWorkspaceSidebar` prop 组装与 version-view guard 下沉到独立 surface adapter，并把 route 页压到 2507 行；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 29，扩展 `src/objects/state/commands.ts` 与 `src/objects/state/index.ts`，把 `src/lib/workspace/service.ts` 里的 `restoreWorkspaceVersion` 提到 state command cluster，并继续由 `service.ts` façade 注入 `ensureWorkspaceEditable / listWorkspaceRuns / materializeWorkspaceMirror / startWorkspacePreview / bindDraftThreadsToVersion / recordSyncEvent`；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 28，扩展 `src/objects/state/commands.ts` 与 `src/objects/state/index.ts`，新增 `src/objects/state/draft-commands.ts` / `src/objects/state/shared.ts`，把 `src/lib/workspace/service.ts` 里的 `setWorkspaceVersionPinned` 与 `WorkspaceRecoveryPinLimitError` 收进 state command cluster，并让 `service.ts` 继续作为 façade 出口；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-20：完成 Phase 2 切片 27，扩展 `src/objects/state/commands.ts` 与 `src/objects/state/index.ts`，把 `src/lib/workspace/service.ts` 里的 `createWorkspaceVersion` 提到 state command module，并继续由 `service.ts` façade 注入 `ensureWorkspaceEditable / bindDraftThreadsToVersion / recordSyncEvent`；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-20：完成 Phase 2 切片 26，扩展 `src/objects/state/commands.ts` 与 `src/objects/state/index.ts`，把 `src/lib/workspace/service.ts` 里的 `replaceWorkspaceDraftWithVersionFiles` 提到 state command module，并继续由 `service.ts` façade 注入 `materializeWorkspaceMirror / startWorkspacePreview`；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-20：完成 Phase 2 切片 25，新增 `src/objects/state/commands.ts`，把 `src/lib/workspace/service.ts` 里的 `pruneWorkspaceRecoveryCheckpoints` 提到 state command module，并让 `service.ts` 继续作为过渡出口；`npm run verify:iteration` 通过（50 passed）。

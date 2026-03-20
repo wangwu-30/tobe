@@ -533,6 +533,18 @@
 - 为什么：如果在 object command 里直接复用旧 service 的 map 函数，很容易引入循环依赖；如果为了避免循环把 map 层一起搬走，又会让切片从 command seam 膨胀成 schema/view seam。先保留 façade mapping，可以在不改对外契约的前提下完成主流程迁移。
 - 默认做法：object command 只负责事务、side effect 编排和原始 record 返回；旧 service export 作为兼容壳调用 object command 后再做 map，等相邻 schema/query seam 稳定后，再评估是否继续迁移映射出口。
 
+### 48. object command seam 长大时，要按命令族拆文件，不要把所有迁移动作继续堆进一个 `commands.ts`
+
+- 结论：当同一 object 的 command cluster 已经接近文件大小约束时，新 seam 仍应留在同一个 object 边界里，但要按命令族拆成相邻文件，而不是继续把所有流程硬塞进单个 `commands.ts`。
+- 为什么：如果每次迁移都只往一个 `commands.ts` 追加，虽然 service 巨石在缩小，但 object module 自己会重新长成新的巨石，也会持续违反仓库的文件大小契约并放大后续 merge 冲突。
+- 默认做法：保留 `objects/{name}` 的公开出口不变，把彼此相邻但职责不同的 command 族拆成邻近文件，例如把 version command 和 draft rewrite command 分开；service façade 继续只注入边界依赖，不回退到跨层复制实现。
+
+### 49. route 页里成片的 surface prop 组装，要尽早提成 surface adapter
+
+- 结论：当某个 page 已经主要在做“给现成 surface / component 拼 callback、guard 和导航 glue”时，这块组装代码应尽早提成独立 surface adapter，而不是继续留在 route 页里横向展开。
+- 为什么：这类代码表面上不像“业务逻辑”，但会快速把 route 页撑成几千行，也让每次读页面都得同时扫一遍 version-view guard、router 跳转和 action wiring，后续继续拆 dialog 或 header action 时也更容易互相缠绕。
+- 默认做法：保留现有底层 surface / component 不动，新增薄 adapter 负责 version-view 禁用、导航回调和 prop 形状适配；route 页只保留状态源与少量高层编排，不再直接展开整块 prop wiring。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来
