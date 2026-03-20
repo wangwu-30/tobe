@@ -7,10 +7,13 @@ import { AppShell } from '@/components/layout/app-shell';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { useAppRouter } from '@/lib/app-router';
 import {
+  buildWorkspaceCreateRecovery,
   clearWorkspaceCreateRecovery,
   loadWorkspaceCreateRecovery,
   persistWorkspaceCreateRecovery,
-  WORKSPACE_CREATE_IDEMPOTENCY_HEADER,
+  submitWorkspaceCreateRequest,
+  WorkspaceCreateActionError,
+  type WorkspaceCreateContext,
 } from '@/lib/workspace/create-request';
 import {
   GoalComposerDialog,
@@ -30,11 +33,8 @@ export default function HomePage() {
     React.useState(false);
   const [createWorkspaceRecoveryValues, setCreateWorkspaceRecoveryValues] =
     React.useState<GoalComposerValues | null>(null);
-  const [workspaceCreateContext, setWorkspaceCreateContext] = React.useState<{
-    projectFolderId: string | null;
-    projectId: string | null;
-    projectTitle: string | null;
-  } | null>(null);
+  const [workspaceCreateContext, setWorkspaceCreateContext] =
+    React.useState<WorkspaceCreateContext | null>(null);
   const [pendingCreateEntry, setPendingCreateEntry] = React.useState(false);
   const createWorkspaceRequestIdRef = React.useRef<string | null>(null);
   const createWorkspaceInFlightRef = React.useRef(false);
@@ -86,61 +86,41 @@ export default function HomePage() {
     setCreateWorkspaceError(null);
     setIsCreatingWorkspace(true);
 
-    if (!createWorkspaceRequestIdRef.current) {
-      createWorkspaceRequestIdRef.current = crypto.randomUUID();
-    }
+    const requestId = createWorkspaceRequestIdRef.current || crypto.randomUUID();
+    createWorkspaceRequestIdRef.current = requestId;
 
     try {
-      const res = await fetch('/api/workspaces', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: createWorkspaceRequestIdRef.current,
-          ...getStoredAISettingsHeader(),
-        },
-        body: JSON.stringify({
-          ...values,
-          ...(workspaceCreateContext
-            ? {
-                projectFolderId: workspaceCreateContext.projectFolderId,
-                projectId: workspaceCreateContext.projectId,
-                projectTitle: workspaceCreateContext.projectTitle,
-              }
-            : {}),
-        }),
+      const workspace = await submitWorkspaceCreateRequest({
+        context: workspaceCreateContext,
+        errorMessage: t('goal.createProjectFailed'),
+        headers: getStoredAISettingsHeader(),
+        requestId,
+        values,
       });
-      if (res.ok) {
-        const workspace = await res.json();
-        clearWorkspaceCreateRecovery();
-        setCreateWorkspaceRecoveryActive(false);
-        setCreateWorkspaceRecoveryValues(null);
-        setWorkspaceCreateContext(null);
-        createWorkspaceRequestIdRef.current = null;
-        setGoalDialogOpen(false);
-        router.push(
-          `/workspace/${workspace.workspace.id}?conversationId=${workspace.conversation.id}`
-        );
-        return;
-      }
-
-      const payload = await res.json().catch(() => null);
       clearWorkspaceCreateRecovery();
       setCreateWorkspaceRecoveryActive(false);
       setCreateWorkspaceRecoveryValues(null);
+      setWorkspaceCreateContext(null);
       createWorkspaceRequestIdRef.current = null;
-      setCreateWorkspaceError(payload?.error || t('goal.createProjectFailed'));
-    } catch {
-      const recovery = {
-        context: workspaceCreateContext
-          ? {
-              projectFolderId: workspaceCreateContext.projectFolderId,
-              projectId: workspaceCreateContext.projectId,
-              projectTitle: workspaceCreateContext.projectTitle,
-            }
-          : undefined,
-        requestId: createWorkspaceRequestIdRef.current || crypto.randomUUID(),
+      setGoalDialogOpen(false);
+      router.push(
+        `/workspace/${workspace.workspace.id}?conversationId=${workspace.conversation.id}`
+      );
+    } catch (error) {
+      if (error instanceof WorkspaceCreateActionError) {
+        clearWorkspaceCreateRecovery();
+        setCreateWorkspaceRecoveryActive(false);
+        setCreateWorkspaceRecoveryValues(null);
+        createWorkspaceRequestIdRef.current = null;
+        setCreateWorkspaceError(error.message);
+        return;
+      }
+
+      const recovery = buildWorkspaceCreateRecovery({
+        context: workspaceCreateContext,
+        requestId,
         values,
-      };
+      });
       createWorkspaceRequestIdRef.current = recovery.requestId;
       persistWorkspaceCreateRecovery(recovery);
       setCreateWorkspaceRecoveryActive(true);
@@ -153,15 +133,15 @@ export default function HomePage() {
   };
 
   const handleGoalDialogOpenChange = React.useCallback((open: boolean) => {
-      if (!open) {
-        if (!createWorkspaceRecoveryActive) {
-          clearWorkspaceCreateRecovery();
-          setCreateWorkspaceError(null);
-          setCreateWorkspaceRecoveryValues(null);
-          setWorkspaceCreateContext(null);
-          createWorkspaceRequestIdRef.current = null;
-        }
+    if (!open) {
+      if (!createWorkspaceRecoveryActive) {
+        clearWorkspaceCreateRecovery();
+        setCreateWorkspaceError(null);
+        setCreateWorkspaceRecoveryValues(null);
+        setWorkspaceCreateContext(null);
+        createWorkspaceRequestIdRef.current = null;
       }
+    }
 
     setGoalDialogOpen(open);
   }, [createWorkspaceRecoveryActive]);

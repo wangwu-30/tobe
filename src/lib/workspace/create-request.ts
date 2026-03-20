@@ -12,25 +12,52 @@ export const WORKSPACE_CREATE_IDEMPOTENCY_HEADER = 'x-dao-idempotency-key';
 
 const WORKSPACE_CREATE_RECOVERY_STORAGE_KEY = 'dao-workspace-create-recovery';
 
-export type WorkspaceCreateRecovery = {
-  context?: {
-    projectFolderId?: string | null;
-    projectId?: string | null;
-    projectTitle?: string | null;
-  };
-  requestId: string;
-  values: {
-    constraints: string;
-    createMode?: WorkspaceCreateIntent | null;
-    deliverableType?: DeliverableType | null;
-    goal: string;
-    projectParentPath: string;
-    selectedIntent?: WorkspaceCreateIntentChoice | null;
-    selectedIntentNote?: string;
-    styleGuide: string;
-    workflowPlaybookId: string;
-  };
+export type WorkspaceCreateContext = {
+  projectFolderId: string | null;
+  projectId: string | null;
+  projectTitle: string | null;
 };
+
+export type WorkspaceCreateValues = {
+  constraints: string;
+  createMode?: WorkspaceCreateIntent | null;
+  deliverableType?: DeliverableType | null;
+  goal: string;
+  projectParentPath: string;
+  selectedIntent?: WorkspaceCreateIntentChoice | null;
+  selectedIntentNote?: string;
+  styleGuide: string;
+  workflowPlaybookId: string;
+};
+
+export type WorkspaceCreateRecovery = {
+  context?: Partial<WorkspaceCreateContext>;
+  requestId: string;
+  values: WorkspaceCreateValues;
+};
+
+export type WorkspaceCreateResult = {
+  conversation: { id: string };
+  workspace: { id: string };
+};
+
+export class WorkspaceCreateActionError extends Error {}
+
+function buildWorkspaceCreateBody(params: {
+  context?: WorkspaceCreateContext | null;
+  values: WorkspaceCreateValues;
+}) {
+  return {
+    ...params.values,
+    ...(params.context
+      ? {
+          projectFolderId: params.context.projectFolderId,
+          projectId: params.context.projectId,
+          projectTitle: params.context.projectTitle,
+        }
+      : {}),
+  };
+}
 
 export function loadWorkspaceCreateRecovery() {
   if (typeof window === 'undefined') {
@@ -116,4 +143,54 @@ export function clearWorkspaceCreateRecovery() {
   }
 
   window.sessionStorage.removeItem(WORKSPACE_CREATE_RECOVERY_STORAGE_KEY);
+}
+
+export function buildWorkspaceCreateRecovery(params: {
+  context?: WorkspaceCreateContext | null;
+  requestId: string;
+  values: WorkspaceCreateValues;
+}) {
+  return {
+    context: params.context
+      ? {
+          projectFolderId: params.context.projectFolderId,
+          projectId: params.context.projectId,
+          projectTitle: params.context.projectTitle,
+        }
+      : undefined,
+    requestId: params.requestId,
+    values: params.values,
+  } satisfies WorkspaceCreateRecovery;
+}
+
+export async function submitWorkspaceCreateRequest(params: {
+  context?: WorkspaceCreateContext | null;
+  errorMessage: string;
+  headers?: Record<string, string>;
+  requestId: string;
+  values: WorkspaceCreateValues;
+}) {
+  const response = await fetch('/api/workspaces', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: params.requestId,
+      ...(params.headers || {}),
+    },
+    body: JSON.stringify(
+      buildWorkspaceCreateBody({
+        context: params.context,
+        values: params.values,
+      })
+    ),
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | (WorkspaceCreateResult & { error?: string })
+    | null;
+
+  if (!response.ok || !payload?.workspace?.id || !payload?.conversation?.id) {
+    throw new WorkspaceCreateActionError(payload?.error || params.errorMessage);
+  }
+
+  return payload;
 }

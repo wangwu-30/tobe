@@ -21,3 +21,11 @@
 - The authoritative workflow and scenario matrix live in `/Users/wangwu/claude/chat-to-your-mind/docs/testing/iteration-regression-plan.md`.
 - If a completed feature iteration, UX cleanup, or bug fix reveals a reusable product/technical lesson or a concrete pitfall, update `/Users/wangwu/claude/chat-to-your-mind/docs/chengxing-lessons-learned.md` before closing the task.
 - Treat `/Users/wangwu/claude/chat-to-your-mind/docs/chengxing-lessons-learned.md` as the authoritative ledger for validated best practices and pitfalls; mark not-yet-shipped ideas as `待验证`.
+
+## 项目合约
+
+- 开始任何工作前，先读 `/Users/wangwu/claude/chat-to-your-mind/SYSTEM.md` 理解对象模型
+- 写代码时遵循 `/Users/wangwu/claude/chat-to-your-mind/CONVENTIONS.md` 的目录和命名约定
+- 受 `/Users/wangwu/claude/chat-to-your-mind/CONSTRAINTS.md` 的约束
+- 按 `/Users/wangwu/claude/chat-to-your-mind/PATTERNS.md` 的模式执行常见任务
+- 若当前 workstream 是这轮重构，优先读取 `/Users/wangwu/claude/chat-to-your-mind/docs/chengxing-refactor-tracker.md`

@@ -1,5 +1,34 @@
 import { Prisma } from '@/generated/prisma/client';
 import {
+  ensureWorkspaceFiles,
+  rebuildDescendantPaths,
+} from '@/objects/file/commands';
+import {
+  buildWorkspacePath,
+  getDefaultFileName,
+  getInitialFileContent,
+  getParentWorkspacePath,
+  getWorkspacePathDepth,
+  inferFileKind,
+  inferFileLanguage,
+  makeUniqueChildName,
+  mapWorkspaceFile,
+  mapWorkspaceFileToVersion,
+  parseVersionFiles,
+  resolveCurrentVersionFile,
+  resolveCurrentWorkspaceFile,
+  resolvePrimaryFile,
+  serializeWorkspaceVersion,
+} from '@/objects/file/schema';
+import {
+  buildProjectFolders,
+  buildProjectSummary,
+  getNextProjectTreeSortOrder,
+  listProjects,
+  resolveWorkspaceProjectId,
+  resolveWorkspaceProjectTitle,
+} from '@/objects/project/queries';
+import {
   buildReviewAnchorFingerprint,
   parseReviewAnchor,
 } from '@/lib/comments/review-anchor';
@@ -31,7 +60,6 @@ import {
 } from '@/lib/workspace/planning';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import { deriveWorkflowSummary } from '@/lib/workspace/workflow';
-import type { Value } from 'platejs';
 import type {
   AssistantRunData,
   ChatAttachmentData,
@@ -67,10 +95,24 @@ type LockConflict = {
   workspaceId: string;
 };
 
-type VersionPayload = {
-  files: WorkspaceVersionFileData[];
-  workspaceTitle?: string;
-};
+export {
+  getNextProjectTreeSortOrder,
+  listProjects,
+  PROJECT_TREE_SORT_STEP,
+} from '@/objects/project/queries';
+export {
+  buildWorkspacePath,
+  getDefaultFileName,
+  getInitialFileContent,
+  getParentWorkspacePath,
+  getWorkspacePathDepth,
+  inferFileKind,
+  inferFileLanguage,
+  makeUniqueChildName,
+  mapWorkspaceFile,
+  normalizeWorkspaceFileRole,
+  parseVersionFiles,
+} from '@/objects/file/schema';
 
 function normalizeWorkspaceVersionType(
   value: string | null | undefined
@@ -128,7 +170,6 @@ type SupportFileEnvelope = {
 const MAX_PINNED_RECOVERY_POINTS = 3;
 const MAX_TEMPORARY_RECOVERY_POINTS = 1;
 const SUPPORT_UPLOADS_ROOT = 'Uploads';
-export const PROJECT_TREE_SORT_STEP = 1024;
 
 export class WorkspaceLockConflictError extends Error {
   readonly detail: LockConflict;
@@ -145,132 +186,6 @@ export class WorkspaceRecoveryPinLimitError extends Error {
   constructor() {
     super('Pinned recovery points are limited to 3.');
   }
-}
-
-function resolveWorkspaceProjectId(workspace: {
-  id: string;
-  projectId?: string | null;
-}) {
-  return workspace.projectId || workspace.id;
-}
-
-function resolveWorkspaceProjectTitle(workspace: {
-  projectTitle?: string | null;
-  title: string;
-}) {
-  return workspace.projectTitle?.trim() || workspace.title;
-}
-
-type ProjectSummarySeed = {
-  id: string;
-  projectId: string | null;
-  projectTitle: string | null;
-  title: string;
-  updatedAt: Date;
-};
-
-function buildProjectSummary(
-  projectDocuments: ProjectSummarySeed[],
-  workspace?: ProjectSummarySeed | null
-): ProjectSummaryData | null {
-  const documents = projectDocuments.length > 0
-    ? [...projectDocuments].sort(
-        (left, right) =>
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-      )
-    : workspace
-      ? [workspace]
-      : [];
-
-  const latestWorkspace = documents[0] || workspace || null;
-  const anchorWorkspace = workspace || latestWorkspace;
-
-  if (!latestWorkspace || !anchorWorkspace) {
-    return null;
-  }
-
-  return {
-    id: resolveWorkspaceProjectId(anchorWorkspace),
-    workspaceId: latestWorkspace.id,
-    title: resolveWorkspaceProjectTitle(anchorWorkspace),
-    preview: latestWorkspace.title,
-    deliverableCount: documents.length,
-    latestDeliverableTitle: latestWorkspace.title || null,
-    updatedAt: latestWorkspace.updatedAt,
-  };
-}
-
-export async function getNextProjectTreeSortOrder(
-  params: {
-    organizationId: string;
-    parentFolderId: string | null;
-    projectId: string;
-  },
-  db: Prisma.TransactionClient | typeof prisma = prisma
-) {
-  const [lastDeliverable, lastFolder] = await Promise.all([
-    db.document.findFirst({
-      where: {
-        deletedAt: null,
-        organizationId: params.organizationId,
-        projectId: params.projectId,
-        projectFolderId: params.parentFolderId,
-      },
-      select: { treeSortOrder: true },
-      orderBy: [{ treeSortOrder: 'desc' }, { updatedAt: 'desc' }],
-    }),
-    db.projectFolder.findFirst({
-      where: {
-        deletedAt: null,
-        organizationId: params.organizationId,
-        projectId: params.projectId,
-        parentId: params.parentFolderId,
-      },
-      select: { treeSortOrder: true },
-      orderBy: [{ treeSortOrder: 'desc' }, { updatedAt: 'desc' }],
-    }),
-  ]);
-
-  return (
-    Math.max(lastDeliverable?.treeSortOrder || 0, lastFolder?.treeSortOrder || 0) +
-    PROJECT_TREE_SORT_STEP
-  );
-}
-
-export async function listProjects(
-  organizationId: string
-): Promise<ProjectSummaryData[]> {
-  const workspaces = await prisma.document.findMany({
-    where: {
-      deletedAt: null,
-      organizationId,
-    },
-    select: {
-      id: true,
-      projectId: true,
-      projectTitle: true,
-      title: true,
-      updatedAt: true,
-    },
-    orderBy: { updatedAt: 'desc' },
-  });
-
-  const projects = new Map<string, ProjectSummarySeed[]>();
-
-  workspaces.forEach((workspace) => {
-    const projectId = resolveWorkspaceProjectId(workspace);
-    const bucket = projects.get(projectId) || [];
-    bucket.push(workspace);
-    projects.set(projectId, bucket);
-  });
-
-  return Array.from(projects.values())
-    .map((projectDocuments) => buildProjectSummary(projectDocuments))
-    .filter((project): project is ProjectSummaryData => Boolean(project))
-    .sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-    );
 }
 
 export const listWorkspaces = listProjects;
@@ -2526,7 +2441,7 @@ export async function getWorkspaceView(params: {
     currentStatus,
     plan: workspacePlan,
   });
-  const currentProject = buildCurrentProjectSummary(projectDocuments, workspace);
+  const currentProject = buildProjectSummary(projectDocuments, workspace);
   const mappedProjectFolders = buildProjectFolders(projectFolders);
   const projectDeliverables = buildProjectDeliverables(projectDocuments);
 
@@ -2605,25 +2520,6 @@ export async function getConversationWorkspace(params: {
   };
 }
 
-function buildCurrentProjectSummary(
-  projectDocuments: Array<{
-    id: string;
-    projectId: string | null;
-    projectTitle: string | null;
-    title: string;
-    updatedAt: Date;
-  }>,
-  workspace: {
-    id: string;
-    projectId: string | null;
-    projectTitle: string | null;
-    title: string;
-    updatedAt: Date;
-  }
-): ProjectSummaryData | null {
-  return buildProjectSummary(projectDocuments, workspace);
-}
-
 function buildProjectDeliverables(
   projectDocuments: Array<{
     content: string;
@@ -2659,40 +2555,6 @@ function buildProjectDeliverables(
         updatedAt: workspace.updatedAt,
       };
     })
-    .sort((left, right) => {
-      if (left.sortOrder === right.sortOrder) {
-        const updatedAtDiff =
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-        if (updatedAtDiff !== 0) {
-          return updatedAtDiff;
-        }
-
-        return left.id.localeCompare(right.id);
-      }
-
-      return left.sortOrder - right.sortOrder;
-    });
-}
-
-function buildProjectFolders(
-  folders: Array<{
-    id: string;
-    parentId: string | null;
-    projectId: string;
-    treeSortOrder: number;
-    title: string;
-    updatedAt: Date;
-  }>
-): WorkspaceViewData['projectFolders'] {
-  return folders
-    .map((folder) => ({
-      id: folder.id,
-      projectId: folder.projectId,
-      parentFolderId: folder.parentId || null,
-      sortOrder: folder.treeSortOrder,
-      title: folder.title,
-      updatedAt: folder.updatedAt,
-    }))
     .sort((left, right) => {
       if (left.sortOrder === right.sortOrder) {
         const updatedAtDiff =
@@ -2943,50 +2805,6 @@ export function mapWorkspace(document: {
     deletedAt: document.deletedAt,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
-  };
-}
-
-export function mapWorkspaceFile(file: {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string;
-  id: string;
-  isPrimary: boolean;
-  kind: string;
-  language: string | null;
-  name: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  parentId: string | null;
-  path: string;
-  role?: string | null;
-  revision: number;
-  sortOrder: number;
-  type: string;
-  updatedAt: Date;
-}): WorkspaceFileData {
-  return {
-    id: file.id,
-    organizationId: file.organizationId,
-    workspaceId: file.documentId,
-    parentId: file.parentId,
-    name: file.name,
-    path: file.path,
-    nodeType: file.type === 'folder' ? 'folder' : 'file',
-    kind: normalizeFileKind(file.kind),
-    role: normalizeWorkspaceFileRole(file.role),
-    language: file.language,
-    content: file.content,
-    sortOrder: file.sortOrder,
-    isPrimary: file.isPrimary,
-    createdByUserId: file.createdByUserId,
-    originDeviceId: file.originDeviceId,
-    revision: file.revision,
-    deletedAt: file.deletedAt,
-    createdAt: file.createdAt,
-    updatedAt: file.updatedAt,
   };
 }
 
@@ -3294,110 +3112,6 @@ async function ensureWorkspaceEditable(actor: ActorContext, workspaceId: string)
   }
 }
 
-async function ensureWorkspaceFiles(organizationId: string, workspaceId: string) {
-  let files = await prisma.workspaceFile.findMany({
-    where: {
-      deletedAt: null,
-      documentId: workspaceId,
-      organizationId,
-    },
-    orderBy: [{ path: 'asc' }, { sortOrder: 'asc' }],
-  });
-
-  if (files.length > 0) {
-    return files;
-  }
-
-  const workspace = await prisma.document.findFirst({
-    where: {
-      deletedAt: null,
-      id: workspaceId,
-      organizationId,
-    },
-  });
-
-  if (!workspace) {
-    return [];
-  }
-
-  const primaryFileName = getDefaultFileName('richtext');
-  const file = await prisma.workspaceFile.create({
-    data: {
-      organizationId,
-      documentId: workspace.id,
-      name: primaryFileName,
-      path: primaryFileName,
-      type: 'file',
-      kind: 'richtext',
-      role: 'deliverable',
-      language: inferFileLanguage(primaryFileName),
-      content: workspace.content,
-      isPrimary: true,
-      sortOrder: 0,
-      createdByUserId: workspace.createdByUserId,
-      originDeviceId: workspace.originDeviceId,
-    },
-  });
-
-  await prisma.session.updateMany({
-    where: {
-      deletedAt: null,
-      organizationId,
-      wikiId: workspace.id,
-      activeFileId: null,
-    },
-    data: {
-      activeFileId: file.id,
-      revision: {
-        increment: 1,
-      },
-    },
-  });
-
-  files = [file];
-  return files;
-}
-
-async function rebuildDescendantPaths(params: {
-  fileId: string;
-  oldPath: string;
-  organizationId: string;
-  workspaceId: string;
-}) {
-  const root = await prisma.workspaceFile.findUnique({
-    where: { id: params.fileId },
-  });
-
-  if (!root) {
-    return;
-  }
-
-  const descendants = await prisma.workspaceFile.findMany({
-    where: {
-      deletedAt: null,
-      documentId: params.workspaceId,
-      organizationId: params.organizationId,
-      path: {
-        startsWith: `${params.oldPath}/`,
-      },
-    },
-    orderBy: { path: 'asc' },
-  });
-
-  for (const descendant of descendants) {
-    const nextPath = descendant.path.replace(params.oldPath, root.path);
-    await prisma.workspaceFile.update({
-      where: { id: descendant.id },
-      data: {
-        path: nextPath,
-        revision: {
-          increment: 1,
-        },
-      },
-    });
-  }
-}
-
 async function findNearestVersionBeforeMessage(params: {
   messageCreatedAt: Date;
   organizationId: string;
@@ -3547,132 +3261,6 @@ function mapWorkspaceEditLock(lock: {
   };
 }
 
-export function parseVersionFiles(content: string): WorkspaceVersionFileData[] {
-  try {
-    const parsed = JSON.parse(content) as VersionPayload | Value;
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      'files' in parsed &&
-      Array.isArray(parsed.files)
-    ) {
-      return parsed.files.map((file) => ({
-        ...file,
-        kind: normalizeFileKind(file.kind),
-        role: normalizeWorkspaceFileRole(file.role),
-        language: file.language || null,
-        nodeType: file.nodeType === 'folder' ? 'folder' : 'file',
-        versionId: file.versionId || null,
-      }));
-    }
-  } catch {
-    // fall through to legacy version payload decoding below
-  }
-
-  return [
-    {
-      id: 'legacy-primary',
-      workspaceId: 'legacy',
-      parentId: null,
-      name: 'main.md',
-      path: 'main.md',
-      nodeType: 'file',
-      kind: 'richtext',
-      role: 'deliverable',
-      language: 'markdown',
-      content,
-      sortOrder: 0,
-      isPrimary: true,
-      createdByUserId: null,
-      originDeviceId: null,
-      revision: 1,
-      versionId: null,
-    },
-  ];
-}
-
-function serializeWorkspaceVersion(payload: VersionPayload) {
-  return JSON.stringify(payload);
-}
-
-function mapWorkspaceFileToVersion(file: WorkspaceFileData): WorkspaceVersionFileData {
-  return {
-    id: file.id,
-    workspaceId: file.workspaceId,
-    parentId: file.parentId,
-    name: file.name,
-    path: file.path,
-    nodeType: file.nodeType,
-    kind: file.kind,
-    role: file.role,
-    language: file.language,
-    content: file.content,
-    sortOrder: file.sortOrder,
-    isPrimary: file.isPrimary,
-    versionId: null,
-    createdByUserId: file.createdByUserId,
-    originDeviceId: file.originDeviceId,
-    revision: file.revision,
-  };
-}
-
-function resolvePrimaryFile(files: Array<Parameters<typeof mapWorkspaceFile>[0]>) {
-  const deliverableFiles = files.filter(
-    (file) => normalizeWorkspaceFileRole(file.role) === 'deliverable'
-  );
-  return (
-    deliverableFiles.find((file) => file.isPrimary && file.type === 'file') ||
-    deliverableFiles.find((file) => file.type === 'file') ||
-    null
-  );
-}
-
-function resolveCurrentWorkspaceFile(params: {
-  fileId: string | null;
-  files: WorkspaceFileData[];
-}) {
-  if (params.fileId) {
-    const requestedFile = params.files.find(
-      (file) => file.id === params.fileId && file.nodeType === 'file'
-    );
-    if (requestedFile) {
-      return requestedFile;
-    }
-  }
-
-  const deliverableFiles = params.files.filter((file) => file.role === 'deliverable');
-  return (
-    deliverableFiles.find((file) => file.isPrimary) ||
-    deliverableFiles.find((file) => file.nodeType === 'file') ||
-    null
-  );
-}
-
-function resolveCurrentVersionFile(params: {
-  fileId: string | null;
-  files: WorkspaceVersionFileData[];
-}) {
-  if (params.fileId) {
-    const requestedFile = params.files.find(
-      (file) => file.id === params.fileId && file.nodeType === 'file'
-    );
-    if (requestedFile) {
-      return requestedFile;
-    }
-  }
-
-  const deliverableFiles = params.files.filter((file) => file.role === 'deliverable');
-  return (
-    deliverableFiles.find((file) => file.isPrimary) ||
-    deliverableFiles.find((file) => file.nodeType === 'file') ||
-    null
-  );
-}
-
-function normalizeWorkspaceFileRole(role?: string | null): WorkspaceFileData['role'] {
-  return role === 'support' ? 'support' : 'deliverable';
-}
-
 function buildAttachmentPreviewUrl(
   kind: ChatAttachmentData['kind'],
   storedContent?: string | null,
@@ -3779,46 +3367,6 @@ async function ensureSupportUploadsFolder(
   });
 }
 
-function makeUniqueChildName(
-  name: string,
-  siblings: Array<{ name: string }>
-) {
-  if (!siblings.some((sibling) => sibling.name === name)) {
-    return name;
-  }
-
-  const extensionIndex = name.lastIndexOf('.');
-  const hasExtension = extensionIndex > 0;
-  const base = hasExtension ? name.slice(0, extensionIndex) : name;
-  const extension = hasExtension ? name.slice(extensionIndex) : '';
-
-  let counter = 2;
-  let candidate = `${base} ${counter}${extension}`;
-  while (siblings.some((sibling) => sibling.name === candidate)) {
-    counter += 1;
-    candidate = `${base} ${counter}${extension}`;
-  }
-
-  return candidate;
-}
-
-function buildWorkspacePath(parentPath: string | null, name: string) {
-  return parentPath ? `${parentPath}/${name}` : name;
-}
-
-function getParentWorkspacePath(filePath: string) {
-  const slashIndex = filePath.lastIndexOf('/');
-  if (slashIndex === -1) {
-    return null;
-  }
-
-  return filePath.slice(0, slashIndex) || null;
-}
-
-function getWorkspacePathDepth(filePath: string) {
-  return filePath.split('/').length;
-}
-
 async function pruneWorkspaceRecoveryCheckpoints(params: {
   organizationId: string;
   workspaceId: string;
@@ -3857,86 +3405,6 @@ async function pruneWorkspaceRecoveryCheckpoints(params: {
       },
     },
   });
-}
-
-function getDefaultFileName(kind: 'richtext' | 'markdown' | 'text' | 'code') {
-  switch (kind) {
-    case 'markdown':
-      return 'main';
-    case 'code':
-      return 'index.ts';
-    case 'text':
-      return 'notes.txt';
-    default:
-      return 'main';
-  }
-}
-
-function getInitialFileContent(kind: 'richtext' | 'markdown' | 'text' | 'code') {
-  switch (kind) {
-    case 'code':
-      return '';
-    case 'text':
-      return '';
-    case 'markdown':
-      return '[]';
-    default:
-      return '[]';
-  }
-}
-
-function inferFileKind(name: string): 'richtext' | 'markdown' | 'text' | 'code' {
-  if (name.endsWith('.md') || name.endsWith('.mdx')) {
-    return 'markdown';
-  }
-
-  if (
-    name.endsWith('.ts') ||
-    name.endsWith('.tsx') ||
-    name.endsWith('.js') ||
-    name.endsWith('.jsx') ||
-    name.endsWith('.css') ||
-    name.endsWith('.html') ||
-    name.endsWith('.json')
-  ) {
-    return 'code';
-  }
-
-  if (name.endsWith('.txt')) {
-    return 'text';
-  }
-
-  return 'richtext';
-}
-
-function inferFileLanguage(name: string) {
-  const extension = name.split('.').pop()?.toLowerCase();
-  if (!extension || extension === name.toLowerCase()) {
-    return null;
-  }
-
-  const languageMap: Record<string, string> = {
-    css: 'css',
-    html: 'html',
-    js: 'javascript',
-    json: 'json',
-    jsx: 'javascript',
-    md: 'markdown',
-    mdx: 'markdown',
-    ts: 'typescript',
-    tsx: 'typescript',
-    txt: 'text',
-  };
-
-  return languageMap[extension] || extension;
-}
-
-function normalizeFileKind(value: string): WorkspaceFileData['kind'] {
-  if (value === 'markdown' || value === 'text' || value === 'code') {
-    return value;
-  }
-
-  return 'richtext';
 }
 
 function truncate(value: string, max = 120) {

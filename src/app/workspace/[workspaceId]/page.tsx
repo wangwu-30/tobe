@@ -11,19 +11,16 @@ import {
   FilePlus2,
   LoaderCircle,
   Play,
-  Sparkles,
   SlidersHorizontal,
   Square,
 } from 'lucide-react';
 
-import { ChatPanel } from '@/components/chat/chat-panel';
-import { CommentSidebar } from '@/components/comments/comment-sidebar';
-import { WebSelectionCommentTrigger } from '@/components/comments/web-selection-comment-trigger';
-import { EditorWrapper } from '@/components/editor/editor-wrapper';
-import { KnowledgePanel } from '@/components/knowledge/knowledge-panel';
-import { AppShell } from '@/components/layout/app-shell';
-import { FirstUseGuide } from '@/components/layout/first-use-guide';
-import { SplitView } from '@/components/layout/split-view';
+import {
+  buildDeliverablePanel,
+  buildOutlineItems,
+  normalizeDeliverableText,
+  parsePlateContent,
+} from '@/canvas/document-canvas/document-canvas';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -31,9 +28,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Textarea } from '@/components/ui/textarea';
 import { plateToMarkdown } from '@/lib/ai/serializer';
-import { COMMENT_THREAD_FOCUS_EVENT, requestSelectionCommentComposerOpen } from '@/lib/comments/constants';
+import {
+  COMMENT_THREAD_FOCUS_EVENT,
+  requestSelectionCommentComposerOpen,
+} from '@/lib/comments/constants';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { useT } from '@/components/providers/language-provider';
 import { cn } from '@/lib/utils';
@@ -43,10 +42,13 @@ import {
   useAppSearchParams,
 } from '@/lib/app-router';
 import {
+  buildWorkspaceCreateRecovery,
   clearWorkspaceCreateRecovery,
   loadWorkspaceCreateRecovery,
   persistWorkspaceCreateRecovery,
-  WORKSPACE_CREATE_IDEMPOTENCY_HEADER,
+  submitWorkspaceCreateRequest,
+  WorkspaceCreateActionError,
+  type WorkspaceCreateContext,
 } from '@/lib/workspace/create-request';
 import {
   buildPreviewBridgeUrl,
@@ -57,26 +59,60 @@ import {
   loadPendingPreviewStart,
   persistPendingPreviewStart,
 } from '@/lib/workspace/preview-start-recovery';
-import {
-  getWorkspaceFileDisplayName,
-  isPlateBackedWorkspaceFile,
-} from '@/lib/workspace/file-presentation';
+import { isPlateBackedWorkspaceFile } from '@/lib/workspace/file-presentation';
+import { saveWorkspaceFileContent } from '@/lib/workspace/file-client';
 import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import {
-  extractSlidePageCards,
-  hasOnlySlidePageBlocks,
-} from '@/lib/workspace/slide-pages';
-import { generateWorkspacePlan } from '@/lib/workspace/plan-client';
+  generateWorkspacePlan,
+  updateWorkspacePlanActiveWorkflow,
+} from '@/lib/workspace/plan-client';
 import {
   detectWorkspacePreviewCapability,
   resolveWebPreviewAnchorFile,
 } from '@/lib/workspace/preview';
+import {
+  startWorkspacePreview,
+  stopWorkspacePreview,
+} from '@/lib/workspace/preview-client';
+import {
+  deleteWorkspaceProject,
+  renameWorkspaceProject,
+} from '@/lib/workspace/project-client';
+import {
+  createProjectTreeFolder,
+  deleteProjectTreeDeliverable,
+  deleteProjectTreeFolder,
+  moveProjectTreeDeliverable,
+  moveProjectTreeFolder,
+  renameProjectTreeDeliverable,
+  renameProjectTreeFolder,
+  reorderProjectTreeDeliverable,
+  reorderProjectTreeFolder,
+} from '@/lib/workspace/project-tree-client';
+import {
+  readWorkspaceReviewThreads,
+  readWorkspaceRuns,
+  readWorkspaceView,
+} from '@/lib/workspace/read-client';
 import { listProjectFolderPath } from '@/lib/workspace/project-summary';
+import {
+  branchConversationFromMessage,
+  continueWorkspaceConversationFromVersion,
+  createWorkspaceVersion,
+  restoreWorkspaceVersion,
+  switchWorkspaceConversationToVersionBranch,
+  toggleWorkspaceRecoveryPointPin,
+} from '@/lib/workspace/version-client';
+import {
+  createWorkspaceSupportNode,
+  deleteWorkspaceSupportFile,
+  moveWorkspaceSupportFile,
+  renameWorkspaceSupportFile,
+} from '@/lib/workspace/support-files-client';
 import type {
   ChatMessageData,
   CommentThreadData,
   DeliverableType,
-  LegacyDeliverableType,
   ProjectDeliverableItem,
   ProjectFolderItem,
   ResearchMode,
@@ -86,10 +122,14 @@ import type {
   WorkspaceViewData,
 } from '@/types';
 import { GoalComposerDialog, type GoalComposerValues } from '@/components/workspace/goal-composer-dialog';
-import { DeliverableSidebar, type DeliverableOutlineItem } from '@/components/workspace/deliverable-sidebar';
+import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { AssistantRail } from '@/components/workspace/assistant-rail';
-import { PlanPanel } from '@/components/workspace/plan-panel';
 import { DeliverableVersionControls } from '@/components/workspace/deliverable-version-controls';
+import { AssistantPanelSurface } from '@/surfaces/assistant-panel/assistant-panel';
+import { ContextPanelSurface } from '@/surfaces/context-panel/context-panel';
+import { ReviewPanelSurface } from '@/surfaces/review-panel/review-panel';
+import { StatusPanelSurface } from '@/surfaces/status-panel/status-panel';
+import { WorkspaceScreen } from '@/surfaces/workspace/workspace-screen';
 
 type PaneOrder = 'deliverable-left' | 'assistant-left';
 type WorkspaceNoticeAction = {
@@ -106,11 +146,6 @@ type QueuedPrompt = {
   content: string;
   id: string;
   researchMode?: ResearchMode;
-};
-type WorkspaceCreateContext = {
-  projectFolderId: string | null;
-  projectId: string | null;
-  projectTitle: string | null;
 };
 
 const PANE_ORDER_STORAGE_KEY = 'workspace-pane-order';
@@ -405,8 +440,7 @@ export default function WorkspacePage() {
   );
 
   const deliverableType: DeliverableType = deliverable?.deliverableType || 'document';
-  const storedDeliverableType: LegacyDeliverableType | null =
-    deliverable?.storedDeliverableType || null;
+  const storedDeliverableType = deliverable?.storedDeliverableType || null;
   const isVersionView = Boolean(currentVersion);
   const isRichtextFile = isPlateBackedWorkspaceFile(currentFile);
   const currentConversationId = currentConversation?.id || requestedConversationId || null;
@@ -581,22 +615,15 @@ export default function WorkspacePage() {
         target && 'fileId' in target ? target.fileId || null : requestedFileId;
       const versionId =
         target && 'versionId' in target ? target.versionId || null : requestedVersionId;
-      const query = new URLSearchParams();
-      if (conversationId) query.set('conversationId', conversationId);
-      if (fileId) query.set('fileId', fileId);
-      if (versionId) query.set('versionId', versionId);
-
-      const response = await fetch(
-        `/api/workspaces/${resolvedWorkspaceId}${
-          query.size > 0 ? `?${query.toString()}` : ''
-        }`
-      );
-
-      if (!response.ok) {
+      const nextView = await readWorkspaceView({
+        conversationId,
+        fileId,
+        versionId,
+        workspaceId: resolvedWorkspaceId,
+      });
+      if (!nextView) {
         return null;
       }
-
-      const nextView = (await response.json()) as WorkspaceViewData;
       setWorkspaceView(nextView);
       setInitialMessages(nextView.currentConversation?.messages || []);
 
@@ -631,26 +658,22 @@ export default function WorkspacePage() {
   }, [loadWorkspaceView]);
 
   const loadRuns = React.useCallback(async () => {
-    const response = await fetch(`/api/workspaces/${workspaceId}/runs`);
-    if (!response.ok) return;
+    const nextRuns = await readWorkspaceRuns(workspaceId);
+    if (!nextRuns) return;
 
-    setWorkspaceRuns((await response.json()) as WorkspaceRunData[]);
+    setWorkspaceRuns(nextRuns);
   }, [workspaceId]);
 
   const loadThreads = React.useCallback(async () => {
-    const params = new URLSearchParams({ workspaceId });
-    if (deliverableType !== 'web' && currentFileId) {
-      params.set('fileId', currentFileId);
-    }
-    if (currentVersionId) {
-      params.set('versionId', currentVersionId);
-    } else {
-      params.set('draftOnly', '1');
-    }
-    const response = await fetch(`/api/threads?${params.toString()}`);
-    if (!response.ok) return;
+    const nextThreads = await readWorkspaceReviewThreads({
+      currentFileId,
+      currentVersionId,
+      deliverableType,
+      workspaceId,
+    });
+    if (!nextThreads) return;
 
-    setReviewThreads((await response.json()) as CommentThreadData[]);
+    setReviewThreads(nextThreads);
   }, [currentFileId, currentVersionId, deliverableType, workspaceId]);
 
   React.useEffect(() => {
@@ -895,10 +918,10 @@ export default function WorkspacePage() {
       saveTimeoutRef.current = setTimeout(async () => {
         setIsSavingTextFile(true);
         try {
-          await fetch(`/api/workspaces/${workspaceId}/files/${currentFileId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: nextContent }),
+          await saveWorkspaceFileContent({
+            content: nextContent,
+            fileId: currentFileId,
+            workspaceId,
           });
         } finally {
           setIsSavingTextFile(false);
@@ -909,30 +932,26 @@ export default function WorkspacePage() {
   );
 
   const createVersion = React.useCallback(async () => {
-    const response = await fetch(`/api/workspaces/${workspaceId}/versions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    try {
+      const version = await createWorkspaceVersion({
+        errorMessage: t('workspace.visibleVersionFailed'),
         title: deliverable?.title || currentWorkspace?.title || t('version.defaultTitle'),
-      }),
-    });
+        workspaceId,
+      });
 
-    if (!response.ok) {
+      syncLocation({ versionId: version.id });
+      setWorkspaceNotice({
+        tone: 'success',
+        text: t('workspace.createdVersion', { versionNum: version.versionNum }),
+      });
+      await loadWorkspace();
+      await loadThreads();
+    } catch (error) {
       setWorkspaceNotice({
         tone: 'error',
-        text: t('workspace.visibleVersionFailed'),
+        text: error instanceof Error ? error.message : t('workspace.visibleVersionFailed'),
       });
-      return;
     }
-
-    const version = (await response.json()) as WorkspaceVersionData;
-    syncLocation({ versionId: version.id });
-    setWorkspaceNotice({
-      tone: 'success',
-      text: t('workspace.createdVersion', { versionNum: version.versionNum }),
-    });
-    await loadWorkspace();
-    await loadThreads();
   }, [
     currentWorkspace?.title,
     deliverable?.title,
@@ -945,65 +964,58 @@ export default function WorkspacePage() {
 
   const toggleRecoveryPointPin = React.useCallback(
     async (versionId: string, pinned: boolean) => {
-      const response = await fetch(
-        `/api/workspaces/${workspaceId}/versions/${versionId}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pinned }),
-        }
-      );
+      try {
+        const version = await toggleWorkspaceRecoveryPointPin({
+          errorMessage: t('workspace.recoveryPointActionFailed'),
+          pinned,
+          versionId,
+          workspaceId,
+        });
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
+        promptedRecoveryPointRef.current = version.id;
+        await loadWorkspace();
+        setWorkspaceNotice({
+          tone: 'success',
+          text: pinned
+            ? t('workspace.pinnedRecoveryPoint', { title: version.title })
+            : t('workspace.unpinnedRecoveryPoint', { title: version.title }),
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: payload?.error || t('workspace.recoveryPointActionFailed'),
+          text:
+            error instanceof Error
+              ? error.message
+              : t('workspace.recoveryPointActionFailed'),
         });
-        return;
       }
-
-      const version = (await response.json()) as WorkspaceVersionData;
-      promptedRecoveryPointRef.current = version.id;
-      await loadWorkspace();
-      setWorkspaceNotice({
-        tone: 'success',
-        text: pinned
-          ? t('workspace.pinnedRecoveryPoint', { title: version.title })
-          : t('workspace.unpinnedRecoveryPoint', { title: version.title }),
-      });
     },
     [loadWorkspace, t, workspaceId]
   );
 
   const restoreVersion = React.useCallback(
     async (versionId: string) => {
-      const response = await fetch(
-        `/api/workspaces/${workspaceId}/versions/${versionId}/restore`,
-        {
-          method: 'POST',
-        }
-      );
+      try {
+        const result = await restoreWorkspaceVersion({
+          errorMessage: t('workspace.restoreFailed'),
+          versionId,
+          workspaceId,
+        });
 
-      if (!response.ok) {
+        syncLocation({ versionId: null });
+        setWorkspaceNotice({
+          tone: 'success',
+          text: t('workspace.restoredVersion', {
+            title: result.restoredVersion.title,
+          }),
+        });
+        await Promise.all([loadWorkspace(), loadRuns(), loadThreads()]);
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: t('workspace.restoreFailed'),
+          text: error instanceof Error ? error.message : t('workspace.restoreFailed'),
         });
-        return;
       }
-
-      const result = (await response.json()) as {
-        restoredVersion: WorkspaceVersionData;
-      };
-      syncLocation({ versionId: null });
-      setWorkspaceNotice({
-        tone: 'success',
-        text: t('workspace.restoredVersion', {
-          title: result.restoredVersion.title,
-        }),
-      });
-      await Promise.all([loadWorkspace(), loadRuns(), loadThreads()]);
     },
     [loadRuns, loadThreads, loadWorkspace, syncLocation, t, workspaceId]
   );
@@ -1014,20 +1026,15 @@ export default function WorkspacePage() {
         return;
       }
 
-      const response = await fetch(
-        `/api/conversations/${currentConversationId}/branch`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messageId }),
-        }
-      );
+      const result = await branchConversationFromMessage({
+        conversationId: currentConversationId,
+        messageId,
+      });
 
-      if (!response.ok) {
+      if (!result) {
         return;
       }
 
-      const result = await response.json();
       syncLocation({
         conversationId: result.conversation.id,
       });
@@ -1037,98 +1044,80 @@ export default function WorkspacePage() {
 
   const continueConversationFromVersion = React.useCallback(
     async (version: WorkspaceVersionData) => {
-      const response = await fetch(
-        `/api/workspaces/${workspaceId}/versions/${version.id}/continue`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            activeFileId: currentFileId,
-            parentConversationId: currentConversationId,
-            safetyCheckpointTitle: t('version.continueSafetyCheckpointTitle'),
-            title: t('version.continueFromVersionTitle', {
-              title: version.title,
-            }),
+      try {
+        const nextState = await continueWorkspaceConversationFromVersion({
+          activeFileId: currentFileId,
+          errorMessage: t('version.continueFailed'),
+          parentConversationId: currentConversationId,
+          safetyCheckpointTitle: t('version.continueSafetyCheckpointTitle'),
+          title: t('version.continueFromVersionTitle', {
+            title: version.title,
           }),
-        }
-      );
+          versionId: version.id,
+          workspaceId,
+        });
 
-      if (!response.ok) {
+        const nextView = await loadWorkspaceView({
+          conversationId: nextState.conversation.id,
+          fileId: null,
+          versionId: null,
+        });
+        syncLocation({
+          conversationId: nextState.conversation.id,
+          fileId: nextView?.currentFile?.id || null,
+          versionId: null,
+        });
+        setWorkspaceNotice({
+          tone: 'success',
+          text: t('workspace.continuedFromVersion', {
+            title: nextState.baseVersion.title,
+          }),
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: t('version.continueFailed'),
+          text: error instanceof Error ? error.message : t('version.continueFailed'),
         });
-        return;
       }
-
-      const nextState = (await response.json()) as {
-        baseVersion: WorkspaceVersionData;
-        conversation: { id: string };
-      };
-      const nextView = await loadWorkspaceView({
-        conversationId: nextState.conversation.id,
-        fileId: null,
-        versionId: null,
-      });
-      syncLocation({
-        conversationId: nextState.conversation.id,
-        fileId: nextView?.currentFile?.id || null,
-        versionId: null,
-      });
-      setWorkspaceNotice({
-        tone: 'success',
-        text: t('workspace.continuedFromVersion', {
-          title: nextState.baseVersion.title,
-        }),
-      });
     },
     [currentConversationId, currentFileId, loadWorkspaceView, syncLocation, t, workspaceId]
   );
 
   const switchConversationToVersionBranch = React.useCallback(
     async (version: WorkspaceVersionData) => {
-      const response = await fetch(
-        `/api/workspaces/${workspaceId}/versions/${version.id}/switch`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            activeFileId: currentFileId,
-            parentConversationId: currentConversationId,
-            safetyCheckpointTitle: t('version.switchBranchSafetyCheckpointTitle'),
-            title: version.title,
-          }),
-        }
-      );
+      try {
+        const nextState = await switchWorkspaceConversationToVersionBranch({
+          activeFileId: currentFileId,
+          errorMessage: t('version.switchBranchFailed'),
+          parentConversationId: currentConversationId,
+          safetyCheckpointTitle: t('version.switchBranchSafetyCheckpointTitle'),
+          title: version.title,
+          versionId: version.id,
+          workspaceId,
+        });
 
-      if (!response.ok) {
+        const nextView = await loadWorkspaceView({
+          conversationId: nextState.conversation.id,
+          fileId: null,
+          versionId: null,
+        });
+        syncLocation({
+          conversationId: nextState.conversation.id,
+          fileId: nextView?.currentFile?.id || null,
+          versionId: null,
+        });
+        setWorkspaceNotice({
+          tone: 'success',
+          text: t('workspace.switchedToVersionHead', {
+            title: nextState.baseVersion.title,
+          }),
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: t('version.switchBranchFailed'),
+          text: error instanceof Error ? error.message : t('version.switchBranchFailed'),
         });
-        return;
       }
-
-      const nextState = (await response.json()) as {
-        baseVersion: WorkspaceVersionData;
-        conversation: { id: string };
-      };
-      const nextView = await loadWorkspaceView({
-        conversationId: nextState.conversation.id,
-        fileId: null,
-        versionId: null,
-      });
-      syncLocation({
-        conversationId: nextState.conversation.id,
-        fileId: nextView?.currentFile?.id || null,
-        versionId: null,
-      });
-      setWorkspaceNotice({
-        tone: 'success',
-        text: t('workspace.switchedToVersionHead', {
-          title: nextState.baseVersion.title,
-        }),
-      });
     },
     [currentConversationId, currentFileId, loadWorkspaceView, syncLocation, t, workspaceId]
   );
@@ -1149,28 +1138,13 @@ export default function WorkspacePage() {
 
     setIsStartingPreview(true);
     try {
-      const response = await fetch(`/api/workspaces/${workspaceId}/preview/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Preview start should survive an immediate reload from the result surface.
-        keepalive: true,
-        body: JSON.stringify({
-          versionId: targetVersionId,
-        }),
+      const startedRun = await startWorkspacePreview({
+        errorMessage: t('workspace.previewCouldNotStart'),
+        versionId: targetVersionId,
+        workspaceId,
       });
 
-      if (!response.ok) {
-        clearPendingPreviewStart(workspaceId);
-        const payload = await response.json().catch(() => null);
-        setWorkspaceNotice({
-          tone: 'error',
-          text: payload?.error || t('workspace.previewCouldNotStart'),
-        });
-        return;
-      }
-
       clearPendingPreviewStart(workspaceId);
-      const startedRun = (await response.json().catch(() => null)) as WorkspaceRunData | null;
       if (startedRun?.id) {
         setWorkspaceRuns((currentRuns) => [
           startedRun,
@@ -1241,22 +1215,20 @@ export default function WorkspacePage() {
   const stopPreview = React.useCallback(async () => {
     setIsStoppingPreview(true);
     try {
-      const response = await fetch(`/api/workspaces/${workspaceId}/preview/stop`, {
-        method: 'POST',
+      await stopWorkspacePreview({
+        errorMessage: t('workspace.previewCouldNotStop'),
+        workspaceId,
       });
-
-      if (!response.ok) {
-        setWorkspaceNotice({
-          tone: 'error',
-          text: t('workspace.previewCouldNotStop'),
-        });
-        return;
-      }
 
       await loadRuns();
       setWorkspaceNotice({
         tone: 'info',
         text: t('workspace.previewStopped'),
+      });
+    } catch (error) {
+      setWorkspaceNotice({
+        tone: 'error',
+        text: error instanceof Error ? error.message : t('workspace.previewCouldNotStop'),
       });
     } finally {
       setIsStoppingPreview(false);
@@ -1320,48 +1292,23 @@ export default function WorkspacePage() {
       setCreateWorkspaceError(null);
       setIsCreatingWorkspace(true);
 
-      if (!createWorkspaceRequestIdRef.current) {
-        createWorkspaceRequestIdRef.current = crypto.randomUUID();
-      }
-
       const createFailureCopyKey = workspaceCreateContext?.projectId
         ? 'goal.createDeliverableFailed'
         : 'goal.createProjectFailed';
       const createRetryCopyKey = workspaceCreateContext?.projectId
         ? 'goal.createDeliverableRetryUnknown'
         : 'goal.createProjectRetryUnknown';
+      const requestId = createWorkspaceRequestIdRef.current || crypto.randomUUID();
+      createWorkspaceRequestIdRef.current = requestId;
 
       try {
-        const response = await fetch('/api/workspaces', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: createWorkspaceRequestIdRef.current,
-            ...getStoredAISettingsHeader(),
-          },
-          body: JSON.stringify({
-            ...values,
-            ...(workspaceCreateContext
-              ? {
-                  projectFolderId: workspaceCreateContext.projectFolderId,
-                  projectId: workspaceCreateContext.projectId,
-                  projectTitle: workspaceCreateContext.projectTitle,
-                }
-              : {}),
-          }),
+        const result = await submitWorkspaceCreateRequest({
+          context: workspaceCreateContext,
+          errorMessage: t(createFailureCopyKey),
+          headers: getStoredAISettingsHeader(),
+          requestId,
+          values,
         });
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          clearWorkspaceCreateRecovery();
-          setCreateWorkspaceRecoveryActive(false);
-          setCreateWorkspaceRecoveryValues(null);
-          createWorkspaceRequestIdRef.current = null;
-          setCreateWorkspaceError(payload?.error || t(createFailureCopyKey));
-          return;
-        }
-
-        const result = await response.json();
         clearWorkspaceCreateRecovery();
         setCreateWorkspaceRecoveryActive(false);
         setCreateWorkspaceRecoveryValues(null);
@@ -1372,18 +1319,21 @@ export default function WorkspacePage() {
         router.push(
           `/workspace/${result.workspace.id}?conversationId=${result.conversation.id}`
         );
-      } catch {
-        const recovery = {
-          context: workspaceCreateContext
-            ? {
-                projectFolderId: workspaceCreateContext.projectFolderId,
-                projectId: workspaceCreateContext.projectId,
-                projectTitle: workspaceCreateContext.projectTitle,
-              }
-            : undefined,
-          requestId: createWorkspaceRequestIdRef.current || crypto.randomUUID(),
+      } catch (error) {
+        if (error instanceof WorkspaceCreateActionError) {
+          clearWorkspaceCreateRecovery();
+          setCreateWorkspaceRecoveryActive(false);
+          setCreateWorkspaceRecoveryValues(null);
+          createWorkspaceRequestIdRef.current = null;
+          setCreateWorkspaceError(error.message);
+          return;
+        }
+
+        const recovery = buildWorkspaceCreateRecovery({
+          context: workspaceCreateContext,
+          requestId,
           values,
-        };
+        });
         createWorkspaceRequestIdRef.current = recovery.requestId;
         persistWorkspaceCreateRecovery(recovery);
         setCreateWorkspaceRecoveryActive(true);
@@ -1408,20 +1358,11 @@ export default function WorkspacePage() {
   ]);
   const applyWorkflowPlaybook = React.useCallback(
     async (workflowPlaybookId: string | null) => {
-      const response = await fetch(`/api/workspaces/${workspaceId}/plan`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          activeWorkflowPlaybookId: workflowPlaybookId,
-        }),
+      const payload = await updateWorkspacePlanActiveWorkflow({
+        errorMessage: t('context.workflowApplyFailed'),
+        workflowPlaybookId,
+        workspaceId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok || !payload) {
-        throw new Error(payload?.error || t('context.workflowApplyFailed'));
-      }
 
       setWorkspaceView((current) =>
         current
@@ -1453,30 +1394,23 @@ export default function WorkspacePage() {
       nodeType?: 'file' | 'folder';
       parentId?: string | null;
     }) => {
-      const response = await fetch(`/api/workspaces/${workspaceId}/files`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      try {
+        return await createWorkspaceSupportNode({
+          errorMessage: t('sidebar.createSupportMaterialFailed'),
           kind: params.kind,
           name: params.name,
           nodeType: params.nodeType,
           parentId: params.parentId,
-          role: 'support',
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok || !payload?.id) {
+          workspaceId,
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: payload?.error || t('sidebar.createSupportMaterialFailed'),
+          text:
+            error instanceof Error ? error.message : t('sidebar.createSupportMaterialFailed'),
         });
         return null;
       }
-
-      return payload as { id: string };
     },
     [t, workspaceId]
   );
@@ -1526,15 +1460,17 @@ export default function WorkspacePage() {
   const deleteSupportFile = React.useCallback(
     async (fileId: string) => {
       const target = supportFiles.find((file) => file.id === fileId) || null;
-      const response = await fetch(`/api/workspaces/${workspaceId}/files/${fileId}`, {
-        method: 'DELETE',
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
+      try {
+        await deleteWorkspaceSupportFile({
+          errorMessage: t('sidebar.deleteSupportMaterialFailed'),
+          fileId,
+          workspaceId,
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: payload?.error || t('sidebar.deleteSupportMaterialFailed'),
+          text:
+            error instanceof Error ? error.message : t('sidebar.deleteSupportMaterialFailed'),
         });
         return;
       }
@@ -1565,18 +1501,12 @@ export default function WorkspacePage() {
   );
   const renameSupportFile = React.useCallback(
     async (fileId: string, name: string) => {
-      const response = await fetch(`/api/workspaces/${workspaceId}/files/${fileId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name }),
+      await renameWorkspaceSupportFile({
+        errorMessage: t('sidebar.renameSupportMaterialFailed'),
+        fileId,
+        name,
+        workspaceId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.renameSupportMaterialFailed'));
-      }
 
       await loadWorkspace();
       setWorkspaceNotice({
@@ -1588,21 +1518,13 @@ export default function WorkspacePage() {
   );
   const moveSupportFile = React.useCallback(
     async (fileId: string, parentId: string | null, sortOrder?: number) => {
-      const response = await fetch(`/api/workspaces/${workspaceId}/files/${fileId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          parentId,
-          sortOrder,
-        }),
+      await moveWorkspaceSupportFile({
+        errorMessage: t('sidebar.moveSupportMaterialFailed'),
+        fileId,
+        parentId,
+        sortOrder,
+        workspaceId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.moveSupportMaterialFailed'));
-      }
 
       await loadWorkspace();
       setWorkspaceNotice({
@@ -1675,22 +1597,18 @@ export default function WorkspacePage() {
         return;
       }
 
-      const response = await fetch(`/api/projects/${projectId}/folders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      try {
+        await createProjectTreeFolder({
+          errorMessage: t('sidebar.createProjectFolderFailed'),
           parentId: parentFolderId,
+          projectId,
           title: t('sidebar.newProjectFolderDefaultName'),
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: payload?.error || t('sidebar.createProjectFolderFailed'),
+          text:
+            error instanceof Error ? error.message : t('sidebar.createProjectFolderFailed'),
         });
         return;
       }
@@ -1699,6 +1617,60 @@ export default function WorkspacePage() {
     },
     [currentProjectId, currentWorkspace?.id, currentWorkspace?.projectId, loadWorkspace, t]
   );
+  const deleteProject = React.useCallback(
+    async (projectId: string) => {
+      try {
+        await deleteWorkspaceProject({
+          errorMessage: t('workspace.deleteFailed'),
+          projectId,
+        });
+      } catch (error) {
+        setWorkspaceNotice({
+          tone: 'error',
+          text: error instanceof Error ? error.message : t('workspace.deleteFailed'),
+        });
+        return;
+      }
+
+      if (projectId === currentProjectId) {
+        router.push('/');
+      }
+    },
+    [currentProjectId, router, t]
+  );
+  const renameProject = React.useCallback(
+    async (projectId: string, title: string) => {
+      const payload = await renameWorkspaceProject({
+        errorMessage: t('workspace.renameFailed'),
+        projectId,
+        title,
+      });
+      if (projectId !== currentProjectId) {
+        return;
+      }
+
+      setWorkspaceView((current) =>
+        current?.currentProject || current?.workspace
+          ? {
+              ...current,
+              currentProject: current.currentProject
+                ? {
+                    ...current.currentProject,
+                    title: payload?.title || title,
+                  }
+                : current.currentProject,
+              workspace: current.workspace
+                ? {
+                    ...current.workspace,
+                    projectTitle: payload?.title || title,
+                  }
+                : current.workspace,
+            }
+          : current
+      );
+    },
+    [currentProjectId, t]
+  );
   const renameProjectFolder = React.useCallback(
     async (folderId: string, title: string) => {
       const projectId = currentProjectId || currentWorkspace?.projectId || currentWorkspace?.id || null;
@@ -1706,18 +1678,12 @@ export default function WorkspacePage() {
         throw new Error(t('sidebar.renameProjectFolderFailed'));
       }
 
-      const response = await fetch(`/api/projects/${projectId}/folders/${folderId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title }),
+      await renameProjectTreeFolder({
+        errorMessage: t('sidebar.renameProjectFolderFailed'),
+        folderId,
+        projectId,
+        title,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.renameProjectFolderFailed'));
-      }
 
       await loadWorkspace();
     },
@@ -1730,15 +1696,17 @@ export default function WorkspacePage() {
         return;
       }
 
-      const response = await fetch(`/api/projects/${projectId}/folders/${folderId}`, {
-        method: 'DELETE',
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
+      try {
+        await deleteProjectTreeFolder({
+          errorMessage: t('sidebar.deleteProjectFolderFailed'),
+          folderId,
+          projectId,
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: payload?.error || t('sidebar.deleteProjectFolderFailed'),
+          text:
+            error instanceof Error ? error.message : t('sidebar.deleteProjectFolderFailed'),
         });
         return;
       }
@@ -1749,18 +1717,11 @@ export default function WorkspacePage() {
   );
   const renameDeliverable = React.useCallback(
     async (targetWorkspaceId: string, title: string) => {
-      const response = await fetch(`/api/workspaces/${targetWorkspaceId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title }),
+      const payload = await renameProjectTreeDeliverable({
+        errorMessage: t('workspace.renameDeliverableFailed'),
+        title,
+        workspaceId: targetWorkspaceId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('workspace.renameDeliverableFailed'));
-      }
 
       if (targetWorkspaceId === workspaceId) {
         await loadWorkspace();
@@ -1787,15 +1748,16 @@ export default function WorkspacePage() {
   );
   const deleteDeliverable = React.useCallback(
     async (targetWorkspaceId: string) => {
-      const response = await fetch(`/api/workspaces/${targetWorkspaceId}`, {
-        method: 'DELETE',
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
+      try {
+        await deleteProjectTreeDeliverable({
+          errorMessage: t('workspace.deleteDeliverableFailed'),
+          workspaceId: targetWorkspaceId,
+        });
+      } catch (error) {
         setWorkspaceNotice({
           tone: 'error',
-          text: payload?.error || t('workspace.deleteDeliverableFailed'),
+          text:
+            error instanceof Error ? error.message : t('workspace.deleteDeliverableFailed'),
         });
         return;
       }
@@ -1813,20 +1775,11 @@ export default function WorkspacePage() {
   );
   const moveDeliverable = React.useCallback(
     async (targetWorkspaceId: string, projectFolderId: string | null) => {
-      const response = await fetch(`/api/workspaces/${targetWorkspaceId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          projectFolderId,
-        }),
+      await moveProjectTreeDeliverable({
+        errorMessage: t('sidebar.moveDeliverableFailed'),
+        projectFolderId,
+        workspaceId: targetWorkspaceId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.moveDeliverableFailed'));
-      }
 
       await loadWorkspace();
     },
@@ -1853,20 +1806,11 @@ export default function WorkspacePage() {
         return;
       }
 
-      const response = await fetch(`/api/workspaces/${targetWorkspaceId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          treeSortOrder: nextTreeSortOrder,
-        }),
+      await reorderProjectTreeDeliverable({
+        errorMessage: t('sidebar.moveDeliverableFailed'),
+        treeSortOrder: nextTreeSortOrder,
+        workspaceId: targetWorkspaceId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.moveDeliverableFailed'));
-      }
 
       await loadWorkspace();
     },
@@ -1879,20 +1823,12 @@ export default function WorkspacePage() {
         throw new Error(t('sidebar.moveProjectFolderFailed'));
       }
 
-      const response = await fetch(`/api/projects/${projectId}/folders/${folderId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          parentId: parentFolderId,
-        }),
+      await moveProjectTreeFolder({
+        errorMessage: t('sidebar.moveProjectFolderFailed'),
+        folderId,
+        parentId: parentFolderId,
+        projectId,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.moveProjectFolderFailed'));
-      }
 
       await loadWorkspace();
     },
@@ -1923,20 +1859,12 @@ export default function WorkspacePage() {
         return;
       }
 
-      const response = await fetch(`/api/projects/${projectId}/folders/${folderId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          treeSortOrder: nextTreeSortOrder,
-        }),
+      await reorderProjectTreeFolder({
+        errorMessage: t('sidebar.moveProjectFolderFailed'),
+        folderId,
+        projectId,
+        treeSortOrder: nextTreeSortOrder,
       });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(payload?.error || t('sidebar.moveProjectFolderFailed'));
-      }
 
       await loadWorkspace();
     },
@@ -2069,7 +1997,7 @@ export default function WorkspacePage() {
         ).length
       }
       status={
-        <PlanPanel
+        <StatusPanelSurface
           currentDraftBranchTitle={currentDraftBaseVersion?.title || null}
           isAssistantBusy={isAssistantBusy}
           onCreateNextDeliverable={createNextDeliverableWithWorkflow}
@@ -2078,25 +2006,22 @@ export default function WorkspacePage() {
         />
       }
       review={
-        <CommentSidebar
+        <ReviewPanelSurface
           allowSourceApply={!currentVersionId}
           className="border-0"
           documentId={workspaceId}
           documentContent={commentContextContent}
-          embedded
           files={workspaceView?.files || []}
-          onOpenChange={() => undefined}
           onOpenFile={handleOpenWorkspaceFile}
           onSourceContentApplied={async () => {
             await loadWorkspace();
           }}
           refreshThreads={loadThreads}
-          showHeader={false}
           threads={reviewThreads}
         />
       }
       chat={
-        <ChatPanel
+        <AssistantPanelSurface
           activeFileId={currentFileId}
           activeAssistantRun={workspaceView?.activeAssistantRun || null}
           baseVersionLabel={currentConversationBaseVersionLabel}
@@ -2120,18 +2045,13 @@ export default function WorkspacePage() {
           }}
           onChatErrorChange={(error, retryFn) => setChatError(error ? { error, retryFn } : null)}
           queuedPrompt={queuedPrompt}
-          showHeader={false}
           workspaceId={workspaceId}
         />
       }
       context={
-        <KnowledgePanel
+        <ContextPanelSurface
           activeWorkflowPlaybookId={workspaceBrief?.activeWorkflowPlaybookId || null}
-          embedded
-          isOpen
-          onClose={() => undefined}
           onApplyWorkflow={workspaceId ? applyWorkflowPlaybook : undefined}
-          showHeader={false}
           wikiId={workspaceId}
         />
       }
@@ -2275,7 +2195,220 @@ export default function WorkspacePage() {
     draftRevision: currentWorkspace?.draftRevision || null,
     workspaceId,
   });
-  const openOutline = React.useCallback((outlineId: string) => {
+
+  const renderWorkspaceSidebar = ({
+    collapsed,
+    onNavigate,
+  }: {
+    collapsed: boolean;
+    onNavigate?: () => void;
+  }) => (
+    <DeliverableSidebar
+      activeSupportFileId={activeSupportFileId}
+      collapsed={collapsed}
+      currentProjectId={currentProjectId}
+      currentWorkspaceId={workspaceId}
+      currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
+      onCreateWorkspace={() => openWorkspaceCreateEntry(null)}
+      onCreateDeliverable={(context) =>
+        void createProjectDeliverable(context?.projectFolderId || null)
+      }
+      onCreateProjectFolder={
+        isVersionView ? undefined : (parentFolderId) => void createProjectFolder(parentFolderId || null)
+      }
+      onCreateSiblingDeliverable={(targetWorkspaceId) =>
+        void createSiblingDeliverable(targetWorkspaceId)
+      }
+      onDeleteWorkspace={(projectId) => void deleteProject(projectId)}
+      onCreateSupportFile={
+        isVersionView ? undefined : (parentId) => void createSupportFile(parentId)
+      }
+      onCreateSupportFolder={
+        isVersionView ? undefined : (parentId) => void createSupportFolder(parentId)
+      }
+      onDeleteSupportFile={isVersionView ? undefined : (fileId) => void deleteSupportFile(fileId)}
+      onMoveSupportFile={
+        isVersionView
+          ? undefined
+          : (fileId, parentId, sortOrder) => void moveSupportFile(fileId, parentId, sortOrder)
+      }
+      onReorderSupportFile={
+        isVersionView
+          ? undefined
+          : (fileId, direction) => void reorderSupportFile(fileId, direction)
+      }
+      onRenameSupportFile={
+        isVersionView ? undefined : (fileId, name) => void renameSupportFile(fileId, name)
+      }
+      onOpenDeliverable={(targetWorkspaceId) => router.push(`/workspace/${targetWorkspaceId}`)}
+      onRenameWorkspace={(projectId, title) => renameProject(projectId, title)}
+      onNavigate={onNavigate}
+      onOpenOutline={canOpenOutline ? openOutline : undefined}
+      onOpenSupportFile={(fileId) =>
+        syncLocation({
+          fileId,
+          versionId: currentVersionId,
+        })
+      }
+      onOpenWorkspace={(nextWorkspaceId) => router.push(`/workspace/${nextWorkspaceId}`)}
+      onRenameDeliverable={
+        isVersionView
+          ? undefined
+          : (targetWorkspaceId, title) => void renameDeliverable(targetWorkspaceId, title)
+      }
+      onDeleteDeliverable={
+        isVersionView
+          ? undefined
+          : (targetWorkspaceId) => void deleteDeliverable(targetWorkspaceId)
+      }
+      onMoveDeliverable={
+        isVersionView
+          ? undefined
+          : (targetWorkspaceId, projectFolderId) =>
+              void moveDeliverable(targetWorkspaceId, projectFolderId)
+      }
+      onMoveProjectFolder={
+        isVersionView
+          ? undefined
+          : (folderId, parentFolderId) => void moveProjectFolder(folderId, parentFolderId)
+      }
+      onReorderDeliverable={
+        isVersionView
+          ? undefined
+          : (targetWorkspaceId, direction) =>
+              void reorderDeliverable(targetWorkspaceId, direction)
+      }
+      onReorderProjectFolder={
+        isVersionView
+          ? undefined
+          : (folderId, direction) => void reorderProjectFolder(folderId, direction)
+      }
+      onRenameProjectFolder={
+        isVersionView ? undefined : (folderId, title) => void renameProjectFolder(folderId, title)
+      }
+      onDeleteProjectFolder={
+        isVersionView ? undefined : (folderId) => void deleteProjectFolder(folderId)
+      }
+      projectFolders={projectFolders}
+      projectDeliverables={projectDeliverables}
+      supportFiles={supportFiles}
+      outlineItems={outlineItems}
+    />
+  );
+
+  const workspaceShellActions = (
+    <>
+      {currentWorkspace && !isVersionView ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          data-testid="workspace-new-sibling-deliverable"
+          onClick={() =>
+            openProjectDeliverableComposer({
+              projectFolderId: currentWorkspace.projectFolderId || null,
+            })
+          }
+        >
+          <FilePlus2 className="h-4 w-4" />
+          {t('sidebar.newSiblingDeliverable')}
+        </Button>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="gap-1.5">
+            <SlidersHorizontal className="h-4 w-4" />
+            {t('workspace.view')}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          {deliverableType !== 'document' ? (
+            <DropdownMenuItem onClick={() => setShowImplementation((open) => !open)}>
+              <Code2 className="h-4 w-4" />
+              {showImplementation
+                ? t('workspace.showDeliverable')
+                : t('workspace.showImplementation')}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem onClick={togglePaneOrder}>
+            <ArrowLeftRight className="h-4 w-4" />
+            {t('workspace.swapLayout')}
+          </DropdownMenuItem>
+          {previewCapability.canPreview && showImplementation ? (
+            activePreviewRun ? (
+              <>
+                <DropdownMenuItem
+                  onClick={() => void stopPreview()}
+                  disabled={isStoppingPreview}
+                >
+                  {isStoppingPreview ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                  {t('workspace.stopPreview')}
+                </DropdownMenuItem>
+                {activePreviewRun.previewUrl ? (
+                  <DropdownMenuItem asChild>
+                    <a href={activePreviewRun.previewUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                      {t('workspace.openPreview')}
+                    </a>
+                  </DropdownMenuItem>
+                ) : null}
+              </>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => void startPreview()}
+                disabled={isStartingPreview}
+              >
+                {isStartingPreview ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Play className="h-4 w-4" />
+                )}
+                {t('workspace.startPreview')}
+              </DropdownMenuItem>
+            )
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  );
+
+  const goalDialog = (
+    <GoalComposerDialog
+      creationMode={workspaceCreateContext?.projectId ? 'deliverable' : 'project'}
+      currentProjectTitle={workspaceCreateContext?.projectTitle || null}
+      disableInputs={createWorkspaceRecoveryActive}
+      errorMessage={createWorkspaceError}
+      initialValues={
+        createWorkspaceRecoveryValues || goalDialogSeedValues || undefined
+      }
+      isSubmitting={isCreatingWorkspace}
+      onOpenChange={(open) => {
+        if (!open) {
+          if (!createWorkspaceRecoveryActive) {
+            clearWorkspaceCreateRecovery();
+            setCreateWorkspaceError(null);
+            setCreateWorkspaceRecoveryValues(null);
+            setGoalDialogSeedValues(null);
+            setWorkspaceCreateContext(null);
+            createWorkspaceRequestIdRef.current = null;
+          }
+        }
+
+        setGoalDialogOpen(open);
+      }}
+      onSubmit={createWorkspaceFromGoal}
+      open={goalDialogOpen}
+      submitLabel={
+        createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
+      }
+      workflowContextId={workspaceId}
+    />
+  );
+  function openOutline(outlineId: string) {
     const match = outlineId.match(/^heading-(\d+)$/);
     if (!match) {
       return;
@@ -2331,1125 +2464,27 @@ export default function WorkspacePage() {
         behavior: 'auto',
       });
     });
-  }, [outlineItems]);
+  }
 
   return (
-    <AppShell
-      currentWorkspaceId={workspaceId}
-      renderSidebar={({ collapsed, onNavigate }) => (
-        <DeliverableSidebar
-          activeSupportFileId={activeSupportFileId}
-          collapsed={collapsed}
-          currentProjectId={currentProjectId}
-          currentWorkspaceId={workspaceId}
-          currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
-          onCreateWorkspace={() => openWorkspaceCreateEntry(null)}
-          onCreateDeliverable={(context) =>
-            void createProjectDeliverable(context?.projectFolderId || null)
-          }
-          onCreateProjectFolder={
-            isVersionView ? undefined : (parentFolderId) => void createProjectFolder(parentFolderId || null)
-          }
-          onCreateSiblingDeliverable={(targetWorkspaceId) =>
-            void createSiblingDeliverable(targetWorkspaceId)
-          }
-          onDeleteWorkspace={async (projectId) => {
-            const response = await fetch(`/api/projects/${projectId}`, {
-              method: 'DELETE',
-            });
-            if (!response.ok) {
-              setWorkspaceNotice({
-                tone: 'error',
-                text: t('workspace.deleteFailed'),
-              });
-              return;
-            }
-            if (projectId === currentProjectId) {
-              router.push('/');
-            }
-          }}
-          onCreateSupportFile={
-            isVersionView ? undefined : (parentId) => void createSupportFile(parentId)
-          }
-          onCreateSupportFolder={
-            isVersionView ? undefined : (parentId) => void createSupportFolder(parentId)
-          }
-          onDeleteSupportFile={isVersionView ? undefined : (fileId) => void deleteSupportFile(fileId)}
-          onMoveSupportFile={
-            isVersionView
-              ? undefined
-              : (fileId, parentId, sortOrder) =>
-                  void moveSupportFile(fileId, parentId, sortOrder)
-          }
-          onReorderSupportFile={
-            isVersionView
-              ? undefined
-              : (fileId, direction) => void reorderSupportFile(fileId, direction)
-          }
-          onRenameSupportFile={
-            isVersionView ? undefined : (fileId, name) => void renameSupportFile(fileId, name)
-          }
-          onOpenDeliverable={(targetWorkspaceId) => router.push(`/workspace/${targetWorkspaceId}`)}
-          onRenameWorkspace={async (projectId, title) => {
-            const response = await fetch(`/api/projects/${projectId}`, {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ title }),
-            });
-            const payload = await response.json().catch(() => null);
-            if (!response.ok) {
-              throw new Error(payload?.error || t('workspace.renameFailed'));
-            }
-            if (projectId !== currentProjectId) {
-              return;
-            }
-
-            setWorkspaceView((current) =>
-              current?.currentProject || current?.workspace
-                ? {
-                    ...current,
-                    currentProject: current.currentProject
-                      ? {
-                          ...current.currentProject,
-                          title: payload?.title || title,
-                        }
-                      : current.currentProject,
-                    workspace: current.workspace
-                      ? {
-                          ...current.workspace,
-                          projectTitle: payload?.title || title,
-                        }
-                      : current.workspace,
-                  }
-                : current
-            );
-          }}
-          onNavigate={onNavigate}
-          onOpenOutline={canOpenOutline ? openOutline : undefined}
-          onOpenSupportFile={(fileId) =>
-            syncLocation({
-              fileId,
-              versionId: currentVersionId,
-            })
-          }
-          onOpenWorkspace={(nextWorkspaceId) => router.push(`/workspace/${nextWorkspaceId}`)}
-          onRenameDeliverable={
-            isVersionView
-              ? undefined
-              : (targetWorkspaceId, title) => void renameDeliverable(targetWorkspaceId, title)
-          }
-          onDeleteDeliverable={
-            isVersionView
-              ? undefined
-              : (targetWorkspaceId) => void deleteDeliverable(targetWorkspaceId)
-          }
-          onMoveDeliverable={
-            isVersionView
-              ? undefined
-              : (targetWorkspaceId, projectFolderId) =>
-                  void moveDeliverable(targetWorkspaceId, projectFolderId)
-          }
-          onMoveProjectFolder={
-            isVersionView
-              ? undefined
-              : (folderId, parentFolderId) => void moveProjectFolder(folderId, parentFolderId)
-          }
-          onReorderDeliverable={
-            isVersionView
-              ? undefined
-              : (targetWorkspaceId, direction) =>
-                  void reorderDeliverable(targetWorkspaceId, direction)
-          }
-          onReorderProjectFolder={
-            isVersionView
-              ? undefined
-              : (folderId, direction) => void reorderProjectFolder(folderId, direction)
-          }
-          onRenameProjectFolder={
-            isVersionView ? undefined : (folderId, title) => void renameProjectFolder(folderId, title)
-          }
-          onDeleteProjectFolder={
-            isVersionView ? undefined : (folderId) => void deleteProjectFolder(folderId)
-          }
-          projectFolders={projectFolders}
-          projectDeliverables={projectDeliverables}
-          supportFiles={supportFiles}
-          outlineItems={outlineItems}
-        />
-      )}
+    <WorkspaceScreen
+      actions={workspaceShellActions}
+      assistantRail={assistantRail}
+      currentVersionId={currentVersionId}
+      deliverablePanel={deliverablePanel}
+      deliverableType={deliverableType}
+      goalDialog={goalDialog}
+      paneOrder={paneOrder}
+      renderSidebar={renderWorkspaceSidebar}
       subtitle={workspaceSubtitle}
       title={currentWorkspace?.title || t('workspace.projectTitleFallback')}
       titleNode={workspaceTitleNode}
-      actions={
-        <>
-          {currentWorkspace && !isVersionView ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              data-testid="workspace-new-sibling-deliverable"
-              onClick={() =>
-                openProjectDeliverableComposer({
-                  projectFolderId: currentWorkspace.projectFolderId || null,
-                })
-              }
-            >
-              <FilePlus2 className="h-4 w-4" />
-              {t('sidebar.newSiblingDeliverable')}
-            </Button>
-          ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="gap-1.5">
-                <SlidersHorizontal className="h-4 w-4" />
-                {t('workspace.view')}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {deliverableType !== 'document' ? (
-                <DropdownMenuItem onClick={() => setShowImplementation((open) => !open)}>
-                  <Code2 className="h-4 w-4" />
-                  {showImplementation
-                    ? t('workspace.showDeliverable')
-                    : t('workspace.showImplementation')}
-                </DropdownMenuItem>
-              ) : null}
-              <DropdownMenuItem onClick={togglePaneOrder}>
-                <ArrowLeftRight className="h-4 w-4" />
-                {t('workspace.swapLayout')}
-              </DropdownMenuItem>
-              {previewCapability.canPreview && showImplementation ? (
-                activePreviewRun ? (
-                  <>
-                    <DropdownMenuItem
-                      onClick={() => void stopPreview()}
-                      disabled={isStoppingPreview}
-                    >
-                      {isStoppingPreview ? (
-                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Square className="h-4 w-4" />
-                      )}
-                      {t('workspace.stopPreview')}
-                    </DropdownMenuItem>
-                    {activePreviewRun.previewUrl ? (
-                      <DropdownMenuItem asChild>
-                        <a href={activePreviewRun.previewUrl} target="_blank" rel="noreferrer">
-                          <ExternalLink className="h-4 w-4" />
-                          {t('workspace.openPreview')}
-                        </a>
-                      </DropdownMenuItem>
-                    ) : null}
-                  </>
-                ) : (
-                  <DropdownMenuItem
-                    onClick={() => void startPreview()}
-                    disabled={isStartingPreview}
-                  >
-                    {isStartingPreview ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Play className="h-4 w-4" />
-                    )}
-                    {t('workspace.startPreview')}
-                  </DropdownMenuItem>
-                )
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </>
-      }
-    >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
-        {workspaceNotice ? (
-          <div
-            className={cn(
-              'border-b px-4 py-2 text-sm',
-              workspaceNotice.tone === 'error' &&
-                'border-destructive/20 bg-destructive/5 text-destructive',
-              workspaceNotice.tone === 'success' &&
-                'border-emerald-500/20 bg-emerald-500/5 text-emerald-700',
-              workspaceNotice.tone === 'info' &&
-                'border-border bg-muted/20 text-foreground'
-            )}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">{workspaceNotice.text}</div>
-              {workspaceNotice.actions?.length ? (
-                <div className="flex shrink-0 items-center gap-2">
-                  {workspaceNotice.actions.map((action) => (
-                    <Button
-                      key={action.label}
-                      size="sm"
-                      variant={action.variant || 'outline'}
-                      className="h-7"
-                      onClick={action.onClick}
-                    >
-                      {action.label}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-
-        {currentVersionId ? (
-          <div className="px-4 pt-4">
-            <FirstUseGuide
-              description={t('guide.versionDescription')}
-              guideId="version-surface"
-              testId="first-use-guide-version"
-              title={t('guide.versionTitle')}
-              variant="compact"
-            />
-          </div>
-        ) : null}
-
-        <SplitView
-          className="flex-1"
-          defaultRatio={paneOrder === 'deliverable-left' ? 0.68 : 0.32}
-          left={paneOrder === 'deliverable-left' ? deliverablePanel : assistantRail}
-          resetKey={`${workspaceId}:${paneOrder}:${deliverableType}`}
-          right={paneOrder === 'deliverable-left' ? assistantRail : deliverablePanel}
-        />
-      </div>
-
-      <GoalComposerDialog
-        creationMode={workspaceCreateContext?.projectId ? 'deliverable' : 'project'}
-        currentProjectTitle={workspaceCreateContext?.projectTitle || null}
-        disableInputs={createWorkspaceRecoveryActive}
-        errorMessage={createWorkspaceError}
-        initialValues={
-          createWorkspaceRecoveryValues || goalDialogSeedValues || undefined
-        }
-        isSubmitting={isCreatingWorkspace}
-        onOpenChange={(open) => {
-          if (!open) {
-            if (!createWorkspaceRecoveryActive) {
-              clearWorkspaceCreateRecovery();
-              setCreateWorkspaceError(null);
-              setCreateWorkspaceRecoveryValues(null);
-              setGoalDialogSeedValues(null);
-              setWorkspaceCreateContext(null);
-              createWorkspaceRequestIdRef.current = null;
-            }
-          }
-
-          setGoalDialogOpen(open);
-        }}
-        onSubmit={createWorkspaceFromGoal}
-        open={goalDialogOpen}
-        submitLabel={
-          createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
-        }
-        workflowContextId={workspaceId}
-      />
-    </AppShell>
-  );
-}
-
-function buildDeliverablePanel(params: {
-  commentContextContent: string;
-  currentFile: WorkspaceViewData['currentFile'];
-  selectedVersion: WorkspaceViewData['selectedVersion'];
-  currentText: string;
-  draftRevision: number | null;
-  deliverableTitle: string;
-  deliverableType: DeliverableType;
-  storedDeliverableType: LegacyDeliverableType | null;
-  documentPlaceholder: string;
-  editorContent: Value | null;
-  fileContent: string;
-  headerActions: React.ReactNode;
-  isAssistantBusy: boolean;
-  isReadOnly: boolean;
-  isSavingTextFile: boolean;
-  isStartingPreview: boolean;
-  isStoppingPreview: boolean;
-  noDocumentDescription: string;
-  noDocumentTitle: string;
-  openPreviewLabel: string;
-  onChange: (content: string) => void;
-  onGenerateFirstPass: () => void;
-  onStartPreview: () => void;
-  onStopPreview: () => void;
-  previewCapability: ReturnType<typeof detectWorkspacePreviewCapability>;
-  previewAnchorFileId: string | null;
-  previewEmptyDescription: string;
-  previewEmptyTitle: string;
-  previewNotReadyTitle: string;
-  previewRunId: string | null;
-  previewUnavailableDescription: string;
-  previewUrl: string | null;
-  readOnlyLabel: string;
-  reviewThreads: CommentThreadData[];
-  supportMaterialLabel: string;
-  onRestoreLatest?: (() => void) | undefined;
-  onThreadsChanged: () => Promise<void>;
-  savingLabel: string;
-  showImplementation: boolean;
-  startPreviewLabel: string;
-  startingLabel: string;
-  stopPreviewLabel: string;
-  stoppingLabel: string;
-  versionActionLabel: string;
-  currentStatus: WorkspaceCurrentStatusData | null;
-  chatError: {
-    error: { detail: string; message: string; retryable: boolean; kind: string };
-    retryFn?: () => void;
-  } | null;
-  t: ReturnType<typeof useT>;
-  workspaceId: string;
-}) {
-  const isSupportFile = params.currentFile?.role === 'support';
-  const richtextLikeFile = isPlateBackedWorkspaceFile(params.currentFile);
-  const isErrorState = !params.selectedVersion && !!params.chatError;
-  const projectedRichtextValue = params.editorContent || parsePlateContent(params.fileContent);
-  const shouldProjectDocumentAsSlides =
-    params.deliverableType === 'document' && hasOnlySlidePageBlocks(projectedRichtextValue);
-  const statusTitle = isErrorState
-    ? params.chatError!.error.message
-    : params.currentStatus?.statusTitle || params.noDocumentTitle;
-  const statusDescription = isErrorState
-    ? params.chatError!.error.detail
-    : params.currentStatus?.statusDescription || params.noDocumentDescription;
-  const errorAction = isErrorState && params.chatError?.retryFn ? (
-    <Button size="sm" onClick={params.chatError.retryFn}>
-      {params.t ? params.t('chat.retry') : 'Retry'}
-    </Button>
-  ) : undefined;
-
-  const showIntentCanvas =
-    !isSupportFile &&
-    !params.showImplementation &&
-    (params.storedDeliverableType === 'slides' ||
-      params.deliverableType === 'web' ||
-      shouldProjectDocumentAsSlides);
-  const editorStatusTone = params.selectedVersion
-    ? 'locked'
-    : params.currentStatus?.phase === 'blocked'
-      ? 'blocked'
-      : params.currentStatus?.phase === 'reviewing' ||
-          params.currentStatus?.phase === 'preview_ready' ||
-          params.currentStatus?.phase === 'preview_running' ||
-          params.currentStatus?.phase === 'finalized'
-        ? 'reviewing'
-        : 'draft';
-  const editorStatusLabel = params.selectedVersion
-    ? undefined
-    : params.currentStatus?.statusTitle || undefined;
-  const surfaceTitle =
-    isSupportFile && params.currentFile
-      ? getWorkspaceFileDisplayName(params.currentFile)
-      : params.deliverableTitle;
-  const showActivitySurface =
-    !isSupportFile &&
-    !params.selectedVersion &&
-    !params.currentText.trim() &&
-    (params.currentStatus?.phase === 'planning' || params.currentStatus?.phase === 'implementing');
-  const canStartFirstPass =
-    !isErrorState &&
-    !params.selectedVersion &&
-    params.currentStatus?.primaryAction === 'generate_first_pass';
-  const activityVariant =
-    params.currentStatus?.phase === 'implementing' || params.isAssistantBusy
-      ? 'working'
-      : 'idle';
-  const firstPassAction = canStartFirstPass ? (
-    <Button size="sm" onClick={params.onGenerateFirstPass} disabled={params.isAssistantBusy}>
-      {params.isAssistantBusy ? params.t('plan.aiDrafting') : params.t('plan.firstPassAction')}
-    </Button>
-  ) : undefined;
-
-  if (showIntentCanvas && params.deliverableType === 'web') {
-    return (
-      <WebDeliverableCanvas
-        actions={params.headerActions}
-        currentStatus={params.currentStatus}
-        draftRevision={params.draftRevision}
-        documentContent={params.commentContextContent}
-        fileId={params.previewAnchorFileId}
-        isAssistantBusy={params.isAssistantBusy}
-        isStartingPreview={params.isStartingPreview}
-        isStoppingPreview={params.isStoppingPreview}
-        onGenerateFirstPass={params.onGenerateFirstPass}
-        onStartPreview={params.onStartPreview}
-        onStopPreview={params.onStopPreview}
-        previewCapability={params.previewCapability}
-        previewEmptyDescription={params.previewEmptyDescription}
-        previewEmptyTitle={params.previewEmptyTitle}
-        previewNotReadyTitle={params.previewNotReadyTitle}
-        previewRunId={params.previewRunId}
-        previewUnavailableDescription={params.previewUnavailableDescription}
-        previewUrl={params.previewUrl}
-        reviewThreads={params.reviewThreads}
-        onRestoreLatest={params.onRestoreLatest}
-        onThreadsChanged={params.onThreadsChanged}
-        versionId={params.selectedVersion?.id || null}
-        startPreviewLabel={params.startPreviewLabel}
-        startingLabel={params.startingLabel}
-        stopPreviewLabel={params.stopPreviewLabel}
-        stoppingLabel={params.stoppingLabel}
-        subtitle={params.readOnlyLabel}
-        title={params.deliverableTitle}
-        workspaceId={params.workspaceId}
-        chatError={params.chatError}
-      />
-    );
-  }
-
-  if (
-    showIntentCanvas &&
-    (params.storedDeliverableType === 'slides' || shouldProjectDocumentAsSlides)
-  ) {
-    return (
-      <SlidesDeliverableCanvas
-        actions={params.headerActions}
-        currentStatus={params.currentStatus}
-        isAssistantBusy={params.isAssistantBusy}
-        onGenerateFirstPass={params.onGenerateFirstPass}
-        value={projectedRichtextValue}
-        subtitle={params.readOnlyLabel}
-        title={params.deliverableTitle}
-      />
-    );
-  }
-
-  if (richtextLikeFile && params.currentFile) {
-    if (showActivitySurface || isErrorState) {
-      return (
-        <RenderingDeliverableCanvas
-          actions={params.headerActions}
-          action={errorAction || firstPassAction}
-          statusDescription={statusDescription}
-          statusTitle={statusTitle}
-          subtitle={params.readOnlyLabel}
-          title={surfaceTitle}
-          variant={isErrorState ? 'idle' : activityVariant}
-        />
-      );
-    }
-
-    return (
-      <EditorWrapper
-        commentSidebarOpen={false}
-        documentId={params.workspaceId}
-        documentContent={params.commentContextContent}
-        fileId={params.currentFile.id}
-        headerActions={params.headerActions}
-        initialContent={params.editorContent}
-        onContentChange={params.onChange}
-        onLockVersion={() => undefined}
-        onUnlock={() => undefined}
-        placeholder={params.documentPlaceholder}
-        primaryActionLabel={params.versionActionLabel}
-        readOnly={params.isReadOnly}
-        sessionId={`${params.workspaceId}:conversation`}
-        showCommentAction={false}
-        showVersionControls={false}
-        versionId={params.selectedVersion?.id || null}
-        draftRevision={params.selectedVersion ? null : params.draftRevision}
-        status={params.selectedVersion ? 'locked' : 'draft'}
-        statusLabel={editorStatusLabel}
-        statusTone={editorStatusTone}
-        title={surfaceTitle}
-        emptyDescription={params.noDocumentDescription}
-        emptyTitle={params.noDocumentTitle}
-        workspaceId={params.workspaceId}
-      />
-    );
-  }
-
-  return (
-    <SourceDeliverableCanvas
-      actions={params.headerActions}
-      content={params.fileContent}
-      isReadOnly={params.isReadOnly}
-      isSaving={params.isSavingTextFile}
-      onChange={params.onChange}
-      savingLabel={params.savingLabel}
-      subtitle={isSupportFile ? params.supportMaterialLabel : params.readOnlyLabel}
-      title={getWorkspaceFileDisplayName(params.currentFile) || params.deliverableTitle}
+      versionGuideDescription={t('guide.versionDescription')}
+      versionGuideTitle={t('guide.versionTitle')}
+      workspaceId={workspaceId}
+      workspaceNotice={workspaceNotice}
     />
   );
-}
-
-function RenderingDeliverableCanvas({
-  actions,
-  action,
-  statusDescription,
-  statusTitle,
-  subtitle,
-  title,
-  variant = 'working',
-}: {
-  actions: React.ReactNode;
-  action?: React.ReactNode;
-  statusDescription: string;
-  statusTitle: string;
-  subtitle: string;
-  title: string;
-  variant?: 'idle' | 'working';
-}) {
-  return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
-      data-testid="rendering-deliverable-canvas"
-    >
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>
-      </div>
-
-      <DeliverableActivityState
-        action={action}
-        description={statusDescription}
-        title={statusTitle}
-        variant={variant}
-      />
-    </div>
-  );
-}
-
-function SlidesDeliverableCanvas({
-  actions,
-  currentStatus,
-  isAssistantBusy,
-  onGenerateFirstPass,
-  subtitle,
-  value,
-  title,
-}: {
-  actions: React.ReactNode;
-  currentStatus: WorkspaceCurrentStatusData | null;
-  isAssistantBusy: boolean;
-  onGenerateFirstPass: () => void;
-  subtitle: string;
-  value: Value;
-  title: string;
-}) {
-  const t = useT();
-  const slides = React.useMemo(() => extractSlidePageCards(value, title), [title, value]);
-  const hasSlides = slides.length > 0;
-  const statusTitle = hasSlides
-    ? currentStatus?.statusTitle || t('workspace.slidesPreviewTitle')
-    : currentStatus?.statusTitle || t('workspace.slidesEmptyTitle');
-  const statusDescription = hasSlides
-    ? currentStatus?.statusDescription || t('workspace.slidesPreviewDescription')
-    : currentStatus?.statusDescription || t('workspace.slidesEmptyDescription');
-  const showGenerateFirstPassAction = currentStatus?.primaryAction === 'generate_first_pass';
-
-  return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-hidden bg-background"
-      data-testid="slides-deliverable-canvas"
-    >
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>
-      </div>
-
-      {hasSlides ? (
-        <div className="min-h-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.06),_transparent_55%)] px-5 py-5">
-          <div className="mx-auto flex max-w-6xl flex-col gap-4">
-            <div className="rounded-[28px] border border-primary/15 bg-background/95 px-5 py-5 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.45)]">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-primary/80">
-                  {t('workspace.slideResultBadge')}
-                </span>
-                <span className="text-sm font-medium text-foreground">{statusTitle}</span>
-              </div>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
-                {statusDescription}
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {slides.map((slide, index) => (
-                <section
-                  key={slide.id}
-                  className="flex min-h-64 flex-col rounded-[28px] border border-border/70 bg-background/95 px-5 py-5 shadow-[0_24px_70px_-42px_rgba(15,23,42,0.45)]"
-                >
-                  <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-                    {t('workspace.slideCardLabel', { index: index + 1 })}
-                  </div>
-                  <h3 className="mt-4 text-xl font-semibold leading-tight text-foreground">
-                    {slide.title}
-                  </h3>
-                  <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
-                    {slide.body.length > 0 ? (
-                      slide.body.map((paragraph, paragraphIndex) => (
-                        <p key={`${slide.id}-${paragraphIndex}`}>{paragraph}</p>
-                      ))
-                    ) : (
-                      <p>{t('workspace.slidesCardEmpty')}</p>
-                    )}
-                  </div>
-                  {slide.notes ? (
-                    <div className="mt-auto pt-4 text-xs leading-5 text-muted-foreground/90">
-                      Notes: {slide.notes}
-                    </div>
-                  ) : null}
-                </section>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <DeliverableActivityState
-          action={
-            showGenerateFirstPassAction ? (
-              <Button size="sm" onClick={onGenerateFirstPass} disabled={isAssistantBusy}>
-                {isAssistantBusy ? t('plan.aiDrafting') : t('plan.firstPassAction')}
-              </Button>
-            ) : undefined
-          }
-          description={statusDescription}
-          title={statusTitle}
-          variant={showGenerateFirstPassAction ? 'idle' : 'working'}
-        />
-      )}
-    </div>
-  );
-}
-
-function WebDeliverableCanvas({
-  actions,
-  currentStatus,
-  draftRevision,
-  documentContent,
-  fileId,
-  isAssistantBusy,
-  isStartingPreview,
-  isStoppingPreview,
-  onGenerateFirstPass,
-  onStartPreview,
-  onStopPreview,
-  previewCapability,
-  previewEmptyDescription,
-  previewEmptyTitle,
-  previewNotReadyTitle,
-  previewRunId,
-  previewUnavailableDescription,
-  previewUrl,
-  reviewThreads,
-  onRestoreLatest,
-  onThreadsChanged,
-  versionId,
-  startPreviewLabel,
-  startingLabel,
-  stopPreviewLabel,
-  stoppingLabel,
-  subtitle,
-  title,
-  workspaceId,
-  chatError,
-}: {
-  actions: React.ReactNode;
-  currentStatus: WorkspaceCurrentStatusData | null;
-  draftRevision?: number | null;
-  documentContent: string;
-  fileId?: string | null;
-  isAssistantBusy: boolean;
-  isStartingPreview: boolean;
-  isStoppingPreview: boolean;
-  onGenerateFirstPass: () => void;
-  onStartPreview: () => void;
-  onStopPreview: () => void;
-  previewCapability: ReturnType<typeof detectWorkspacePreviewCapability>;
-  previewEmptyDescription: string;
-  previewEmptyTitle: string;
-  previewNotReadyTitle: string;
-  previewRunId: string | null;
-  previewUnavailableDescription: string;
-  previewUrl: string | null;
-  reviewThreads: CommentThreadData[];
-  onRestoreLatest?: (() => void) | undefined;
-  onThreadsChanged: () => Promise<void>;
-  versionId?: string | null;
-  startPreviewLabel: string;
-  startingLabel: string;
-  stopPreviewLabel: string;
-  stoppingLabel: string;
-  subtitle: string;
-  title: string;
-  workspaceId: string;
-  chatError: {
-    error: { detail: string; message: string; retryable: boolean; kind: string };
-    retryFn?: () => void;
-  } | null;
-}) {
-  const t = useT();
-  const iframeRef = React.useRef<HTMLIFrameElement>(null);
-  const iframePreviewUrl = previewRunId
-    ? buildPreviewBridgeUrl({
-        runId: previewRunId,
-        workspaceId,
-      })
-    : previewUrl;
-  const isErrorState = !!chatError;
-  const statusTitle = isErrorState
-    ? chatError!.error.message
-    : currentStatus?.statusTitle ||
-      (previewCapability.canPreview ? previewEmptyTitle : previewNotReadyTitle);
-  const statusDescription = isErrorState
-    ? chatError!.error.detail
-    : currentStatus?.blockedReason ||
-      currentStatus?.statusDescription ||
-      (previewCapability.canPreview
-        ? previewEmptyDescription
-        : previewUnavailableDescription);
-  const showStartPreviewAction =
-    !isErrorState &&
-    !previewUrl &&
-    previewCapability.canPreview &&
-    currentStatus?.primaryAction === 'start_preview';
-  const showGenerateFirstPassAction =
-    !isErrorState &&
-    !previewUrl &&
-    currentStatus?.primaryAction === 'generate_first_pass';
-  const showRestoreAction =
-    !isErrorState &&
-    !previewUrl &&
-    currentStatus?.primaryAction === 'restore_latest' &&
-    onRestoreLatest;
-  const errorAction = isErrorState && chatError?.retryFn ? (
-    <Button size="sm" onClick={chatError.retryFn}>{t('chat.retry')}</Button>
-  ) : null;
-
-  React.useEffect(() => {
-    const handleThreadFocus = (event: Event) => {
-      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
-      if (!detail?.threadId || !iframeRef.current?.contentWindow) {
-        return;
-      }
-
-      const thread = reviewThreads.find((item) => item.id === detail.threadId);
-      if (thread?.reviewAnchor?.surfaceType !== 'web-component') {
-        return;
-      }
-
-      iframeRef.current.contentWindow.postMessage(
-        {
-          channel: WEB_PREVIEW_BRIDGE_CHANNEL,
-          type: 'focus',
-          payload: {
-            excerpt:
-              typeof thread.reviewAnchor.anchorPayload?.excerpt === 'string'
-                ? thread.reviewAnchor.anchorPayload.excerpt
-                : null,
-            cssSelector:
-              typeof thread.reviewAnchor.anchorPayload?.cssSelector === 'string'
-                ? thread.reviewAnchor.anchorPayload.cssSelector
-                : typeof thread.reviewAnchor.anchorPayload?.selector === 'string'
-                  ? thread.reviewAnchor.anchorPayload.selector
-                  : null,
-            domContext:
-              typeof thread.reviewAnchor.anchorPayload?.domContext === 'string'
-                ? thread.reviewAnchor.anchorPayload.domContext
-                : null,
-            selector:
-              typeof thread.reviewAnchor.anchorPayload?.selector === 'string'
-                ? thread.reviewAnchor.anchorPayload.selector
-                : null,
-          },
-        },
-        '*'
-      );
-    };
-
-    window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
-    return () => {
-      window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
-    };
-  }, [reviewThreads]);
-
-  return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-hidden"
-      data-testid="web-deliverable-canvas"
-    >
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          {iframePreviewUrl ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8"
-              onClick={onStopPreview}
-              disabled={isStoppingPreview}
-            >
-              {isStoppingPreview ? stoppingLabel : stopPreviewLabel}
-            </Button>
-          ) : null}
-          {actions}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-hidden bg-muted/20">
-        {iframePreviewUrl ? (
-          <div className="relative h-full">
-            <iframe
-              ref={iframeRef}
-              src={iframePreviewUrl}
-              className="h-full w-full border-0 bg-white"
-              title={title}
-            />
-            <WebSelectionCommentTrigger
-              draftRevision={draftRevision}
-              documentContent={documentContent}
-              fileId={fileId}
-              iframeRef={iframeRef}
-              onThreadsChanged={onThreadsChanged}
-              versionId={versionId}
-              workspaceId={workspaceId}
-            />
-          </div>
-        ) : (
-          <DeliverableActivityState
-            action={
-              errorAction ? errorAction : showStartPreviewAction ? (
-                <Button
-                  size="sm"
-                  onClick={onStartPreview}
-                  disabled={isStartingPreview}
-                >
-                  {isStartingPreview ? startingLabel : startPreviewLabel}
-                </Button>
-              ) : showGenerateFirstPassAction ? (
-                <Button size="sm" onClick={onGenerateFirstPass} disabled={isAssistantBusy}>
-                  {isAssistantBusy ? t('plan.aiDrafting') : t('plan.firstPassAction')}
-                </Button>
-              ) : showRestoreAction ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onRestoreLatest}
-                >
-                  {t('version.restore')}
-                </Button>
-              ) : null
-            }
-            description={statusDescription}
-            title={statusTitle}
-            variant={showGenerateFirstPassAction ? 'idle' : 'working'}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DeliverableActivityState({
-  action,
-  description,
-  title,
-  variant = 'working',
-}: {
-  action?: React.ReactNode;
-  description: string;
-  title: string;
-  variant?: 'idle' | 'working';
-}) {
-  return (
-    <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.06),_transparent_55%)] px-8 py-10">
-      <div className="w-full max-w-2xl rounded-[32px] border border-primary/15 bg-background/95 p-8 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.45)]">
-        <div className="flex flex-col items-center text-center">
-          <div className="relative flex h-16 w-16 items-center justify-center">
-            <div className="absolute inset-0 rounded-full border border-primary/15" />
-            {variant === 'working' ? (
-              <>
-                <div className="absolute inset-0 rounded-full border border-primary/25 animate-ping [animation-duration:2.8s]" />
-                <div className="absolute inset-2 rounded-full bg-primary/8 animate-pulse" />
-                <LoaderCircle className="relative h-7 w-7 animate-spin text-primary" />
-              </>
-            ) : (
-              <>
-                <div className="absolute inset-2 rounded-full bg-primary/8" />
-                <Sparkles className="relative h-7 w-7 text-primary" />
-              </>
-            )}
-          </div>
-          <p className="mt-5 text-lg font-semibold text-foreground">{title}</p>
-          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            {description}
-          </p>
-          {action && variant === 'idle' ? (
-            <div className="mt-6 flex justify-center">{action}</div>
-          ) : null}
-        </div>
-
-        <div className="mt-8 space-y-3">
-          {[0, 1, 2].map((index) => (
-            <div
-              key={index}
-              className="overflow-hidden rounded-2xl border border-border/70 bg-muted/25 px-4 py-4"
-            >
-              <div
-                className={cn(
-                  'h-2.5 rounded-full',
-                  variant === 'working'
-                    ? 'bg-gradient-to-r from-primary/10 via-primary/30 to-primary/10 animate-pulse'
-                    : 'bg-muted-foreground/10'
-                )}
-                style={{
-                  animationDelay: `${index * 180}ms`,
-                  width: `${92 - index * 14}%`,
-                }}
-              />
-              <div
-                className={cn(
-                  'mt-3 h-2 rounded-full bg-muted-foreground/10',
-                  variant === 'working' && 'animate-pulse'
-                )}
-                style={{
-                  animationDelay: `${index * 220 + 120}ms`,
-                  width: `${70 - index * 8}%`,
-                }}
-              />
-            </div>
-          ))}
-        </div>
-
-        {action && variant === 'working' ? (
-          <div className="mt-6 flex justify-center">{action}</div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function SourceDeliverableCanvas({
-  actions,
-  content,
-  isReadOnly,
-  isSaving,
-  onChange,
-  savingLabel,
-  subtitle,
-  title,
-}: {
-  actions: React.ReactNode;
-  content: string;
-  isReadOnly: boolean;
-  isSaving: boolean;
-  onChange: (content: string) => void;
-  savingLabel: string;
-  subtitle: string;
-  title: string;
-}) {
-  return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-hidden"
-      data-testid="source-deliverable-canvas"
-    >
-      <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">{title}</h2>
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          {isSaving ? <span className="text-xs text-muted-foreground">{savingLabel}</span> : null}
-          {actions}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-hidden bg-background">
-        <Textarea
-          value={content}
-          onChange={(event) => onChange(event.target.value)}
-          readOnly={isReadOnly}
-          className="h-full min-h-full resize-none rounded-none border-0 px-4 py-4 font-mono text-sm shadow-none focus-visible:ring-0"
-        />
-      </div>
-    </div>
-  );
-}
-
-function parsePlateContent(content: string): Value {
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : [{ type: 'p', children: [{ text: '' }] }];
-  } catch {
-    return [{ type: 'p', children: [{ text: '' }] }];
-  }
-}
-
-function normalizeDeliverableText(content: string) {
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) {
-      return plateToMarkdown(parsed);
-    }
-  } catch {
-    // fall through
-  }
-
-  return content;
-}
-
-function buildOutlineItems(params: {
-  currentFile: WorkspaceViewData['currentFile'];
-  deliverableTitle: string;
-  deliverableType: DeliverableType;
-  text: string;
-}): DeliverableOutlineItem[] {
-  const shouldParseHeadings =
-    params.deliverableType === 'document' || params.currentFile?.role === 'support';
-
-  if (!shouldParseHeadings) {
-    return [
-      {
-        depth: 0,
-        id: params.currentFile?.id || 'deliverable',
-        label: getWorkspaceFileDisplayName(params.currentFile) || params.deliverableTitle,
-      },
-    ];
-  }
-
-  const headings = params.text
-    .split('\n')
-    .map((line) => {
-      const match = line.match(/^(#{1,6})\s+(.+)$/);
-      if (!match) {
-        return null;
-      }
-
-      return {
-        depth: Math.max(0, match[1].length - 1),
-        label: match[2].trim(),
-      };
-    })
-    .filter((item): item is Omit<DeliverableOutlineItem, 'id'> => Boolean(item))
-    .map((item, index) => ({
-      ...item,
-      id: `heading-${index}`,
-    }));
-
-  if (headings.length === 0) {
-    return [
-      {
-        depth: 0,
-        id: params.currentFile?.id || 'deliverable',
-        label: getWorkspaceFileDisplayName(params.currentFile) || params.deliverableTitle,
-      },
-    ];
-  }
-
-  return headings;
 }
 
 function buildFirstPassPrompt(params: {

@@ -431,6 +431,96 @@
 - 为什么：summary 文案即使已经 canonicalize，只要 debug details 还在直接暴露旧值，测试辅助链路、调试工具和后续实现者就会继续把 legacy union 当成真实公共契约，旧语义会从非 UI 面重新回流。
 - 默认做法：inspection/details 返回值也要与正式 view model 对齐，统一输出 canonical `deliverableType`，并把历史兼容值压进显式 `storedDeliverableType`；任何辅助调试接口都不应绕过这条边界。
 
+### 31. 巨石 hook 的第一刀要先抽 request / stream façade，再继续拆对象和 UI 细节
+
+- 结论：像 `use-chat.ts` 这类同时负责 endpoint 拼装、流读取、超时控制和 UI 状态的 hook，拆分第一刀应先抽 request / stream façade，让 hook 先摆脱协议与 transport 细节。
+- 为什么：如果一开始就只按目录或函数块硬切，`fetch` 路由、header 解析、abort / timeout 这些低层耦合会原封不动散到多个新文件，巨石只是搬家，不是收边界。
+- 默认做法：先把 request builder、stream controller、response reader 收成稳定边界，再继续抽本地消息草稿、状态编排和更高层 runtime。
+
+### 32. 带 header 的流式 AI 响应，应该把 status / header / stream read 一起收进 helper
+
+- 结论：像 chat/continue 这种既依赖 `response.ok`，又要读 workspace change headers 和文本流的响应，不应把这些 transport 细节散在 hook 分支里；它们应该收进同一个 response helper。
+- 为什么：如果每个入口都各自手写 ok/error 解析、workspace header 提取和 stream body 消费，后续一旦 header、控制 token 或错误协议变动，就会在多个 hook 里同步扩散，增加回归面。
+- 默认做法：hook 只负责 optimistic state、状态文案和业务分支；response helper 统一负责 ok/error 解析、header 解析、control-token strip 和文本流消费。
+
+### 33. 页面级长流程里的 preview/network action，也要尽早抽成 client helper
+
+- 结论：像 preview start / stop 这种挂在超大页面组件里的网络动作，不应继续把 `fetch`、keepalive、JSON 解析和错误文案分支直接写在页面里；它们应该先收成薄 client helper。
+- 为什么：页面组件本来就同时承载状态编排、恢复逻辑和 UI；如果 request 细节也留在这里，不但难以继续拆分，还容易漏掉某个分支的网络错误处理。
+- 默认做法：页面层只保留 notice、loading state 和 recovery 编排；client helper 统一负责 request 细节与错误解析，顺手补齐之前缺失的 catch 分支。
+
+### 34. 同一路径簇里的版本动作，应该一起沉到同一个 client helper
+
+- 结论：像 `/versions`, `/versions/:id`, `/versions/:id/restore` 这类共享同一路径簇和错误处理方式的动作，不应继续散在页面不同 callback 里；它们更适合一起收进 `version-client` 之类的同域 helper。
+- 为什么：如果每个版本动作都在页面里各自维护一套 `fetch + response.ok + json + notice fallback`，后续继续收 `continue / switch / branch` 时就很难看出哪些是同一边界、哪些只是偶然相邻。
+- 默认做法：先按路径簇和 payload 形状分组收 request helper，再让页面只保留状态更新、location 跳转和成功文案；不要等整个大页面拆完才去辨认这些 request seam。
+
+### 35. 树状侧栏里的同域 CRUD，要按 surface cluster 一起抽 façade
+
+- 结论：像 support file tree 这类共享同一侧栏 surface、同一错误协议和同一重载方式的 create / rename / move / delete / reorder 动作，不应按单个 callback 零散拆；它们更适合先汇总成同域 client helper。
+- 为什么：树状侧栏里的 reorder 往往只是 move 的一种变体；如果页面继续分散维护多组 `fetch + response.json + notice/load`，后续既难复用，也会让“哪几组动作属于同一个 seam”越来越模糊。
+- 默认做法：先按同一个 surface cluster 收 request helper，让页面层只保留当前选中项判断、reload 和 notice；同一簇里的 reorder 优先复用 move helper，而不是单开一套 transport 逻辑。
+
+### 36. 同一 project tree surface 里的不同实体，也可以共享一个 façade 边界
+
+- 结论：像 project folder 和 deliverable 这种底层实体不同、但都挂在同一 project tree surface 上的动作，不必人为拆成两套页面级 request 逻辑；只要 transport 契约和 UI 收口方式一致，就应该收进同一个 project-tree helper。
+- 为什么：如果页面继续把 folder 和 deliverable 当成两组互不相关的 callback，仅仅因为它们表不同，`fetch / error parse / reload` 会重复出现，后续再清理 project shell 动作时也更难识别真实 surface 边界。
+- 默认做法：判断 façade 边界时先看用户看到的是不是同一块 surface、错误协议是否一致、页面回写方式是否一致；满足这三条时，即使底层是不同实体，也优先放进同一个 helper。
+
+### 37. 同一 project surface 里，tree 动作和 shell 动作应拆成相邻但独立的 façade
+
+- 结论：project folder / deliverable tree 动作和 project rename / delete 这类 shell 动作虽然都属于同一个 project surface，但不该硬塞进同一个 helper；更稳的边界是“相邻两层 façade”，分别覆盖 tree 和 shell。
+- 为什么：tree 动作的页面收口通常是 reload / reorder / relocation，而 shell 动作的页面收口更偏向标题回写、根路由跳转和项目级 notice；如果为了“都叫 project”强行并到一起，helper 会重新长成杂糅的 transport 抽屉。
+- 默认做法：先按同一 surface 再按 UI 收口方式分层；当一组动作共享 project 语义但页面回写方式不同，就拆成相邻 façade，各自保持单一 transport 职责。
+
+### 38. 同一创建 surface 的 transport 和 recovery 契约，应由共享 helper 收口
+
+- 结论：像首页新建项目和 workspace 内“新建同级交付物”这种共用同一 `POST /api/workspaces`、同一 idempotency header 和同一 recovery storage 的创建入口，不应在两个页面里各自手写 request / response / retry 分支；它们应该共享同一个 create helper。
+- 为什么：这类创建流真正复杂的不是按钮位置，而是 transport 契约和异常分流。若页面各自维护 `fetch + response parse + recovery payload`，后续一旦接口、header 或 retry 语义调整，就会在多个入口上重复扩散并增加回归面。
+- 默认做法：把 create body 组装、response 校验和 recovery builder 收进 `create-request` 之类的共享 helper；页面层只负责成功后的 reset / route push，以及网络失败时是否进入 recovery 态。
+
+### 39. 同一 workspace surface 的读侧 request，也应按 polling cluster 一起抽 helper
+
+- 结论：像 `loadWorkspaceView / loadRuns / loadThreads` 这种都服务同一个 workspace surface、并被首次加载和轮询复用的读侧 request，不应继续散在页面里各自拼 query 和 `fetch`；它们更适合一起落到同一个 read helper。
+- 为什么：这类读动作的复杂度不在页面状态，而在 transport 契约和参数拼装。若页面层同时拥有 polling 节奏、editor reset 和 query 细节，后续很难判断“页面逻辑”和“读取协议”各自的边界，也会让下一刀 seam 变得模糊。
+- 默认做法：把 query 拼装、endpoint 路径和响应解析收进同域 read helper；页面层只保留结果回写、轮询编排和必要的 UI reset，不再直接持有 read-side transport。
+
+### 40. autosave seam 要把 debounce 留在页面，把持久化 request 收进 helper
+
+- 结论：像文本文件 autosave 这种同时带 optimistic content 回写、debounce 定时器和 saving indicator 的动作，不该把这三层一起搬进 helper；更稳的边界是页面保留时序状态，helper 只负责 `PATCH /files/:id` 的持久化 request。
+- 为什么：autosave 的复杂点在“何时发请求”和“发请求前页面怎样先更新”，不在 transport 本身。如果 helper 同时吞掉 debounce 和 optimistic state，就会重新把页面状态机藏进 transport 层，后续更难继续把 route 页收成纯适配壳。
+- 默认做法：页面层负责本地内容回写、timeout 清理和 saving flag；文件 helper 只负责发送内容补丁，不在这一层叠加额外 UI 时序。
+
+### 41. route shell 下沉时，先透传现成 panel node，再逐步下沉各自 surface
+
+- 结论：像 workspace route 这种既有 sidebar render prop、notice banner、split layout 和 dialog 的大壳，不必一开始就把所有 panel 逻辑一起搬走；更稳的做法是先提一个 `workspace-screen` 之类的壳组件，让页面把现成的 panel node / actions / dialog 透传进去。
+- 为什么：如果在第一刀就同时重写壳和 panel wiring，route 页、surface 页和业务组件的边界会一起变化，回归面过大，也很难判断问题来自 layout 提取还是业务 props 漏传。
+- 默认做法：第一刀只抽 `AppShell + notice + guide + split-view + dialog slot` 这类纯壳结构；等壳稳定后，再按 panel cluster 把 status/review/chat/context 逐个下沉成独立 surface。
+
+### 42. panel cluster 下沉时，先用薄 surface wrapper 固定 slot 契约
+
+- 结论：像 assistant rail 这种已经有稳定 slot 契约的组合区，status/review/chat/context 不必一上来重写内部组件；先给每个 slot 包一层薄 surface wrapper，更容易把 route 页里的 JSX 组合移走而不改变行为。
+- 为什么：这些 panel 的真正风险往往不是内部 UI，而是 route 页如何把 `showHeader / embedded / onOpenChange` 这类局部约束反复散落地传入。先用 wrapper 固定这些约束，可以让后续继续下沉 panel 逻辑时保持单一入口。
+- 默认做法：对于已有成熟业务组件的 panel，先建立 `surface -> existing component` 的薄包装层，硬编码共同的 slot 约束，再让 route 页只透传数据和事件。
+
+### 43. 大页面里的重型 view 函数，优先连同 helper 一起平移到 canvas 模块
+
+- 结论：像 `buildDeliverablePanel` 这种内部又带 preview、slides、richtext、source fallback 和 plate/outline helper 的重型 view 函数，不适合只抽最外层壳；更稳的是把它和紧邻的 helper 一起搬进 `canvas/*` 模块。
+- 为什么：如果只搬主函数，不搬 `parsePlateContent / normalizeDeliverableText / buildOutlineItems` 这类紧邻 helper，page 会残留一串“看似纯工具、实则服务同一 view cluster”的实现，后续边界仍然模糊。
+- 默认做法：判断 page 里的大函数是否值得下沉时，不只看 JSX 体积，还看它是否自带一组只服务该 surface 的 helper；满足这点时，按 cluster 整块平移，而不是拆成碎片 helper。
+
+### 44. service 巨石开始按对象拆时，先抽纯 schema helper，再保留 service 的过渡导出
+
+- 结论：像 `service.ts` 这类历史总入口在开始按对象拆分时，不必一上来就移动带数据库副作用的 commands；更稳的第一刀通常是把纯 schema / payload / path / default helper 先抽到 `objects/{name}/schema.ts`，同时让旧 service 继续 re-export。
+- 为什么：纯 helper 没有事务、权限和调用顺序负担，适合作为对象边界的第一层稳定出口。若一开始就强拆 commands/query 混合簇，service 与新对象模块之间更容易出现循环依赖和半迁移状态。
+- 默认做法：先识别“只做 map、parse、infer、normalize、path 组装”的对象纯函数簇，把它们落进 object schema 模块；旧入口暂时只做 import/re-export，等 schema seam 稳定后再继续拆 commands 和 queries。
+
+### 45. schema seam 稳定后，第二刀优先拆同对象的 DB helper cluster
+
+- 结论：当 `objects/{name}/schema.ts` 已经接住纯 helper 后，下一刀最稳的通常不是跨对象跳跃，而是继续把同一对象里最靠近它的 DB helper cluster 抽到 `commands.ts` 或 `queries.ts`，例如 bootstrap / path repair / read mapping 这类局部实现。
+- 为什么：同对象连续拆分可以复用刚建立好的 import 边界和命名约定，减少“新模块刚落地就被搁置”的半迁移状态；而且 service 巨石会更快从“自己实现一切”退回到“只做代理出口”。
+- 默认做法：object seam 第一刀落 `schema.ts` 后，第二刀优先找这个对象里不依赖其他大 service helper 的 DB cluster，继续抽到相邻 `commands.ts` 或 `queries.ts`，而不是立刻跳去另一个毫不相邻的对象簇。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来

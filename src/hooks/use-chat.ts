@@ -1,10 +1,19 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import {
+  consumeAssistantTextResponse,
+  createLocalAssistantMessageDraft,
+  createLocalAttachmentDrafts,
+  createLocalUserMessageDraft,
+  ensureAgentResponseOk,
+  requestAgentRun,
+  requestProposalContinue,
+  requestResearchStart,
+} from '@/agent';
+import { StreamController } from '@/framework/agent';
 import type { ChatMessageData, ResearchMode } from '@/types';
 import { describeAIError, type AIErrorInfo } from '@/lib/ai/error-utils';
-import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
-import { stripAIStreamControlTokens } from '@/lib/ai/stream-protocol';
 import {
   useAppLanguage,
   useT,
@@ -32,11 +41,7 @@ export function useChat({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<AIErrorInfo | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const abortReasonRef = useRef<'user' | 'timeout' | null>(null);
-  const hardTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const totalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const slowResponseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamControllerRef = useRef<StreamController | null>(null);
   const tempIdRef = useRef(0);
   const lastAttemptRef = useRef<{
     content: string;
@@ -63,6 +68,19 @@ export function useChat({
     return `temp-${tempIdRef.current}`;
   }, []);
 
+  const createStreamController = useCallback(
+    () =>
+      new StreamController({
+        idleTimeoutMs: STREAM_IDLE_TIMEOUT_MS,
+        onSlowResponse: () => {
+          setStatusMessage(t('chat.stillWaiting'));
+        },
+        slowResponseMs: SLOW_RESPONSE_MS,
+        totalTimeoutMs: STREAM_TOTAL_TIMEOUT_MS,
+      }),
+    [t]
+  );
+
   const sendMessage = useCallback(
     async (
       content: string,
@@ -82,7 +100,6 @@ export function useChat({
       setIsLoading(true);
       setError(null);
       setStatusMessage(t('chat.connecting'));
-      abortReasonRef.current = null;
       lastAttemptRef.current = {
         content,
         options: {
@@ -90,143 +107,57 @@ export function useChat({
         },
       };
 
-      const localAttachments = (options?.attachments || []).map((attachment, index) => ({
-        id: `${nextTempId()}-attachment-${index}`,
-        organizationId: 'local-org',
-        conversationId: conversationId || 'pending-conversation',
-        messageId: '',
-        workspaceId: workspaceId || '',
-        workspaceFileId: '',
-        filePath: attachment.file.name,
-        kind: attachment.kind,
-        source: attachment.source,
-        storageFormat:
-          attachment.kind === 'image'
-            ? ('base64-envelope' as const)
-            : ('text' as const),
-        mimeType: attachment.file.type || null,
-        originalName: attachment.file.name,
-        sizeBytes: attachment.file.size,
-        previewUrl:
-          attachment.kind === 'image' ? URL.createObjectURL(attachment.file) : null,
-        createdByUserId: null,
-        originDeviceId: null,
-        revision: 1,
-        deletedAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }));
+      const localAttachments = createLocalAttachmentDrafts({
+        attachments: options?.attachments,
+        conversationId,
+        nextTempId,
+        workspaceId,
+      });
 
-      const userMessage: ChatMessageData = {
-        id: nextTempId(),
-        conversationId: conversationId || 'pending-conversation',
-        organizationId: 'local-org',
-        role: 'user',
-        content,
+      const userMessage: ChatMessageData = createLocalUserMessageDraft({
         attachments: localAttachments,
-        workspaceId: workspaceId || null,
-        wikiId: workspaceId || null,
-        model: null,
-        createdByUserId: null,
-        originDeviceId: null,
-        revision: 1,
-        deletedAt: null,
-        createdAt: new Date(),
-      };
+        content,
+        conversationId,
+        nextTempId,
+        workspaceId,
+      });
       if (!options?.hiddenFromTimeline && !options?.suppressUserEcho) {
         setMessages((prev) => [...prev, userMessage]);
       }
 
-      const assistantId = `${nextTempId()}-assistant`;
-      const assistantMessage: ChatMessageData = {
-        id: assistantId,
-        conversationId: conversationId || 'pending-conversation',
-        organizationId: 'local-org',
-        role: 'assistant',
-        content: '',
-        attachments: [],
-        workspaceId: workspaceId || null,
-        wikiId: workspaceId || null,
+      const assistantMessage: ChatMessageData = createLocalAssistantMessageDraft({
+        conversationId,
         model: options?.model || null,
-        createdByUserId: null,
-        originDeviceId: null,
-        revision: 1,
-        deletedAt: null,
-        createdAt: new Date(),
-      };
+        nextTempId,
+        workspaceId,
+      });
+      const assistantId = assistantMessage.id;
       setMessages((prev) => [...prev, assistantMessage]);
 
+      const streamController = createStreamController();
+      streamControllerRef.current = streamController;
+
       try {
-        abortRef.current = new AbortController();
-        clearTimers();
-        slowResponseRef.current = setTimeout(() => {
-          setStatusMessage(t('chat.stillWaiting'));
-        }, SLOW_RESPONSE_MS);
-        scheduleIdleTimeout();
-        totalTimeoutRef.current = setTimeout(() => {
-          abortReasonRef.current = 'timeout';
-          abortRef.current?.abort();
-        }, STREAM_TOTAL_TIMEOUT_MS);
-
-        const formData = new FormData();
-        formData.set('activeFileId', activeFileId || '');
-        formData.set('baseVersionId', baseVersionId || '');
-        formData.set('conversationId', conversationId || '');
-        formData.set('sessionId', conversationId || '');
-        formData.set('researchMode', options?.researchMode || 'light');
-        formData.set('workspaceId', workspaceId || '');
-        formData.set('wikiId', workspaceId || '');
-        formData.set('message', content);
-        formData.set('model', options?.model || '');
-        formData.set(
-          'attachmentsMeta',
-          JSON.stringify(
-            (options?.attachments || []).map((attachment) => ({
-              id: attachment.id,
-              kind: attachment.kind,
-              name: attachment.file.name,
-              mimeType: attachment.file.type || null,
-              sizeBytes: attachment.file.size,
-              source: attachment.source,
-            }))
-          )
-        );
-
-        (options?.attachments || []).forEach((attachment) => {
-          formData.append('attachments', attachment.file, attachment.file.name);
+        streamController.start();
+        const { isDeepResearch, response } = await requestAgentRun({
+          activeFileId,
+          attachments: options?.attachments,
+          baseVersionId,
+          conversationId,
+          message: content,
+          model: options?.model || '',
+          researchMode: options?.researchMode || 'light',
+          signal: streamController.signal,
+          workspaceId,
         });
 
-        const isDeepResearch = (options?.researchMode || 'light') === 'deep';
-        const response = await fetch(
-          isDeepResearch ? '/api/ai/research-plan' : '/api/ai/chat',
-          {
-            method: 'POST',
-            headers: {
-              ...getStoredAISettingsHeader(),
-            },
-            body: formData,
-            signal: abortRef.current.signal,
-          }
-        );
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          const message =
-            payload?.error ||
-            payload?.details ||
-            `AI request failed: ${response.status} ${response.statusText}`;
-          throw new Error(message);
-        }
-
-        if (slowResponseRef.current) {
-          clearTimeout(slowResponseRef.current);
-          slowResponseRef.current = null;
-        }
         setStatusMessage(
           isDeepResearch ? t('chat.researchPlanning') : t('chat.planning')
         );
 
         if (isDeepResearch) {
+          await ensureAgentResponseOk(response);
+          streamController.dismissSlowResponse();
           const payload = (await response.json()) as {
             conversationId?: string | null;
             workspaceId?: string | null;
@@ -241,44 +172,25 @@ export function useChat({
           return;
         }
 
-        const nextConversationId =
-          response.headers.get('x-dao-conversation-id') || conversationId || null;
-        const nextWorkspaceId = response.headers.get('x-dao-workspace-id') || workspaceId || null;
-
-        options?.onWorkspaceChange?.({
-          conversationId: nextConversationId,
-          workspaceId: nextWorkspaceId,
-        });
-
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No response body');
-
-        const decoder = new TextDecoder();
-        let fullText = '';
-        let receivedFirstChunk = false;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          scheduleIdleTimeout();
-
-          const chunk = stripAIStreamControlTokens(decoder.decode(value, { stream: true }));
-          if (!chunk) {
-            continue;
-          }
-
-          if (!receivedFirstChunk) {
-            receivedFirstChunk = true;
+        const { fullText, workspaceChange } = await consumeAssistantTextResponse({
+          onFirstChunk: () => {
             setStatusMessage(null);
-          }
-          fullText += chunk;
-          setMessages((prev) =>
-            prev.map((message) =>
-              message.id === assistantId ? { ...message, content: fullText } : message
-            )
-          );
-        }
+          },
+          onText: (nextText) => {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantId ? { ...message, content: nextText } : message
+              )
+            );
+          },
+          response,
+          streamController,
+          workspaceChangeFallback: {
+            conversationId,
+            workspaceId,
+          },
+        });
+        options?.onWorkspaceChange?.(workspaceChange);
 
         if (!fullText.trim()) {
           throw new Error(t('chat.timeoutDetail'));
@@ -288,7 +200,7 @@ export function useChat({
         await options?.onComplete?.();
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
-          if (abortReasonRef.current === 'timeout') {
+          if (streamController.reason === 'timeout') {
             setStatusMessage(null);
             setError({
               detail: t('chat.timeoutDetail'),
@@ -314,13 +226,23 @@ export function useChat({
           setMessages((prev) => prev.filter((message) => message.id !== assistantId));
         }
       } finally {
-        clearTimers();
+        streamController.finish();
         setIsLoading(false);
-        abortRef.current = null;
-        abortReasonRef.current = null;
+        if (streamControllerRef.current === streamController) {
+          streamControllerRef.current = null;
+        }
       }
     },
-    [activeFileId, baseVersionId, conversationId, language, nextTempId, t, workspaceId]
+    [
+      activeFileId,
+      baseVersionId,
+      conversationId,
+      createStreamController,
+      language,
+      nextTempId,
+      t,
+      workspaceId,
+    ]
   );
 
   const startResearch = useCallback(
@@ -341,44 +263,20 @@ export function useChat({
       setIsLoading(true);
       setError(null);
       setStatusMessage(t('chat.researchStarting'));
-      abortReasonRef.current = null;
+      const streamController = createStreamController();
+      streamControllerRef.current = streamController;
 
       try {
-        abortRef.current = new AbortController();
-        clearTimers();
-        slowResponseRef.current = setTimeout(() => {
-          setStatusMessage(t('chat.stillWaiting'));
-        }, SLOW_RESPONSE_MS);
-        scheduleIdleTimeout();
-        totalTimeoutRef.current = setTimeout(() => {
-          abortReasonRef.current = 'timeout';
-          abortRef.current?.abort();
-        }, STREAM_TOTAL_TIMEOUT_MS);
+        streamController.start();
+        const response = await requestResearchStart({
+          runId,
+          signal: streamController.signal,
+          workspaceId,
+        });
 
-        const response = await fetch(
-          `/api/workspaces/${workspaceId}/assistant-runs/${runId}/research-plan/start`,
-          {
-            method: 'POST',
-            headers: {
-              ...getStoredAISettingsHeader(),
-            },
-            signal: abortRef.current.signal,
-          }
-        );
-
+        await ensureAgentResponseOk(response);
         const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(
-            payload?.error ||
-              payload?.details ||
-              `AI request failed: ${response.status} ${response.statusText}`
-          );
-        }
-
-        if (slowResponseRef.current) {
-          clearTimeout(slowResponseRef.current);
-          slowResponseRef.current = null;
-        }
+        streamController.dismissSlowResponse();
         setStatusMessage(null);
         options?.onWorkspaceChange?.({
           conversationId: payload?.conversationId || conversationId || null,
@@ -387,7 +285,7 @@ export function useChat({
         await options?.onComplete?.();
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
-          if (abortReasonRef.current === 'timeout') {
+          if (streamController.reason === 'timeout') {
             setStatusMessage(null);
             setError({
               detail: t('chat.timeoutDetail'),
@@ -410,13 +308,14 @@ export function useChat({
           );
         }
       } finally {
-        clearTimers();
+        streamController.finish();
         setIsLoading(false);
-        abortRef.current = null;
-        abortReasonRef.current = null;
+        if (streamControllerRef.current === streamController) {
+          streamControllerRef.current = null;
+        }
       }
     },
-    [conversationId, language, t, workspaceId]
+    [conversationId, createStreamController, language, t, workspaceId]
   );
 
   const continueProposal = useCallback(
@@ -437,100 +336,48 @@ export function useChat({
       setIsLoading(true);
       setError(null);
       setStatusMessage(t('chat.connecting'));
-      abortReasonRef.current = null;
 
-      const assistantId = `${nextTempId()}-assistant`;
-      const assistantMessage: ChatMessageData = {
-        id: assistantId,
-        conversationId: conversationId || 'pending-conversation',
-        organizationId: 'local-org',
-        role: 'assistant',
-        content: '',
-        attachments: [],
-        workspaceId: workspaceId || null,
-        wikiId: workspaceId || null,
+      const assistantMessage: ChatMessageData = createLocalAssistantMessageDraft({
+        conversationId,
         model: null,
-        createdByUserId: null,
-        originDeviceId: null,
-        revision: 1,
-        deletedAt: null,
-        createdAt: new Date(),
-      };
+        nextTempId,
+        workspaceId,
+      });
+      const assistantId = assistantMessage.id;
       setMessages((prev) => [...prev, assistantMessage]);
 
+      const streamController = createStreamController();
+      streamControllerRef.current = streamController;
+
       try {
-        abortRef.current = new AbortController();
-        clearTimers();
-        slowResponseRef.current = setTimeout(() => {
-          setStatusMessage(t('chat.stillWaiting'));
-        }, SLOW_RESPONSE_MS);
-        scheduleIdleTimeout();
-        totalTimeoutRef.current = setTimeout(() => {
-          abortReasonRef.current = 'timeout';
-          abortRef.current?.abort();
-        }, STREAM_TOTAL_TIMEOUT_MS);
-
-        const response = await fetch(
-          `/api/workspaces/${workspaceId}/assistant-runs/${runId}/proposal/continue`,
-          {
-            method: 'POST',
-            headers: {
-              ...getStoredAISettingsHeader(),
-            },
-            signal: abortRef.current.signal,
-          }
-        );
-
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          const message =
-            payload?.error ||
-            payload?.details ||
-            `AI request failed: ${response.status} ${response.statusText}`;
-          throw new Error(message);
-        }
-
-        if (slowResponseRef.current) {
-          clearTimeout(slowResponseRef.current);
-          slowResponseRef.current = null;
-        }
-        setStatusMessage(t('chat.planning'));
-
-        options?.onWorkspaceChange?.({
-          conversationId:
-            response.headers.get('x-dao-conversation-id') || conversationId || null,
-          workspaceId: response.headers.get('x-dao-workspace-id') || workspaceId || null,
+        streamController.start();
+        const response = await requestProposalContinue({
+          runId,
+          signal: streamController.signal,
+          workspaceId,
         });
 
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No response body');
+        setStatusMessage(t('chat.planning'));
 
-        const decoder = new TextDecoder();
-        let fullText = '';
-        let receivedFirstChunk = false;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          scheduleIdleTimeout();
-
-          const chunk = stripAIStreamControlTokens(decoder.decode(value, { stream: true }));
-          if (!chunk) {
-            continue;
-          }
-
-          if (!receivedFirstChunk) {
-            receivedFirstChunk = true;
+        const { fullText, workspaceChange } = await consumeAssistantTextResponse({
+          onFirstChunk: () => {
             setStatusMessage(null);
-          }
-          fullText += chunk;
-          setMessages((prev) =>
-            prev.map((message) =>
-              message.id === assistantId ? { ...message, content: fullText } : message
-            )
-          );
-        }
+          },
+          onText: (nextText) => {
+            setMessages((prev) =>
+              prev.map((message) =>
+                message.id === assistantId ? { ...message, content: nextText } : message
+              )
+            );
+          },
+          response,
+          streamController,
+          workspaceChangeFallback: {
+            conversationId,
+            workspaceId,
+          },
+        });
+        options?.onWorkspaceChange?.(workspaceChange);
 
         if (!fullText.trim()) {
           throw new Error(t('chat.timeoutDetail'));
@@ -540,7 +387,7 @@ export function useChat({
         await options?.onComplete?.();
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
-          if (abortReasonRef.current === 'timeout') {
+          if (streamController.reason === 'timeout') {
             setStatusMessage(null);
             setError({
               detail: t('chat.timeoutDetail'),
@@ -565,18 +412,25 @@ export function useChat({
           setMessages((prev) => prev.filter((message) => message.id !== assistantId));
         }
       } finally {
-        clearTimers();
+        streamController.finish();
         setIsLoading(false);
-        abortRef.current = null;
-        abortReasonRef.current = null;
+        if (streamControllerRef.current === streamController) {
+          streamControllerRef.current = null;
+        }
       }
     },
-    [conversationId, language, nextTempId, t, workspaceId]
+    [
+      conversationId,
+      createStreamController,
+      language,
+      nextTempId,
+      t,
+      workspaceId,
+    ]
   );
 
   const stopGeneration = useCallback(() => {
-    abortReasonRef.current = 'user';
-    abortRef.current?.abort();
+    streamControllerRef.current?.abort('user');
   }, []);
 
   const retryLastMessage = useCallback(() => {
@@ -590,32 +444,6 @@ export function useChat({
       suppressUserEcho: true,
     });
   }, [isLoading, sendMessage]);
-
-  const clearTimers = () => {
-    if (hardTimeoutRef.current) {
-      clearTimeout(hardTimeoutRef.current);
-      hardTimeoutRef.current = null;
-    }
-    if (totalTimeoutRef.current) {
-      clearTimeout(totalTimeoutRef.current);
-      totalTimeoutRef.current = null;
-    }
-    if (slowResponseRef.current) {
-      clearTimeout(slowResponseRef.current);
-      slowResponseRef.current = null;
-    }
-  };
-
-  const scheduleIdleTimeout = () => {
-    if (hardTimeoutRef.current) {
-      clearTimeout(hardTimeoutRef.current);
-    }
-
-    hardTimeoutRef.current = setTimeout(() => {
-      abortReasonRef.current = 'timeout';
-      abortRef.current?.abort();
-    }, STREAM_IDLE_TIMEOUT_MS);
-  };
 
   return {
     messages,
