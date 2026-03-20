@@ -18,6 +18,10 @@ export {
   serializeWorkspaceVersion,
 } from './schema';
 export {
+  createWorkspaceFile,
+  deleteWorkspaceFile,
+  ensureSupportUploadsFolder,
   ensureWorkspaceFiles,
   rebuildDescendantPaths,
+  updateWorkspaceFile,
 } from './commands';

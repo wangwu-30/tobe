@@ -39,21 +39,22 @@
 
 ## 当前切片
 
-切片目标：完成 Phase 2 的第二十一个切片，把 `src/lib/workspace/service.ts` 里的 state/version query seam `normalizeWorkspaceVersionType / resolveDraftBaseVersionIdForVersion / findNearestVersionBeforeMessage` 收进 `src/objects/state/queries.ts` 或相邻 schema/query 模块，为后续 `State + Label + Draft` 边界铺一层 query 出口。
+切片目标：完成 Phase 2 的第二十八个切片，把 `src/lib/workspace/service.ts` 里的 `setWorkspaceVersionPinned` 收进 `src/objects/state/commands.ts`，继续沿着 version command seam 收口 `service.ts`，同时保留现有 pin limit 错误语义和 façade 出口。
 
 当前切片退出条件：
 
-- `service.ts` 不再直接持有 `normalizeWorkspaceVersionType / resolveDraftBaseVersionIdForVersion / findNearestVersionBeforeMessage` 的实现
-- 新的 `src/objects/state/queries.ts`（及必要时相邻 schema helper）承载 version/state query seam
-- 旧的 `service.ts` 继续作为过渡出口，不在这一刀里改变调用方
-- 不在这一刀里改 version/state surface 的行为、数据协议或对外返回结构
+- `service.ts` 不再直接持有 `setWorkspaceVersionPinned` 的主流程实现
+- `src/objects/state/commands.ts` 承载 version pin command seam，并与已下沉的 `pruneWorkspaceRecoveryCheckpoints / replaceWorkspaceDraftWithVersionFiles / createWorkspaceVersion` 处在同一 cluster
+- `WorkspaceRecoveryPinLimitError` 继续保持现有错误语义和 façade 出口
+- pin / unpin recovery point 行为、limit 校验和返回结构保持不变
+- 不在这一刀里直接搬 `restoreWorkspaceVersion / continueWorkspaceFromVersion / switchWorkspaceToVersionBranch` 的主流程
 - 延续“先 façade、后迁移”的拆分方式，不做纯目录迁移式拆分
 - 若改动了产品代码或行为，完成前运行 `npm run verify:iteration`
 
 ## 下一候选切片
 
-1. Phase 2：若 state/version query seam 稳定，再评估 `ensureSupportUploadsFolder` 或 file create command 是否继续并入 `src/objects/file/commands.ts`。
-2. Phase 2：继续按同样方式拆 file / version / plan / action 簇，或评估是否切 Phase 3。
+1. Phase 2：若 pin command seam 稳定，再评估 `restoreWorkspaceVersion` 或相邻 version branch flow 的 façade 下沉。
+2. Phase 2：继续按同样方式拆 version / plan / action 簇，或评估是否切 Phase 3。
 3. Phase 3：在 runtime 边界稳定后推进 `State + Label + Draft`。
 
 ## 剩余验收项
@@ -69,6 +70,13 @@
 
 ## Verification History
 
+- 2026-03-20：完成 Phase 2 切片 27，扩展 `src/objects/state/commands.ts` 与 `src/objects/state/index.ts`，把 `src/lib/workspace/service.ts` 里的 `createWorkspaceVersion` 提到 state command module，并继续由 `service.ts` façade 注入 `ensureWorkspaceEditable / bindDraftThreadsToVersion / recordSyncEvent`；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 26，扩展 `src/objects/state/commands.ts` 与 `src/objects/state/index.ts`，把 `src/lib/workspace/service.ts` 里的 `replaceWorkspaceDraftWithVersionFiles` 提到 state command module，并继续由 `service.ts` façade 注入 `materializeWorkspaceMirror / startWorkspacePreview`；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 25，新增 `src/objects/state/commands.ts`，把 `src/lib/workspace/service.ts` 里的 `pruneWorkspaceRecoveryCheckpoints` 提到 state command module，并让 `service.ts` 继续作为过渡出口；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 24，扩展 `src/objects/file/commands.ts` 与 `src/objects/file/index.ts`，把 `src/lib/workspace/service.ts` 里的 `deleteWorkspaceFile` 提到 file object command module，并通过依赖注入继续由 `service.ts` 提供 `ensureWorkspaceEditable` guard；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 23，扩展 `src/objects/file/commands.ts` 与 `src/objects/file/index.ts`，把 `src/lib/workspace/service.ts` 里的 `updateWorkspaceFile` 提到 file object command module，并通过依赖注入继续由 `service.ts` 提供 `ensureWorkspaceEditable` guard；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 22，扩展 `src/objects/file/commands.ts` 与 `src/objects/file/index.ts`，把 `src/lib/workspace/service.ts` 里的 `createWorkspaceFile / ensureSupportUploadsFolder` 提到 file object command module，并通过依赖注入继续由 `service.ts` 提供 `ensureWorkspaceEditable` 这层 guard；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-20：完成 Phase 2 切片 21，新增 `src/objects/state/schema.ts`、`src/objects/state/queries.ts` 与 `src/objects/state/index.ts`，把 `src/lib/workspace/service.ts` 里的 `normalizeWorkspaceVersionType / resolveDraftBaseVersionIdForVersion / findNearestVersionBeforeMessage` 提到 state object schema/query module，并让 `service.ts` 继续作为过渡出口；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-20：完成 Phase 2 切片 20，扩展 `src/objects/project/queries.ts`，把 `buildProjectFolders` 从 `src/lib/workspace/service.ts` 提到 project query module，并移除 `buildCurrentProjectSummary` 这层空 wrapper，改为在 view builder 中直接复用 `buildProjectSummary`；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-20：完成 Phase 2 切片 19，新增 `src/objects/file/commands.ts`，把 `src/lib/workspace/service.ts` 里的 `ensureWorkspaceFiles / rebuildDescendantPaths` 抽到 file object command module，并让 `service.ts` 继续作为过渡出口；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-20：完成 Phase 2 切片 18，新增 `src/objects/file/schema.ts` 与 `src/objects/file/index.ts`，把 `src/lib/workspace/service.ts` 里的 file object 纯函数簇（schema mapping、version payload 解析、path/default/infer helper）抽到独立 object module，并让 `service.ts` 继续作为导出兼容层；`npm run verify:iteration` 通过（50 passed）。

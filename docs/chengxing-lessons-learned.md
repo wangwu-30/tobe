@@ -521,6 +521,18 @@
 - 为什么：同对象连续拆分可以复用刚建立好的 import 边界和命名约定，减少“新模块刚落地就被搁置”的半迁移状态；而且 service 巨石会更快从“自己实现一切”退回到“只做代理出口”。
 - 默认做法：object seam 第一刀落 `schema.ts` 后，第二刀优先找这个对象里不依赖其他大 service helper 的 DB cluster，继续抽到相邻 `commands.ts` 或 `queries.ts`，而不是立刻跳去另一个毫不相邻的对象簇。
 
+### 46. command seam 需要 service 注入边界约束时，优先传依赖，不要把旧 service 整体搬过去
+
+- 结论：当 object command 已经准备独立，但仍依赖 workspace service 持有的锁校验、权限或外层事务边界时，更稳的做法是由 service 通过依赖注入把这些约束传进去，而不是把整段 service helper 原样复制进 object module。
+- 为什么：直接把 `ensureWorkspaceEditable` 之类的边界逻辑搬进 object module，容易让对象层重新吸入 workspace 级职责，甚至引入循环依赖；而只注入最小依赖，既能继续抽离 command seam，又能让 service 暂时保留 façade 和编排责任。
+- 默认做法：object command module 只声明自己真正需要的 guard / side-effect 依赖，由旧 service 作为过渡出口来组装这些依赖并维持旧调用面；等相邻边界也稳定后，再决定是否继续下沉 guard 本身。
+
+### 47. command 主流程下沉时，先让 object command 返回底层记录，再由 façade 保持现有 map 出口
+
+- 结论：当 service 导出的对外返回已经稳定在 `mapWorkspaceVersion` 这类映射上，而 command 主流程需要先下沉到 object module 时，更稳的做法是让 object command 返回底层记录，旧 service façade 继续负责映射。
+- 为什么：如果在 object command 里直接复用旧 service 的 map 函数，很容易引入循环依赖；如果为了避免循环把 map 层一起搬走，又会让切片从 command seam 膨胀成 schema/view seam。先保留 façade mapping，可以在不改对外契约的前提下完成主流程迁移。
+- 默认做法：object command 只负责事务、side effect 编排和原始 record 返回；旧 service export 作为兼容壳调用 object command 后再做 map，等相邻 schema/query seam 稳定后，再评估是否继续迁移映射出口。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来

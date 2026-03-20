@@ -1,24 +1,24 @@
 import { Prisma } from '@/generated/prisma/client';
 import {
+  createWorkspaceFile as createWorkspaceFileCommand,
+  deleteWorkspaceFile as deleteWorkspaceFileCommand,
+  ensureSupportUploadsFolder as ensureSupportUploadsFolderCommand,
   ensureWorkspaceFiles,
   rebuildDescendantPaths,
+  updateWorkspaceFile as updateWorkspaceFileCommand,
 } from '@/objects/file/commands';
 import {
   buildWorkspacePath,
   getDefaultFileName,
   getInitialFileContent,
-  getParentWorkspacePath,
-  getWorkspacePathDepth,
   inferFileKind,
   inferFileLanguage,
   makeUniqueChildName,
   mapWorkspaceFile,
-  mapWorkspaceFileToVersion,
   parseVersionFiles,
   resolveCurrentVersionFile,
   resolveCurrentWorkspaceFile,
   resolvePrimaryFile,
-  serializeWorkspaceVersion,
 } from '@/objects/file/schema';
 import {
   buildProjectFolders,
@@ -28,6 +28,16 @@ import {
   resolveWorkspaceProjectId,
   resolveWorkspaceProjectTitle,
 } from '@/objects/project/queries';
+import {
+  createWorkspaceVersion as createWorkspaceVersionCommand,
+  pruneWorkspaceRecoveryCheckpoints,
+  replaceWorkspaceDraftWithVersionFiles,
+} from '@/objects/state/commands';
+import {
+  findNearestVersionBeforeMessage,
+  resolveDraftBaseVersionIdForVersion,
+} from '@/objects/state/queries';
+import { normalizeWorkspaceVersionType } from '@/objects/state/schema';
 import {
   buildReviewAnchorFingerprint,
   parseReviewAnchor,
@@ -77,7 +87,6 @@ import type {
   WorkspaceEditLockData,
   WorkspaceFileData,
   WorkspaceVersionData,
-  WorkspaceVersionFileData,
   WorkspaceVersionType,
   WorkspaceViewData,
   WorkspaceWithRelations,
@@ -114,50 +123,6 @@ export {
   parseVersionFiles,
 } from '@/objects/file/schema';
 
-function normalizeWorkspaceVersionType(
-  value: string | null | undefined
-): WorkspaceVersionType {
-  if (value === 'checkpoint' || value === 'checkpoint_pinned') {
-    return value;
-  }
-
-  return 'manual';
-}
-
-async function resolveDraftBaseVersionIdForVersion(
-  organizationId: string,
-  versionId: string | null
-): Promise<string | null> {
-  let currentVersionId = versionId;
-
-  while (currentVersionId) {
-    const version = await prisma.version.findFirst({
-      where: {
-        deletedAt: null,
-        id: currentVersionId,
-        organizationId,
-      },
-      select: {
-        id: true,
-        parentVersionId: true,
-        versionType: true,
-      },
-    });
-
-    if (!version) {
-      return null;
-    }
-
-    if (!isRecoveryVersionType(normalizeWorkspaceVersionType(version.versionType))) {
-      return version.id;
-    }
-
-    currentVersionId = version.parentVersionId;
-  }
-
-  return null;
-}
-
 type SupportFileEnvelope = {
   base64?: string;
   encoding: 'base64';
@@ -168,8 +133,6 @@ type SupportFileEnvelope = {
 };
 
 const MAX_PINNED_RECOVERY_POINTS = 3;
-const MAX_TEMPORARY_RECOVERY_POINTS = 1;
-const SUPPORT_UPLOADS_ROOT = 'Uploads';
 
 export class WorkspaceLockConflictError extends Error {
   readonly detail: LockConflict;
@@ -937,73 +900,9 @@ export async function createWorkspaceFile(
     workspaceId: string;
   }
 ) {
-  await ensureWorkspaceEditable(actor, input.workspaceId);
-  await ensureWorkspaceFiles(actor.organizationId, input.workspaceId);
-
-  const parent = input.parentId
-    ? await prisma.workspaceFile.findFirst({
-        where: {
-          deletedAt: null,
-          id: input.parentId,
-          documentId: input.workspaceId,
-          organizationId: actor.organizationId,
-        },
-      })
-    : null;
-
-  const siblings = await prisma.workspaceFile.findMany({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      organizationId: actor.organizationId,
-      parentId: input.parentId || null,
-    },
-    orderBy: { sortOrder: 'asc' },
+  return createWorkspaceFileCommand(actor, input, {
+    ensureWorkspaceEditable,
   });
-
-  const safeName = makeUniqueChildName(input.name.trim() || 'Untitled', siblings);
-  const path = buildWorkspacePath(parent?.path || null, safeName);
-  const nodeType = input.nodeType || 'file';
-  const file = await prisma.workspaceFile.create({
-    data: {
-      organizationId: actor.organizationId,
-      documentId: input.workspaceId,
-      parentId: input.parentId || null,
-      name: safeName,
-      path,
-      type: nodeType,
-      kind: nodeType === 'folder' ? 'text' : input.kind || inferFileKind(safeName),
-      role: input.role || 'deliverable',
-      language: nodeType === 'folder' ? null : inferFileLanguage(safeName),
-      content: nodeType === 'folder' ? '' : getInitialFileContent(input.kind || inferFileKind(safeName)),
-      sortOrder: siblings.length,
-      createdByUserId: actor.userId,
-      originDeviceId: actor.deviceId,
-      isPrimary: false,
-    },
-  });
-
-  await recordSyncEvent({
-    actorUserId: actor.userId,
-    entityId: file.id,
-    entityType: 'workspace_file',
-    organizationId: actor.organizationId,
-    originDeviceId: actor.deviceId,
-    payload: {
-      op: 'create',
-      parentId: input.parentId || null,
-      path,
-      workspaceId: input.workspaceId,
-    },
-    revision: file.revision,
-  });
-
-  await materializeWorkspaceMirror({
-    organizationId: actor.organizationId,
-    workspaceId: input.workspaceId,
-  });
-
-  return mapWorkspaceFile(file);
 }
 
 export async function updateWorkspaceFile(
@@ -1021,215 +920,9 @@ export async function updateWorkspaceFile(
     workspaceId: string;
   }
 ) {
-  await ensureWorkspaceEditable(actor, input.workspaceId);
-
-  const existing = await prisma.workspaceFile.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      id: input.fileId,
-      organizationId: actor.organizationId,
-    },
+  return updateWorkspaceFileCommand(actor, input, {
+    ensureWorkspaceEditable,
   });
-
-  if (!existing) {
-    throw new Error('Workspace file not found.');
-  }
-
-  const nextParent = input.parentId
-    ? await prisma.workspaceFile.findFirst({
-        where: {
-          deletedAt: null,
-          documentId: input.workspaceId,
-          id: input.parentId,
-          organizationId: actor.organizationId,
-        },
-      })
-    : null;
-
-  if (
-    nextParent &&
-    (nextParent.id === existing.id || nextParent.path.startsWith(`${existing.path}/`))
-  ) {
-    throw new Error('Cannot move a folder into itself or one of its descendants.');
-  }
-
-  const nextParentId = input.parentId === undefined ? existing.parentId : input.parentId;
-
-  const siblings = await prisma.workspaceFile.findMany({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      organizationId: actor.organizationId,
-      parentId: nextParentId,
-      id: { not: existing.id },
-    },
-  });
-  const previousSiblings =
-    input.parentId !== undefined && existing.parentId !== nextParentId
-      ? await prisma.workspaceFile.findMany({
-          where: {
-            deletedAt: null,
-            documentId: input.workspaceId,
-            organizationId: actor.organizationId,
-            parentId: existing.parentId,
-            id: { not: existing.id },
-          },
-        })
-      : [];
-
-  const nextName =
-    input.name !== undefined
-      ? makeUniqueChildName(input.name.trim() || existing.name, siblings)
-      : existing.name;
-  const nextPath =
-    input.name !== undefined || input.parentId !== undefined
-      ? buildWorkspacePath(nextParent?.path || null, nextName)
-      : existing.path;
-  const normalizedSiblings = [...siblings].sort((left, right) => left.sortOrder - right.sortOrder);
-  const targetSortOrder =
-    input.sortOrder === undefined
-      ? existing.sortOrder
-      : Math.max(0, Math.min(Math.trunc(input.sortOrder), normalizedSiblings.length));
-  const requiresSortNormalization =
-    input.parentId !== undefined ||
-    input.sortOrder !== undefined;
-
-  const file = requiresSortNormalization
-    ? await prisma.$transaction(async (tx) => {
-        const updated = await tx.workspaceFile.update({
-          where: { id: existing.id },
-          data: {
-            ...(input.content !== undefined && { content: input.content }),
-            ...(input.kind !== undefined && { kind: input.kind }),
-            ...(input.role !== undefined && { role: input.role }),
-            ...(input.language !== undefined && { language: input.language }),
-            ...(input.name !== undefined && { name: nextName }),
-            ...(input.parentId !== undefined && { parentId: nextParentId }),
-            ...(nextPath !== existing.path && { path: nextPath }),
-            sortOrder: targetSortOrder,
-            originDeviceId: actor.deviceId,
-            createdByUserId: actor.userId,
-            revision: {
-              increment: 1,
-            },
-            updatedAt: new Date(),
-          },
-        });
-
-        const reorderedTargetIds = [
-          ...normalizedSiblings.slice(0, targetSortOrder).map((item) => item.id),
-          updated.id,
-          ...normalizedSiblings.slice(targetSortOrder).map((item) => item.id),
-        ];
-
-        for (const [index, id] of reorderedTargetIds.entries()) {
-          await tx.workspaceFile.update({
-            where: { id },
-            data: { sortOrder: index },
-          });
-        }
-
-        if (previousSiblings.length > 0) {
-          const reorderedPreviousIds = [...previousSiblings]
-            .sort((left, right) => left.sortOrder - right.sortOrder)
-            .map((item) => item.id);
-          for (const [index, id] of reorderedPreviousIds.entries()) {
-            await tx.workspaceFile.update({
-              where: { id },
-              data: { sortOrder: index },
-            });
-          }
-        }
-
-        return updated;
-      })
-    : await prisma.workspaceFile.update({
-        where: { id: existing.id },
-        data: {
-          ...(input.content !== undefined && { content: input.content }),
-          ...(input.kind !== undefined && { kind: input.kind }),
-          ...(input.role !== undefined && { role: input.role }),
-          ...(input.language !== undefined && { language: input.language }),
-          ...(input.name !== undefined && { name: nextName }),
-          ...(input.parentId !== undefined && { parentId: nextParentId }),
-          ...(nextPath !== existing.path && { path: nextPath }),
-          originDeviceId: actor.deviceId,
-          createdByUserId: actor.userId,
-          revision: {
-            increment: 1,
-          },
-          updatedAt: new Date(),
-        },
-      });
-
-  if (nextPath !== existing.path) {
-    await rebuildDescendantPaths({
-      fileId: file.id,
-      oldPath: existing.path,
-      organizationId: actor.organizationId,
-      workspaceId: input.workspaceId,
-    });
-  }
-
-  if (input.setPrimary) {
-    await prisma.$transaction([
-      prisma.workspaceFile.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: input.workspaceId,
-          organizationId: actor.organizationId,
-          isPrimary: true,
-          id: { not: existing.id },
-        },
-        data: {
-          isPrimary: false,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      prisma.workspaceFile.update({
-        where: { id: existing.id },
-        data: {
-          isPrimary: true,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      prisma.document.update({
-        where: { id: input.workspaceId },
-        data: {
-          content: input.content !== undefined ? input.content : existing.content,
-          originDeviceId: actor.deviceId,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-    ]);
-  } else if (file.isPrimary && input.content !== undefined) {
-    await prisma.document.update({
-      where: { id: input.workspaceId },
-      data: {
-        content: input.content,
-        originDeviceId: actor.deviceId,
-        revision: {
-          increment: 1,
-        },
-      },
-    });
-  }
-
-  await materializeWorkspaceMirror({
-    organizationId: actor.organizationId,
-    workspaceId: input.workspaceId,
-  });
-
-  return mapWorkspaceFile(
-    (await prisma.workspaceFile.findUnique({ where: { id: file.id } })) || file
-  );
 }
 
 export async function deleteWorkspaceFile(
@@ -1239,122 +932,9 @@ export async function deleteWorkspaceFile(
     workspaceId: string;
   }
 ) {
-  await ensureWorkspaceEditable(actor, input.workspaceId);
-
-  const existing = await prisma.workspaceFile.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      id: input.fileId,
-      organizationId: actor.organizationId,
-    },
+  return deleteWorkspaceFileCommand(actor, input, {
+    ensureWorkspaceEditable,
   });
-
-  if (!existing) {
-    throw new Error('Workspace file not found.');
-  }
-
-  const descendants = await prisma.workspaceFile.findMany({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      organizationId: actor.organizationId,
-      OR: [{ id: existing.id }, { path: { startsWith: `${existing.path}/` } }],
-    },
-  });
-
-  const deletedAt = new Date();
-  await prisma.$transaction([
-    prisma.workspaceFile.updateMany({
-      where: {
-        id: {
-          in: descendants.map((file) => file.id),
-        },
-      },
-      data: {
-        deletedAt,
-        revision: {
-          increment: 1,
-        },
-      },
-    }),
-    prisma.commentThread.updateMany({
-      where: {
-        deletedAt: null,
-        organizationId: actor.organizationId,
-        fileId: {
-          in: descendants.map((file) => file.id),
-        },
-      },
-      data: {
-        deletedAt,
-        revision: {
-          increment: 1,
-        },
-      },
-    }),
-  ]);
-
-  if (existing.isPrimary) {
-    const replacement = await prisma.workspaceFile.findFirst({
-      where: {
-        deletedAt: null,
-        documentId: input.workspaceId,
-        organizationId: actor.organizationId,
-        id: { notIn: descendants.map((file) => file.id) },
-        type: 'file',
-      },
-      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
-
-    if (replacement) {
-      await prisma.$transaction([
-        prisma.workspaceFile.update({
-          where: { id: replacement.id },
-          data: {
-            isPrimary: true,
-            revision: {
-              increment: 1,
-            },
-          },
-        }),
-        prisma.document.update({
-          where: { id: input.workspaceId },
-          data: {
-            content: replacement.content,
-            originDeviceId: actor.deviceId,
-            revision: {
-              increment: 1,
-            },
-          },
-        }),
-      ]);
-    }
-  }
-
-  await prisma.session.updateMany({
-    where: {
-      activeFileId: {
-        in: descendants.map((file) => file.id),
-      },
-      deletedAt: null,
-      organizationId: actor.organizationId,
-      wikiId: input.workspaceId,
-    },
-    data: {
-      activeFileId: null,
-      revision: {
-        increment: 1,
-      },
-    },
-  });
-
-  await materializeWorkspaceMirror({
-    organizationId: actor.organizationId,
-    workspaceId: input.workspaceId,
-  });
-
-  return { deleted: true };
 }
 
 export async function listWorkspaceVersions(params: {
@@ -1384,125 +964,11 @@ export async function createWorkspaceVersion(
     workspaceId: string;
   }
 ) {
-  await ensureWorkspaceEditable(actor, input.workspaceId);
-  const versionType = normalizeWorkspaceVersionType(input.versionType);
-  const shouldBindDraftThreads =
-    input.bindDraftThreads !== undefined
-      ? input.bindDraftThreads
-      : versionType !== 'checkpoint';
-
-  const workspace = await prisma.document.findFirst({
-    where: {
-      deletedAt: null,
-      id: input.workspaceId,
-      organizationId: actor.organizationId,
-    },
+  const version = await createWorkspaceVersionCommand(actor, input, {
+    bindDraftThreadsToVersion,
+    ensureWorkspaceEditable,
+    recordSyncEvent,
   });
-
-  if (!workspace) {
-    throw new Error('Workspace not found.');
-  }
-
-  const files = await ensureWorkspaceFiles(actor.organizationId, workspace.id);
-  const mappedFiles = files.map(mapWorkspaceFile);
-  const primaryFile = resolvePrimaryFile(files);
-  const [latestVersion, latestVisibleVersion] = await Promise.all([
-    prisma.version.findFirst({
-      where: {
-        deletedAt: null,
-        documentId: workspace.id,
-        organizationId: actor.organizationId,
-      },
-      orderBy: { versionNum: 'desc' },
-    }),
-    versionType === 'checkpoint'
-      ? Promise.resolve(null)
-      : prisma.version.findFirst({
-          where: {
-            deletedAt: null,
-            documentId: workspace.id,
-            organizationId: actor.organizationId,
-            versionType: {
-              not: 'checkpoint',
-            },
-          },
-          orderBy: { versionNum: 'desc' },
-        }),
-  ]);
-
-  const nextVersion = workspace.currentVersion + 1;
-  const versionContent = serializeWorkspaceVersion({
-    files: mappedFiles.map(mapWorkspaceFileToVersion),
-    workspaceTitle: input.title?.trim() || workspace.title,
-  });
-
-  const version = await prisma.$transaction(async (tx) => {
-    const created = await tx.version.create({
-      data: {
-        organizationId: actor.organizationId,
-        documentId: workspace.id,
-        versionNum: nextVersion,
-        content: versionContent,
-        title: input.title?.trim() || workspace.title,
-        parentVersionId:
-          versionType === 'checkpoint'
-            ? latestVersion?.id || null
-            : latestVisibleVersion?.id || null,
-        sourceSessionId: input.sourceConversationId || null,
-        sourceMessageId: input.sourceMessageId || null,
-        versionType,
-        createdByUserId: actor.userId,
-        originDeviceId: actor.deviceId,
-      },
-    });
-
-    await tx.document.update({
-      where: { id: workspace.id },
-      data: {
-        currentVersion: nextVersion,
-        draftRevision: {
-          increment: 1,
-        },
-        originDeviceId: actor.deviceId,
-        revision: {
-          increment: 1,
-        },
-        ...(primaryFile ? { content: primaryFile.content } : {}),
-        ...(isRecoveryVersionType(versionType)
-          ? {}
-          : { draftBaseVersionId: created.id }),
-      },
-    });
-
-    return created;
-  });
-
-  if (shouldBindDraftThreads) {
-    await bindDraftThreadsToVersion(workspace.id, version.id, workspace.draftRevision);
-  }
-
-  await recordSyncEvent({
-    actorUserId: actor.userId,
-    entityId: version.id,
-    entityType: 'workspace_version',
-    organizationId: actor.organizationId,
-    originDeviceId: actor.deviceId,
-    payload: {
-      op: 'create',
-      versionNum: version.versionNum,
-      workspaceId: workspace.id,
-      sourceConversationId: input.sourceConversationId || null,
-      sourceMessageId: input.sourceMessageId || null,
-    },
-    revision: version.revision,
-  });
-
-  if (versionType === 'checkpoint') {
-    await pruneWorkspaceRecoveryCheckpoints({
-      organizationId: actor.organizationId,
-      workspaceId: workspace.id,
-    });
-  }
 
   return mapWorkspaceVersion(version);
 }
@@ -1604,22 +1070,29 @@ export async function restoreWorkspaceVersion(
         run.kind === 'preview' &&
         (run.status === 'pending' || run.status === 'running')
     );
-  const draftBaseVersionId = await resolveDraftBaseVersionIdForVersion(
-    actor.organizationId,
-    version.id
-  );
+  const draftBaseVersionId = await resolveDraftBaseVersionIdForVersion({
+    organizationId: actor.organizationId,
+    versionId: version.id,
+  });
   const safetyCheckpoint = await createWorkspaceVersion(actor, {
     bindDraftThreads: true,
     versionType: 'checkpoint',
     title: 'Safety Checkpoint before Restore',
     workspaceId: input.workspaceId,
   });
-  const { restartedPreview } = await replaceWorkspaceDraftWithVersionFiles(actor, {
-    draftBaseVersionId,
-    hadActivePreview,
-    versionFiles: parseVersionFiles(version.content),
-    workspaceId: input.workspaceId,
-  });
+  const { restartedPreview } = await replaceWorkspaceDraftWithVersionFiles(
+    actor,
+    {
+      draftBaseVersionId,
+      hadActivePreview,
+      versionFiles: parseVersionFiles(version.content),
+      workspaceId: input.workspaceId,
+    },
+    {
+      materializeWorkspaceMirror,
+      startWorkspacePreview,
+    }
+  );
 
   return {
     restoredVersion: mapWorkspaceVersion(version),
@@ -1727,22 +1200,29 @@ export async function continueWorkspaceFromVersion(
     revision: branchVersion.revision,
   });
 
-  const { activeFileId } = await replaceWorkspaceDraftWithVersionFiles(actor, {
-    draftBaseVersionId: branchVersion.id,
-    hadActivePreview: (
-      await listWorkspaceRuns({
-        organizationId: actor.organizationId,
-        workspaceId: input.workspaceId,
-      })
-    ).some(
-      (run) =>
-        run.kind === 'preview' &&
-        (run.status === 'pending' || run.status === 'running')
-    ),
-    preferredActiveFileId: input.activeFileId || null,
-    versionFiles: parseVersionFiles(branchVersion.content),
-    workspaceId: input.workspaceId,
-  });
+  const { activeFileId } = await replaceWorkspaceDraftWithVersionFiles(
+    actor,
+    {
+      draftBaseVersionId: branchVersion.id,
+      hadActivePreview: (
+        await listWorkspaceRuns({
+          organizationId: actor.organizationId,
+          workspaceId: input.workspaceId,
+        })
+      ).some(
+        (run) =>
+          run.kind === 'preview' &&
+          (run.status === 'pending' || run.status === 'running')
+      ),
+      preferredActiveFileId: input.activeFileId || null,
+      versionFiles: parseVersionFiles(branchVersion.content),
+      workspaceId: input.workspaceId,
+    },
+    {
+      materializeWorkspaceMirror,
+      startWorkspacePreview,
+    }
+  );
 
   const conversation = await createConversationForWorkspace(actor, {
     activeFileId,
@@ -1818,22 +1298,29 @@ export async function switchWorkspaceToVersionBranch(
     workspaceId: input.workspaceId,
   });
 
-  const { activeFileId } = await replaceWorkspaceDraftWithVersionFiles(actor, {
-    draftBaseVersionId: sourceVersion.id,
-    hadActivePreview: (
-      await listWorkspaceRuns({
-        organizationId: actor.organizationId,
-        workspaceId: input.workspaceId,
-      })
-    ).some(
-      (run) =>
-        run.kind === 'preview' &&
-        (run.status === 'pending' || run.status === 'running')
-    ),
-    preferredActiveFileId: input.activeFileId || null,
-    versionFiles: parseVersionFiles(sourceVersion.content),
-    workspaceId: input.workspaceId,
-  });
+  const { activeFileId } = await replaceWorkspaceDraftWithVersionFiles(
+    actor,
+    {
+      draftBaseVersionId: sourceVersion.id,
+      hadActivePreview: (
+        await listWorkspaceRuns({
+          organizationId: actor.organizationId,
+          workspaceId: input.workspaceId,
+        })
+      ).some(
+        (run) =>
+          run.kind === 'preview' &&
+          (run.status === 'pending' || run.status === 'running')
+      ),
+      preferredActiveFileId: input.activeFileId || null,
+      versionFiles: parseVersionFiles(sourceVersion.content),
+      workspaceId: input.workspaceId,
+    },
+    {
+      materializeWorkspaceMirror,
+      startWorkspacePreview,
+    }
+  );
 
   const conversation = await createConversationForWorkspace(actor, {
     activeFileId,
@@ -1851,178 +1338,6 @@ export async function switchWorkspaceToVersionBranch(
   };
 }
 
-async function replaceWorkspaceDraftWithVersionFiles(
-  actor: ActorContext,
-  input: {
-    draftBaseVersionId?: string | null;
-    hadActivePreview: boolean;
-    preferredActiveFileId?: string | null;
-    versionFiles: WorkspaceVersionFileData[];
-    workspaceId: string;
-  }
-) {
-  const existingFiles = await ensureWorkspaceFiles(actor.organizationId, input.workspaceId);
-  const existingById = new Map(existingFiles.map((file) => [file.id, file]));
-  const existingByPath = new Map(existingFiles.map((file) => [file.path, file]));
-  const preferredActiveFilePath = input.preferredActiveFileId
-    ? existingById.get(input.preferredActiveFileId)?.path || null
-    : null;
-  const deletedFileIds = existingFiles
-    .filter((file) => !input.versionFiles.some((versionFile) => versionFile.path === file.path))
-    .map((file) => file.id);
-  const orderedVersionFiles = [...input.versionFiles].sort((left, right) => {
-    const depthDelta = getWorkspacePathDepth(left.path) - getWorkspacePathDepth(right.path);
-    if (depthDelta !== 0) {
-      return depthDelta;
-    }
-
-    if (left.nodeType === right.nodeType) {
-      return left.path.localeCompare(right.path);
-    }
-
-    return left.nodeType === 'folder' ? -1 : 1;
-  });
-  const fileIdsByPath = new Map<string, string>();
-  let resolvedActiveFileId: string | null = null;
-
-  await prisma.$transaction(async (tx) => {
-    if (deletedFileIds.length > 0) {
-      await tx.workspaceFile.updateMany({
-        where: {
-          id: { in: deletedFileIds },
-        },
-        data: {
-          deletedAt: new Date(),
-          revision: {
-            increment: 1,
-          },
-        },
-      });
-    }
-
-    for (const versionFile of orderedVersionFiles) {
-      const parentPath = getParentWorkspacePath(versionFile.path);
-      const parentId = parentPath ? fileIdsByPath.get(parentPath) || null : null;
-      const existing = existingByPath.get(versionFile.path);
-
-      if (existing) {
-        const updated = await tx.workspaceFile.update({
-          where: { id: existing.id },
-          data: {
-            content: versionFile.content,
-            createdByUserId: actor.userId,
-            deletedAt: null,
-            isPrimary: versionFile.isPrimary,
-            kind: versionFile.kind,
-            language: versionFile.language,
-            name: versionFile.name,
-            originDeviceId: actor.deviceId,
-            parentId,
-            path: versionFile.path,
-            role: versionFile.role,
-            revision: {
-              increment: 1,
-            },
-            sortOrder: versionFile.sortOrder,
-            type: versionFile.nodeType === 'folder' ? 'folder' : 'file',
-            updatedAt: new Date(),
-          },
-        });
-
-        fileIdsByPath.set(versionFile.path, updated.id);
-        continue;
-      }
-
-      const created = await tx.workspaceFile.create({
-        data: {
-          content: versionFile.content,
-          createdByUserId: actor.userId,
-          documentId: input.workspaceId,
-          isPrimary: versionFile.isPrimary,
-          kind: versionFile.kind,
-          language: versionFile.language,
-          name: versionFile.name,
-          organizationId: actor.organizationId,
-          originDeviceId: actor.deviceId,
-          parentId,
-          path: versionFile.path,
-          role: versionFile.role,
-          sortOrder: versionFile.sortOrder,
-          type: versionFile.nodeType === 'folder' ? 'folder' : 'file',
-        },
-      });
-
-      fileIdsByPath.set(versionFile.path, created.id);
-    }
-
-    const primaryVersionFile =
-      orderedVersionFiles.find(
-        (file) => file.nodeType === 'file' && file.isPrimary
-      ) || orderedVersionFiles.find((file) => file.nodeType === 'file');
-    const primaryFileId = primaryVersionFile
-      ? fileIdsByPath.get(primaryVersionFile.path) || null
-      : null;
-
-    resolvedActiveFileId =
-      (preferredActiveFilePath
-        ? fileIdsByPath.get(preferredActiveFilePath) || null
-        : null) || primaryFileId;
-
-    await tx.document.update({
-      where: { id: input.workspaceId },
-      data: {
-        content: primaryVersionFile?.content || '',
-        draftRevision: {
-          increment: 1,
-        },
-        originDeviceId: actor.deviceId,
-        revision: {
-          increment: 1,
-        },
-        status: 'draft',
-        ...(input.draftBaseVersionId !== undefined
-          ? { draftBaseVersionId: input.draftBaseVersionId }
-          : {}),
-      },
-    });
-
-    if (resolvedActiveFileId) {
-      await tx.session.updateMany({
-        where: {
-          deletedAt: null,
-          organizationId: actor.organizationId,
-          wikiId: input.workspaceId,
-          OR: [
-            { activeFileId: null },
-            { activeFileId: { in: deletedFileIds } },
-          ],
-        },
-        data: {
-          activeFileId: resolvedActiveFileId,
-          revision: {
-            increment: 1,
-          },
-        },
-      });
-    }
-  });
-
-  await materializeWorkspaceMirror({
-    organizationId: actor.organizationId,
-    workspaceId: input.workspaceId,
-  });
-
-  const restartedPreview = input.hadActivePreview
-    ? await startWorkspacePreview(actor, {
-        workspaceId: input.workspaceId,
-      }).catch(() => null)
-    : null;
-
-  return {
-    activeFileId: resolvedActiveFileId,
-    restartedPreview,
-  };
-}
 
 export async function getActiveWorkspaceLock(
   organizationId: string,
@@ -3112,24 +2427,6 @@ async function ensureWorkspaceEditable(actor: ActorContext, workspaceId: string)
   }
 }
 
-async function findNearestVersionBeforeMessage(params: {
-  messageCreatedAt: Date;
-  organizationId: string;
-  workspaceId: string;
-}) {
-  return prisma.version.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: params.workspaceId,
-      organizationId: params.organizationId,
-      lockedAt: {
-        lte: params.messageCreatedAt,
-      },
-    },
-    orderBy: { lockedAt: 'desc' },
-  });
-}
-
 function buildConversationTree(
   conversations: Array<ConversationData & { lastMessagePreview: string | null }>
 ): ConversationBranchSummary[] {
@@ -3345,65 +2642,8 @@ async function ensureSupportUploadsFolder(
   actor: ActorContext,
   workspaceId: string
 ) {
-  const existing = await prisma.workspaceFile.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: workspaceId,
-      organizationId: actor.organizationId,
-      path: SUPPORT_UPLOADS_ROOT,
-      type: 'folder',
-    },
-  });
-
-  if (existing) {
-    return mapWorkspaceFile(existing);
-  }
-
-  return createWorkspaceFile(actor, {
-    name: SUPPORT_UPLOADS_ROOT,
-    nodeType: 'folder',
-    role: 'support',
-    workspaceId,
-  });
-}
-
-async function pruneWorkspaceRecoveryCheckpoints(params: {
-  organizationId: string;
-  workspaceId: string;
-}) {
-  const checkpoints = await prisma.version.findMany({
-    where: {
-      deletedAt: null,
-      documentId: params.workspaceId,
-      organizationId: params.organizationId,
-      versionType: 'checkpoint',
-    },
-    orderBy: { versionNum: 'desc' },
-    select: {
-      id: true,
-    },
-  });
-
-  const staleCheckpointIds = checkpoints
-    .slice(MAX_TEMPORARY_RECOVERY_POINTS)
-    .map((checkpoint) => checkpoint.id);
-
-  if (staleCheckpointIds.length === 0) {
-    return;
-  }
-
-  await prisma.version.updateMany({
-    where: {
-      id: {
-        in: staleCheckpointIds,
-      },
-    },
-    data: {
-      deletedAt: new Date(),
-      revision: {
-        increment: 1,
-      },
-    },
+  return ensureSupportUploadsFolderCommand(actor, workspaceId, {
+    ensureWorkspaceEditable,
   });
 }
 
