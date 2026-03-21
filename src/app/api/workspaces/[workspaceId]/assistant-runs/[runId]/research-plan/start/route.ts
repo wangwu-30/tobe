@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
+import {
+  buildWorkspaceAssistantSystemPrompt,
+  initializeWorkspaceAssistantRun,
+} from '@/lib/ai/conversation-runner';
 import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
 import { executeDeepResearch } from '@/lib/ai/research-runner';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
@@ -11,7 +14,6 @@ import {
   stringifyAssistantRunPayload,
 } from '@/lib/workspace/assistant-run-payload';
 import {
-  createAssistantRun,
   createConversationMessage,
   updateAssistantRun,
 } from '@/lib/workspace/service';
@@ -85,35 +87,36 @@ export async function POST(
     throw error;
   }
 
-  const executionRun = await createAssistantRun(actor, {
+  const executionRun = await initializeWorkspaceAssistantRun({
+    actor,
     conversationId: proposalRun.sessionId,
-    mode: 'run',
-    requestMessageId: proposalRun.requestMessageId,
-    title: proposalPayload.researchPlanProposal.title,
+    initialUpdate: {
+      payloadJson: stringifyAssistantRunPayload({
+        researchPlanProposal: proposalPayload.researchPlanProposal,
+        researchProgress: {
+          mode: 'deep',
+          phase: 'proposal',
+          currentStepLabel: '研究计划已确认，准备开始',
+          providerState: 'ready',
+          reportFileId: null,
+          reportFileName: null,
+          stepIndex: null,
+          totalSteps: null,
+        },
+      }),
+      status: 'planning',
+      summary: proposalPayload.researchPlanProposal.summary,
+    },
+    run: {
+      mode: 'run',
+      requestMessageId: proposalRun.requestMessageId,
+      title: proposalPayload.researchPlanProposal.title,
+    },
     workspaceId,
   });
 
-  await updateAssistantRun(actor, {
-    payloadJson: stringifyAssistantRunPayload({
-      researchPlanProposal: proposalPayload.researchPlanProposal,
-      researchProgress: {
-        mode: 'deep',
-        phase: 'proposal',
-        currentStepLabel: '研究计划已确认，准备开始',
-        providerState: 'ready',
-        reportFileId: null,
-        reportFileName: null,
-        stepIndex: null,
-        totalSteps: null,
-      },
-    }),
-    runId: executionRun.id,
-    status: 'planning',
-    summary: proposalPayload.researchPlanProposal.summary,
-  });
-
   try {
-    const systemPrompt = await buildChatSystemPrompt({
+    const systemPrompt = await buildWorkspaceAssistantSystemPrompt({
       conversationId: proposalRun.sessionId,
       language: settings.language,
       organizationId: actor.organizationId,

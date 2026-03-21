@@ -1,43 +1,21 @@
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
-import type { Api, Message as PiMessage, Model as PiModel } from '@mariozechner/pi-ai';
 import type { Settings } from '@/lib/ai/providers';
-import { getOAuthApiKeyForProvider } from '@/lib/ai/auth-store';
-import { resolveConfiguredApiKey } from '@/lib/ai/providers';
 import { AI_STREAM_HEARTBEAT_TOKEN } from '@/lib/ai/stream-protocol';
-
-type AgentMessage =
-  | {
-      role: 'assistant';
-      content: string;
-      createdAt?: Date | string;
-    }
-  | {
-      role: 'user';
-      content:
-        | string
-        | Array<
-            | {
-                type: 'image';
-                data: string;
-                mimeType: string;
-              }
-            | {
-                type: 'text';
-                text: string;
-              }
-          >;
-      createdAt?: Date | string;
-    };
-
-type AnyPiModel = PiModel<Api>;
+import {
+  getLastAssistantMessageText,
+  resolvePiProviderApiKey,
+  toPiRunMessages,
+  type AgentRunMessage,
+  type AnyPiModel,
+} from '@/framework/agent/run';
 
 type StreamPiAgentChatParams = {
   sessionId: string;
   model: AnyPiModel;
   settings: Settings;
   systemPrompt: string;
-  messages: AgentMessage[];
+  messages: AgentRunMessage[];
   tools: AgentTool[];
   onError?: (error: unknown) => Promise<void> | void;
   onFirstText?: () => Promise<void> | void;
@@ -63,21 +41,16 @@ export async function streamPiAgentChat({
     initialState: {
       systemPrompt,
       model,
-      messages: toPiMessages(messages, model),
+      messages: toPiRunMessages(messages, model),
       tools,
       thinkingLevel: 'low',
     },
     sessionId,
-    getApiKey: async (provider) => {
-      if (isOAuthProvider(provider)) {
-        const oauth = await getOAuthApiKeyForProvider(provider);
-        if (oauth?.apiKey) {
-          return oauth.apiKey;
-        }
-      }
-
-      return resolveConfiguredApiKey(settings, provider);
-    },
+    getApiKey: async (provider) =>
+      resolvePiProviderApiKey({
+        provider,
+        settings,
+      }),
   });
 
   const stream = new ReadableStream({
@@ -106,7 +79,7 @@ export async function streamPiAgentChat({
 
       try {
         await agent.continue();
-        const finalText = getLastAssistantText(agent.state.messages) || streamedText;
+        const finalText = getLastAssistantMessageText(agent.state.messages) || streamedText;
         await onFinish?.({ text: finalText });
         isClosed = true;
         clearInterval(heartbeatId);
@@ -133,82 +106,4 @@ export async function streamPiAgentChat({
       'Cache-Control': 'no-store',
     },
   });
-}
-
-function toPiMessages(messages: AgentMessage[], model: AnyPiModel): PiMessage[] {
-  return messages.map(message => {
-    const timestamp = message.createdAt
-      ? new Date(message.createdAt).getTime()
-      : Date.now();
-
-    if (message.role === 'assistant') {
-      return {
-        role: 'assistant',
-        content: [{ type: 'text', text: message.content }],
-        api: model.api,
-        provider: model.provider,
-        model: model.id,
-        usage: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 0,
-          cost: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            total: 0,
-          },
-        },
-        stopReason: 'stop',
-        timestamp,
-      };
-    }
-
-    return {
-      role: 'user',
-      content:
-        typeof message.content === 'string'
-          ? message.content
-          : message.content.map((block) =>
-              block.type === 'text'
-                ? { type: 'text', text: block.text }
-                : {
-                    type: 'image',
-                    data: block.data,
-                    mimeType: block.mimeType,
-                  }
-            ),
-      timestamp,
-    };
-  });
-}
-
-function getLastAssistantText(messages: PiMessage[]) {
-  const assistantMessage = [...messages]
-    .reverse()
-    .find((message): message is Extract<PiMessage, { role: 'assistant' }> => message.role === 'assistant');
-
-  if (!assistantMessage) {
-    return '';
-  }
-
-  return assistantMessage.content
-    .filter(content => content.type === 'text')
-    .map(content => content.text)
-    .join('');
-}
-
-function isOAuthProvider(provider: string): provider is Parameters<
-  typeof getOAuthApiKeyForProvider
->[0] {
-  return (
-    provider === 'anthropic' ||
-    provider === 'openai-codex' ||
-    provider === 'github-copilot' ||
-    provider === 'google-gemini-cli' ||
-    provider === 'google-antigravity'
-  );
 }

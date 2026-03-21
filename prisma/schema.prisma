@@ -21,6 +21,7 @@ model Organization {
   documents        Document[]
   workspaceFiles   WorkspaceFile[]
   versions         Version[]
+  labels           Label[]
   commentThreads   CommentThread[]
   commentMessages  CommentMessage[]
   memories         Memory[]
@@ -232,12 +233,32 @@ model Version {
   sourceMessage   ChatMessage?    @relation("SnapshotSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
   baseConversations Session[]     @relation("ConversationBaseVersion")
   draftBaseDocuments Document[]   @relation("DocumentDraftBaseVersion")
+  labels          Label[]
   threads         CommentThread[]
   workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookSourceVersion")
   workspaceRuns   WorkspaceRun[]
 
   @@unique([documentId, versionNum])
   @@index([organizationId, lockedAt])
+}
+
+model Label {
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  versionId       String
+  kind            String
+  name            String
+  createdByUserId String?
+  originDeviceId  String?
+  revision        Int          @default(1)
+  deletedAt       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  version         Version      @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([versionId, createdAt])
 }
 
 model WorkspaceFile {

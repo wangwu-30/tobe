@@ -595,8 +595,8 @@ export function isPinnedRecoveryVersionType(versionType: WorkspaceVersionType | 
   return versionType === 'checkpoint_pinned';
 }
 
-export function isVisibleVersion(version: Pick<WorkspaceVersionData, 'versionType'>) {
-  return !isRecoveryVersionType(version.versionType);
+export function isVisibleVersion(version: Pick<WorkspaceVersionData, 'visible'>) {
+  return version.visible;
 }
 
 export function createInitialWorkspacePlan(params: {

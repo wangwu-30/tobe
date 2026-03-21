@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSettingsFromHeaders } from '@/lib/ai/providers';
 import {
-  parseCommentAgentBindings,
-  parseCommentAgentMentions,
-  refreshCommentAgentBindings,
-  stringifyCommentAgentBindings,
   stringifyCommentAgentMentions,
 } from '@/lib/comments/agents';
 import { prisma } from '@/lib/db/prisma';
+import { buildCommentMessageAgentState } from '@/objects/comment/agent-bindings';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { mapCommentMessage } from '@/lib/wiki/service';
 
@@ -49,17 +46,13 @@ export async function POST(
     return NextResponse.json({ error: 'Thread not found' }, { status: 404 });
   }
 
-  const mentions =
-    body.role === 'user' && typeof body.content === 'string'
-      ? parseCommentAgentMentions(body.content, settings.commentAgents || [])
-      : [];
-  const nextBindings =
-    body.role === 'user' && mentions.length > 0
-      ? refreshCommentAgentBindings({
-          bindings: parseCommentAgentBindings(thread.agentBindingsJson),
-          mentions,
-        })
-      : parseCommentAgentBindings(thread.agentBindingsJson);
+  const agentState = buildCommentMessageAgentState({
+    agents: settings.commentAgents || [],
+    bindingsJson: thread.agentBindingsJson,
+    content: typeof body.content === 'string' ? body.content : '',
+    role: body.role,
+  });
+  const mentions = agentState.mentions;
   const message = await prisma.commentMessage.create({
     data: {
       organizationId: actor.organizationId,
@@ -88,10 +81,7 @@ export async function POST(
         : {}),
       ...(body.role === 'user'
         ? {
-            agentBindingsJson:
-              nextBindings.length > 0
-                ? stringifyCommentAgentBindings(nextBindings)
-                : null,
+            agentBindingsJson: agentState.bindingsJson,
           }
         : {}),
       createdByUserId: actor.userId,

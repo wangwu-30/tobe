@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { isVisibleVersion } from '@/lib/workspace/planning';
 import {
   createWorkspaceVersion,
   listWorkspaceVersions,
@@ -21,7 +20,7 @@ export async function GET(
   });
 
   return NextResponse.json(
-    scope === 'all' ? versions : versions.filter(isVisibleVersion)
+    scope === 'all' ? versions : versions.filter((version) => version.visible)
   );
 }
 

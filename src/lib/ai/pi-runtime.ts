@@ -1,8 +1,11 @@
 import { completeSimple, streamSimple } from '@mariozechner/pi-ai';
 import type { Api, Context, Message, Model as PiModel } from '@mariozechner/pi-ai';
 import type { Settings } from '@/lib/ai/providers';
-import { getOAuthApiKeyForProvider } from '@/lib/ai/auth-store';
-import { resolveConfiguredApiKey } from '@/lib/ai/providers';
+import {
+  extractAssistantMessageText,
+  resolvePiProviderApiKey,
+  toPiRunMessages,
+} from '@/framework/agent/run';
 
 type AnyPiModel = PiModel<Api>;
 
@@ -74,83 +77,28 @@ export async function streamWithPi({
   });
 }
 
-export function extractTextContent(message: Message) {
-  if (message.role !== 'assistant') {
-    return '';
-  }
-
-  return message.content
-    .filter(content => content.type === 'text')
-    .map(content => content.text)
-    .join('');
-}
+export const extractTextContent = extractAssistantMessageText as (
+  message: Message
+) => string;
 
 export function toPiContextMessages(
   messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt?: Date | string }>,
   model: AnyPiModel
 ): Message[] {
-  return messages.map(message => {
-    const timestamp = message.createdAt
-      ? new Date(message.createdAt).getTime()
-      : Date.now();
-
-    if (message.role === 'assistant') {
-      return {
-        role: 'assistant',
-        content: [{ type: 'text', text: message.content }],
-        api: model.api,
-        provider: model.provider,
-        model: model.id,
-        usage: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 0,
-          cost: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            total: 0,
-          },
-        },
-        stopReason: 'stop',
-        timestamp,
-      };
-    }
-
-    return {
-      role: 'user',
-      content: message.content,
-      timestamp,
-    };
-  });
+  return toPiRunMessages(messages, model);
 }
 
 async function buildPiRequestOptions({
   model,
   settings,
 }: BuildPiRequestOptionsParams) {
-  const providerApiKey =
-    (isOAuthProvider(model.provider)
-      ? (await getOAuthApiKeyForProvider(model.provider))?.apiKey
-      : null) || resolveConfiguredApiKey(settings, model.provider);
+  const providerApiKey = await resolvePiProviderApiKey({
+    provider: model.provider,
+    settings,
+  });
 
   return {
     apiKey: providerApiKey,
     sessionId: `chengxing:${model.provider}`,
   };
-}
-
-function isOAuthProvider(provider: string): provider is Parameters<
-  typeof getOAuthApiKeyForProvider
->[0] {
-  return (
-    provider === 'anthropic' ||
-    provider === 'openai-codex' ||
-    provider === 'github-copilot' ||
-    provider === 'google-gemini-cli' ||
-    provider === 'google-antigravity'
-  );
 }

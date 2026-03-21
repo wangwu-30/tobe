@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isCommentThreadStatus } from '@/lib/comments/status';
 import {
-  parseCommentAgentBindings,
-  stopCommentAgentListening,
-  stringifyCommentAgentBindings,
 } from '@/lib/comments/agents';
 import { prisma } from '@/lib/db/prisma';
 import { getBoundVersionIdForWiki } from '@/lib/comments/version-binding';
+import { stopCommentAgentListeningState } from '@/objects/comment/agent-bindings';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { mapCommentThread } from '@/lib/wiki/service';
 
@@ -50,16 +48,15 @@ export async function PATCH(
       return NextResponse.json({ error: 'Missing agentId' }, { status: 400 });
     }
 
-    const nextBindings = stopCommentAgentListening({
+    const nextBindings = stopCommentAgentListeningState({
       agentId: body.agentId,
-      bindings: parseCommentAgentBindings(existingThread.agentBindingsJson),
+      bindingsJson: existingThread.agentBindingsJson,
     });
 
     const thread = await prisma.commentThread.update({
       where: { id: threadId },
       data: {
-        agentBindingsJson:
-          nextBindings.length > 0 ? stringifyCommentAgentBindings(nextBindings) : null,
+        agentBindingsJson: nextBindings.bindingsJson,
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
         revision: {
@@ -68,7 +65,13 @@ export async function PATCH(
       },
       include: {
         messages: { orderBy: { createdAt: 'asc' } },
-        version: true,
+        version: {
+          include: {
+            labels: {
+              where: { deletedAt: null },
+            },
+          },
+        },
       },
     });
 
@@ -103,7 +106,13 @@ export async function PATCH(
     },
     include: {
       messages: { orderBy: { createdAt: 'asc' } },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
   });
 

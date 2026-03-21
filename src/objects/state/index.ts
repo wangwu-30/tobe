@@ -6,7 +6,16 @@ export {
   setWorkspaceVersionPinned,
   WorkspaceRecoveryPinLimitError,
 } from './commands';
-export { normalizeWorkspaceVersionType } from './schema';
+export {
+  deriveWorkspaceStateSemantics,
+  hasPinnedStateLabel,
+  hasRecoveryStateLabel,
+  hasStateLabelKind,
+  hasVisibleStateLabel,
+  isRecoveryWorkspaceState,
+  isVisibleWorkspaceState,
+  normalizeWorkspaceVersionType,
+} from './schema';
 export {
   findNearestVersionBeforeMessage,
   resolveDraftBaseVersionIdForVersion,

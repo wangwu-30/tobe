@@ -1,6 +1,6 @@
 # 成形经验教训台账
 
-更新时间：2026-03-20
+更新时间：2026-03-21
 状态：持续维护中
 相关文档：[项目状态](./chengxing-project-status.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
 
@@ -544,6 +544,78 @@
 - 结论：当某个 page 已经主要在做“给现成 surface / component 拼 callback、guard 和导航 glue”时，这块组装代码应尽早提成独立 surface adapter，而不是继续留在 route 页里横向展开。
 - 为什么：这类代码表面上不像“业务逻辑”，但会快速把 route 页撑成几千行，也让每次读页面都得同时扫一遍 version-view guard、router 跳转和 action wiring，后续继续拆 dialog 或 header action 时也更容易互相缠绕。
 - 默认做法：保留现有底层 surface / component 不动，新增薄 adapter 负责 version-view 禁用、导航回调和 prop 形状适配；route 页只保留状态源与少量高层编排，不再直接展开整块 prop wiring。
+
+### 50. route chrome 的 dialog / 标题切换 surface，可以把清理语义收进 adapter，只给页面留一个 reset 回调
+
+- 结论：像 title switcher、goal dialog 这种 route chrome 级 surface，在抽离时不需要把状态清理逻辑继续留在 page 的 JSX 内联回调里；更稳的是把 open-change 包装放进 adapter，再让页面只提供一个 reset callback。
+- 为什么：如果 JSX 留在 route 页里，`clear recovery / reset seed values / 清空 context / 复位 request id` 这类清理步骤会继续散落在内联函数里，页面虽然变短一点，但真正容易出错的关闭语义仍然难读也难复用。
+- 默认做法：surface adapter 自己持有 `onOpenChange` 包装，内部判断 recovery / disable 状态；route 页只传当前 open 状态、提交回调和一个集中 reset 函数，不再直接展开整块 dialog close 语义。
+
+### 51. 带 recovery / seed / idempotency 的创建流，surface adapter 落稳后要继续抽成 controller hook
+
+- 结论：如果 route 页上的创建弹窗已经变成“多个入口打开同一个 dialog”，下一步不要让 recovery rehydrate、request id、seed values 和成功跳转继续散落在 page；这类状态机应该再下沉成 controller hook。
+- 为什么：单纯把 JSX 提成 surface adapter 还不够，`load recovery / clear transient state / persist retry payload / push 到新 workspace` 这些控制流一旦仍留在 page，新增入口时很容易漏掉某个 reset 或 request id 规则，route 页也会继续被一整簇“开 dialog 之前先怎么收尾”的逻辑占满。
+- 默认做法：先保留现有 dialog surface，不改提交语义；新增 route-local controller hook 统一持有 recovery、seed、submit 和 router push，只给 page 暴露 `open...` action 与渲染好的 dialog 节点。
+
+### 52. route 页巨石进入后半程时，优先按 controller seam 连续抽 hook
+
+- 结论：当 surface adapter 已经落稳，但 route 页仍堆着长串 effect / callback 时，下一轮切片应连续按 controller seam 抽 hook，而不是重新回到零散 JSX 搬运。
+- 为什么：sidebar action、version/preview、read/poll/url sync、shell state、outline navigation 这些 imperative cluster 才是 route 页真正的复杂度来源；它们一旦各自归位，页面会很快退回“derive + compose”的稳定形态。
+- 默认做法：按“外部 action controller -> version/preview controller -> read/poll/url sync controller -> shell state controller -> 剩余 imperative helper”的顺序拆，每刀只保一个 surface contract 不变。
+
+### 53. page refactor 的止损点要看控制流是否退场，而不是继续追逐更低行数
+
+- 结论：当 route 页不再直接持有成片 effect / callback / DOM helper，只剩状态推导和 surface 组装时，这一轮 page controller seam 可以视为基本收口。
+- 为什么：继续为了追求更低行数而硬拆零散 derive/helper，容易把切片从“清理控制流”扩大成新的 view-model 设计题；这时更合理的是先更新 tracker，再判断下一刀是剩余 derive helper 还是切回别的巨石 seam。
+- 默认做法：用“是否还存在一簇值得单独抽走的控制流”作为继续标准；如果没有，先在 tracker 里切换到下一条明确 seam，而不是无条件把页面拆到最细。
+
+### 54. route 页止损后，service 巨石优先回收纯 view mapper seam
+
+- 结论：当 `page.tsx` 已经退回到“derive + compose”为主，而版本主流程又被 Phase 3 stop-loss 卡住时，最稳的下一刀通常不是继续挖 page 零散 helper，而是回到 `service.ts` 抽一簇纯 view mapper 与相邻 normalize helper。
+- 为什么：`mapConversation / mapConversationMessage / mapChatAttachment / mapAssistantRun` 这类 cluster 不涉及事务、锁和恢复编排，迁移风险明显低于继续碰 `restore / continue / switch branch`；同时它们还能给后续 workspace/wiki/comment mapper seam 建立新的 object 边界。
+- 默认做法：按对象语义把 mapper + normalize helper 一起落到 `objects/{name}/view.ts` 之类的相邻模块，旧 `service.ts` 继续 import + re-export 保持出口稳定；先吃掉这类纯映射 seam，再决定是否继续推进下一簇 mapper 或 query/command seam。
+
+### 55. 跨 phase 迁移要先落 additive model seam，再替换旧语义来源
+
+- 结论：当上一 phase 因 stop gate 收口，而下一 phase 要引入新持久对象或新状态边界时，第一刀应先把 schema、object module 和最小读写骨架落地，但不要同时改现有运行时语义来源。
+- 为什么：如果把“新模型出生”和“旧字段退场”绑在同一刀里，回归一旦失败，很难判断问题来自 migration、query wiring 还是业务语义切换；相反，先把 additive seam 跑绿，后续每一刀都能更清楚地归因。
+- 默认做法：先新增 table / object skeleton / 基础 type 与 migration，保持旧字段继续供 runtime 使用；等 bootstrap 门禁通过后，再单独做读侧 hydration、最后做写侧和语义切换。
+
+### 56. object view seam 分拆时，façade export 和目标模块出口必须同轮闭环
+
+- 结论：当 `service.ts` 把 mapper / view builder 下沉到 `objects/*/view.ts` 时，旧 façade 的 import + re-export 和新模块的全部相邻出口必须在同一轮闭环。
+- 为什么：如果 tracker 先宣布切片完成，但目标模块漏了 `mapKnowledgeItem / mapMemory / mapWorkspaceWithRelations` 这类相邻出口，static gate 会立刻把“半落地 seam”打出来，canonical frontier 也会看起来比真实代码更靠前。
+- 默认做法：每次 view seam 抽离后，立刻用 `service.ts` 的 import 列表和 re-export 列表反查目标模块；只有模块出口、façade 兼容层和 verify 结果同时对齐，tracker 才算真正前推一刀。
+
+### 57. enum 到 label 迁移的写侧切片，必须同轮补齐所有同类 writer
+
+- 结论：当 read-side 已开始优先消费 label，而下一刀把 label 写回 manual state 创建流时，不能只修主入口；`continue / branch` 这类旁路 writer 也要在同一轮一起补齐。
+- 为什么：如果某个 manual state writer 继续只写旧 enum 而不写新 label，fallback 虽然能让回归暂时通过，但 canonical frontier 会重新出现“同类 state 一部分带 label、一部分只有 versionType”的隐形分叉，后续 query、backfill 和 head 生命周期都会越来越难收口。
+- 默认做法：每次把新 label 接回写侧前，先对目标对象做一次 `version.create` / 同类 mutation grep，列出所有同类 writer，并在同一切片里一起补 label create/archive 逻辑，再跑完整 `npm run verify:iteration`。
+
+### 58. 当旧 enum 只剩内部生命周期语义时，应尽快把所有运行时读取切回 additive label contract
+
+- 结论：一旦 `versionType` 之类的旧枚举字段只剩 recovery/pinned 这种内部生命周期语义，下一刀不该把它继续保成“最后一个真相源”；更稳的是扩展 additive label contract，让应用层统一回到 label derive，只把旧字段降成写透兼容。
+- 为什么：如果应用层继续读旧 enum，只会把新模型的 stop gate 永久卡在“还差最后几个 recovery 分支”；而一旦读侧、query、API 出口和 AI 摘要都统一改读 labels，剩下的旧字段就只是一层兼容存储，不再决定运行时语义。
+- 默认做法：先补 recovery/pinned label backfill，再把 service、query、route、AI 摘要等所有读路径一起切到 label derive；旧 enum 可以暂时继续写入，但不再被应用层读取。
+
+### 59. 存储型 JSON 生命周期一旦被多个 route 共享，就要先收成 object seam
+
+- 结论：像 `agentBindingsJson` 这种“仍需兼容写入、但语义已经跨多个 route 共享”的存储型 JSON，不应该继续让每个 API 自己做 `parse / refresh / stringify / resolve target`；更稳的是先下沉到 object seam，再决定后续是否彻底删掉这层存储。
+- 为什么：一旦 `threads`、`comment-reply`、`research-plan`、`research-start` 都各自内联同一套 JSON 生命周期，后续不管是改 listening window、补 stop 事件，还是切到 derive-only 真相源，都会被迫做多点同步，极易留下“某条路还在读旧 JSON 语义”的暗缝。
+- 默认做法：先新增纯 helper 或 object module，把 stored JSON 的 parse / refresh / stop / target resolve 语义集中收口；等调用面只剩一处后，再做真正的真相源切换和存储下线。
+
+### 60. server-only runtime seam 不要经由 client-facing barrel 暴露
+
+- 结论：只要新抽的 runtime/helper 依赖 `node:fs`、OAuth key store 或其他 server-only 模块，就不能顺手从一个同时被 client hook 复用的 barrel（例如 `framework/agent/index.ts`）里一起 re-export。
+- 为什么：barrel 一旦被 client graph 引用，Turbopack 会把 server-only helper 一路追到浏览器 chunk，最终变成 `node:fs` / `node:fs/promises` 不可打包的编译错误；这种问题不会在单看 helper 文件时暴露，而会在集成验证里突然炸出整条 import trace。
+- 默认做法：server-only seam 直接从显式路径 import，并在模块顶部加 `server-only`；共享 barrel 只暴露明确允许进入 client graph 的类型和 helper。
+
+### 61. 统一外部 AI 入口时，先落共享 handler 和新入口，再把旧 route 降成 forwarder
+
+- 结论：当多个 AI route 已经在内部 runtime、assistant-run lifecycle 和 prompt/context assembly 上逐步收口后，外部入口统一不应该直接删旧 route；更稳的是先新增一个共享 server handler + 新入口，再把旧 route 改成 forwarder。
+- 为什么：如果直接一刀把 `/api/ai/chat`、`/api/ai/research-plan` 之类的旧入口删掉，客户端 transport、测试矩阵和历史调用面会同时移动，回归一旦出问题很难判断是 handler 逻辑、路由 wiring 还是 transport 切换导致；先落共享 handler 和新入口，可以让“行为收口”和“旧入口退场”分两步观察。
+- 默认做法：先把已有 route 逻辑移进一个共享 server handler，新增统一入口（例如 `/api/agent/run`）消费它，再让旧 route 只保留极薄的 forwarder；等新入口经完整回归验证后，再决定是否继续删除旧入口。
 
 ## 技术踩坑记录
 

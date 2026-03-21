@@ -1,11 +1,13 @@
 import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
 import { prisma } from '@/lib/db/prisma';
+import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
 import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
 import type { ResearchMode } from '@/types';
 import {
+  createAssistantRun,
   createConversationMessage,
   updateAssistantRun,
 } from '@/lib/workspace/service';
@@ -36,6 +38,39 @@ export type AgentConversationMessage =
       createdAt?: Date | string;
     };
 
+type WorkspaceAssistantRunStreamParams = {
+  actor: ActorContext;
+  assistantRunId: string;
+  conversationId: string;
+  emptyReplySummary?: string;
+  errorSummary?: string;
+  model: AnyPiModel;
+  modelKey: string;
+  onAfterFinish?: (text: string) => Promise<void> | void;
+  persistAssistantText?: (text: string) => Promise<void> | void;
+  researchMode?: ResearchMode;
+  searchBudget?: number;
+  searchProvider?: SearchProvider | null;
+  settings: Settings;
+  systemPrompt: string;
+  toolMessages: AgentConversationMessage[];
+  workspaceId: string;
+};
+
+type WorkspaceAssistantRunDescriptor = {
+  mode: Parameters<typeof createAssistantRun>[1]['mode'];
+  payloadJson?: string | null;
+  requestMessageId?: string | null;
+  title: string;
+};
+
+type WorkspaceAssistantRunStartParams = Omit<
+  WorkspaceAssistantRunStreamParams,
+  'assistantRunId'
+> & {
+  run: WorkspaceAssistantRunDescriptor;
+};
+
 type ActorContext = {
   deviceId: string;
   organizationId: string;
@@ -56,6 +91,50 @@ type HistoryMessageRecord = {
   createdAt: Date;
   role: string;
 };
+
+type WorkspaceAssistantSystemPromptParams = {
+  conversationId: string;
+  explicitOffline?: boolean;
+  language: Parameters<typeof buildChatSystemPrompt>[0]['language'];
+  organizationId: string;
+  researchMode?: ResearchMode;
+  workspaceId: string;
+};
+
+export async function buildWorkspaceAssistantSystemPrompt(
+  params: WorkspaceAssistantSystemPromptParams
+) {
+  return buildChatSystemPrompt({
+    conversationId: params.conversationId,
+    explicitOffline: params.explicitOffline,
+    language: params.language,
+    organizationId: params.organizationId,
+    researchMode: params.researchMode,
+    workspaceId: params.workspaceId,
+  });
+}
+
+export async function buildWorkspaceAssistantConversationContext(
+  params: WorkspaceAssistantSystemPromptParams & {
+    modelSupportsImages: boolean;
+  }
+) {
+  const [history, systemPrompt] = await Promise.all([
+    loadConversationHistoryForAgent({
+      conversationId: params.conversationId,
+      organizationId: params.organizationId,
+    }),
+    buildWorkspaceAssistantSystemPrompt(params),
+  ]);
+
+  return {
+    history,
+    systemPrompt,
+    toolMessages: history.map((message) =>
+      mapHistoryMessageToAgent(message, params.modelSupportsImages)
+    ),
+  };
+}
 
 export async function loadConversationHistoryForAgent(params: {
   conversationId: string;
@@ -164,21 +243,68 @@ export function mapHistoryMessageToAgent(
   };
 }
 
-export async function streamWorkspaceAssistantRun(params: {
+export async function startWorkspaceAssistantRun(
+  params: WorkspaceAssistantRunStartParams
+) {
+  const assistantRun = await initializeWorkspaceAssistantRun({
+    actor: params.actor,
+    conversationId: params.conversationId,
+    initialUpdate: {
+      status: 'planning',
+    },
+    run: params.run,
+    workspaceId: params.workspaceId,
+  });
+
+  return streamWorkspaceAssistantRun({
+    actor: params.actor,
+    assistantRunId: assistantRun.id,
+    conversationId: params.conversationId,
+    emptyReplySummary: params.emptyReplySummary,
+    errorSummary: params.errorSummary,
+    model: params.model,
+    modelKey: params.modelKey,
+    onAfterFinish: params.onAfterFinish,
+    persistAssistantText: params.persistAssistantText,
+    researchMode: params.researchMode,
+    searchBudget: params.searchBudget,
+    searchProvider: params.searchProvider,
+    settings: params.settings,
+    systemPrompt: params.systemPrompt,
+    toolMessages: params.toolMessages,
+    workspaceId: params.workspaceId,
+  });
+}
+
+export async function initializeWorkspaceAssistantRun(params: {
   actor: ActorContext;
-  assistantRunId: string;
   conversationId: string;
-  model: AnyPiModel;
-  modelKey: string;
-  researchMode?: ResearchMode;
-  searchBudget?: number;
-  searchProvider?: SearchProvider | null;
-  settings: Settings;
-  systemPrompt: string;
-  toolMessages: AgentConversationMessage[];
+  initialUpdate?: Omit<Parameters<typeof updateAssistantRun>[1], 'runId'>;
+  run: WorkspaceAssistantRunDescriptor;
   workspaceId: string;
-  onAfterFinish?: (text: string) => Promise<void> | void;
 }) {
+  const assistantRun = await createAssistantRun(params.actor, {
+    conversationId: params.conversationId,
+    mode: params.run.mode,
+    payloadJson: params.run.payloadJson,
+    requestMessageId: params.run.requestMessageId,
+    title: params.run.title,
+    workspaceId: params.workspaceId,
+  });
+
+  if (!params.initialUpdate) {
+    return assistantRun;
+  }
+
+  return updateAssistantRun(params.actor, {
+    ...params.initialUpdate,
+    runId: assistantRun.id,
+  });
+}
+
+export async function streamWorkspaceAssistantRun(
+  params: WorkspaceAssistantRunStreamParams
+) {
   const workspaceAgent = createWorkspaceAgentTools({
     actorUserId: params.actor.userId,
     conversationId: params.conversationId,
@@ -205,23 +331,29 @@ export async function streamWorkspaceAssistantRun(params: {
     },
     onFinish: async ({ text }) => {
       const persistedText = text.trim() || workspaceAgent.getLatestToolSummary() || '';
+      const emptyReplySummary =
+        params.emptyReplySummary || 'AI finished without a visible reply.';
       if (!persistedText) {
         await updateAssistantRun(params.actor, {
           finishedAt: new Date(),
           runId: params.assistantRunId,
           status: 'failed',
-          summary: 'AI finished without a visible reply.',
+          summary: emptyReplySummary,
         });
-        throw new Error('AI finished without a visible reply.');
+        throw new Error(emptyReplySummary);
       }
 
-      await createConversationMessage(params.actor, {
-        content: persistedText,
-        conversationId: params.conversationId,
-        model: `agent:${params.modelKey}`,
-        role: 'assistant',
-        workspaceId: params.workspaceId,
-      });
+      if (params.persistAssistantText) {
+        await params.persistAssistantText(persistedText);
+      } else {
+        await createConversationMessage(params.actor, {
+          content: persistedText,
+          conversationId: params.conversationId,
+          model: `agent:${params.modelKey}`,
+          role: 'assistant',
+          workspaceId: params.workspaceId,
+        });
+      }
 
       await updateAssistantRun(params.actor, {
         finishedAt: new Date(),
@@ -233,11 +365,12 @@ export async function streamWorkspaceAssistantRun(params: {
       await params.onAfterFinish?.(persistedText);
     },
     onError: async (error) => {
+      const errorSummary = params.errorSummary || 'AI run failed.';
       await updateAssistantRun(params.actor, {
         finishedAt: new Date(),
         runId: params.assistantRunId,
         status: 'failed',
-        summary: error instanceof Error ? error.message : 'AI run failed.',
+        summary: error instanceof Error ? error.message : errorSummary,
       });
     },
   });

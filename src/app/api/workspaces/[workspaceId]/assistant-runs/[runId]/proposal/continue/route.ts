@@ -1,16 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import {
-  loadConversationHistoryForAgent,
-  mapHistoryMessageToAgent,
-  streamWorkspaceAssistantRun,
+  buildWorkspaceAssistantConversationContext,
+  startWorkspaceAssistantRun,
 } from '@/lib/ai/conversation-runner';
-import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
 import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { parseAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
-import { createAssistantRun } from '@/lib/workspace/service';
 
 export async function POST(
   req: NextRequest,
@@ -47,36 +44,31 @@ export async function POST(
   const modelSupportsImages = Array.isArray((model as { input?: string[] }).input)
     ? ((model as { input?: string[] }).input || []).includes('image')
     : false;
-  const history = await loadConversationHistoryForAgent({
-    conversationId: run.sessionId,
-    organizationId: actor.organizationId,
-  });
   const searchProvider = await getSearchProviderFromHeaders(req.headers);
-  const systemPrompt = await buildChatSystemPrompt({
-    conversationId: run.sessionId,
-    language: settings.language,
-    organizationId: actor.organizationId,
-    workspaceId,
-  });
-  const continuationRun = await createAssistantRun(actor, {
-    conversationId: run.sessionId,
-    mode: 'revision',
-    requestMessageId: run.requestMessageId,
-    title: run.title,
-    workspaceId,
-  });
+  const { systemPrompt, toolMessages } =
+    await buildWorkspaceAssistantConversationContext({
+      conversationId: run.sessionId,
+      language: settings.language,
+      modelSupportsImages,
+      organizationId: actor.organizationId,
+      workspaceId,
+    });
 
-  return streamWorkspaceAssistantRun({
+  return startWorkspaceAssistantRun({
     actor,
-    assistantRunId: continuationRun.id,
     conversationId: run.sessionId,
     model,
     modelKey,
+    run: {
+      mode: 'revision',
+      requestMessageId: run.requestMessageId,
+      title: run.title,
+    },
     searchProvider,
     settings,
     systemPrompt,
     toolMessages: [
-      ...history.map((message) => mapHistoryMessageToAgent(message, modelSupportsImages)),
+      ...toolMessages,
       {
         role: 'user',
         content: [

@@ -25,7 +25,8 @@
   交付物的不可变内容快照。
 - **Label** `{ id, stateId, kind, name }`
   指向 `State` 的命名指针。
-  `kind` 当前只承载 `milestone` 与 `head`。
+  `kind` 承载 `milestone | head | recovery | pinned`。
+  其中 `milestone / head` 是可见版本语义，`recovery / pinned` 是回退点生命周期语义。
 - **Draft** `{ deliverableId, baseStateId, files[], revision }`
   每个 `Deliverable` 唯一的可编辑区。
 

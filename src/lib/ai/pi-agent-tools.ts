@@ -1303,7 +1303,7 @@ export function createWorkspaceAgentTools({
                   ? versions
                       .map(
                         (version) =>
-                          `- v${version.versionNum} ${version.title} (${version.versionType})`
+                          `- v${version.versionNum} ${version.title} (${version.visible ? 'milestone' : version.recoveryKind === 'pinned' ? 'pinned recovery point' : 'recovery point'})`
                       )
                       .join('\n')
                   : 'No versions yet.',

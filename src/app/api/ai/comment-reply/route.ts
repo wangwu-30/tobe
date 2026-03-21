@@ -1,23 +1,21 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
-import { buildChatSystemPrompt, buildCommentContext } from '@/lib/ai/context-builder';
-import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
-import { streamPiAgentChat } from '@/lib/ai/chat-agent';
+import { buildCommentContext } from '@/lib/ai/context-builder';
+import {
+  buildWorkspaceAssistantSystemPrompt,
+  startWorkspaceAssistantRun,
+} from '@/lib/ai/conversation-runner';
 import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
 import { streamWithPi, toPiContextMessages } from '@/lib/ai/pi-runtime';
 import {
   normalizeCommentAgents,
-  parseCommentAgentBindings,
-  refreshCommentAgentBindings,
-  stringifyCommentAgentBindings,
 } from '@/lib/comments/agents';
 import { parseReviewAnchor } from '@/lib/comments/review-anchor';
+import { refreshCommentAgentBindingsState } from '@/objects/comment/agent-bindings';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { startWorkspacePreview } from '@/lib/platform/run-service';
 import {
-  createAssistantRun,
   createConversationForWorkspace,
-  updateAssistantRun,
   updateWorkspaceFile,
 } from '@/lib/workspace/service';
 
@@ -170,10 +168,10 @@ async function runToolEnabledWebCommentReply(params: {
     userId: string;
   };
   anchorText: string;
-  model: Parameters<typeof streamPiAgentChat>[0]['model'];
+  model: Parameters<typeof startWorkspaceAssistantRun>[0]['model'];
   modelKey: string;
   reviewAnchor: ReturnType<typeof parseReviewAnchor>;
-  settings: Parameters<typeof streamPiAgentChat>[0]['settings'];
+  settings: Parameters<typeof startWorkspaceAssistantRun>[0]['settings'];
   thread: {
     agentBindingsJson?: string | null;
     anchorText: string;
@@ -194,35 +192,35 @@ async function runToolEnabledWebCommentReply(params: {
     preferredFileId: params.thread?.fileId || null,
     workspaceId: params.workspaceId,
   });
-  const assistantRun = await createAssistantRun(params.actor, {
-    conversationId,
-    mode: 'revision',
-    title: buildCommentRunTitle(params.anchorText),
-    workspaceId: params.workspaceId,
-  });
 
-  await updateAssistantRun(params.actor, {
-    runId: assistantRun.id,
-    status: 'planning',
-  });
-
-  const systemPrompt = await buildChatSystemPrompt({
+  const systemPrompt = await buildWorkspaceAssistantSystemPrompt({
     conversationId,
     language: params.settings.language,
     organizationId: params.actor.organizationId,
     workspaceId: params.workspaceId,
   });
-  const workspaceAgent = createWorkspaceAgentTools({
-    actorUserId: params.actor.userId,
-    conversationId,
-    organizationId: params.actor.organizationId,
-    originDeviceId: params.actor.deviceId,
-    workspaceId: params.workspaceId,
-  });
 
-  return streamPiAgentChat({
-    sessionId: conversationId,
+  return startWorkspaceAssistantRun({
+    actor: params.actor,
+    conversationId,
+    emptyReplySummary: 'AI finished without a visible review reply.',
+    errorSummary: 'AI review run failed.',
     model: params.model,
+    modelKey: params.modelKey,
+    persistAssistantText: async (persistedText) => {
+      await persistCommentAgentReply({
+        activeAgent: params.activeAgent,
+        actor: params.actor,
+        modelKey: `agent:${params.modelKey}`,
+        thread: params.thread,
+        threadId: params.threadId,
+        text: persistedText,
+      });
+    },
+    run: {
+      mode: 'revision',
+      title: buildCommentRunTitle(params.anchorText),
+    },
     settings: params.settings,
     systemPrompt: [
       systemPrompt,
@@ -237,7 +235,7 @@ async function runToolEnabledWebCommentReply(params: {
       'If you changed the web-facing output, call `start_preview` before finishing so the preview is refreshed.',
       'If the anchor maps imperfectly, use the review anchor payload and workspace files to locate the implementation instead of claiming uncertainty too early.',
     ].join('\n'),
-    messages: [
+    toolMessages: [
       {
         role: 'user',
         content: buildWebCommentRunRequest({
@@ -248,51 +246,7 @@ async function runToolEnabledWebCommentReply(params: {
         createdAt: new Date(),
       },
     ],
-    tools: workspaceAgent.tools,
-    onFirstText: async () => {
-      await updateAssistantRun(params.actor, {
-        runId: assistantRun.id,
-        status: 'running',
-      });
-    },
-    onFinish: async ({ text }) => {
-      const persistedText = (
-        text.trim() || workspaceAgent.getLatestToolSummary() || ''
-      ).trim();
-      if (!persistedText) {
-        await updateAssistantRun(params.actor, {
-          finishedAt: new Date(),
-          runId: assistantRun.id,
-          status: 'failed',
-          summary: 'AI finished without a visible review reply.',
-        });
-        throw new Error('AI finished without a visible review reply.');
-      }
-
-      await persistCommentAgentReply({
-        activeAgent: params.activeAgent,
-        actor: params.actor,
-        modelKey: `agent:${params.modelKey}`,
-        thread: params.thread,
-        threadId: params.threadId,
-        text: persistedText,
-      });
-
-      await updateAssistantRun(params.actor, {
-        finishedAt: new Date(),
-        runId: assistantRun.id,
-        status: 'completed',
-        summary: persistedText,
-      });
-    },
-    onError: async (error) => {
-      await updateAssistantRun(params.actor, {
-        finishedAt: new Date(),
-        runId: assistantRun.id,
-        status: 'failed',
-        summary: error instanceof Error ? error.message : 'AI review run failed.',
-      });
-    },
+    workspaceId: params.workspaceId,
   });
 }
 
@@ -455,8 +409,8 @@ async function persistCommentAgentReply(params: {
     },
   });
 
-  const nextBindings = refreshCommentAgentBindings({
-    bindings: parseCommentAgentBindings(params.thread?.agentBindingsJson),
+  const nextBindings = refreshCommentAgentBindingsState({
+    bindingsJson: params.thread?.agentBindingsJson,
     mentions: [
       {
         agentId: params.activeAgent.id,
@@ -469,8 +423,7 @@ async function persistCommentAgentReply(params: {
   await prisma.commentThread.update({
     where: { id: params.threadId },
     data: {
-      agentBindingsJson:
-        nextBindings.length > 0 ? stringifyCommentAgentBindings(nextBindings) : null,
+      agentBindingsJson: nextBindings.bindingsJson,
       createdByUserId: params.actor.userId,
       originDeviceId: params.actor.deviceId,
       revision: {

@@ -557,9 +557,10 @@ export async function buildWorkflowPlaybookDraft(params: {
         deletedAt: null,
         documentId: params.workspaceId,
         organizationId: params.organizationId,
-        NOT: {
-          versionType: {
-            in: ['checkpoint', 'checkpoint_pinned'],
+        labels: {
+          some: {
+            deletedAt: null,
+            kind: 'milestone',
           },
         },
       },

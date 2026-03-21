@@ -8,6 +8,14 @@ import {
   updateWorkspaceFile as updateWorkspaceFileCommand,
 } from '@/objects/file/commands';
 import {
+  buildConversationTree,
+  mapAssistantRun,
+  mapChatAttachment,
+  mapConversation,
+  mapConversationWithRelations,
+  mapConversationMessage,
+} from '@/objects/conversation/view';
+import {
   buildWorkspacePath,
   getDefaultFileName,
   getInitialFileContent,
@@ -26,8 +34,9 @@ import {
   getNextProjectTreeSortOrder,
   listProjects,
   resolveWorkspaceProjectId,
-  resolveWorkspaceProjectTitle,
 } from '@/objects/project/queries';
+import { buildProjectDeliverables } from '@/objects/project/view';
+import { listStateLabelsByStateIds } from '@/objects/label/queries';
 import {
   createWorkspaceVersion as createWorkspaceVersionCommand,
   pruneWorkspaceRecoveryCheckpoints,
@@ -39,12 +48,16 @@ import {
   findNearestVersionBeforeMessage,
   resolveDraftBaseVersionIdForVersion,
 } from '@/objects/state/queries';
-import { normalizeWorkspaceVersionType } from '@/objects/state/schema';
+import { hasStateLabelKind } from '@/objects/state/schema';
+import { mapCommentMessage, mapCommentThread } from '@/objects/comment/view';
 import {
-  buildReviewAnchorFingerprint,
-  parseReviewAnchor,
-} from '@/lib/comments/review-anchor';
-import { normalizeCommentThreadStatus } from '@/lib/comments/status';
+  mapKnowledgeItem,
+  mapMemory,
+  mapWorkspace,
+  mapWorkspaceEditLock,
+  mapWorkspaceVersion,
+  mapWorkspaceWithRelations,
+} from '@/objects/workspace/view';
 import { prisma } from '@/lib/db/prisma';
 import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
@@ -54,44 +67,22 @@ import {
 } from '@/lib/platform/run-service';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import { DEFAULT_APP_LANGUAGE, type AppLanguage } from '@/lib/i18n/language';
-import { parseAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
 import {
-  parseCommentAgentBindings,
-  parseCommentAgentMentionsJson,
-} from '@/lib/comments/agents';
-import { parseCommentResearchState } from '@/lib/comments/research';
-import {
-  isPinnedRecoveryVersionType,
-  isRecoveryVersionType,
   buildDeliverable,
   getWorkspacePlan,
   hydrateWorkspacePlanForView,
-  isVisibleVersion,
   listStagedChangeSets,
-  mapWorkspacePlan,
 } from '@/lib/workspace/planning';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import { deriveWorkflowSummary } from '@/lib/workspace/workflow';
 import type {
   AssistantRunData,
   ChatAttachmentData,
-  CommentMessageData,
-  CommentThreadData,
-  ConversationBranchSummary,
-  ConversationData,
-  ConversationMessageData,
-  ConversationWithRelations,
-  KnowledgeItemData,
-  MemoryData,
   ProjectSummaryData,
-  ReviewAnchorData,
-  WorkspaceData,
   WorkspaceEditLockData,
   WorkspaceFileData,
-  WorkspaceVersionData,
   WorkspaceVersionType,
   WorkspaceViewData,
-  WorkspaceWithRelations,
 } from '@/types';
 
 type ActorContext = {
@@ -105,6 +96,35 @@ type LockConflict = {
   userId: string;
   workspaceId: string;
 };
+
+async function mapWorkspaceVersionsWithLabels(
+  organizationId: string,
+  versions: Array<Parameters<typeof mapWorkspaceVersion>[0]>
+) {
+  if (versions.length === 0) {
+    return [];
+  }
+
+  const labelsByStateId = await listStateLabelsByStateIds({
+    organizationId,
+    stateIds: versions.map((version) => version.id),
+  });
+
+  return versions.map((version) =>
+    mapWorkspaceVersion({
+      ...version,
+      labels: labelsByStateId.get(version.id) || [],
+    })
+  );
+}
+
+async function mapWorkspaceVersionWithLabels(
+  organizationId: string,
+  version: Parameters<typeof mapWorkspaceVersion>[0]
+) {
+  const [mappedVersion] = await mapWorkspaceVersionsWithLabels(organizationId, [version]);
+  return mappedVersion;
+}
 
 export {
   getNextProjectTreeSortOrder,
@@ -125,14 +145,17 @@ export {
   parseVersionFiles,
 } from '@/objects/file/schema';
 export { WorkspaceRecoveryPinLimitError } from '@/objects/state/commands';
-
-type SupportFileEnvelope = {
-  base64?: string;
-  encoding: 'base64';
-  kind: 'binary';
-  mimeType: string | null;
-  originalName: string;
-  sizeBytes: number | null;
+export {
+  mapAssistantRun,
+  mapChatAttachment,
+  mapCommentMessage,
+  mapCommentThread,
+  mapConversation,
+  mapConversationMessage,
+  mapKnowledgeItem,
+  mapMemory,
+  mapWorkspace,
+  mapWorkspaceVersion,
 };
 
 export class WorkspaceLockConflictError extends Error {
@@ -945,7 +968,7 @@ export async function listWorkspaceVersions(params: {
     orderBy: { versionNum: 'desc' },
   });
 
-  return versions.map(mapWorkspaceVersion);
+  return mapWorkspaceVersionsWithLabels(params.organizationId, versions);
 }
 
 export async function createWorkspaceVersion(
@@ -965,7 +988,7 @@ export async function createWorkspaceVersion(
     recordSyncEvent,
   });
 
-  return mapWorkspaceVersion(version);
+  return mapWorkspaceVersionWithLabels(actor.organizationId, version);
 }
 
 export async function setWorkspaceVersionPinned(
@@ -980,7 +1003,7 @@ export async function setWorkspaceVersionPinned(
     ensureWorkspaceEditable,
   });
 
-  return mapWorkspaceVersion(updated);
+  return mapWorkspaceVersionWithLabels(actor.organizationId, updated);
 }
 
 export async function restoreWorkspaceVersion(
@@ -998,11 +1021,15 @@ export async function restoreWorkspaceVersion(
     recordSyncEvent,
     startWorkspacePreview,
   });
+  const [restoredVersion, safetyCheckpoint] = await mapWorkspaceVersionsWithLabels(
+    actor.organizationId,
+    [restored.restoredVersion, restored.safetyCheckpoint]
+  );
 
   return {
-    restoredVersion: mapWorkspaceVersion(restored.restoredVersion),
+    restoredVersion,
     restartedPreview: restored.restartedPreview,
-    safetyCheckpoint: mapWorkspaceVersion(restored.safetyCheckpoint),
+    safetyCheckpoint,
   };
 }
 
@@ -1025,6 +1052,13 @@ export async function continueWorkspaceFromVersion(
       documentId: input.workspaceId,
       id: input.versionId,
       organizationId: actor.organizationId,
+    },
+    include: {
+      labels: {
+        where: {
+          deletedAt: null,
+        },
+      },
     },
   });
 
@@ -1059,6 +1093,22 @@ export async function continueWorkspaceFromVersion(
   const branchTitle = input.title?.trim() || sourceVersion.title || workspace.title;
   const branchVersion = await prisma.$transaction(async (tx) => {
     const nextVersionNum = workspace.currentVersion + 1;
+    await tx.label.updateMany({
+      where: {
+        deletedAt: null,
+        kind: 'head',
+        organizationId: actor.organizationId,
+        versionId: sourceVersion.id,
+      },
+      data: {
+        deletedAt: new Date(),
+        originDeviceId: actor.deviceId,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+
     const created = await tx.version.create({
       data: {
         organizationId: actor.organizationId,
@@ -1073,6 +1123,27 @@ export async function continueWorkspaceFromVersion(
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
       },
+    });
+
+    await tx.label.createMany({
+      data: [
+        {
+          organizationId: actor.organizationId,
+          versionId: created.id,
+          kind: 'milestone',
+          name: created.title,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+        },
+        {
+          organizationId: actor.organizationId,
+          versionId: created.id,
+          kind: 'head',
+          name: created.title,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+        },
+      ],
     });
 
     await tx.document.update({
@@ -1137,9 +1208,13 @@ export async function continueWorkspaceFromVersion(
     title: branchTitle,
     workspaceId: input.workspaceId,
   });
+  const mappedBranchVersion = await mapWorkspaceVersionWithLabels(
+    actor.organizationId,
+    branchVersion
+  );
 
   return {
-    baseVersion: mapWorkspaceVersion(branchVersion),
+    baseVersion: mappedBranchVersion,
     conversation,
     safetyCheckpoint,
   };
@@ -1165,33 +1240,20 @@ export async function switchWorkspaceToVersionBranch(
       id: input.versionId,
       organizationId: actor.organizationId,
     },
+    include: {
+      labels: {
+        where: {
+          deletedAt: null,
+        },
+      },
+    },
   });
 
   if (!sourceVersion) {
     throw new Error('Version not found.');
   }
 
-  if (isRecoveryVersionType(normalizeWorkspaceVersionType(sourceVersion.versionType))) {
-    throw new Error('Only visible branch heads can become the current draft base.');
-  }
-
-  const childVersions = await prisma.version.findMany({
-    where: {
-      deletedAt: null,
-      documentId: input.workspaceId,
-      organizationId: actor.organizationId,
-      parentVersionId: sourceVersion.id,
-    },
-    select: {
-      versionType: true,
-    },
-  });
-
-  if (
-    childVersions.some(
-      (version) => !isRecoveryVersionType(normalizeWorkspaceVersionType(version.versionType))
-    )
-  ) {
+  if (!hasStateLabelKind(sourceVersion.labels, 'head')) {
     throw new Error('Only visible branch heads can become the current draft base.');
   }
 
@@ -1681,7 +1743,7 @@ export async function getWorkspaceView(params: {
     deliverable,
     files: workspaceFiles,
     versions,
-    visibleVersions: versions.filter(isVisibleVersion),
+    visibleVersions: versions.filter((version) => version.visible),
     versionFiles,
     currentFile: activeFile,
     currentConversation,
@@ -1737,504 +1799,6 @@ export async function getConversationWorkspace(params: {
   return {
     conversation: view.currentConversation,
     workspace: view.workspace,
-  };
-}
-
-function buildProjectDeliverables(
-  projectDocuments: Array<{
-    content: string;
-    currentVersion: number;
-    files: Array<Parameters<typeof mapWorkspaceFile>[0]>;
-    id: string;
-    projectId: string | null;
-    projectFolderId?: string | null;
-    treeSortOrder: number;
-    status: string;
-    title: string;
-    updatedAt: Date;
-    workspacePlan: Parameters<typeof mapWorkspacePlan>[0] | null;
-  }>
-): WorkspaceViewData['projectDeliverables'] {
-  return projectDocuments
-    .map((workspace) => {
-      const deliverable = buildDeliverable({
-        currentVersion: workspace.currentVersion,
-        files: workspace.files.map(mapWorkspaceFile),
-        plan: workspace.workspacePlan ? mapWorkspacePlan(workspace.workspacePlan) : null,
-        storedDeliverableType: workspace.workspacePlan?.deliverableType || null,
-        workspace,
-      });
-
-      return {
-        id: workspace.id,
-        projectId: resolveWorkspaceProjectId(workspace),
-        projectFolderId: workspace.projectFolderId || null,
-        sortOrder: workspace.treeSortOrder,
-        title: workspace.title,
-        deliverableType: deliverable.deliverableType,
-        updatedAt: workspace.updatedAt,
-      };
-    })
-    .sort((left, right) => {
-      if (left.sortOrder === right.sortOrder) {
-        const updatedAtDiff =
-          new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-        if (updatedAtDiff !== 0) {
-          return updatedAtDiff;
-        }
-
-        return left.id.localeCompare(right.id);
-      }
-
-      return left.sortOrder - right.sortOrder;
-    });
-}
-
-export function mapConversation(session: {
-  activeFileId: string | null;
-  baseVersionId: string | null;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  forkedFromMessageId: string | null;
-  id: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  parentSessionId: string | null;
-  revision: number;
-  sourceType: string;
-  title: string;
-  updatedAt: Date;
-  wikiId: string | null;
-}, pendingChangeSetsByConversation?: Map<string, number>): ConversationData {
-  return {
-    id: session.id,
-    organizationId: session.organizationId,
-    workspaceId: session.wikiId,
-    wikiId: session.wikiId,
-    parentConversationId: session.parentSessionId,
-    forkedFromMessageId: session.forkedFromMessageId,
-    baseVersionId: session.baseVersionId,
-    activeFileId: session.activeFileId,
-    hasPendingChanges:
-      (pendingChangeSetsByConversation?.get(session.id) || 0) > 0,
-    scopeFilter: session.activeFileId,
-    title: session.title,
-    sourceType: session.sourceType,
-    createdByUserId: session.createdByUserId,
-    originDeviceId: session.originDeviceId,
-    revision: session.revision,
-    deletedAt: session.deletedAt,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-  };
-}
-
-export function mapConversationMessage(message: {
-  attachments?: Array<{
-    createdAt: Date;
-    createdByUserId: string | null;
-    deletedAt: Date | null;
-    documentId: string;
-    file: {
-      path: string;
-    };
-    fileId: string;
-    id: string;
-    kind: string;
-    messageId: string;
-    mimeType: string | null;
-    organizationId: string;
-    originalName: string;
-    originDeviceId: string | null;
-    revision: number;
-    sessionId: string;
-    sizeBytes: number | null;
-    source: string;
-    storageFormat: string;
-    updatedAt?: Date;
-  }>;
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string | null;
-  id: string;
-  model: string | null;
-  organizationId: string;
-  originDeviceId: string | null;
-  revision: number;
-  role: string;
-  sessionId: string;
-}): ConversationMessageData {
-  return {
-    id: message.id,
-    organizationId: message.organizationId,
-    conversationId: message.sessionId,
-    role: message.role,
-    content: message.content,
-    attachments: (message.attachments || []).map(mapChatAttachment),
-    workspaceId: message.documentId,
-    wikiId: message.documentId,
-    model: message.model,
-    createdByUserId: message.createdByUserId,
-    originDeviceId: message.originDeviceId,
-    revision: message.revision,
-    deletedAt: message.deletedAt,
-    createdAt: message.createdAt,
-  };
-}
-
-export function mapChatAttachment(attachment: {
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string;
-  file: {
-    content?: string | null;
-    path: string;
-  };
-  fileId: string;
-  id: string;
-  kind: string;
-  messageId: string;
-  mimeType: string | null;
-  organizationId: string;
-  originalName: string;
-  originDeviceId: string | null;
-  revision: number;
-  sessionId: string;
-  sizeBytes: number | null;
-  source: string;
-    storageFormat: string;
-    updatedAt?: Date;
-}): ChatAttachmentData {
-  return {
-    id: attachment.id,
-    organizationId: attachment.organizationId,
-    conversationId: attachment.sessionId,
-    messageId: attachment.messageId,
-    workspaceId: attachment.documentId,
-    workspaceFileId: attachment.fileId,
-    filePath: attachment.file.path,
-    kind: normalizeAttachmentKind(attachment.kind),
-    source: normalizeAttachmentSource(attachment.source),
-    storageFormat: normalizeAttachmentStorageFormat(attachment.storageFormat),
-    mimeType: attachment.mimeType,
-    originalName: attachment.originalName,
-    sizeBytes: attachment.sizeBytes,
-    previewUrl: buildAttachmentPreviewUrl(
-      normalizeAttachmentKind(attachment.kind),
-      attachment.file.content,
-      attachment.mimeType
-    ),
-    createdByUserId: attachment.createdByUserId,
-    originDeviceId: attachment.originDeviceId,
-    revision: attachment.revision,
-    deletedAt: attachment.deletedAt,
-    createdAt: attachment.createdAt,
-    updatedAt: attachment.updatedAt,
-  };
-}
-
-export function mapAssistantRun(run: {
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string;
-  finishedAt: Date | null;
-  id: string;
-  mode: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  payloadJson: string | null;
-  requestMessageId: string | null;
-  revision: number;
-  sessionId: string;
-  startedAt: Date;
-  status: string;
-  summary: string | null;
-  title: string;
-  updatedAt: Date;
-}): AssistantRunData {
-  const payload = parseAssistantRunPayload(run.payloadJson);
-  return {
-    id: run.id,
-    organizationId: run.organizationId,
-    conversationId: run.sessionId,
-    workspaceId: run.documentId,
-    requestMessageId: run.requestMessageId,
-    mode: normalizeAssistantRunMode(run.mode),
-    title: run.title,
-    status: normalizeAssistantRunStatus(run.status),
-    summary: run.summary,
-    planProposal: payload.planProposal,
-    researchPlanProposal: payload.researchPlanProposal,
-    researchProgress: payload.researchProgress,
-    createdByUserId: run.createdByUserId,
-    originDeviceId: run.originDeviceId,
-    revision: run.revision,
-    deletedAt: run.deletedAt,
-    startedAt: run.startedAt,
-    finishedAt: run.finishedAt,
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt,
-  };
-}
-
-export function mapWorkspace(document: {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  currentVersion: number;
-  draftBaseVersionId?: string | null;
-  draftRevision?: number;
-  deletedAt: Date | null;
-  id: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  parentDocumentId?: string | null;
-  projectId?: string | null;
-  projectFolderId?: string | null;
-  projectRootPath?: string | null;
-  projectTitle?: string | null;
-  revision: number;
-  sessionId: string;
-  status: string;
-  title: string;
-  updatedAt: Date;
-}): WorkspaceData {
-  return {
-    id: document.id,
-    organizationId: document.organizationId,
-    primaryConversationId: document.sessionId,
-    sessionId: document.sessionId,
-    projectId: resolveWorkspaceProjectId(document),
-    projectFolderId: document.projectFolderId || null,
-    draftBaseVersionId: document.draftBaseVersionId || null,
-    projectTitle: resolveWorkspaceProjectTitle(document),
-    title: document.title,
-    content: document.content,
-    projectRootPath: document.projectRootPath || null,
-    persistedStatus: document.status,
-    currentVersion: document.currentVersion,
-    draftRevision: document.draftRevision || 0,
-    createdByUserId: document.createdByUserId,
-    originDeviceId: document.originDeviceId,
-    revision: document.revision,
-    deletedAt: document.deletedAt,
-    createdAt: document.createdAt,
-    updatedAt: document.updatedAt,
-  };
-}
-
-export function mapWorkspaceVersion(version: {
-  content: string;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string;
-  id: string;
-  lockedAt: Date;
-  organizationId: string;
-  originDeviceId: string | null;
-  parentVersionId: string | null;
-  revision: number;
-  versionType?: string | null;
-  sourceMessageId: string | null;
-  sourceSessionId: string | null;
-  title: string;
-  versionNum: number;
-}): WorkspaceVersionData {
-  const versionType = normalizeWorkspaceVersionType(version.versionType);
-  const visible = !isRecoveryVersionType(versionType);
-  const pinned = isPinnedRecoveryVersionType(versionType);
-
-  return {
-    id: version.id,
-    organizationId: version.organizationId,
-    workspaceId: version.documentId,
-    versionNum: version.versionNum,
-    title: version.title,
-    content: version.content,
-    files: parseVersionFiles(version.content).map((file) => ({
-      ...file,
-      versionId: file.versionId || version.id,
-    })),
-    parentVersionId: version.parentVersionId,
-    sourceConversationId: version.sourceSessionId,
-    sourceMessageId: version.sourceMessageId,
-    versionType,
-    createdByUserId: version.createdByUserId,
-    originDeviceId: version.originDeviceId,
-    revision: version.revision,
-    deletedAt: version.deletedAt,
-    lockedAt: version.lockedAt,
-    visible,
-    restorable: true,
-    pinned,
-    recoveryKind: visible ? null : pinned ? 'pinned' : 'temporary',
-  };
-}
-
-export function mapKnowledgeItem(item: {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string | null;
-  id: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  revision: number;
-  sourceType: string;
-  title: string;
-  updatedAt: Date;
-}): KnowledgeItemData {
-  return {
-    id: item.id,
-    organizationId: item.organizationId,
-    workspaceId: item.documentId,
-    wikiId: item.documentId,
-    title: item.title,
-    content: item.content,
-    sourceType: item.sourceType,
-    createdByUserId: item.createdByUserId,
-    originDeviceId: item.originDeviceId,
-    revision: item.revision,
-    deletedAt: item.deletedAt,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-  };
-}
-
-export function mapMemory(memory: {
-  active: boolean;
-  category: string;
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string | null;
-  id: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  revision: number;
-  sessionId: string | null;
-  sourceThreadId: string | null;
-  updatedAt: Date;
-}): MemoryData {
-  return {
-    id: memory.id,
-    organizationId: memory.organizationId,
-    conversationId: memory.sessionId,
-    workspaceId: memory.documentId,
-    wikiId: memory.documentId,
-    category: memory.category,
-    content: memory.content,
-    sourceThreadId: memory.sourceThreadId,
-    active: memory.active,
-    createdByUserId: memory.createdByUserId,
-    originDeviceId: memory.originDeviceId,
-    revision: memory.revision,
-    deletedAt: memory.deletedAt,
-    createdAt: memory.createdAt,
-    updatedAt: memory.updatedAt,
-  };
-}
-
-export function mapCommentMessage(message: {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  agentId?: string | null;
-  agentLabel?: string | null;
-  id: string;
-  mentionedAgentsJson?: string | null;
-  model: string | null;
-  organizationId: string;
-  originDeviceId: string | null;
-  revision: number;
-  role: string;
-  threadId: string;
-}): CommentMessageData {
-  return {
-    id: message.id,
-    organizationId: message.organizationId,
-    threadId: message.threadId,
-    role: message.role,
-    content: message.content,
-    model: message.model,
-    mentionedAgents: parseCommentAgentMentionsJson(message.mentionedAgentsJson),
-    agentId: message.agentId || null,
-    agentLabel: message.agentLabel || null,
-    createdByUserId: message.createdByUserId,
-    originDeviceId: message.originDeviceId,
-    revision: message.revision,
-    deletedAt: message.deletedAt,
-    createdAt: message.createdAt,
-  };
-}
-
-export function mapCommentThread(thread: {
-  anchorText: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string;
-  draftRevision: number | null;
-  fileId: string | null;
-  id: string;
-  agentBindingsJson?: string | null;
-  researchStateJson?: string | null;
-  messages: Array<Parameters<typeof mapCommentMessage>[0]>;
-  organizationId: string;
-  originDeviceId: string | null;
-  resolvedAt: Date | null;
-  revision: number;
-  selectionAnchor: string | null;
-  status: string;
-  updatedAt: Date;
-  version: Parameters<typeof mapWorkspaceVersion>[0] | null;
-  versionId: string | null;
-}): CommentThreadData {
-  const reviewAnchor = parseReviewAnchor(thread.selectionAnchor);
-  const anchorFingerprint = buildCommentAnchorFingerprint({
-    anchorText: thread.anchorText,
-    fileId: thread.fileId,
-    selectionAnchor: thread.selectionAnchor,
-  });
-
-  return {
-    id: thread.id,
-    organizationId: thread.organizationId,
-    workspaceId: thread.documentId,
-    wikiId: thread.documentId,
-    fileId: thread.fileId,
-    versionId: thread.versionId,
-    sourceVersionId: thread.versionId,
-    anchorFingerprint,
-    scope: 'direct',
-    inheritanceState: null,
-    isInherited: false,
-    inheritedFromVersionId: null,
-    inheritedFromVersionTitle: null,
-    draftRevision: thread.draftRevision,
-    anchorText: thread.anchorText,
-    selectionAnchor: thread.selectionAnchor,
-    reviewAnchor,
-    status: normalizeCommentThreadStatus(thread.status),
-    messages: thread.messages.map(mapCommentMessage),
-    agentBindings: parseCommentAgentBindings(thread.agentBindingsJson),
-    researchState: parseCommentResearchState(thread.researchStateJson),
-    resolvedAt: thread.resolvedAt,
-    version: thread.version ? mapWorkspaceVersion(thread.version) : null,
-    createdByUserId: thread.createdByUserId,
-    originDeviceId: thread.originDeviceId,
-    revision: thread.revision,
-    deletedAt: thread.deletedAt,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
   };
 }
 
@@ -2330,217 +1894,6 @@ async function ensureWorkspaceEditable(actor: ActorContext, workspaceId: string)
       },
     });
   }
-}
-
-function buildConversationTree(
-  conversations: Array<ConversationData & { lastMessagePreview: string | null }>
-): ConversationBranchSummary[] {
-  const nodes = new Map<string, ConversationBranchSummary>();
-
-  conversations.forEach((conversation) => {
-    nodes.set(conversation.id, {
-      ...conversation,
-      children: [],
-    });
-  });
-
-  const roots: ConversationBranchSummary[] = [];
-  nodes.forEach((node) => {
-    if (node.parentConversationId) {
-      const parent = nodes.get(node.parentConversationId);
-      if (parent) {
-        parent.children.push(node);
-        return;
-      }
-    }
-
-    roots.push(node);
-  });
-
-  const sortNode = (node: ConversationBranchSummary) => {
-    node.children.sort(
-      (left, right) =>
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-    );
-    node.children.forEach(sortNode);
-  };
-
-  roots.sort(
-    (left, right) =>
-      new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
-  );
-  roots.forEach(sortNode);
-
-  return roots;
-}
-
-function mapConversationWithRelations(
-  session: {
-    activeFileId: string | null;
-    baseVersionId: string | null;
-    createdAt: Date;
-    createdByUserId: string | null;
-    deletedAt: Date | null;
-    forkedFromMessageId: string | null;
-    id: string;
-    messages: Array<Parameters<typeof mapConversationMessage>[0]>;
-    organizationId: string;
-    originDeviceId: string | null;
-    parentSessionId: string | null;
-    revision: number;
-    sourceType: string;
-    title: string;
-    updatedAt: Date;
-    wikiId: string | null;
-  },
-  workspace: Parameters<typeof mapWorkspace>[0] | null,
-  pendingChangeSetsByConversation?: Map<string, number>
-): ConversationWithRelations {
-  return {
-    ...mapConversation(session, pendingChangeSetsByConversation),
-    workspace: workspace ? mapWorkspace(workspace) : null,
-    messages: session.messages.map(mapConversationMessage),
-  };
-}
-
-function mapWorkspaceWithRelations(workspace: {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  currentVersion: number;
-  deletedAt: Date | null;
-  deliverable?: WorkspaceWithRelations['deliverable'];
-  files: Array<Parameters<typeof mapWorkspaceFile>[0]>;
-  id: string;
-  knowledgeItems: Array<Parameters<typeof mapKnowledgeItem>[0]>;
-  organizationId: string;
-  originDeviceId: string | null;
-  parentDocumentId?: string | null;
-  projectId?: string | null;
-  projectTitle?: string | null;
-  revision: number;
-  sessionId: string;
-  stagedChangeSets?: WorkspaceWithRelations['stagedChangeSets'];
-  status: string;
-  title: string;
-  updatedAt: Date;
-  versions: WorkspaceVersionData[];
-  workspacePlan?: WorkspaceWithRelations['workspacePlan'];
-}): WorkspaceWithRelations {
-  return {
-    ...mapWorkspace(workspace),
-    deliverable: workspace.deliverable || null,
-    files: workspace.files.map(mapWorkspaceFile),
-    knowledgeItems: workspace.knowledgeItems.map(mapKnowledgeItem),
-    stagedChangeSets: workspace.stagedChangeSets || [],
-    versions: workspace.versions,
-    workspacePlan: workspace.workspacePlan || null,
-  };
-}
-
-function mapWorkspaceEditLock(lock: {
-  createdAt: Date;
-  documentId: string;
-  expiresAt: Date;
-  id: string;
-  lockedVersionId: string | null;
-  organizationId: string;
-  originDeviceId: string;
-  updatedAt: Date;
-  userId: string;
-}): WorkspaceEditLockData {
-  return {
-    id: lock.id,
-    organizationId: lock.organizationId,
-    workspaceId: lock.documentId,
-    wikiId: lock.documentId,
-    userId: lock.userId,
-    originDeviceId: lock.originDeviceId,
-    lockedVersionId: lock.lockedVersionId,
-    expiresAt: lock.expiresAt,
-    createdAt: lock.createdAt,
-    updatedAt: lock.updatedAt,
-  };
-}
-
-function buildAttachmentPreviewUrl(
-  kind: ChatAttachmentData['kind'],
-  storedContent?: string | null,
-  mimeType?: string | null
-) {
-  if (kind !== 'image' || !storedContent) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(storedContent) as SupportFileEnvelope;
-    if (parsed.kind !== 'binary' || parsed.encoding !== 'base64' || !parsed.base64) {
-      return null;
-    }
-
-    const resolvedMimeType = mimeType || parsed.mimeType || 'application/octet-stream';
-    return `data:${resolvedMimeType};base64,${parsed.base64}`;
-  } catch {
-    return null;
-  }
-}
-
-function buildCommentAnchorFingerprint(params: {
-  anchorText: string;
-  fileId: string | null;
-  selectionAnchor: string | null;
-}) {
-  return buildReviewAnchorFingerprint({
-    anchorText: params.anchorText,
-    fileId: params.fileId,
-    reviewAnchor: null,
-    selectionAnchor: params.selectionAnchor,
-  });
-}
-
-function normalizeAttachmentKind(kind?: string | null): ChatAttachmentData['kind'] {
-  if (kind === 'image' || kind === 'text') {
-    return kind;
-  }
-
-  return 'file';
-}
-
-function normalizeAttachmentSource(
-  source?: string | null
-): ChatAttachmentData['source'] {
-  return source === 'clipboard' ? 'clipboard' : 'upload';
-}
-
-function normalizeAttachmentStorageFormat(
-  storageFormat?: string | null
-): ChatAttachmentData['storageFormat'] {
-  return storageFormat === 'base64-envelope' ? 'base64-envelope' : 'text';
-}
-
-function normalizeAssistantRunMode(mode?: string | null): AssistantRunData['mode'] {
-  if (mode === 'first_pass' || mode === 'question' || mode === 'replan') {
-    return mode;
-  }
-
-  return 'revision';
-}
-
-function normalizeAssistantRunStatus(
-  status?: string | null
-): AssistantRunData['status'] {
-  if (
-    status === 'queued' ||
-    status === 'planning' ||
-    status === 'running' ||
-    status === 'completed' ||
-    status === 'failed' ||
-    status === 'cancelled'
-  ) {
-    return status;
-  }
-
-  return 'queued';
 }
 
 async function ensureSupportUploadsFolder(

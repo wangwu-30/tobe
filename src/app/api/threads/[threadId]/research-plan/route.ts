@@ -4,12 +4,8 @@ import { generateDeepResearchPlan } from '@/lib/ai/research-runner';
 import {
   buildCommentResearchPrompt,
   buildNextResearchState,
-  buildResearchBindings,
-  resolveCommentResearchTarget,
 } from '@/lib/comments/research-orchestration';
 import {
-  parseCommentAgentBindings,
-  stringifyCommentAgentBindings,
   stringifyCommentAgentMentions,
 } from '@/lib/comments/agents';
 import {
@@ -17,6 +13,10 @@ import {
   stringifyCommentResearchState,
 } from '@/lib/comments/research';
 import { prisma } from '@/lib/db/prisma';
+import {
+  buildCommentResearchAgentState,
+  resolveCommentResearchTargetFromBindings,
+} from '@/objects/comment/agent-bindings';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { SearchProviderError } from '@/lib/search/types';
@@ -50,7 +50,13 @@ export async function POST(
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },
       },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
   });
 
@@ -59,8 +65,8 @@ export async function POST(
   }
 
   const { model, settings } = getSelectedModelFromHeaders(req.headers);
-  const targetResult = resolveCommentResearchTarget({
-    bindings: parseCommentAgentBindings(thread.agentBindingsJson),
+  const targetResult = resolveCommentResearchTargetFromBindings({
+    bindingsJson: thread.agentBindingsJson,
     content,
     preferredAgentId: typeof body.agentId === 'string' ? body.agentId : null,
     settings,
@@ -130,7 +136,7 @@ export async function POST(
     },
   });
 
-  const nextBindings = buildResearchBindings({
+  const nextBindings = buildCommentResearchAgentState({
     bindingsJson: thread.agentBindingsJson,
     targetAgent,
   });
@@ -153,8 +159,7 @@ export async function POST(
   const updatedThread = await prisma.commentThread.update({
     where: { id: thread.id },
     data: {
-      agentBindingsJson:
-        nextBindings.length > 0 ? stringifyCommentAgentBindings(nextBindings) : null,
+      agentBindingsJson: nextBindings.bindingsJson,
       researchStateJson: stringifyCommentResearchState(nextResearchState),
       resolvedAt: null,
       status: 'open',
@@ -170,7 +175,13 @@ export async function POST(
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },
       },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
   });
 
@@ -202,7 +213,13 @@ export async function PATCH(
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },
       },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
   });
 
@@ -250,7 +267,13 @@ export async function PATCH(
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },
       },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
   });
 

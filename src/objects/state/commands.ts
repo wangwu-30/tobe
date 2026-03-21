@@ -9,12 +9,15 @@ import {
   serializeWorkspaceVersion,
 } from '@/objects/file/schema';
 import {
-  isPinnedRecoveryVersionType,
   isRecoveryVersionType,
 } from '@/lib/workspace/planning';
 import { replaceWorkspaceDraftWithVersionFiles } from './draft-commands';
 import { resolveDraftBaseVersionIdForVersion } from './queries';
-import { normalizeWorkspaceVersionType } from './schema';
+import {
+  hasPinnedStateLabel,
+  hasRecoveryStateLabel,
+  normalizeWorkspaceVersionType,
+} from './schema';
 import type { WorkspaceVersionType } from '@/types';
 import type {
   CreateWorkspaceVersionDependencies,
@@ -82,18 +85,22 @@ export async function createWorkspaceVersion(
             deletedAt: null,
             documentId: workspace.id,
             organizationId: actor.organizationId,
-            versionType: {
-              not: 'checkpoint',
+            labels: {
+              some: {
+                deletedAt: null,
+                kind: 'milestone',
+              },
             },
           },
           orderBy: { versionNum: 'desc' },
         }),
   ]);
+  const versionTitle = input.title?.trim() || workspace.title;
 
   const nextVersion = workspace.currentVersion + 1;
   const versionContent = serializeWorkspaceVersion({
     files: mappedFiles.map(mapWorkspaceFileToVersion),
-    workspaceTitle: input.title?.trim() || workspace.title,
+    workspaceTitle: versionTitle,
   });
 
   const version = await prisma.$transaction(async (tx) => {
@@ -103,7 +110,7 @@ export async function createWorkspaceVersion(
         documentId: workspace.id,
         versionNum: nextVersion,
         content: versionContent,
-        title: input.title?.trim() || workspace.title,
+        title: versionTitle,
         parentVersionId:
           versionType === 'checkpoint'
             ? latestVersion?.id || null
@@ -115,6 +122,60 @@ export async function createWorkspaceVersion(
         originDeviceId: actor.deviceId,
       },
     });
+
+    if (versionType === 'manual') {
+      if (latestVisibleVersion?.id) {
+        await tx.label.updateMany({
+          where: {
+            deletedAt: null,
+            kind: 'head',
+            organizationId: actor.organizationId,
+            versionId: latestVisibleVersion.id,
+          },
+          data: {
+            deletedAt: new Date(),
+            originDeviceId: actor.deviceId,
+            revision: {
+              increment: 1,
+            },
+          },
+        });
+      }
+
+      await tx.label.createMany({
+        data: [
+          {
+            organizationId: actor.organizationId,
+            versionId: created.id,
+            kind: 'milestone',
+            name: created.title,
+            createdByUserId: actor.userId,
+            originDeviceId: actor.deviceId,
+          },
+          {
+            organizationId: actor.organizationId,
+            versionId: created.id,
+            kind: 'head',
+            name: created.title,
+            createdByUserId: actor.userId,
+            originDeviceId: actor.deviceId,
+          },
+        ],
+      });
+    }
+
+    if (versionType === 'checkpoint') {
+      await tx.label.create({
+        data: {
+          organizationId: actor.organizationId,
+          versionId: created.id,
+          kind: 'recovery',
+          name: created.title,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+        },
+      });
+    }
 
     await tx.document.update({
       where: { id: workspace.id },
@@ -183,7 +244,20 @@ export async function pruneWorkspaceRecoveryCheckpoints(
       deletedAt: null,
       documentId: params.workspaceId,
       organizationId: params.organizationId,
-      versionType: 'checkpoint',
+      labels: {
+        some: {
+          deletedAt: null,
+          kind: 'recovery',
+        },
+      },
+      NOT: {
+        labels: {
+          some: {
+            deletedAt: null,
+            kind: 'pinned',
+          },
+        },
+      },
     },
     orderBy: { versionNum: 'desc' },
     select: {
@@ -232,25 +306,39 @@ export async function setWorkspaceVersionPinned(
       id: input.versionId,
       organizationId: actor.organizationId,
     },
+    include: {
+      labels: {
+        where: {
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          kind: true,
+        },
+      },
+    },
   });
 
   if (!version) {
     throw new Error('Version not found.');
   }
 
-  const normalizedVersionType = normalizeWorkspaceVersionType(version.versionType);
-
-  if (!isRecoveryVersionType(normalizedVersionType)) {
+  if (!hasRecoveryStateLabel(version.labels)) {
     throw new Error('Only recovery points can be pinned.');
   }
 
-  if (input.pinned && !isPinnedRecoveryVersionType(normalizedVersionType)) {
+  if (input.pinned && !hasPinnedStateLabel(version.labels)) {
     const pinnedCount = await prisma.version.count({
       where: {
         deletedAt: null,
         documentId: input.workspaceId,
         organizationId: actor.organizationId,
-        versionType: 'checkpoint_pinned',
+        labels: {
+          some: {
+            deletedAt: null,
+            kind: 'pinned',
+          },
+        },
       },
     });
 
@@ -259,16 +347,49 @@ export async function setWorkspaceVersionPinned(
     }
   }
 
-  const updated = await prisma.version.update({
-    where: {
-      id: version.id,
-    },
-    data: {
-      revision: {
-        increment: 1,
+  const updated = await prisma.$transaction(async (tx) => {
+    if (input.pinned && !hasPinnedStateLabel(version.labels)) {
+      await tx.label.create({
+        data: {
+          organizationId: actor.organizationId,
+          versionId: version.id,
+          kind: 'pinned',
+          name: version.title,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+        },
+      });
+    }
+
+    if (!input.pinned && hasPinnedStateLabel(version.labels)) {
+      await tx.label.updateMany({
+        where: {
+          deletedAt: null,
+          kind: 'pinned',
+          organizationId: actor.organizationId,
+          versionId: version.id,
+        },
+        data: {
+          deletedAt: new Date(),
+          originDeviceId: actor.deviceId,
+          revision: {
+            increment: 1,
+          },
+        },
+      });
+    }
+
+    return tx.version.update({
+      where: {
+        id: version.id,
       },
-      versionType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
-    },
+      data: {
+        revision: {
+          increment: 1,
+        },
+        versionType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
+      },
+    });
   });
 
   await pruneWorkspaceRecoveryCheckpoints({

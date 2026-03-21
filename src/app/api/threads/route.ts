@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  parseCommentAgentMentions,
-  refreshCommentAgentBindings,
-  stringifyCommentAgentBindings,
   stringifyCommentAgentMentions,
 } from '@/lib/comments/agents';
 import { getSettingsFromHeaders } from '@/lib/ai/providers';
+import {
+  buildCommentSurfaceText,
+  classifyInheritedCommentThread,
+  collectCommentThreadIdentityCandidates,
+  type CommentThreadSurfaceFile,
+} from '@/derive/thread-classify';
 import { prisma } from '@/lib/db/prisma';
+import { buildCommentMessageAgentState } from '@/objects/comment/agent-bindings';
 import {
   getCurrentDraftRevisionForDocument,
 } from '@/lib/comments/version-binding';
-import {
-  extractReviewAnchorIdentityCandidates,
-  extractReviewAnchorSearchCandidates,
-} from '@/lib/comments/review-anchor';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { parseVersionFiles } from '@/lib/workspace/service';
 import { mapCommentThread } from '@/lib/wiki/service';
@@ -23,11 +23,6 @@ import type {
 } from '@/types';
 
 type ThreadRecord = Parameters<typeof mapCommentThread>[0];
-type SurfaceFileRecord = {
-  content: string;
-  id: string | null;
-  path: string;
-};
 
 export async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
@@ -68,7 +63,13 @@ export async function GET(req: NextRequest) {
         where: { deletedAt: null },
         orderBy: { createdAt: 'asc' },
       },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
   });
@@ -100,7 +101,13 @@ export async function GET(req: NextRequest) {
               where: { deletedAt: null },
               orderBy: { createdAt: 'asc' },
             },
-            version: true,
+            version: {
+              include: {
+                labels: {
+                  where: { deletedAt: null },
+                },
+              },
+            },
           },
           orderBy: { createdAt: 'desc' },
         })
@@ -121,17 +128,17 @@ export async function GET(req: NextRequest) {
   const directIdentityCandidates = new Set(
     mappedDirectThreads
       .filter((thread) => thread.status === 'open' || thread.status === 'applied')
-      .flatMap((thread) => collectIdentityCandidates(thread))
+      .flatMap((thread) => collectCommentThreadIdentityCandidates(thread))
   );
   const seenInheritedFingerprints = new Set<string>();
   const seenInheritedIdentityCandidates = new Set<string>();
   const versionRank = new Map(inheritedVersionIds.map((id, index) => [id, index]));
   const surfaceFilesById = new Map(
     surfaceFiles
-      .filter((file): file is SurfaceFileRecord & { id: string } => Boolean(file.id))
+      .filter((file): file is CommentThreadSurfaceFile & { id: string } => Boolean(file.id))
       .map((file) => [file.id, file])
   );
-  const combinedSurfaceText = buildCombinedSurfaceText(surfaceFiles);
+  const combinedSurfaceText = buildCommentSurfaceText(surfaceFiles);
 
   const mappedInheritedThreads = [...inheritedThreads]
     .sort((left, right) => {
@@ -149,7 +156,7 @@ export async function GET(req: NextRequest) {
     })
     .map((thread) => {
       const mapped = mapCommentThread(thread);
-      const state = classifyInheritedThread({
+      const state = classifyInheritedCommentThread({
         combinedSurfaceText,
         directIdentityCandidates,
         directFingerprints,
@@ -161,7 +168,7 @@ export async function GET(req: NextRequest) {
 
       if (state !== 'stale') {
         seenInheritedFingerprints.add(mapped.anchorFingerprint);
-        collectIdentityCandidates(mapped).forEach((candidate) => {
+        collectCommentThreadIdentityCandidates(mapped).forEach((candidate) => {
           seenInheritedIdentityCandidates.add(candidate);
         });
       }
@@ -187,14 +194,13 @@ export async function POST(req: NextRequest) {
         ? body.draftRevision
         : null
       : await getCurrentDraftRevisionForDocument(actor.organizationId, workspaceId);
-  const mentions =
-    typeof body.firstMessage === 'string' && body.firstMessage.trim()
-      ? parseCommentAgentMentions(body.firstMessage, settings.commentAgents || [])
-      : [];
-  const agentBindings = refreshCommentAgentBindings({
-    bindings: [],
-    mentions,
+  const agentState = buildCommentMessageAgentState({
+    agents: settings.commentAgents || [],
+    bindingsJson: null,
+    content: typeof body.firstMessage === 'string' ? body.firstMessage : '',
+    role: 'user',
   });
+  const mentions = agentState.mentions;
 
   const thread = await prisma.commentThread.create({
     data: {
@@ -205,8 +211,7 @@ export async function POST(req: NextRequest) {
       anchorText: body.anchorText,
       draftRevision: draftRevision,
       selectionAnchor: body.selectionAnchor || null,
-      agentBindingsJson:
-        agentBindings.length > 0 ? stringifyCommentAgentBindings(agentBindings) : null,
+      agentBindingsJson: agentState.bindingsJson,
       createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
       messages: {
@@ -225,7 +230,13 @@ export async function POST(req: NextRequest) {
     },
     include: {
       messages: { orderBy: { createdAt: 'asc' } },
-      version: true,
+      version: {
+        include: {
+          labels: {
+            where: { deletedAt: null },
+          },
+        },
+      },
     },
   });
   return NextResponse.json(mapCommentThread(thread));
@@ -246,40 +257,6 @@ function mapThreadResponse(
     inheritedFromVersionTitle: mapped.version?.title || null,
     isInherited: true,
   };
-}
-
-function classifyInheritedThread(params: {
-  combinedSurfaceText: string;
-  directIdentityCandidates: Set<string>;
-  directFingerprints: Set<string>;
-  seenInheritedIdentityCandidates: Set<string>;
-  seenInheritedFingerprints: Set<string>;
-  surfaceFilesById: Map<string, SurfaceFileRecord>;
-  thread: CommentThreadData;
-}): CommentThreadInheritanceState {
-  if (
-    !canMapThreadToCurrentSurface({
-      combinedSurfaceText: params.combinedSurfaceText,
-      surfaceFilesById: params.surfaceFilesById,
-      thread: params.thread,
-    })
-  ) {
-    return 'stale';
-  }
-
-  if (
-    params.directFingerprints.has(params.thread.anchorFingerprint) ||
-    params.seenInheritedFingerprints.has(params.thread.anchorFingerprint) ||
-    collectIdentityCandidates(params.thread).some(
-      (candidate) =>
-        params.directIdentityCandidates.has(candidate) ||
-        params.seenInheritedIdentityCandidates.has(candidate)
-    )
-  ) {
-    return 'superseded';
-  }
-
-  return 'actionable';
 }
 
 async function resolveSurfaceFiles(params: {
@@ -321,207 +298,6 @@ async function resolveSurfaceFiles(params: {
       path: true,
     },
   });
-}
-
-function canMapThreadToCurrentSurface(params: {
-  combinedSurfaceText: string;
-  surfaceFilesById: Map<string, SurfaceFileRecord>;
-  thread: CommentThreadData;
-}) {
-  const fileContent =
-    params.thread.fileId !== null
-      ? params.surfaceFilesById.get(params.thread.fileId)?.content || null
-      : null;
-  const fileSearchableContent =
-    fileContent !== null ? buildSearchableContent(fileContent) : null;
-  if (isWebComponentThread(params.thread)) {
-    return canMapWebThreadToCurrentSurface({
-      combinedSurfaceText: params.combinedSurfaceText,
-      fileSearchableContent,
-      thread: params.thread,
-    });
-  }
-
-  const anchorCandidates = collectAnchorCandidates(params.thread);
-  if (anchorCandidates.length === 0) {
-    return true;
-  }
-
-  if (
-    fileSearchableContent !== null &&
-    anchorCandidates.some((candidate) => fileSearchableContent.includes(candidate))
-  ) {
-    return true;
-  }
-
-  if (!isWebComponentThread(params.thread)) {
-    return params.thread.fileId !== null
-      ? false
-      : anchorCandidates.some((candidate) => params.combinedSurfaceText.includes(candidate));
-  }
-
-  return anchorCandidates.some((candidate) => params.combinedSurfaceText.includes(candidate));
-}
-
-function collectAnchorCandidates(thread: CommentThreadData) {
-  return extractReviewAnchorSearchCandidates({
-    anchorText: thread.anchorText,
-    reviewAnchor: thread.reviewAnchor,
-  }).map((candidate) => normalizeSearchText(candidate));
-}
-
-function collectIdentityCandidates(thread: CommentThreadData) {
-  return extractReviewAnchorIdentityCandidates({
-    anchorText: thread.anchorText,
-    reviewAnchor: thread.reviewAnchor,
-  }).map((candidate) => normalizeSearchText(candidate));
-}
-
-function canMapWebThreadToCurrentSurface(params: {
-  combinedSurfaceText: string;
-  fileSearchableContent: string | null;
-  thread: CommentThreadData;
-}) {
-  const searchTargets = Array.from(
-    new Set(
-      [params.fileSearchableContent, params.combinedSurfaceText]
-        .map((value) => value?.trim() || '')
-        .filter(Boolean)
-    )
-  );
-
-  if (searchTargets.length === 0) {
-    return true;
-  }
-
-  return searchTargets.some((target) => webSelectorStillResolvable(target, params.thread)) ||
-    searchTargets.some((target) => webExcerptStillResolvable(target, params.thread)) ||
-    searchTargets.some((target) => webDomContextStillResolvable(target, params.thread));
-}
-
-function webSelectorStillResolvable(searchableContent: string, thread: CommentThreadData) {
-  return collectWebSelectorSourceCandidates(thread).some((candidate) =>
-    searchableContent.includes(candidate)
-  );
-}
-
-function collectWebSelectorSourceCandidates(thread: CommentThreadData) {
-  const selector = readReviewAnchorPayloadString(thread, ['cssSelector', 'selector']);
-  if (!selector) {
-    return [];
-  }
-
-  const candidates = new Set<string>();
-  candidates.add(normalizeSearchText(selector));
-
-  const selectorIds = Array.from(selector.matchAll(/#([A-Za-z][A-Za-z0-9_-]*)/g)).map(
-    (match) => match[1]
-  );
-  selectorIds.forEach((id) => {
-    candidates.add(normalizeSearchText(`id="${id}"`));
-    candidates.add(normalizeSearchText(`id='${id}'`));
-    candidates.add(normalizeSearchText(`"id":"${id}"`));
-    candidates.add(normalizeSearchText(`'id':'${id}'`));
-  });
-
-  return [...candidates];
-}
-
-function webExcerptStillResolvable(searchableContent: string, thread: CommentThreadData) {
-  const excerpt = normalizeSearchText(
-    readReviewAnchorPayloadString(thread, ['excerpt']) || thread.anchorText || ''
-  );
-  return excerpt.length >= 6 && searchableContent.includes(excerpt);
-}
-
-function webDomContextStillResolvable(searchableContent: string, thread: CommentThreadData) {
-  const domContext = readReviewAnchorPayloadString(thread, ['domContext']);
-  const normalizedContext = normalizeSearchText(domContext || '');
-  if (normalizedContext.length >= 24 && searchableContent.includes(normalizedContext)) {
-    return true;
-  }
-
-  const stableSegments = String(domContext || '')
-    .split('|')
-    .map((segment) => normalizeSearchText(segment))
-    .filter((segment) => segment.length >= 8);
-
-  if (stableSegments.length < 2) {
-    return false;
-  }
-
-  const matchedSegments = stableSegments.filter((segment) =>
-    searchableContent.includes(segment)
-  ).length;
-
-  return matchedSegments >= Math.min(2, stableSegments.length);
-}
-
-function readReviewAnchorPayloadString(thread: CommentThreadData, keys: string[]) {
-  for (const key of keys) {
-    const value = thread.reviewAnchor?.anchorPayload?.[key];
-    if (typeof value === 'string' && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return null;
-}
-
-function buildCombinedSurfaceText(surfaceFiles: SurfaceFileRecord[]) {
-  return surfaceFiles.map((file) => buildSearchableContent(file.content)).join('\n');
-}
-
-function buildSearchableContent(content: string) {
-  const rawText = normalizeSearchText(content);
-  const extractedText: string[] = [];
-
-  try {
-    collectJsonText(JSON.parse(content), extractedText);
-  } catch {
-    return rawText;
-  }
-
-  const jsonText = normalizeSearchText(extractedText.join(' '));
-  if (!jsonText) {
-    return rawText;
-  }
-
-  if (!rawText) {
-    return jsonText;
-  }
-
-  return `${rawText}\n${jsonText}`;
-}
-
-function collectJsonText(value: unknown, target: string[]) {
-  if (!value || typeof value !== 'object') {
-    return;
-  }
-
-  if (Array.isArray(value)) {
-    value.forEach((entry) => collectJsonText(entry, target));
-    return;
-  }
-
-  Object.entries(value).forEach(([key, entry]) => {
-    if (key === 'text' && typeof entry === 'string' && entry.trim()) {
-      target.push(entry);
-      return;
-    }
-
-    if (entry && typeof entry === 'object') {
-      collectJsonText(entry, target);
-    }
-  });
-}
-
-function normalizeSearchText(value: string) {
-  return value.replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-function isWebComponentThread(thread: CommentThreadData) {
-  return thread.reviewAnchor?.surfaceType === 'web-component';
 }
 
 async function resolveInheritedVersionIds(params: {
@@ -577,8 +353,11 @@ async function resolveInheritedVersionIds(params: {
       deletedAt: null,
       documentId: params.workspaceId,
       organizationId: params.organizationId,
-      versionType: {
-        notIn: ['checkpoint', 'checkpoint_pinned'],
+      labels: {
+        some: {
+          deletedAt: null,
+          kind: 'milestone',
+        },
       },
     },
     orderBy: [{ versionNum: 'desc' }, { lockedAt: 'desc' }],

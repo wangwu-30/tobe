@@ -154,10 +154,27 @@ export type WorkspaceVersionData = {
   revision: number;
   deletedAt: Date | string | null;
   lockedAt: Date | string;
+  labels?: StateLabelData[];
   visible: boolean;
   restorable: boolean;
   pinned: boolean;
   recoveryKind: 'temporary' | 'pinned' | null;
+};
+
+export type StateLabelKind = 'milestone' | 'head' | 'recovery' | 'pinned';
+
+export type StateLabelData = {
+  id: string;
+  organizationId: string;
+  stateId: string;
+  kind: StateLabelKind;
+  name: string;
+  createdByUserId: string | null;
+  originDeviceId: string | null;
+  revision: number;
+  deletedAt: Date | string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
 };
 
 export type ChatAttachmentData = {

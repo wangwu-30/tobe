@@ -1,8 +1,7 @@
 import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
-import { isRecoveryVersionType } from '@/lib/workspace/planning';
 
-import { normalizeWorkspaceVersionType } from './schema';
+import { isRecoveryWorkspaceState } from './schema';
 
 export async function resolveDraftBaseVersionIdForVersion(
   params: {
@@ -22,8 +21,15 @@ export async function resolveDraftBaseVersionIdForVersion(
       },
       select: {
         id: true,
+        labels: {
+          where: {
+            deletedAt: null,
+          },
+          select: {
+            kind: true,
+          },
+        },
         parentVersionId: true,
-        versionType: true,
       },
     });
 
@@ -31,7 +37,7 @@ export async function resolveDraftBaseVersionIdForVersion(
       return null;
     }
 
-    if (!isRecoveryVersionType(normalizeWorkspaceVersionType(version.versionType))) {
+    if (!isRecoveryWorkspaceState(version)) {
       return version.id;
     }
 
@@ -53,6 +59,13 @@ export function findNearestVersionBeforeMessage(params: {
       organizationId: params.organizationId,
       lockedAt: {
         lte: params.messageCreatedAt,
+      },
+    },
+    include: {
+      labels: {
+        where: {
+          deletedAt: null,
+        },
       },
     },
     orderBy: { lockedAt: 'desc' },

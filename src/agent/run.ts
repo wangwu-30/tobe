@@ -62,7 +62,7 @@ export async function requestAgentRun({
   });
 
   const isDeepResearch = researchMode === 'deep';
-  const response = await fetch(isDeepResearch ? '/api/ai/research-plan' : '/api/ai/chat', {
+  const response = await fetch('/api/agent/run', {
     method: 'POST',
     headers: {
       ...getStoredAISettingsHeader(),
