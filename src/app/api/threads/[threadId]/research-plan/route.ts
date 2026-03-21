@@ -122,6 +122,7 @@ export async function POST(
     organizationId: actor.organizationId,
     settings,
     targetAgent,
+    userId: actor.userId,
     workspaceId: thread.documentId,
   });
 

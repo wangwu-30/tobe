@@ -1,6 +1,6 @@
 # 成形系统模型
 
-更新时间：2026-03-20
+更新时间：2026-03-21
 当前工作流：见 [docs/chengxing-refactor-tracker.md](./docs/chengxing-refactor-tracker.md)
 来源计划：见 [refactor_plan.md](./refactor_plan.md)
 

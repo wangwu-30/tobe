@@ -98,6 +98,7 @@ export async function buildCommentResearchPrompt(params: {
   organizationId: string;
   settings: Settings;
   targetAgent: CommentAgentConfigData;
+  userId?: string | null;
   workspaceId: string;
 }) {
   const context = await buildCommentContext({
@@ -110,6 +111,7 @@ export async function buildCommentResearchPrompt(params: {
         role: message.role,
         content: message.content,
       })),
+    userId: params.userId,
     wikiContent: params.documentContent,
     wikiId: params.workspaceId,
   });

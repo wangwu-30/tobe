@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import type {
   NoteData,
+  NoteScope,
   WorkflowExtensionHintData,
   WorkflowPlaybookData,
   WorkflowPlaybookDraftData,
@@ -39,6 +40,7 @@ export function KnowledgePanel({
   isOpen,
   onClose,
   onApplyWorkflow,
+  projectId,
   showHeader = !embedded,
   wikiId,
 }: {
@@ -48,14 +50,21 @@ export function KnowledgePanel({
   isOpen: boolean;
   onClose: () => void;
   onApplyWorkflow?: (workflowId: string | null) => Promise<void> | void;
+  projectId?: string | null;
   showHeader?: boolean;
   wikiId?: string | null;
 }) {
   const t = useT();
+  const defaultKnowledgeScope = React.useMemo(
+    () => resolveDefaultKnowledgeScope({ projectId, wikiId }),
+    [projectId, wikiId]
+  );
   const [notes, setNotes] = React.useState<NoteData[]>([]);
   const [workflowPlaybooks, setWorkflowPlaybooks] = React.useState<WorkflowPlaybookData[]>(
     []
   );
+  const [editingKnowledgeId, setEditingKnowledgeId] = React.useState<string | null>(null);
+  const [knowledgeScope, setKnowledgeScope] = React.useState<NoteScope>(defaultKnowledgeScope);
   const [newTitle, setNewTitle] = React.useState('');
   const [newContent, setNewContent] = React.useState('');
   const [newWorkflowTitle, setNewWorkflowTitle] = React.useState('');
@@ -83,6 +92,36 @@ export function KnowledgePanel({
   const [workflowDraftWarnings, setWorkflowDraftWarnings] = React.useState<
     WorkflowPlaybookDraftWarningKey[]
   >([]);
+  const knowledgeScopeOptions = React.useMemo(() => {
+    const options: NoteScope[] = [];
+    if (wikiId) {
+      options.push('deliverable');
+    }
+    if (projectId) {
+      options.push('project');
+    }
+    options.push('user');
+    return options;
+  }, [projectId, wikiId]);
+  const knowledgeScopeId = resolveKnowledgeScopeId({
+    scope: knowledgeScope,
+    projectId,
+    wikiId,
+  });
+  const canSubmitKnowledge = Boolean(
+    newTitle.trim() &&
+      newContent.trim() &&
+      (knowledgeScope === 'user' || knowledgeScopeId)
+  );
+
+  React.useEffect(() => {
+    if (
+      (knowledgeScope === 'deliverable' && !wikiId) ||
+      (knowledgeScope === 'project' && !projectId)
+    ) {
+      setKnowledgeScope(defaultKnowledgeScope);
+    }
+  }, [defaultKnowledgeScope, knowledgeScope, projectId, wikiId]);
 
   const loadData = React.useCallback(async () => {
     const workflowParams = new URLSearchParams();
@@ -90,48 +129,70 @@ export function KnowledgePanel({
       workflowParams.set('wikiId', wikiId);
     }
     workflowParams.set('includeArchived', '1');
-    const noteParams = new URLSearchParams();
-    noteParams.set('activeOnly', '0');
-    noteParams.set('includeInactive', '1');
-    noteParams.set('scope', 'deliverable');
+    const noteTargets: Array<{ scope: NoteScope; scopeId?: string | null }> = [
+      { scope: 'user' },
+    ];
     if (wikiId) {
-      noteParams.set('scopeId', wikiId);
+      noteTargets.unshift({ scope: 'deliverable', scopeId: wikiId });
     }
-    const [nRes, wRes] = await Promise.all([
-      fetch(`/api/notes?${noteParams.toString()}`),
+    if (projectId) {
+      noteTargets.push({ scope: 'project', scopeId: projectId });
+    }
+    const [noteResponses, wRes] = await Promise.all([
+      Promise.all(noteTargets.map((target) => fetchNotesForScope(target))),
       fetch(`/api/workflows?${workflowParams.toString()}`),
     ]);
-    if (nRes.ok) setNotes(await nRes.json());
+    setNotes(mergeNotes(noteResponses.flat()));
     if (wRes.ok) setWorkflowPlaybooks(await wRes.json());
-  }, [wikiId]);
+  }, [projectId, wikiId]);
 
   React.useEffect(() => {
     if (isOpen) loadData();
   }, [isOpen, loadData]);
 
-  const addKnowledgeItem = async () => {
-    if (!newTitle.trim() || !newContent.trim() || !wikiId) return;
+  const resetKnowledgeComposer = React.useCallback(
+    (nextScope: NoteScope = defaultKnowledgeScope) => {
+      setEditingKnowledgeId(null);
+      setKnowledgeScope(nextScope);
+      setNewTitle('');
+      setNewContent('');
+    },
+    [defaultKnowledgeScope]
+  );
+
+  const submitKnowledgeItem = async () => {
+    if (!canSubmitKnowledge) return;
     const res = await fetch('/api/notes', {
-      method: 'POST',
+      method: editingKnowledgeId ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...(editingKnowledgeId ? { id: editingKnowledgeId } : {}),
         content: newContent,
         kind: 'knowledge',
-        scope: 'deliverable',
-        scopeId: wikiId,
-        source: 'manual',
+        scope: knowledgeScope,
+        ...(knowledgeScopeId ? { scopeId: knowledgeScopeId } : {}),
+        ...(editingKnowledgeId ? {} : { source: 'manual' }),
         title: newTitle,
       }),
     });
     if (res.ok) {
-      setNewTitle('');
-      setNewContent('');
+      resetKnowledgeComposer();
       loadData();
     }
   };
 
+  const editKnowledgeItem = React.useCallback((note: NoteData) => {
+    setEditingKnowledgeId(note.id);
+    setKnowledgeScope(note.scope);
+    setNewTitle(note.title || '');
+    setNewContent(note.content);
+  }, []);
+
   const deleteKnowledgeItem = async (id: string) => {
     await fetch(`/api/notes?id=${id}`, { method: 'DELETE' });
+    if (editingKnowledgeId === id) {
+      resetKnowledgeComposer();
+    }
     loadData();
   };
 
@@ -471,28 +532,93 @@ export function KnowledgePanel({
             title={t('context.knowledge')}
           >
             <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
+              <div className="space-y-1">
+                <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                  {t('context.knowledgeScopeLabel')}
+                </div>
+                <div
+                  className={cn(
+                    'grid gap-1',
+                    knowledgeScopeOptions.length >= 3
+                      ? 'grid-cols-3'
+                      : knowledgeScopeOptions.length === 2
+                        ? 'grid-cols-2'
+                        : 'grid-cols-1'
+                  )}
+                >
+                  {knowledgeScopeOptions.map((scope) => (
+                    <Button
+                      key={scope}
+                      type="button"
+                      size="sm"
+                      variant={knowledgeScope === scope ? 'default' : 'outline'}
+                      className="h-7 text-xs"
+                      data-testid={`context-knowledge-scope-${scope}`}
+                      onClick={() => setKnowledgeScope(scope)}
+                    >
+                      {t(getNoteScopeCopyKey(scope))}
+                    </Button>
+                  ))}
+                </div>
+              </div>
               <Input
+                data-testid="context-knowledge-title"
                 placeholder={t('context.knowledgeTitlePlaceholder')}
                 value={newTitle}
                 onChange={(event) => setNewTitle(event.target.value)}
                 className="h-8 text-xs"
               />
               <Textarea
+                data-testid="context-knowledge-content"
                 placeholder={t('context.knowledgeContentPlaceholder')}
                 value={newContent}
                 onChange={(event) => setNewContent(event.target.value)}
                 className="min-h-[72px] resize-none text-xs"
                 rows={3}
               />
-              <Button
-                size="sm"
-                className="h-7 w-full text-xs"
-                onClick={addKnowledgeItem}
-                disabled={!newTitle.trim() || !newContent.trim() || !wikiId}
+              <div
+                className={cn(
+                  'grid gap-2',
+                  editingKnowledgeId ? 'grid-cols-2' : 'grid-cols-1'
+                )}
               >
-                <Plus className="mr-1 h-3 w-3" />
-                {t('context.addKnowledge')}
-              </Button>
+                <Button
+                  size="sm"
+                  className="h-7 w-full text-xs"
+                  data-testid="context-save-knowledge"
+                  onClick={submitKnowledgeItem}
+                  disabled={!canSubmitKnowledge}
+                >
+                  {editingKnowledgeId ? (
+                    <Pencil className="mr-1 h-3 w-3" />
+                  ) : (
+                    <Plus className="mr-1 h-3 w-3" />
+                  )}
+                  {t(editingKnowledgeId ? 'context.updateKnowledge' : 'context.addKnowledge')}
+                </Button>
+                {editingKnowledgeId ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 w-full text-xs"
+                    data-testid="context-cancel-knowledge-edit"
+                    onClick={() => resetKnowledgeComposer()}
+                  >
+                    {t('context.cancelKnowledgeEdit')}
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t(
+                  editingKnowledgeId
+                    ? 'context.knowledgeEditScopeHint'
+                    : 'context.knowledgeCreateScopeHint',
+                  {
+                    scope: t(getNoteScopeCopyKey(knowledgeScope)),
+                  }
+                )}
+              </p>
             </div>
 
             {knowledgeNotes.length === 0 ? (
@@ -504,17 +630,39 @@ export function KnowledgePanel({
             ) : (
               <div className="space-y-2">
                 {knowledgeNotes.map((item) => (
-                  <div key={item.id} className="rounded-lg border p-3 text-xs">
+                  <div
+                    key={item.id}
+                    className="rounded-lg border p-3 text-xs"
+                    data-testid={`context-note-${item.id}`}
+                  >
                     <div className="flex items-start justify-between gap-2">
-                      <h4 className="font-medium">{item.title || t('context.noKnowledgeTitle')}</h4>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-5 w-5 shrink-0"
-                        onClick={() => deleteKnowledgeItem(item.id)}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </Button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <h4 className="font-medium">
+                            {item.title || t('context.knowledgeUntitled')}
+                          </h4>
+                          <NoteScopeBadge noteId={item.id} scope={item.scope} />
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5"
+                          data-testid={`context-edit-knowledge-${item.id}`}
+                          onClick={() => editKnowledgeItem(item)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5"
+                          onClick={() => deleteKnowledgeItem(item.id)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
                     <p className="mt-1 leading-relaxed text-muted-foreground">
                       {item.content}
@@ -545,17 +693,21 @@ export function KnowledgePanel({
                       'rounded-lg border p-3 text-xs',
                       !memory.active && 'opacity-50'
                     )}
+                    data-testid={`context-note-${memory.id}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
-                        <Badge
-                          className={cn(
-                            'mb-1 text-[10px]',
-                            categoryColors[memory.kind] || ''
-                          )}
-                        >
-                          {memory.kind}
-                        </Badge>
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                          <Badge
+                            className={cn(
+                              'text-[10px]',
+                              categoryColors[memory.kind] || ''
+                            )}
+                          >
+                            {memory.kind}
+                          </Badge>
+                          <NoteScopeBadge noteId={memory.id} scope={memory.scope} />
+                        </div>
                         <p className="leading-relaxed">{memory.content}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -1119,6 +1271,34 @@ function WorkflowPreviewSection({
   );
 }
 
+function NoteScopeBadge({
+  noteId,
+  scope,
+}: {
+  noteId: string;
+  scope: NoteScope;
+}) {
+  const t = useT();
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        'border px-1.5 py-0 text-[10px]',
+        scope === 'deliverable' &&
+          'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-200',
+        scope === 'project' &&
+          'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950/60 dark:text-sky-200',
+        scope === 'user' &&
+          'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-200'
+      )}
+      data-testid={`context-note-scope-${noteId}`}
+    >
+      {t(getNoteScopeCopyKey(scope))}
+    </Badge>
+  );
+}
+
 function ContextSection({
   children,
   count,
@@ -1165,5 +1345,75 @@ function ContextEmptyState({
       <p>{title}</p>
       <p className="mt-1 opacity-70">{description}</p>
     </div>
+  );
+}
+
+function getNoteScopeCopyKey(scope: NoteScope) {
+  if (scope === 'user') {
+    return 'context.scopeUser';
+  }
+
+  if (scope === 'project') {
+    return 'context.scopeProject';
+  }
+
+  return 'context.scopeDeliverable';
+}
+
+function resolveDefaultKnowledgeScope(params: {
+  projectId?: string | null;
+  wikiId?: string | null;
+}): NoteScope {
+  if (params.wikiId) {
+    return 'deliverable';
+  }
+
+  if (params.projectId) {
+    return 'project';
+  }
+
+  return 'user';
+}
+
+function resolveKnowledgeScopeId(params: {
+  scope: NoteScope;
+  projectId?: string | null;
+  wikiId?: string | null;
+}) {
+  if (params.scope === 'deliverable') {
+    return params.wikiId || null;
+  }
+
+  if (params.scope === 'project') {
+    return params.projectId || null;
+  }
+
+  return null;
+}
+
+async function fetchNotesForScope(params: {
+  scope: NoteScope;
+  scopeId?: string | null;
+}) {
+  const searchParams = new URLSearchParams();
+  searchParams.set('activeOnly', '0');
+  searchParams.set('includeInactive', '1');
+  searchParams.set('scope', params.scope);
+  if (params.scopeId) {
+    searchParams.set('scopeId', params.scopeId);
+  }
+
+  const response = await fetch(`/api/notes?${searchParams.toString()}`);
+  if (!response.ok) {
+    return [] as NoteData[];
+  }
+
+  return (await response.json()) as NoteData[];
+}
+
+function mergeNotes(notes: NoteData[]) {
+  return Array.from(new Map(notes.map((note) => [note.id, note])).values()).sort(
+    (left, right) =>
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   );
 }

@@ -302,6 +302,7 @@ async function executeLightChatRunRequest(
       modelSupportsImages,
       organizationId: context.actor.organizationId,
       researchMode: 'light',
+      userId: context.actor.userId,
       workspaceId,
     });
 
@@ -372,6 +373,7 @@ async function executeDeepResearchPlanRequest(
     language: context.settings.language,
     organizationId: context.actor.organizationId,
     researchMode: 'deep',
+    userId: context.actor.userId,
     workspaceId,
   });
   const proposal = await generateDeepResearchPlan({

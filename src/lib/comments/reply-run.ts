@@ -61,6 +61,7 @@ export async function runStandardCommentReply(params: {
     threadMessages: params.threadMessages
       .filter((message) => message.role === 'user' || message.role === 'assistant')
       .map((message) => ({ role: message.role, content: message.content })),
+    userId: params.actor.userId,
     wikiContent: params.wikiContent,
     wikiId: params.workspaceId,
   });
@@ -127,6 +128,7 @@ export async function runToolEnabledWebCommentReply(params: {
     conversationId,
     language: params.settings.language,
     organizationId: params.actor.organizationId,
+    userId: params.actor.userId,
     workspaceId: params.workspaceId,
   });
 

@@ -36,10 +36,17 @@ function parseStructuredList(raw: string) {
     .filter(Boolean);
 }
 
-function buildScopedNoteTargets(workspaceId: string | null | undefined, projectId?: string | null) {
+function buildScopedNoteTargets(params: {
+  projectId?: string | null;
+  userId?: string | null;
+  workspaceId?: string | null;
+}) {
   return [
-    ...(workspaceId ? [{ scope: 'deliverable' as const, scopeId: workspaceId }] : []),
-    ...(projectId ? [{ scope: 'project' as const, scopeId: projectId }] : []),
+    ...(params.workspaceId
+      ? [{ scope: 'deliverable' as const, scopeId: params.workspaceId }]
+      : []),
+    ...(params.projectId ? [{ scope: 'project' as const, scopeId: params.projectId }] : []),
+    ...(params.userId ? [{ scope: 'user' as const, scopeId: params.userId }] : []),
   ];
 }
 
@@ -68,6 +75,7 @@ export async function buildCommentContext(params: {
   language?: AppLanguage | null;
   organizationId: string;
   threadMessages: { role: string; content: string }[];
+  userId?: string | null;
   wikiContent: string;
   wikiId?: string;
 }): Promise<{ systemPrompt: string; messages: { role: 'user' | 'assistant'; content: string }[] }> {
@@ -75,14 +83,25 @@ export async function buildCommentContext(params: {
     anchorText,
     organizationId,
     threadMessages,
+    userId,
     wikiContent,
     wikiId,
   } = params;
 
+  const projectContext = wikiId
+    ? await loadProjectAiContextData({
+        organizationId,
+        workspaceId: wikiId,
+      })
+    : null;
   const notes = await listNotes({
     activeOnly: true,
     organizationId,
-    scopeTargets: wikiId ? [{ scope: 'deliverable', scopeId: wikiId }] : undefined,
+    scopeTargets: buildScopedNoteTargets({
+      projectId: projectContext?.id || null,
+      userId,
+      workspaceId: wikiId,
+    }),
   });
   const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
 
@@ -100,16 +119,20 @@ export async function buildCommentContext(params: {
   ];
 
   if (memoryNotes.length > 0) {
-    systemParts.push('', '## Organization and Wiki Memories');
+    systemParts.push('', '## Memories to Apply');
     memoryNotes.forEach((memory) => {
-      systemParts.push(`- [${memory.kind}] ${memory.content}`);
+      systemParts.push(
+        `- [${resolveContextScopeLabel(memory, wikiId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
+      );
     });
   }
 
   if (knowledgeNotes.length > 0) {
     systemParts.push('', '## Knowledge Base');
     knowledgeNotes.forEach((item) => {
-      systemParts.push(`- **${item.title || 'Untitled'}**: ${item.content}`);
+      systemParts.push(
+        `- [${resolveContextScopeLabel(item, wikiId, projectContext?.id || null)}] **${item.title || 'Untitled'}**: ${item.content}`
+      );
     });
   }
 
@@ -128,6 +151,7 @@ export async function buildChatSystemPrompt(params: {
   language?: AppLanguage | null;
   organizationId: string;
   researchMode?: 'light' | 'deep';
+  userId?: string | null;
   wikiId?: string | null;
   workspaceId?: string | null;
 }): Promise<string> {
@@ -158,7 +182,11 @@ export async function buildChatSystemPrompt(params: {
   const notes = await listNotes({
     activeOnly: true,
     organizationId: params.organizationId,
-    scopeTargets: buildScopedNoteTargets(workspaceId, projectContext?.id || null),
+    scopeTargets: buildScopedNoteTargets({
+      projectId: projectContext?.id || null,
+      userId: params.userId || null,
+      workspaceId,
+    }),
   });
   const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
 
@@ -249,16 +277,27 @@ export async function buildSuggestionContext(params: {
   anchorText: string;
   organizationId: string;
   threadDiscussion: string;
+  userId?: string | null;
   wikiContent: string;
   wikiId?: string;
 }): Promise<string> {
-  const { anchorText, organizationId, threadDiscussion, wikiContent, wikiId } =
+  const { anchorText, organizationId, threadDiscussion, userId, wikiContent, wikiId } =
     params;
 
+  const projectContext = wikiId
+    ? await loadProjectAiContextData({
+        organizationId,
+        workspaceId: wikiId,
+      })
+    : null;
   const notes = await listNotes({
     activeOnly: true,
     organizationId,
-    scopeTargets: wikiId ? [{ scope: 'deliverable', scopeId: wikiId }] : undefined,
+    scopeTargets: buildScopedNoteTargets({
+      projectId: projectContext?.id || null,
+      userId,
+      workspaceId: wikiId,
+    }),
   });
   const { memoryNotes } = splitNotesByKind(notes);
 
@@ -280,7 +319,9 @@ export async function buildSuggestionContext(params: {
   if (memoryNotes.length > 0) {
     parts.push('', '## Memories');
     memoryNotes.forEach((memory) => {
-      parts.push(`- [${memory.kind}] ${memory.content}`);
+      parts.push(
+        `- [${resolveContextScopeLabel(memory, wikiId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
+      );
     });
   }
 

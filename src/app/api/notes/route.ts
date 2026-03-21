@@ -16,20 +16,56 @@ function resolveNoteScope(value: string | null): NoteScope {
   return 'deliverable';
 }
 
+function resolveNoteScopeTarget(params: {
+  actorUserId: string;
+  scope: string | null;
+  scopeId: string | null;
+}) {
+  if (!params.scope) {
+    return null;
+  }
+
+  const scope = resolveNoteScope(params.scope);
+  if (scope === 'user') {
+    return {
+      scope,
+      scopeId: params.scopeId?.trim() || params.actorUserId,
+    };
+  }
+
+  const scopeId = params.scopeId?.trim();
+  if (!scopeId) {
+    return null;
+  }
+
+  return {
+    scope,
+    scopeId,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const scopeId = searchParams.get('scopeId');
+  const scope = searchParams.get('scope') || (scopeId ? 'deliverable' : null);
   const kind = searchParams.get('kind');
   const activeOnly = searchParams.get('activeOnly') === '1';
+  const scopeTarget = resolveNoteScopeTarget({
+    actorUserId: actor.userId,
+    scope,
+    scopeId,
+  });
+
+  if (scope && !scopeTarget) {
+    return NextResponse.json([]);
+  }
 
   const notes = await listNotes({
     organizationId: actor.organizationId,
     activeOnly,
     kinds: kind ? [kind] : undefined,
-    scopeTargets: scopeId
-      ? [{ scope: resolveNoteScope(searchParams.get('scope')), scopeId }]
-      : undefined,
+    scopeTargets: scopeTarget ? [scopeTarget] : undefined,
   });
 
   return NextResponse.json(notes);
@@ -38,10 +74,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json();
-  const scopeId =
-    typeof body.scopeId === 'string' && body.scopeId.trim() ? body.scopeId.trim() : null;
+  const scopeTarget = resolveNoteScopeTarget({
+    actorUserId: actor.userId,
+    scope:
+      typeof body.scope === 'string'
+        ? body.scope
+        : typeof body.scopeId === 'string' && body.scopeId.trim()
+          ? 'deliverable'
+          : null,
+    scopeId: typeof body.scopeId === 'string' ? body.scopeId : null,
+  });
 
-  if (!scopeId) {
+  if (!scopeTarget) {
     return NextResponse.json({ error: 'Missing scopeId' }, { status: 400 });
   }
 
@@ -53,8 +97,8 @@ export async function POST(req: NextRequest) {
       typeof body.kind === 'string' && body.kind.trim() ? body.kind.trim() : 'knowledge',
     organizationId: actor.organizationId,
     originDeviceId: actor.deviceId,
-    scope: resolveNoteScope(typeof body.scope === 'string' ? body.scope : null),
-    scopeId,
+    scope: scopeTarget.scope,
+    scopeId: scopeTarget.scopeId,
     source:
       typeof body.source === 'string' && body.source.trim() ? body.source.trim() : 'manual',
     sourceRef:
@@ -72,11 +116,36 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Missing id' }, { status: 400 });
   }
 
+  let scopeUpdate:
+    | {
+        scope: NoteScope;
+        scopeId: string;
+      }
+    | null
+    | undefined;
+  if (body.scope !== undefined || body.scopeId !== undefined) {
+    scopeUpdate = resolveNoteScopeTarget({
+      actorUserId: actor.userId,
+      scope:
+        typeof body.scope === 'string'
+          ? body.scope
+          : typeof body.scopeId === 'string' && body.scopeId.trim()
+            ? 'deliverable'
+            : null,
+      scopeId: typeof body.scopeId === 'string' ? body.scopeId : null,
+    });
+
+    if (!scopeUpdate) {
+      return NextResponse.json({ error: 'Missing scopeId' }, { status: 400 });
+    }
+  }
+
   const note = await updateNote({
     id: body.id,
     ...(body.content !== undefined ? { content: body.content } : {}),
     ...(body.active !== undefined ? { active: body.active } : {}),
     ...(body.kind !== undefined ? { kind: body.kind } : {}),
+    ...(scopeUpdate ? { scope: scopeUpdate.scope, scopeId: scopeUpdate.scopeId } : {}),
     ...(body.source !== undefined ? { source: body.source } : {}),
     ...(body.sourceRef !== undefined ? { sourceRef: body.sourceRef } : {}),
     ...(body.title !== undefined ? { title: body.title } : {}),

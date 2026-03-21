@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
     language: 'zh-CN',
     organizationId: actor.organizationId,
     researchMode: 'light',
+    userId: actor.userId,
     workspaceId,
   });
 

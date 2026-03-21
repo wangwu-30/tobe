@@ -206,9 +206,9 @@
 
 ### 32. 项目级 AI 上下文必须同时覆盖“知道有什么”和“知道去哪里读”
 
-- 结论：如果希望 AI 在当前交付物里自然引用同项目的其他交付物，项目级上下文不能只给“有哪些兄弟交付物”，还要同时覆盖项目级 `Knowledge / Memory`，并提供显式的跨交付物读取工具。
-- 为什么：项目级摘要解决的是“AI 知道还有哪些兄弟交付物”；项目级 knowledge/memory 解决的是“AI 知道这个项目整体怎么说、怎么做”；而一旦任务变成“参考首页风格”“沿用 FAQ 里的表述”，AI 还需要一个无歧义的下一步，先列出同项目交付物，再读取目标文件，否则它只能靠猜测或把整个项目内容默认塞进上下文。
-- 默认做法：chat system prompt 默认注入当前 / 项目 / 全局三层 `Knowledge / Memory` 与同项目交付物摘要；当需要跨交付物复用时，统一走 `list_project_deliverables -> read_project_deliverable_file` 这条显式工具链，而不是隐式扩大默认 prompt。
+- 结论：如果希望 AI 在当前交付物里自然引用同项目的其他交付物，项目级上下文不能只给“有哪些兄弟交付物”，还要同时覆盖当前交付物、项目级和用户级 reusable notes，并提供显式的跨交付物读取工具。
+- 为什么：项目级摘要解决的是“AI 知道还有哪些兄弟交付物”；deliverable / project / user note 解决的是“AI 知道这个项目整体怎么说、怎么做，以及当前用户的长期偏好”；而一旦任务变成“参考首页风格”“沿用 FAQ 里的表述”，AI 还需要一个无歧义的下一步，先列出同项目交付物，再读取目标文件，否则它只能靠猜测或把整个项目内容默认塞进上下文。
+- 默认做法：chat system prompt 与 `get_workspace_context` 默认注入 `deliverable + project + user` scope Note 派生的 `Knowledge / Memory` 分区，以及同项目交付物摘要；当需要跨交付物复用时，统一走 `list_project_deliverables -> read_project_deliverable_file` 这条显式工具链，而不是隐式扩大默认 prompt。
 
 ### 33. 交互式 web 预览只要跨源，就必须先做同源 bridge，再谈评论闭环
 
@@ -634,6 +634,30 @@
 - 结论：像 `KnowledgeItem + Memory -> Note` 这种看起来概念相近的模型收口，不能只看命名相似就直接合表；要先逐项盘点 `title / category / active / source` 这些用户可见字段和 prompt 语义，再决定 canonical contract。
 - 为什么：如果新 contract 先天装不下旧语义，后续迁移就会变成隐性降级，例如 `Context` UI 丢标题、AI prompt 丢 category、来源追踪变模糊。
 - 默认做法：先写一页差距 brief，把现有字段、UI 表达和 AI 消费方式列清；只有当新 contract 能无损承接时，才进入 schema / migration 代码。
+
+### 65. 统一认知存储时，先收口 canonical object，再按 `kind` 派生旧表面
+
+- 结论：当 `Knowledge / Memory` 这类平行概念要合并成单一对象时，先统一底层 `Note` contract，再让 UI 和 prompt 继续按 `kind` 派生旧分区，通常比同时重写数据层和用户语言更稳。
+- 为什么：如果把存储合并和表面改名绑在同一刀里，回归一旦出问题，很难判断是 schema / migration 还是用户语义退化；保留旧分区作为 derive，可以先消灭双表和双 route，同时避免 `title / category / active` 这些表达能力退化。
+- 默认做法：先让 model / object / route / AI context 全部统一读写 canonical object，再用 `kind === 'knowledge'` 等规则派生旧 `Knowledge / Memory` 视图；是否改成单一 `Note` 表面留给后续独立产品切片决定。
+
+### 66. 新 scope 一旦进入 canonical contract，就要尽快接进默认 consumer
+
+- 结论：像 `Note.scope='user'` 这种已经进入 canonical contract 的维度，不应长期只停在 schema 和类型层；至少要尽快接进一条默认 prompt / tool consumer，避免 contract 变成“文档有、运行时没有”的空位。
+- 为什么：如果新 scope 只存在于 contract，后续团队会误以为它已经生效，测试和文档也会开始围绕一个并不存在的运行时事实编写；等到真正接线时，反而更难判断哪些地方在偷偷依赖旧的两层上下文。
+- 默认做法：当对象 contract 新增 scope 维度后，优先把所有默认 AI consumer 统一挂到同一个 `buildScoped...Targets` helper 上，再用一条回归测试证明新 scope 真的进入了 prompt 和工具摘要。
+
+### 67. 默认 AI 已扩 scope 的认知对象，最近邻 inspect UI 也要同步对齐
+
+- 结论：当 canonical `Note` 这类认知对象已经在默认 AI 读侧扩到 `deliverable + project + user` scope 后，离用户最近的 inspect surface 也应尽快展示同一组 scope，而不是继续只露出其中一层。
+- 为什么：如果 prompt 已经在用多层上下文，`Context` 面板却还只显示 deliverable 级数据，用户会失去“AI 此刻到底看到了什么”的可观察性；随后排查 prompt 行为、知识来源和 scope 边界时，就只能重新读代码或抓 debug 输出。
+- 默认做法：AI 默认 consumer 一旦扩 scope，就把最近邻的人工 inspect UI 一起接到相同 scope 矩阵上，并用显式 scope badge 或来源标签标清每条认知项来自哪一层；若写侧暂时不跟进，也要明确当前默认写入的 scope。
+
+### 68. 多 scope 认知对象一旦开放手工写入，scope 归属必须在 UI 和 route 两侧同时显式
+
+- 结论：当 `Context` 面板开始允许用户手工创建或编辑 `deliverable + project + user` scope Note 时，不能只靠隐藏的 `scopeId` 规则或默认猜测决定落点；scope 选择、当前归属提示和 route fallback 都要一起做成显式契约。
+- 为什么：如果用户只能改标题和内容，却看不到这条知识最终会落到哪一层，`project / user` 这类长效认知就会重新变成黑箱；而 `scope='user'` 又天然不该要求客户端硬编码 actor user id，否则 UI 很快会把实现细节重新泄漏出来。
+- 默认做法：composer 默认预选最近邻 scope（通常是当前交付物），同时显示明确的 scope 文案和可切换入口；服务端为 `scope='user'` 提供 actor fallback，客户端只传语义 scope；编辑已有 note 时允许显式迁移 scope，并用完整 iteration 回归同时覆盖 UI 交互和 `/api/notes` 写侧契约。
 
 ## 技术踩坑记录
 

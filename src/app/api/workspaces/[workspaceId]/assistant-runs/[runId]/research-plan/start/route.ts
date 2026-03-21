@@ -121,6 +121,7 @@ export async function POST(
       language: settings.language,
       organizationId: actor.organizationId,
       researchMode: 'deep',
+      userId: actor.userId,
       workspaceId,
     });
 

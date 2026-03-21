@@ -474,6 +474,7 @@ export default function WorkspacePage() {
       conversationId={currentConversationId}
       conversationRuns={workspaceView?.conversationRuns || []}
       conversationTitle={currentConversation?.title || null}
+      currentProjectId={currentProjectId}
       currentDraftBranchTitle={currentDraftBaseVersion?.title || null}
       currentStatus={currentStatus}
       documentContent={commentContextContent}

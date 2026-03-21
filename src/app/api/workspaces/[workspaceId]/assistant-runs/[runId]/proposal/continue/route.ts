@@ -51,6 +51,7 @@ export async function POST(
       language: settings.language,
       modelSupportsImages,
       organizationId: actor.organizationId,
+      userId: actor.userId,
       workspaceId,
     });
 

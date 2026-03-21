@@ -67,9 +67,9 @@ markdown
 - **Policy** { toolName, safetyLevel, confirmationPolicy, writePolicy } — Tool / Action 的执行规则（运行时对象，不持久化）
 - **RenderAdapter** { renderAs, fileContract, previewContract, anchorContract, diffContract } — renderAs 对应的渲染与交互适配器（运行时对象，不持久化）
 ### 认知层
-- **Note** { id, scope, scopeId, kind, content, source, sourceRef?, active }
+- **Note** { id, scope, scopeId, kind, title?, content, source, sourceRef?, active }
   - scope: 'user' | 'project' | 'deliverable'
-  - kind: 'fact' | 'preference'
+  - kind: 'knowledge' | 其他 note category（如 preference / constraint / correction / domain_knowledge）
 - **Method** { id, scope, scopeId, title, steps[], constraints[], toolHints[], status }
 ### 计划层
 - **Goal** { id, deliverableId, description, constraints?, methodId? }
@@ -465,13 +465,16 @@ Phase 6：清理收口（2 天）
 Knowledge 表 + Memory 表 → Note 表（scope + kind 区分）
 迁移现有数据
 更新 context-panel UI
-slice 69 已完成差距评估：当前 `SYSTEM.md` 的 `Note { id, scope, scopeId, kind, content, source, sourceRef?, active }` 无法无损承接 `KnowledgeItem.title/sourceType` 与 `Memory.category/sourceThreadId/active`。详情见 `docs/chengxing-note-merge-brief.md`；在 Note contract 决策明确前，6a 视为 stop gate。
+slice 70 已完成：`SYSTEM.md` 的 `Note` contract 已扩到 `{ id, scope, scopeId, kind, title?, content, source, sourceRef?, active }`；Prisma `Note` model / migration、`src/objects/note/*`、`/api/notes`、`knowledge-panel`、AI context builder 与 tool summary 已统一改读 `Note`。当前 UI 仍保留 `Knowledge / Memory` 双分区，但底层只按 `note.kind` 派生；旧 `KnowledgeItem / Memory` 表与 `/api/{knowledge,memories}` route 已删除。
+slice 71 已完成：默认 AI 读侧现在也消费 `user` scope Note；`buildChatSystemPrompt`、comment/suggest-edit/research prompt builder 与 `get_workspace_context` 已统一覆盖 `deliverable + project + user` scope，并补齐回归测试。
+slice 72 已完成：`Context` 面板读侧现在也与 canonical scope contract 对齐；workspace route 会把 `projectId` 透传给 `knowledge-panel`，`Context` 面板会一起读取 `deliverable + project + user` scope Note、显示 scope badge，并明确新建知识仍默认写入当前交付物。
+slice 73 已完成：`Context` 面板已补齐 `project / user` scope Note 的显式创建 / 编辑入口；`knowledge-panel` 新增 scope 选择和知识编辑流，`/api/notes` 支持 `scope=user` 的 actor fallback 创建与现有 note 的 scope 迁移，并补齐对应 UI 回归。
 6b. 清理旧壳
 删除 src/lib/wiki/ 目录
 删除 src/types/index.ts 底部兼容 alias（WikiData, SessionWithRelations 等）
 删除旧 API 路由（sessions/, wikis/, documents/，如果还存在的话）
 删除旧 agent API 路由（chat/, comment-reply/, suggest-edit/, research-plan/, extract-memory/）
-slice 67 已完成 `src/lib/wiki/` 兼容壳、未使用 wiki/session/document alias 与剩余 route caller 的删除；slice 68 已完成 `src/framework/**` 的 import guard。当前 Phase 6 剩余主线是 6a Note 合并决策、6d 完成态文档与 6e 通用知识沉淀。
+slice 67 已完成 `src/lib/wiki/` 兼容壳、未使用 wiki/session/document alias 与剩余 route caller 的删除；slice 68 已完成 `src/framework/**` 的 import guard；slice 70-73 已完成 Note 合并、`user` scope 默认消费、`Context` 面板 multi-scope 对齐，以及 scoped Note 的显式创建 / 编辑入口。repo 内的 Phase 6 主线已经完全收口；6e 通用知识沉淀仍是仓库外的非阻塞副线。
 6c. ESLint 依赖规则
 javascript
 'no-restricted-imports': ['error', {
@@ -486,6 +489,7 @@ slice 68 已完成：`eslint.config.mjs` 已为 `src/framework/**/*` 增加 scop
 docs/chengxing-lessons-learned.md 补充本轮经验
 docs/chengxing-project-status.md 更新为完成态
 SYSTEM.md 确认与实现一致
+本轮已回写 `docs/chengxing-refactor-tracker.md`、`docs/chengxing-note-merge-brief.md`、`docs/chengxing-lessons-learned.md`、`docs/chengxing-project-status.md` 与 `SYSTEM.md`，让 Phase 6 完成态和 Note contract 与实现一致。
 6e. 通用知识沉淀
 回顾本轮重构中遇到的通用问题，写进通用知识库：
 

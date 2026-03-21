@@ -1,7 +1,7 @@
 # 成形重构追踪器
 
 更新时间：2026-03-21
-状态：active
+状态：done
 来源计划：[refactor_plan.md](../refactor_plan.md)
 
 ## 当前工作流范围
@@ -39,7 +39,7 @@
 | 3 | 版本系统优雅化 | done | 已把 `Label` 合约扩到 `milestone/head/recovery/pinned`，补齐 recovery/pinned 回填与写侧 lifecycle，并让应用层停止读取 `Version.versionType`。 |
 | 4 | 评论系统优雅化 | done | thread/comment read side 的 active agent watching 已切到 message history derive，`agentBindingsJson` 退回写侧兼容。 |
 | 5 | Agent 统一 | done | `/api/agent/run` 已统一承接 chat / research-plan / comment-reply / suggest-edit / extract-memory，旧 AI route 已全部删除。 |
-| 6 | 清理收口 | in_progress | 旧 AI adapter route、`src/lib/wiki/` 兼容壳、dead alias 与 framework import guard 已完成；`Knowledge + Memory -> Note` 因对象契约差距待决。 |
+| 6 | 清理收口 | done | `Knowledge + Memory -> Note` 已落成 canonical `Note` model / route / object seam，并补齐 `user` scope Note 的默认 AI 消费、`Context` 面板的 multi-scope 读侧对齐，以及 `project / user` scope Note 的显式创建 / 编辑入口；旧 AI adapter route、`src/lib/wiki/` 兼容壳、dead alias 与 framework import guard 也已全部收口。 |
 
 ## 已冻结的 non-chat `/api/agent/run` envelope
 
@@ -61,35 +61,37 @@
 
 ## 当前切片
 
-切片目标：进入 Phase 6 的第七十个切片，在确认 `Knowledge + Memory -> Note` 的对象契约后，执行 additive schema / migration / Context UI 收口。
+当前无开放切片。Phase 6 切片 73 已完成，当前 workstream 的 repo 内主线已经收口。
 
-当前切片退出条件：
+本轮最后一个产品代码切片的完成态：
 
-- 确认 `Note` 是否需要补 `title` / category taxonomy 等字段，能无损承接现有 `KnowledgeItem` 与 `Memory` 的用户可见语义
-- 明确 `source` / `sourceRef` 如何覆盖 `KnowledgeItem.sourceType` 与 `Memory.sourceThreadId`
-- 确定 Context 面板是继续保留 `Knowledge / Memory` 双分区，还是改成单 `Note` 视图加过滤
-- 在上述决策明确前，不启动 Note 表、route 或迁移代码
+- `SYSTEM.md` 的 `Note` contract 已扩到 `{ id, scope, scopeId, kind, title?, content, source, sourceRef?, active }`
+- Prisma `Note` model、迁移、`src/objects/note/*` 与 `/api/notes` 已成为唯一 canonical persistence seam
+- `Context` 面板、AI context builder 和 tool summary 已统一改读 `Note`，并在默认 AI 读侧与 `Context` 面板读写两侧都覆盖 `deliverable + project + user` scope；用户表面仍继续按 `note.kind` 派生 `Knowledge / Memory` 双分区，`Context` 面板会显式标出 note scope，并支持把知识显式写入或迁移到 `交付物 / 项目 / 用户` 任一层
+- 旧 `KnowledgeItem / Memory` 表与 `/api/{knowledge,memories}` route 已删除，完整 `npm run verify:iteration` 已通过
 
 ## 下一候选切片
 
-1. Phase 6：确认 `Knowledge + Memory -> Note` 的对象契约后，执行 Note schema / migration / route / view 收口。
-2. Phase 6：回写 `SYSTEM.md` / `docs/chengxing-project-status.md`，把 Phase 6 的完成态文档收口清楚。
-3. Phase 6：回顾本轮可复用的工程经验，补仓库外通用知识沉淀。
+- 当前 repo 内无下一候选切片。
+- 若后续决定继续做仓库外通用知识沉淀，可把本轮经验整理到外部知识库；这不是当前 workstream 的阻塞项。
 
 ## 剩余验收项
 
-- 合约文档存在且与本次讨论一致。
-- skill 与 tracker 能把下一轮 autopilot 固定在当前 workstream，而不是旧计划面。
-- 后续每个 phase 都要补 phase 状态、当前切片、verification history。
-- 任何修改产品代码的切片都要记录 `npm run verify:iteration` 结果。
+- 已完成：合约文档存在且与当前实现一致。
+- 已完成：skill 与 tracker 能把 autopilot 固定在当前 workstream，而不是旧计划面。
+- 已完成：每个 phase 都已补 phase 状态与 verification history。
+- 已完成：最后一个产品代码切片已记录 `npm run verify:iteration` 结果。
 
 ## Blockers
 
-- `SYSTEM.md` 里的 `Note` 目前只有 `{ id, scope, scopeId, kind, content, source, sourceRef?, active }`，不足以无损表达 `KnowledgeItem.title/sourceType` 与 `Memory.category/sourceThreadId/active`；`src/components/knowledge/knowledge-panel.tsx` 与 AI context builder 也仍把二者当成不同用户语义。详情见 [docs/chengxing-note-merge-brief.md](./chengxing-note-merge-brief.md)。
-- 在 Note contract 决策明确前，Phase 6 的 6a 不继续落 schema / route / migration 代码；其余只做与该阻塞无关的文档沉淀。
+- 当前 repo 内无开放 blocker。
 
 ## Verification History
 
+- 2026-03-21：完成 Phase 6 切片 73，把 `Context` 面板补到 canonical `Note` 的 multi-scope 写侧契约：`/api/notes` 现在支持 `scope=user` 的 actor fallback 创建，以及现有 note 的 scope 迁移；`knowledge-panel` 新增 `交付物 / 项目 / 用户` scope 选择、知识编辑入口和对应回归，用户现在可以在 panel 里显式创建或迁移 scoped knowledge；`npm run verify:iteration` 通过（52 passed，1.8m）。
+- 2026-03-21：完成 Phase 6 切片 72，把 `Context` 面板读侧补到 canonical `Note` scope contract：workspace route 现在会把 `projectId` 透传到 `knowledge-panel`，`/api/notes` 支持在 `scope=user` 且未显式传 `scopeId` 时回退当前 actor，`Context` 面板会一起读取 `deliverable + project + user` scope Note 并显示 scope badge，同时补充 workspace context panel 回归；`npm run verify:iteration` 通过（51 passed，1.9m）。
+- 2026-03-21：完成 Phase 6 切片 71，把 `user` scope Note 接入默认 AI 读侧：`buildChatSystemPrompt`、comment/suggest-edit/research prompt builder 与 `get_workspace_context` 现在都覆盖 `deliverable + project + user` scope，并补充 project AI context 回归，验证 user-scope note 能进入默认 prompt 与工具摘要；`npm run verify:iteration` 通过（50 passed，1.7m）。
+- 2026-03-21：完成 Phase 6 切片 70，落地 `Knowledge + Memory -> Note`：扩展 `SYSTEM.md` Note contract、加入 Prisma `Note` model 与迁移、新增 `src/objects/note/*` 和 `/api/notes`，让 `knowledge-panel`、AI context builder、memory extractor 与 agent tools 全部改读 `Note`，并删除旧 `KnowledgeItem / Memory` 表及 `/api/{knowledge,memories}` route；`npm run verify:iteration` 通过（50 passed，1.7m）。
 - 2026-03-21：完成 Phase 6 切片 69，盘点 `Knowledge + Memory -> Note` 的真实差距，新增 [docs/chengxing-note-merge-brief.md](./chengxing-note-merge-brief.md) 并把 blocker 回写 tracker / `refactor_plan.md`；未跑 `npm run verify:iteration`（无产品代码变更）。
 - 2026-03-21：完成 Phase 6 切片 68，为 `src/framework/**` 补 scoped `no-restricted-imports` guard，禁止反依赖 `objects / derive / canvas / surfaces / agent`，并覆盖常见相对路径绕行；`npx eslint src/framework --max-warnings=0` 与 `npm run verify:iteration` 均通过（50 passed）。
 - 2026-03-21：完成 Phase 6 切片 67，把 `src/app/api/{knowledge,memories,conversations,threads/**}` 对 `@/lib/wiki/service` 的剩余依赖全部改指向 canonical `workspace/service` 或 object view seam，删除 `src/lib/wiki/service.ts`、`src/lib/workspace/service.ts` 里的 wiki compatibility export，以及 `src/types/index.ts` 中未再使用的 `Wiki* / SessionWithRelations / DocumentData / VersionData` alias；`npm run verify:iteration` 通过（50 passed）。

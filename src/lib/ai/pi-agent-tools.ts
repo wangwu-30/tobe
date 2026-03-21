@@ -167,6 +167,7 @@ export function createWorkspaceAgentTools({
   const buildScopedNoteTargets = (projectId?: string | null) => [
     ...(wikiId ? [{ scope: 'deliverable' as const, scopeId: wikiId }] : []),
     ...(projectId ? [{ scope: 'project' as const, scopeId: projectId }] : []),
+    ...(actorUserId ? [{ scope: 'user' as const, scopeId: actorUserId }] : []),
   ];
 
   const resolveContextScopeLabel = (

@@ -145,6 +145,7 @@ export async function executeSuggestEditAgentRun(params: {
       anchorText: params.payload.input.anchorText,
       organizationId: params.actor.organizationId,
       threadDiscussion: params.payload.input.threadDiscussion,
+      userId: params.actor.userId,
       wikiContent: params.payload.input.documentContent || '',
       wikiId: params.payload.target.workspaceId || undefined,
     });

@@ -305,27 +305,12 @@ export async function DELETE(
           },
         },
       }),
-      tx.knowledgeItem.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.memory.updateMany({
+      tx.note.updateMany({
         where: {
           deletedAt: null,
           organizationId: actor.organizationId,
-          OR: [
-            { documentId: workspaceId },
-            { sessionId: { in: sessionIds } },
-          ],
+          scope: 'deliverable',
+          scopeId: workspaceId,
         },
         data: {
           deletedAt,

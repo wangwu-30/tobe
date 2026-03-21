@@ -24,6 +24,7 @@ export function WorkspaceAssistantRail({
   conversationId,
   conversationRuns,
   conversationTitle,
+  currentProjectId,
   currentDraftBranchTitle,
   currentStatus,
   documentContent,
@@ -58,6 +59,7 @@ export function WorkspaceAssistantRail({
   conversationId: AssistantPanelProps['conversationId'];
   conversationRuns: AssistantPanelProps['conversationRuns'];
   conversationTitle: AssistantPanelProps['conversationTitle'];
+  currentProjectId: ContextPanelProps['projectId'];
   currentDraftBranchTitle: StatusPanelProps['currentDraftBranchTitle'];
   currentStatus: StatusPanelProps['currentStatus'];
   documentContent: ReviewPanelProps['documentContent'];
@@ -140,6 +142,7 @@ export function WorkspaceAssistantRail({
         <ContextPanelSurface
           activeWorkflowPlaybookId={activeWorkflowPlaybookId}
           onApplyWorkflow={onApplyWorkflow}
+          projectId={currentProjectId}
           wikiId={wikiId}
         />
       }

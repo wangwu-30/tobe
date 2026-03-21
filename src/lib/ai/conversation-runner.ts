@@ -98,6 +98,7 @@ type WorkspaceAssistantSystemPromptParams = {
   language: Parameters<typeof buildChatSystemPrompt>[0]['language'];
   organizationId: string;
   researchMode?: ResearchMode;
+  userId: string;
   workspaceId: string;
 };
 
@@ -110,6 +111,7 @@ export async function buildWorkspaceAssistantSystemPrompt(
     language: params.language,
     organizationId: params.organizationId,
     researchMode: params.researchMode,
+    userId: params.userId,
     workspaceId: params.workspaceId,
   });
 }

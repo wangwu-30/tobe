@@ -51,6 +51,8 @@ export async function updateNote(
     kind?: string;
     organizationId: string;
     originDeviceId?: string | null;
+    scope?: NoteScope;
+    scopeId?: string;
     source?: string;
     sourceRef?: string | null;
     title?: string | null;
@@ -66,6 +68,8 @@ export async function updateNote(
       ...(input.active !== undefined ? { active: input.active } : {}),
       ...(input.content !== undefined ? { content: input.content } : {}),
       ...(input.kind !== undefined ? { kind: input.kind } : {}),
+      ...(input.scope !== undefined ? { scope: input.scope } : {}),
+      ...(input.scopeId !== undefined ? { scopeId: input.scopeId } : {}),
       ...(input.source !== undefined ? { source: input.source } : {}),
       ...(input.sourceRef !== undefined ? { sourceRef: input.sourceRef } : {}),
       ...(input.title !== undefined ? { title: input.title?.trim() || null } : {}),

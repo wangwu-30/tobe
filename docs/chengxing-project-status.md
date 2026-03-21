@@ -1,6 +1,6 @@
 # 成形项目状态
 
-更新时间：2026-03-20
+更新时间：2026-03-21
 状态：终版收口完成，进入严格迭代验收维护
 对应规划：[产品落地计划](./chengxing-rollout-plan.md)
 经验台账：[经验教训台账](./chengxing-lessons-learned.md)
@@ -12,9 +12,10 @@
 - 首页、设置页和工作区左栏里的“项目”已收成显式 `ProjectSummary` 摘要对象：项目列表现在直接返回 `projectId + representative workspaceId + deliverableCount + latestDeliverableTitle`，不再继续把 `/api/workspaces` 的分组结果假装成项目导航。
 - 工作区顶栏现在会把“当前交付物位于哪个项目 / 文件夹”直接放进第一扫描线，并提供显式“新建同级交付物”动作；该入口会直接在当前 `projectId / projectFolderId` 下打开 Goal Composer，不再先绕回全局 starter 或要求用户先选技术类型。若同一项目下已有多个交付物，标题本身也会变成切换器，允许直接切到同项目的另一份当前交付物。
 - 创建流已经切到意图驱动：首页和工作区都直接进入 `GoalComposerDialog`，不再暴露 `document / slides / web / code` 选择器；明确网页类目标会直接路由到 web，歧义目标会在创建流内展示结构化追问卡片，而“两者都要”会在同项目下自动创建文档主件和 sibling web。
-- AI 的当前交付物对话已开始携带项目级摘要上下文：chat system prompt 与 `get_workspace_context` 都会注入同项目交付物的标题 / 类型 / 状态摘要；chat prompt 还会把当前 / 项目 / 全局三层 `Knowledge / Memory` 统一打进同一条上下文链路。当用户提到“参考首页”“跟 FAQ 对齐”这类跨交付物需求时，agent 可以先 `list_project_deliverables`，再 `read_project_deliverable_file` 显式读取同项目兄弟交付物内容，而不必把整个项目内容默认灌进 prompt。
+- AI 的当前交付物对话已开始携带项目级摘要上下文：chat system prompt 与 `get_workspace_context` 都会注入同项目交付物的标题 / 类型 / 状态摘要；chat prompt 还会把 `deliverable + project + user` scope 的 `Note` 一起打进同一条上下文链路，并在 prompt / tool summary 里继续按 `Knowledge / Memory` 双分区输出。当用户提到“参考首页”“跟 FAQ 对齐”这类跨交付物需求时，agent 可以先 `list_project_deliverables`，再 `read_project_deliverable_file` 显式读取同项目兄弟交付物内容，而不必把整个项目内容默认灌进 prompt。
 - 评论闭环已固定到 `version + draftRevision` 基点。`CommentThreadData` 现已暴露 `scope / inheritanceState / sourceVersionId / anchorFingerprint`；主列表只显示 `direct(open/applied)` 与 `inherited(actionable)`，`stale / superseded` 收到“更早上下文”。
-- 右侧助手栏已收成 `状态 / 评审 / 对话 / 上下文` 四个职责明确的 tab。`状态` 是当前状态、当前 workflow 与下一步动作的唯一主入口；`评审` 只承载线程；`对话` 只承载发送相关阻塞；`上下文` 只承载知识、记忆与 workflow 库。
+- 右侧助手栏已收成 `状态 / 评审 / 对话 / 上下文` 四个职责明确的 tab。`状态` 是当前状态、当前 workflow 与下一步动作的唯一主入口；`评审` 只承载线程；`对话` 只承载发送相关阻塞；`上下文` 只承载 `Note` 派生的知识/记忆与 workflow 库，并会显式标出当前 note 来自 `交付物 / 项目 / 用户` 哪一层。
+- 认知层持久化已统一收口到 `Note`：`KnowledgeItem / Memory` 旧表和 `/api/{knowledge,memories}` 已删除，`/api/notes` 与 `src/objects/note/*` 成为唯一 canonical seam；当前 `Context` 面板继续按 `note.kind` 派生 `Knowledge / Memory` 两个用户分区，且读写两侧都已经和 AI 一样覆盖 `deliverable + project + user` scope。用户现在可以在面板里显式把知识保存到 `交付物 / 项目 / 用户` 任一层，并在编辑已有知识时迁移 scope；默认新建仍落到当前交付物，而不是再维护两套存储。
 - 支持资料树已与项目树复用同一对象操作和 `WorkspaceFile.sortOrder`，支持创建、重命名、删除、移动、拖拽与顺序调整，中心表面、URL 与左栏选中态保持同步。
 - `Workflow Playbook V1` 已定稿为 `draft / active / archived` 三态。只有 `active` 进入默认复用、workspace plan 绑定和 chat prompt 注入链路；`archived -> restore` 固定回到 `draft`；draft warning 已升级为激活前 gate。
 - 系统级内置 workflow 已并入同一套 playbook 轨道，而不是另做单独向导：当前至少内置了“需求规格到网页上线”和“成形类产品市场分析报告”两套模板；它们会直接出现在 Goal Composer 与 Context 里，创建/应用时会落入现有 workflow 绑定链路，并把后续 `tools / MCP / skills` 扩展继续收在同一个方法层入口上。workflow 现在会把开放扩展提示作为正式字段持久化到 playbook 本身，自定义 workflow 在保存、复制、刷新、激活和 plan/chat 注入后都能继续带出同一组 `Tools / MCP / Skills` 提示，避免把未来生态能力埋在纯文本备注里或只对内置模板生效。
@@ -106,6 +107,7 @@
   - branch overview 还允许进入单分支聚焦模式：里程碑区会临时只显示目标 branch 的 lineage，并提供返回全部分支的显式动作。
   - `Status` 面板会显式显示当前 live draft 的分支基线标题，不再要求用户只去 `Chat` 或 `Version` 里确认自己正在沿哪条分支推进。
   - `Status` 是当前项目状态、当前 workflow 和下一步动作的唯一主入口，不再承担人工类型管理。
+  - `Context` tab 会同时显示 `deliverable + project + user` scope Note，并用显式 scope badge 告知当前知识/记忆来自哪一层；知识条目可以在 tab 内显式写入或迁移到 `交付物 / 项目 / 用户` 任一层，默认新建仍写入当前交付物。
   - `slides` 内容可直接由 `slide_page` block 渲染成分页卡片，不再依赖把 markdown 文本重新按 heading 解析成假 slide。
   - web 结果面会通过同源 preview bridge 承载评论交互：在 iframe 中选中文本或点中元素后可以创建 `web-component` 线程；从 `Review` 选中该线程时，iframe 内对应元素会被重新定位并临时高亮。
   - 首页不再由阻断式 welcome modal 承担 onboarding；只保留可关闭的轻量起步提示。
@@ -121,7 +123,7 @@
   - Goal Composer 与 `Context > Workflow` 都会直接暴露系统内置 workflow 模板；当前内置场景至少包含“需求规格到网页上线”和“成形类产品市场分析报告”。
   - 内置 workflow 会显式展示 `Tools / MCP / Skills` 这三条开放扩展轨道，当前 `Status`、`Context` 与 Goal Composer 看到的是同一份结构化提示，而不是各写一套说明文案。
   - 自定义 workflow 保存的 `Tools / MCP / Skills` 提示会持久化到 playbook 本身；刷新页面、复制 workflow、应用到当前任务以及 chat prompt 注入后都继续读取同一份结构化数据，而不是只靠 builtin fallback 补文案。
-  - 当前交付物的 chat prompt 与 `get_workspace_context` 会携带同项目交付物摘要；chat prompt 还会把当前 / 项目 / 全局三层 `Knowledge / Memory` 一起注入。需要参考兄弟交付物时，agent 可以通过 `list_project_deliverables` 与 `read_project_deliverable_file` 读取同项目的显式文件内容。
+  - 当前交付物的 chat prompt 与 `get_workspace_context` 会携带同项目交付物摘要，以及 `deliverable + project + user` scope `Note` 派生的 `Knowledge / Memory` 分区。需要参考兄弟交付物时，agent 可以通过 `list_project_deliverables` 与 `read_project_deliverable_file` 读取同项目的显式文件内容。
   - 选择内置 workflow 后，会沿用现有 playbook 绑定链路进入当前任务 / 新交付物，而不是走一套旁路状态机。
   - 只有 `active` playbook 进入默认复用、workspace plan 绑定和 chat prompt 注入链路。
   - `archived -> restore` 返回 `draft`，不会静默恢复成 `active`。
@@ -135,6 +137,6 @@
   - 定向 `npx playwright test tests/e2e/iteration/14-project-ai-context.spec.ts --config=playwright.config.ts`
   - 定向 `npx playwright test tests/e2e/iteration/15-web-preview-comments.spec.ts --config=playwright.config.ts`
   - 稳定性复跑 `npx playwright test tests/e2e/iteration/15-web-preview-comments.spec.ts --config=playwright.config.ts --repeat-each=3`
-  - `npm run verify:iteration` (`50 passed (2.0m)`)
+  - `npm run verify:iteration` (`52 passed (1.8m)`)
   - 浏览器走查已覆盖 home/workspace 壳一致、右栏职责分离、支持资料创建与选中同步、workflow draft/activate(confirm)/archive/restore，以及评论继承 `actionable / stale / superseded` 分区显示。
   - 严格迭代门禁文档、Playwright 配置、隔离 seed 和 `pre-push` 规则已落地；后续功能交付默认改用 `npm run verify:iteration` 关闭验收。

@@ -96,7 +96,7 @@
   - `Context > Workflow` 会单独显示内置 workflow 模板区，且可直接把模板应用到当前任务
   - 内置 workflow 卡片和 `Status` 面板会显示同一组 `Tools / MCP / Skills` 开放扩展提示，不允许各写一套分叉文案
   - 自定义 workflow 在 `Context` 中填写并保存 `Tools / MCP / Skills` 后，刷新页面仍能看到同样的提示；应用到当前任务后，`Status` 也会显示同一组开放扩展标签
-  - 项目级 AI 上下文需要覆盖一个明确场景：在当前交付物上构建 chat prompt / `get_workspace_context` 时，能够带出同项目其他交付物的标题、类型、状态摘要，以及当前 / 项目 / 全局三层 `Knowledge / Memory`；当 AI 需要参考兄弟交付物时，必须能先列出同项目交付物，再显式读取目标文件内容
+  - 项目级 AI 上下文需要覆盖一个明确场景：在当前交付物上构建 chat prompt / `get_workspace_context` 时，能够带出同项目其他交付物的标题、类型、状态摘要，以及 `deliverable + project + user` scope `Note` 派生的 `Knowledge / Memory`；当 AI 需要参考兄弟交付物时，必须能先列出同项目交付物，再显式读取目标文件内容
   - 如果同项目里存在无 plan 的历史实现说明类交付物，即使其 primary file `kind=code`，项目级 AI context 也不能仅凭 file kind 把它误标成 `web`；只有明确的网页线索才能进入网页语义
   - `workspace view`、项目级 AI context 和共享 helper 对外 deliverable 语义只应暴露 canonical `document | web`；legacy `slides` 只通过统一 slide 结果面兼容，不能重新回流到公共类型契约或项目摘要里
   - plan generator、`get_workspace_context`、`list_project_deliverables` 和 `read_project_deliverable_file` 这类 AI-facing 摘要应统一使用 `result shape / shape` 语义；stored legacy deliverable 值必须先 canonicalize，再进入 prompt 或工具输出
