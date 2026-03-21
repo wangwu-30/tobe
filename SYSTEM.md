@@ -54,10 +54,10 @@
 
 ### 认知层
 
-- **Note** `{ id, scope, scopeId, kind, content, source, sourceRef?, active }`
-  统一的事实与偏好沉淀。
+- **Note** `{ id, scope, scopeId, kind, title?, content, source, sourceRef?, active }`
+  统一的可复用事实、偏好与经验沉淀。
   `scope` 包含 `user | project | deliverable`。
-  `kind` 包含 `fact | preference`。
+  `kind` 承载 `knowledge` 与其他可复用 note category（如 `preference / constraint / correction / domain_knowledge`）。
 - **Method** `{ id, scope, scopeId, title, steps[], constraints[], toolHints[], status }`
   工作方法与约束。
 
@@ -97,6 +97,7 @@
 - `Action` 可以持久化长跑状态、确认状态和恢复状态。
   这些不是应被消灭的“脏状态”。
 - Agent 只有一个 loop，通过 `Context + ToolKit + Persona + Policy + RenderAdapter` 适配场景。
+- 外部 Agent 入口统一到 `/api/agent/run`；非聊天请求使用显式 `mode + target + input (+ model)` envelope。
 - 添加新的 `renderAs` 不改核心模型，只加 `RenderAdapter + ToolKit + Canvas`。
 - 迁移顺序遵循：
   先统一内部 runtime，再统一外部 route。

@@ -482,7 +482,7 @@ export function CommentSidebar({
         | null;
 
       try {
-        await fetch('/api/ai/extract-memory', {
+        await fetch('/api/agent/run', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -490,7 +490,10 @@ export function CommentSidebar({
               ? { 'x-ai-settings': localStorage.getItem('ai-settings')! }
               : {}),
           },
-          body: JSON.stringify({ threadId }),
+          body: JSON.stringify({
+            mode: 'extract-memory',
+            target: { threadId },
+          }),
         });
       } catch {
         // Memory extraction is best-effort.

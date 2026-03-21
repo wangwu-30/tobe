@@ -258,24 +258,14 @@ export async function DELETE(
           },
         },
       }),
-      tx.knowledgeItem.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: { in: workspaceIds },
-          organizationId: actor.organizationId,
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.memory.updateMany({
+      tx.note.updateMany({
         where: {
           deletedAt: null,
           organizationId: actor.organizationId,
-          OR: [{ documentId: { in: workspaceIds } }, { sessionId: { in: sessionIds } }],
+          OR: [
+            { scope: 'deliverable', scopeId: { in: workspaceIds } },
+            { scope: 'project', scopeId: projectId },
+          ],
         },
         data: {
           deletedAt,

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isVisibleCommentMessage } from '@/derive/agent-watching';
 import { getSettingsFromHeaders } from '@/lib/ai/providers';
 import {
   stringifyCommentAgentMentions,
 } from '@/lib/comments/agents';
 import { prisma } from '@/lib/db/prisma';
 import { buildCommentMessageAgentState } from '@/objects/comment/agent-bindings';
+import { mapCommentMessage } from '@/objects/comment/view';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { mapCommentMessage } from '@/lib/wiki/service';
 
 export async function GET(
   _req: NextRequest,
@@ -22,7 +23,7 @@ export async function GET(
     },
     orderBy: { createdAt: 'asc' },
   });
-  return NextResponse.json(messages.map(mapCommentMessage));
+  return NextResponse.json(messages.filter(isVisibleCommentMessage).map(mapCommentMessage));
 }
 
 export async function POST(

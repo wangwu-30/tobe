@@ -24,8 +24,7 @@ model Organization {
   labels           Label[]
   commentThreads   CommentThread[]
   commentMessages  CommentMessage[]
-  memories         Memory[]
-  knowledgeItems   KnowledgeItem[]
+  notes            Note[]
   workflowPlaybooks WorkflowPlaybook[]
   wikiEditLocks    WikiEditLock[]
   workspaceRuns    WorkspaceRun[]
@@ -176,7 +175,6 @@ model Document {
   files           WorkspaceFile[]
   versions        Version[]
   threads         CommentThread[]
-  knowledgeItems  KnowledgeItem[]
   workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookDocument")
   wikiEditLock    WikiEditLock?
   workspaceRuns   WorkspaceRun[]
@@ -347,14 +345,16 @@ model CommentMessage {
   @@index([threadId, createdAt])
 }
 
-model Memory {
+model Note {
   id              String       @id @default(cuid())
   organizationId  String       @default("local-org")
-  sessionId       String?
-  documentId      String?
-  category        String
+  scope           String
+  scopeId         String
+  kind            String       @default("knowledge")
+  title           String?
   content         String
-  sourceThreadId  String?
+  source          String       @default("manual")
+  sourceRef       String?
   active          Boolean      @default(true)
   createdByUserId String?
   originDeviceId  String?
@@ -365,28 +365,7 @@ model Memory {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, createdAt])
-  @@index([documentId, createdAt])
-  @@index([sessionId, createdAt])
-}
-
-model KnowledgeItem {
-  id              String       @id @default(cuid())
-  organizationId  String       @default("local-org")
-  documentId      String?
-  title           String
-  content         String
-  sourceType      String       @default("note")
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int          @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document        Document?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
-
-  @@index([organizationId, createdAt])
-  @@index([documentId, createdAt])
+  @@index([organizationId, scope, scopeId, createdAt])
 }
 
 model WorkflowPlaybook {

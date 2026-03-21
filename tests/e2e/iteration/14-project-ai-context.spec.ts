@@ -42,15 +42,18 @@ test('project AI context exposes sibling deliverable summaries and explicit cros
     content: homepageCopy,
     kind: 'text',
   });
-  await createKnowledge(baseURL, {
+  await createNote(baseURL, {
     content: projectKnowledge,
+    kind: 'knowledge',
+    scope: 'project',
+    scopeId: projectId,
     title: '品牌语调',
-    wikiId: projectId,
   });
-  await createMemory(baseURL, {
-    category: 'copy',
+  await createNote(baseURL, {
     content: projectMemory,
-    wikiId: projectId,
+    kind: 'copy',
+    scope: 'project',
+    scopeId: projectId,
   });
 
   const faq = await createWorkspace(baseURL, faqTitle, {
@@ -333,29 +336,17 @@ async function setStoredWorkspaceDeliverableType(
   });
 }
 
-async function createKnowledge(
+async function createNote(
   baseURL: string,
   body: {
     content: string;
-    title: string;
-    wikiId: string;
+    kind: string;
+    scope: 'deliverable' | 'project' | 'user';
+    scopeId: string;
+    title?: string;
   }
 ) {
-  return apiRequest(baseURL, '/api/knowledge', {
-    body,
-    method: 'POST',
-  });
-}
-
-async function createMemory(
-  baseURL: string,
-  body: {
-    category: string;
-    content: string;
-    wikiId: string;
-  }
-) {
-  return apiRequest(baseURL, '/api/memories', {
+  return apiRequest(baseURL, '/api/notes', {
     body,
     method: 'POST',
   });

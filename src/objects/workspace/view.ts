@@ -9,8 +9,6 @@ import {
 } from '@/objects/project/queries';
 import { deriveWorkspaceStateSemantics } from '@/objects/state/schema';
 import type {
-  KnowledgeItemData,
-  MemoryData,
   StateLabelData,
   WorkspaceData,
   WorkspaceEditLockData,
@@ -71,42 +69,9 @@ type WorkspaceEditLockRecord = {
   userId: string;
 };
 
-type KnowledgeItemRecord = {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string | null;
-  id: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  revision: number;
-  sourceType: string;
-  title: string;
-  updatedAt: Date;
-};
-
-type MemoryRecord = {
-  active: boolean;
-  category: string;
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string | null;
-  id: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  revision: number;
-  sessionId: string | null;
-  sourceThreadId: string | null;
-  updatedAt: Date;
-};
-
 type WorkspaceWithRelationsRecord = WorkspaceRecord & {
   deliverable?: WorkspaceWithRelations['deliverable'];
   files: Array<Parameters<typeof mapWorkspaceFile>[0]>;
-  knowledgeItems: KnowledgeItemRecord[];
   stagedChangeSets?: WorkspaceWithRelations['stagedChangeSets'];
   versions: WorkspaceVersionData[];
   workspacePlan?: WorkspaceWithRelations['workspacePlan'];
@@ -192,44 +157,6 @@ export function mapWorkspaceEditLock(
   };
 }
 
-export function mapKnowledgeItem(item: KnowledgeItemRecord): KnowledgeItemData {
-  return {
-    id: item.id,
-    organizationId: item.organizationId,
-    workspaceId: item.documentId,
-    wikiId: item.documentId,
-    title: item.title,
-    content: item.content,
-    sourceType: item.sourceType,
-    createdByUserId: item.createdByUserId,
-    originDeviceId: item.originDeviceId,
-    revision: item.revision,
-    deletedAt: item.deletedAt,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
-  };
-}
-
-export function mapMemory(memory: MemoryRecord): MemoryData {
-  return {
-    id: memory.id,
-    organizationId: memory.organizationId,
-    conversationId: memory.sessionId,
-    workspaceId: memory.documentId,
-    wikiId: memory.documentId,
-    category: memory.category,
-    content: memory.content,
-    sourceThreadId: memory.sourceThreadId,
-    active: memory.active,
-    createdByUserId: memory.createdByUserId,
-    originDeviceId: memory.originDeviceId,
-    revision: memory.revision,
-    deletedAt: memory.deletedAt,
-    createdAt: memory.createdAt,
-    updatedAt: memory.updatedAt,
-  };
-}
-
 export function mapWorkspaceWithRelations(
   workspace: WorkspaceWithRelationsRecord
 ): WorkspaceWithRelations {
@@ -237,7 +164,6 @@ export function mapWorkspaceWithRelations(
     ...mapWorkspace(workspace),
     deliverable: workspace.deliverable || null,
     files: workspace.files.map(mapWorkspaceFile),
-    knowledgeItems: workspace.knowledgeItems.map(mapKnowledgeItem),
     stagedChangeSets: workspace.stagedChangeSets || [],
     versions: workspace.versions,
     workspacePlan: workspace.workspacePlan || null,

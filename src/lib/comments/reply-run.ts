@@ -1,15 +1,15 @@
-import type { Settings } from '@/lib/ai/providers';
-import type { AnyPiModel } from '@/framework/agent/run';
-import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
-import { streamWorkspaceAssistantRunWithPersistence } from '@/lib/ai/workspace-assistant-run';
+import {
+  buildWorkspaceAssistantSystemPrompt,
+  startWorkspaceAssistantRun,
+} from '@/lib/ai/conversation-runner';
+import { buildCommentContext } from '@/lib/ai/context-builder';
 import { prisma } from '@/lib/db/prisma';
+import { streamWithPi, toPiContextMessages } from '@/lib/ai/pi-runtime';
 import { parseReviewAnchor } from '@/lib/comments/review-anchor';
 import { startWorkspacePreview } from '@/lib/platform/run-service';
 import { refreshCommentAgentBindingsState } from '@/objects/comment/agent-bindings';
 import {
-  createAssistantRun,
   createConversationForWorkspace,
-  updateAssistantRun,
   updateWorkspaceFile,
 } from '@/lib/workspace/service';
 
@@ -39,16 +39,80 @@ type CommentThreadMessage = {
   role: string;
 };
 
+export async function runStandardCommentReply(params: {
+  activeAgent: CommentAgent & {
+    systemPrompt: string;
+  };
+  actor: ActorContext;
+  anchorText: string;
+  model: Parameters<typeof streamWithPi>[0]['model'];
+  modelKey: string;
+  settings: Parameters<typeof streamWithPi>[0]['settings'];
+  thread: CommentThreadRecord;
+  threadId: string;
+  threadMessages: CommentThreadMessage[];
+  wikiContent: string;
+  workspaceId?: string;
+}) {
+  const { systemPrompt, messages } = await buildCommentContext({
+    anchorText: params.anchorText,
+    language: params.settings.language,
+    organizationId: params.thread?.organizationId || params.actor.organizationId,
+    threadMessages: params.threadMessages
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({ role: message.role, content: message.content })),
+    wikiContent: params.wikiContent,
+    wikiId: params.workspaceId,
+  });
+  const agentSystemPrompt = [
+    systemPrompt,
+    '',
+    '## Comment Agent',
+    `Handle this reply as ${params.activeAgent.name} (${params.activeAgent.handle}).`,
+    params.activeAgent.systemPrompt,
+  ].join('\n');
+
+  return streamWithPi({
+    model: params.model,
+    settings: params.settings,
+    context: {
+      systemPrompt: agentSystemPrompt,
+      messages: toPiContextMessages(
+        messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        params.model
+      ),
+    },
+    onFinish: async ({ text }) => {
+      const persistedText = text.trim();
+      if (!persistedText) {
+        return;
+      }
+
+      await persistCommentAgentReply({
+        activeAgent: params.activeAgent,
+        actor: params.actor,
+        modelKey: params.modelKey,
+        text: persistedText,
+        thread: params.thread,
+        threadId: params.threadId,
+      });
+    },
+  });
+}
+
 export async function runToolEnabledWebCommentReply(params: {
   activeAgent: CommentAgent & {
     systemPrompt: string;
   };
   actor: ActorContext;
   anchorText: string;
-  model: AnyPiModel;
+  model: Parameters<typeof startWorkspaceAssistantRun>[0]['model'];
   modelKey: string;
   reviewAnchor: ReturnType<typeof parseReviewAnchor>;
-  settings: Settings;
+  settings: Parameters<typeof startWorkspaceAssistantRun>[0]['settings'];
   thread: CommentThreadRecord;
   threadId: string;
   threadMessages: CommentThreadMessage[];
@@ -59,42 +123,33 @@ export async function runToolEnabledWebCommentReply(params: {
     preferredFileId: params.thread?.fileId || null,
     workspaceId: params.workspaceId,
   });
-  const assistantRun = await createAssistantRun(params.actor, {
-    conversationId,
-    mode: 'revision',
-    title: buildCommentRunTitle(params.anchorText),
-    workspaceId: params.workspaceId,
-  });
-
-  await updateAssistantRun(params.actor, {
-    runId: assistantRun.id,
-    status: 'planning',
-  });
-
-  const systemPrompt = await buildChatSystemPrompt({
+  const systemPrompt = await buildWorkspaceAssistantSystemPrompt({
     conversationId,
     language: params.settings.language,
     organizationId: params.actor.organizationId,
     workspaceId: params.workspaceId,
   });
 
-  return streamWorkspaceAssistantRunWithPersistence({
+  return startWorkspaceAssistantRun({
     actor: params.actor,
-    assistantRunId: assistantRun.id,
     conversationId,
-    emptyReplyErrorMessage: 'AI finished without a visible review reply.',
-    failedRunSummary: 'AI review run failed.',
+    emptyReplySummary: 'AI finished without a visible review reply.',
+    errorSummary: 'AI review run failed.',
     model: params.model,
     modelKey: params.modelKey,
-    persistAssistantReply: async ({ modelKey, text }) => {
+    persistAssistantText: async (persistedText) => {
       await persistCommentAgentReply({
         activeAgent: params.activeAgent,
         actor: params.actor,
-        modelKey,
-        text,
+        modelKey: `agent:${params.modelKey}`,
+        text: persistedText,
         thread: params.thread,
         threadId: params.threadId,
       });
+    },
+    run: {
+      mode: 'revision',
+      title: buildCommentRunTitle(params.anchorText),
     },
     settings: params.settings,
     systemPrompt: [

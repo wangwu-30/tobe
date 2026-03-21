@@ -1,3 +1,4 @@
+import { deriveCommentAgentBindings } from '@/derive/agent-watching';
 import type { Settings } from '@/lib/ai/providers';
 import {
   parseCommentAgentBindings,
@@ -77,11 +78,19 @@ export function stopCommentAgentListeningState(params: {
 export function resolveCommentResearchTargetFromBindings(params: {
   bindingsJson?: string | null;
   content: string;
+  messages?: Parameters<typeof deriveCommentAgentBindings>[0]['messages'];
   preferredAgentId?: string | null;
   settings: Settings;
 }) {
+  const bindings = params.messages
+    ? deriveCommentAgentBindings({
+        bindingsJson: params.bindingsJson,
+        messages: params.messages,
+      })
+    : parseCommentAgentBindings(params.bindingsJson);
+
   return resolveCommentResearchTarget({
-    bindings: parseCommentAgentBindings(params.bindingsJson),
+    bindings,
     content: params.content,
     preferredAgentId: params.preferredAgentId,
     settings: params.settings,

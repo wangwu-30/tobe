@@ -5,6 +5,11 @@ import {
   loadProjectAiContextData,
 } from '@/lib/ai/project-context';
 import type { AppLanguage } from '@/lib/i18n/language';
+import {
+  listNotes,
+  splitNotesByKind,
+} from '@/objects/note';
+import type { NoteData } from '@/types';
 import { resolveWorkflowExtensionHints } from '@/lib/workflows/extension-hints';
 import { formatWorkflowPlaybookForPrompt } from '@/lib/workflows/service';
 
@@ -31,24 +36,31 @@ function parseStructuredList(raw: string) {
     .filter(Boolean);
 }
 
-function buildScopedDocumentIds(workspaceId: string | null | undefined, projectId?: string | null) {
-  return Array.from(new Set([workspaceId, projectId].filter(Boolean))) as string[];
+function buildScopedNoteTargets(workspaceId: string | null | undefined, projectId?: string | null) {
+  return [
+    ...(workspaceId ? [{ scope: 'deliverable' as const, scopeId: workspaceId }] : []),
+    ...(projectId ? [{ scope: 'project' as const, scopeId: projectId }] : []),
+  ];
 }
 
 function resolveContextScopeLabel(
-  documentId: string | null,
+  note: Pick<NoteData, 'scope' | 'scopeId'>,
   workspaceId: string | null | undefined,
   projectId?: string | null
 ) {
-  if (documentId && workspaceId && documentId === workspaceId) {
+  if (note.scope === 'deliverable' && workspaceId && note.scopeId === workspaceId) {
     return 'current';
   }
 
-  if (documentId && projectId && documentId === projectId) {
+  if (note.scope === 'project' && projectId && note.scopeId === projectId) {
     return 'project';
   }
 
-  return 'global';
+  if (note.scope === 'user') {
+    return 'user';
+  }
+
+  return note.scope;
 }
 
 export async function buildCommentContext(params: {
@@ -67,38 +79,12 @@ export async function buildCommentContext(params: {
     wikiId,
   } = params;
 
-  const memories = await prisma.memory.findMany({
-    where: {
-      active: true,
-      deletedAt: null,
-      organizationId,
-      ...(wikiId
-        ? {
-            OR: [
-              { documentId: wikiId },
-              { documentId: null },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { createdAt: 'desc' },
+  const notes = await listNotes({
+    activeOnly: true,
+    organizationId,
+    scopeTargets: wikiId ? [{ scope: 'deliverable', scopeId: wikiId }] : undefined,
   });
-
-  const knowledgeItems = await prisma.knowledgeItem.findMany({
-    where: {
-      deletedAt: null,
-      organizationId,
-      ...(wikiId
-        ? {
-            OR: [
-              { documentId: wikiId },
-              { documentId: null },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { createdAt: 'desc' },
-  });
+  const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
 
   const systemParts: string[] = [
     'You are the review agent inside 成形. You are responding to a local revision request on a deliverable draft or visible version.',
@@ -113,17 +99,17 @@ export async function buildCommentContext(params: {
     `"${anchorText}"`,
   ];
 
-  if (memories.length > 0) {
+  if (memoryNotes.length > 0) {
     systemParts.push('', '## Organization and Wiki Memories');
-    memories.forEach((memory) => {
-      systemParts.push(`- [${memory.category}] ${memory.content}`);
+    memoryNotes.forEach((memory) => {
+      systemParts.push(`- [${memory.kind}] ${memory.content}`);
     });
   }
 
-  if (knowledgeItems.length > 0) {
+  if (knowledgeNotes.length > 0) {
     systemParts.push('', '## Knowledge Base');
-    knowledgeItems.forEach((item) => {
-      systemParts.push(`- **${item.title}**: ${item.content}`);
+    knowledgeNotes.forEach((item) => {
+      systemParts.push(`- **${item.title || 'Untitled'}**: ${item.content}`);
     });
   }
 
@@ -169,40 +155,12 @@ export async function buildChatSystemPrompt(params: {
         })
       : Promise.resolve(null),
   ]);
-  const scopedDocumentIds = buildScopedDocumentIds(workspaceId, projectContext?.id || null);
-  const [memories, knowledgeItems] = await Promise.all([
-    prisma.memory.findMany({
-      where: {
-        active: true,
-        deletedAt: null,
-        organizationId: params.organizationId,
-        ...(scopedDocumentIds.length > 0
-          ? {
-              OR: [
-                { documentId: { in: scopedDocumentIds } },
-                { documentId: null },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.knowledgeItem.findMany({
-      where: {
-        deletedAt: null,
-        organizationId: params.organizationId,
-        ...(scopedDocumentIds.length > 0
-          ? {
-              OR: [
-                { documentId: { in: scopedDocumentIds } },
-                { documentId: null },
-              ],
-            }
-          : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-    }),
-  ]);
+  const notes = await listNotes({
+    activeOnly: true,
+    organizationId: params.organizationId,
+    scopeTargets: buildScopedNoteTargets(workspaceId, projectContext?.id || null),
+  });
+  const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
 
   const parts: string[] = [
     'You are the first author inside 成形, an artifact-first AI authoring studio.',
@@ -240,20 +198,20 @@ export async function buildChatSystemPrompt(params: {
     );
   }
 
-  if (memories.length > 0) {
+  if (memoryNotes.length > 0) {
     parts.push('', '## Memories to Always Apply');
-    memories.forEach((memory) => {
+    memoryNotes.forEach((memory) => {
       parts.push(
-        `- [${resolveContextScopeLabel(memory.documentId, workspaceId, projectContext?.id || null)} / ${memory.category}] ${memory.content}`
+        `- [${resolveContextScopeLabel(memory, workspaceId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
       );
     });
   }
 
-  if (knowledgeItems.length > 0) {
+  if (knowledgeNotes.length > 0) {
     parts.push('', '## Knowledge to Reuse');
-    knowledgeItems.forEach((item) => {
+    knowledgeNotes.forEach((item) => {
       parts.push(
-        `- [${resolveContextScopeLabel(item.documentId, workspaceId, projectContext?.id || null)}] ${item.title}: ${item.content}`
+        `- [${resolveContextScopeLabel(item, workspaceId, projectContext?.id || null)}] ${item.title || 'Untitled'}: ${item.content}`
       );
     });
   }
@@ -297,22 +255,12 @@ export async function buildSuggestionContext(params: {
   const { anchorText, organizationId, threadDiscussion, wikiContent, wikiId } =
     params;
 
-  const memories = await prisma.memory.findMany({
-    where: {
-      active: true,
-      deletedAt: null,
-      organizationId,
-      ...(wikiId
-        ? {
-            OR: [
-              { documentId: wikiId },
-              { documentId: null },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { createdAt: 'desc' },
+  const notes = await listNotes({
+    activeOnly: true,
+    organizationId,
+    scopeTargets: wikiId ? [{ scope: 'deliverable', scopeId: wikiId }] : undefined,
   });
+  const { memoryNotes } = splitNotesByKind(notes);
 
   const parts: string[] = [
     'You are an AI editor for 成形.',
@@ -329,10 +277,10 @@ export async function buildSuggestionContext(params: {
     threadDiscussion,
   ];
 
-  if (memories.length > 0) {
+  if (memoryNotes.length > 0) {
     parts.push('', '## Memories');
-    memories.forEach((memory) => {
-      parts.push(`- [${memory.category}] ${memory.content}`);
+    memoryNotes.forEach((memory) => {
+      parts.push(`- [${memory.kind}] ${memory.content}`);
     });
   }
 

@@ -1,7 +1,10 @@
 import {
-  parseCommentAgentBindings,
   parseCommentAgentMentionsJson,
 } from '@/lib/comments/agents';
+import {
+  deriveCommentAgentBindings,
+  isVisibleCommentMessage,
+} from '@/derive/agent-watching';
 import { parseCommentResearchState } from '@/lib/comments/research';
 import {
   buildReviewAnchorFingerprint,
@@ -93,8 +96,11 @@ export function mapCommentThread(thread: {
     selectionAnchor: thread.selectionAnchor,
     reviewAnchor,
     status: normalizeCommentThreadStatus(thread.status),
-    messages: thread.messages.map(mapCommentMessage),
-    agentBindings: parseCommentAgentBindings(thread.agentBindingsJson),
+    messages: thread.messages.filter(isVisibleCommentMessage).map(mapCommentMessage),
+    agentBindings: deriveCommentAgentBindings({
+      bindingsJson: thread.agentBindingsJson,
+      messages: thread.messages,
+    }),
     researchState: parseCommentResearchState(thread.researchStateJson),
     resolvedAt: thread.resolvedAt,
     version: thread.version ? mapWorkspaceVersion(thread.version) : null,

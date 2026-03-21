@@ -20,8 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
-  KnowledgeItemData,
-  MemoryData,
+  NoteData,
   WorkflowExtensionHintData,
   WorkflowPlaybookData,
   WorkflowPlaybookDraftData,
@@ -53,8 +52,7 @@ export function KnowledgePanel({
   wikiId?: string | null;
 }) {
   const t = useT();
-  const [knowledgeItems, setKnowledgeItems] = React.useState<KnowledgeItemData[]>([]);
-  const [memories, setMemories] = React.useState<MemoryData[]>([]);
+  const [notes, setNotes] = React.useState<NoteData[]>([]);
   const [workflowPlaybooks, setWorkflowPlaybooks] = React.useState<WorkflowPlaybookData[]>(
     []
   );
@@ -92,14 +90,18 @@ export function KnowledgePanel({
       workflowParams.set('wikiId', wikiId);
     }
     workflowParams.set('includeArchived', '1');
-    const wikiQuery = wikiId ? `?wikiId=${encodeURIComponent(wikiId)}` : '';
-    const [kRes, mRes, wRes] = await Promise.all([
-      fetch(`/api/knowledge${wikiQuery}`),
-      fetch(`/api/memories${wikiQuery}`),
+    const noteParams = new URLSearchParams();
+    noteParams.set('activeOnly', '0');
+    noteParams.set('includeInactive', '1');
+    noteParams.set('scope', 'deliverable');
+    if (wikiId) {
+      noteParams.set('scopeId', wikiId);
+    }
+    const [nRes, wRes] = await Promise.all([
+      fetch(`/api/notes?${noteParams.toString()}`),
       fetch(`/api/workflows?${workflowParams.toString()}`),
     ]);
-    if (kRes.ok) setKnowledgeItems(await kRes.json());
-    if (mRes.ok) setMemories(await mRes.json());
+    if (nRes.ok) setNotes(await nRes.json());
     if (wRes.ok) setWorkflowPlaybooks(await wRes.json());
   }, [wikiId]);
 
@@ -108,11 +110,18 @@ export function KnowledgePanel({
   }, [isOpen, loadData]);
 
   const addKnowledgeItem = async () => {
-    if (!newTitle.trim() || !newContent.trim()) return;
-    const res = await fetch('/api/knowledge', {
+    if (!newTitle.trim() || !newContent.trim() || !wikiId) return;
+    const res = await fetch('/api/notes', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTitle, content: newContent, wikiId }),
+      body: JSON.stringify({
+        content: newContent,
+        kind: 'knowledge',
+        scope: 'deliverable',
+        scopeId: wikiId,
+        source: 'manual',
+        title: newTitle,
+      }),
     });
     if (res.ok) {
       setNewTitle('');
@@ -122,12 +131,12 @@ export function KnowledgePanel({
   };
 
   const deleteKnowledgeItem = async (id: string) => {
-    await fetch(`/api/knowledge?id=${id}`, { method: 'DELETE' });
+    await fetch(`/api/notes?id=${id}`, { method: 'DELETE' });
     loadData();
   };
 
   const toggleMemory = async (id: string, active: boolean) => {
-    await fetch('/api/memories', {
+    await fetch('/api/notes', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, active }),
@@ -136,7 +145,7 @@ export function KnowledgePanel({
   };
 
   const deleteMemory = async (id: string) => {
-    await fetch(`/api/memories?id=${id}`, { method: 'DELETE' });
+    await fetch(`/api/notes?id=${id}`, { method: 'DELETE' });
     loadData();
   };
 
@@ -367,6 +376,8 @@ export function KnowledgePanel({
     domain_knowledge: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
     constraint: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
   };
+  const knowledgeNotes = notes.filter((note) => note.kind === 'knowledge');
+  const memoryNotes = notes.filter((note) => note.kind !== 'knowledge');
 
   const updateWorkflowLifecycle = async (
     workflow: WorkflowPlaybookData,
@@ -455,7 +466,7 @@ export function KnowledgePanel({
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 p-4">
           <ContextSection
-            count={knowledgeItems.length}
+            count={knowledgeNotes.length}
             icon={<BookOpen className="h-4 w-4" />}
             title={t('context.knowledge')}
           >
@@ -477,14 +488,14 @@ export function KnowledgePanel({
                 size="sm"
                 className="h-7 w-full text-xs"
                 onClick={addKnowledgeItem}
-                disabled={!newTitle.trim() || !newContent.trim()}
+                disabled={!newTitle.trim() || !newContent.trim() || !wikiId}
               >
                 <Plus className="mr-1 h-3 w-3" />
                 {t('context.addKnowledge')}
               </Button>
             </div>
 
-            {knowledgeItems.length === 0 ? (
+            {knowledgeNotes.length === 0 ? (
               <ContextEmptyState
                 description={t('context.noKnowledgeDescription')}
                 icon={<BookOpen className="h-6 w-6" />}
@@ -492,10 +503,10 @@ export function KnowledgePanel({
               />
             ) : (
               <div className="space-y-2">
-                {knowledgeItems.map((item) => (
+                {knowledgeNotes.map((item) => (
                   <div key={item.id} className="rounded-lg border p-3 text-xs">
                     <div className="flex items-start justify-between gap-2">
-                      <h4 className="font-medium">{item.title}</h4>
+                      <h4 className="font-medium">{item.title || t('context.noKnowledgeTitle')}</h4>
                       <Button
                         size="icon"
                         variant="ghost"
@@ -515,11 +526,11 @@ export function KnowledgePanel({
           </ContextSection>
 
           <ContextSection
-            count={memories.length}
+            count={memoryNotes.length}
             icon={<Brain className="h-4 w-4" />}
             title={t('context.memories')}
           >
-            {memories.length === 0 ? (
+            {memoryNotes.length === 0 ? (
               <ContextEmptyState
                 description={t('context.noMemoriesDescription')}
                 icon={<Brain className="h-6 w-6" />}
@@ -527,7 +538,7 @@ export function KnowledgePanel({
               />
             ) : (
               <div className="space-y-2">
-                {memories.map((memory) => (
+                {memoryNotes.map((memory) => (
                   <div
                     key={memory.id}
                     className={cn(
@@ -540,10 +551,10 @@ export function KnowledgePanel({
                         <Badge
                           className={cn(
                             'mb-1 text-[10px]',
-                            categoryColors[memory.category] || ''
+                            categoryColors[memory.kind] || ''
                           )}
                         >
-                          {memory.category}
+                          {memory.kind}
                         </Badge>
                         <p className="leading-relaxed">{memory.content}</p>
                       </div>

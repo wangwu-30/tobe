@@ -565,31 +565,18 @@ export type CommentThreadData = {
   updatedAt: Date | string;
 };
 
-export type KnowledgeItemData = {
-  id: string;
-  organizationId: string;
-  workspaceId: string | null;
-  wikiId?: string | null;
-  title: string;
-  content: string;
-  sourceType: string;
-  createdByUserId: string | null;
-  originDeviceId: string | null;
-  revision: number;
-  deletedAt: Date | string | null;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-};
+export type NoteScope = 'user' | 'project' | 'deliverable';
 
-export type MemoryData = {
+export type NoteData = {
   id: string;
   organizationId: string;
-  conversationId: string | null;
-  workspaceId: string | null;
-  wikiId?: string | null;
-  category: string;
+  scope: NoteScope;
+  scopeId: string;
+  kind: string;
+  title: string | null;
   content: string;
-  sourceThreadId: string | null;
+  source: string;
+  sourceRef: string | null;
   active: boolean;
   createdByUserId: string | null;
   originDeviceId: string | null;
@@ -728,7 +715,7 @@ export type WorkspaceWithRelations = WorkspaceData & {
   conversations?: ConversationData[];
   deliverable?: DeliverableData | null;
   files?: WorkspaceFileData[];
-  knowledgeItems?: KnowledgeItemData[];
+  notes?: NoteData[];
   primaryConversation?: ConversationData | null;
   stagedChangeSets?: StagedChangeSetData[];
   versions?: WorkspaceVersionData[];
@@ -782,14 +769,6 @@ export type SyncCursorData = {
   updatedAt: Date | string;
 };
 
-export type WikiData = WorkspaceData;
-export type WikiVersionData = WorkspaceVersionData;
-export type WikiWithRelations = WorkspaceWithRelations;
-export type WikiSidebarItem = WorkspaceSidebarItem;
-export type WikiEditLockData = WorkspaceEditLockData;
-export type SessionWithRelations = ConversationWithRelations;
 export type ChatMessageData = ConversationMessageData;
-export type DocumentData = WorkspaceData;
-export type VersionData = WorkspaceVersionData;
 
 export type PlateValue = Value;

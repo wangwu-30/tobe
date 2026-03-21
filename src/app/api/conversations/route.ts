@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { createConversationForWiki, getConversationWorkspace, listConversations } from '@/lib/wiki/service';
+import {
+  createConversationForWorkspace,
+  getConversationWorkspace,
+  listConversations,
+} from '@/lib/workspace/service';
 
 export async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
@@ -23,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   const conversations = await listConversations({
     organizationId: actor.organizationId,
-    wikiId,
+    workspaceId: wikiId,
   });
 
   return NextResponse.json({ items: conversations });
@@ -38,13 +42,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing workspaceId' }, { status: 400 });
   }
 
-  const conversation = await createConversationForWiki(actor, {
+  const conversation = await createConversationForWorkspace(actor, {
     activeFileId: body.activeFileId,
     baseVersionId: body.baseVersionId,
     forkedFromMessageId: body.forkedFromMessageId,
     parentConversationId: body.parentConversationId,
     title: body.title,
-    wikiId,
+    workspaceId: wikiId,
   });
 
   return NextResponse.json(conversation);

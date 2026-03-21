@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db/prisma';
+import { saveExtractedNotes } from '@/objects/note';
 
 type ExtractedMemory = {
   category: 'correction' | 'preference' | 'domain_knowledge' | 'constraint';
@@ -31,22 +31,20 @@ export async function saveExtractedMemories(params: {
   threadId: string;
   wikiId?: string | null;
 }) {
-  const created = await Promise.all(
-    params.memories.map((memory) =>
-      prisma.memory.create({
-        data: {
-          organizationId: params.organizationId,
-          documentId: params.wikiId || null,
-          category: memory.category,
-          content: memory.content,
-          sourceThreadId: params.threadId,
-          active: true,
-        },
-      })
-    )
-  );
+  if (!params.wikiId) {
+    return [];
+  }
 
-  return created;
+  return saveExtractedNotes({
+    notes: params.memories.map((memory) => ({
+      content: memory.content,
+      kind: memory.category,
+    })),
+    organizationId: params.organizationId,
+    scope: 'deliverable',
+    scopeId: params.wikiId,
+    sourceRef: params.threadId,
+  });
 }
 
 export function buildMemoryExtractionPrompt(

@@ -28,19 +28,24 @@ export function useAiReply() {
       try {
         abortRef.current = new AbortController();
 
-        const response = await fetch('/api/ai/comment-reply', {
+        const response = await fetch('/api/agent/run', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...getStoredAISettingsHeader(),
           },
           body: JSON.stringify({
-            agentId: params.agentId,
-            threadId: params.threadId,
-            documentContent: params.documentContent,
-            anchorText: params.anchorText,
-            documentId: params.documentId,
+            mode: 'comment-reply',
+            input: {
+              anchorText: params.anchorText,
+              documentContent: params.documentContent,
+            },
             model: params.model,
+            target: {
+              agentId: params.agentId,
+              threadId: params.threadId,
+              workspaceId: params.documentId,
+            },
           }),
           signal: abortRef.current.signal,
         });
@@ -94,13 +99,22 @@ export function useAiReply() {
       model?: string;
     }) => {
       try {
-        const response = await fetch('/api/ai/suggest-edit', {
+        const response = await fetch('/api/agent/run', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             ...getStoredAISettingsHeader(),
           },
-          body: JSON.stringify(params),
+          body: JSON.stringify({
+            mode: 'suggest-edit',
+            input: {
+              anchorText: params.anchorText,
+              documentContent: params.documentContent,
+              threadDiscussion: params.threadDiscussion,
+            },
+            model: params.model,
+            target: {},
+          }),
         });
 
         if (!response.ok) {
@@ -124,13 +138,16 @@ export function useAiReply() {
 
   const extractMemories = useCallback(async (threadId: string) => {
     try {
-      const response = await fetch('/api/ai/extract-memory', {
+      const response = await fetch('/api/agent/run', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...getStoredAISettingsHeader(),
         },
-        body: JSON.stringify({ threadId }),
+        body: JSON.stringify({
+          mode: 'extract-memory',
+          target: { threadId },
+        }),
       });
 
       if (!response.ok) {

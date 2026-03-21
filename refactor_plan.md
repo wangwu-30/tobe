@@ -397,7 +397,7 @@ objects/thread/queries.ts 的"获取可见评论"不再查 scope/inheritanceStat
 改为：查所有 status='open' 的 thread → 过 classifyThread → 返回分类结果
 4c. 简化 CommentThread 表
 不删字段（避免 migration 风险），但应用层不再读写 scope、inheritanceState、isInherited、inheritedFromVersionId、inheritedFromVersionTitle 这些字段
-agentBindingsJson 保持写入（向后兼容），但读取改为从 getActiveAgents() 推导
+agentBindingsJson 保持写入（向后兼容），但 comment read side 已改为从 getActiveAgents() / message history derive 推导；slice 64-65 已补齐 `stop_agent_listening` 的 message-level control event，并让 thread / research 相关读侧统一消费 message-history-derived binding
 验收：comments E2E (04-comments, 07-block-discussion, 08-comment-agents) 全绿。
 
 Phase 5：Agent 统一（4 天）
@@ -448,7 +448,12 @@ api/ai/suggest-edit/route.ts
 api/ai/research-plan/route.ts
 
 api/ai/extract-memory/route.ts
-旧路由暂时保留为转发（调新入口），确认全部 E2E 通过后再删。
+slice 66 已完成旧 `/api/ai/{chat,comment-reply,suggest-edit,research-plan,extract-memory}` route 删除；外部入口已只剩 `/api/agent/run`。
+non-chat 入口统一使用显式 envelope：
+- `comment-reply`: `mode + target{threadId, workspaceId?, agentId?} + input{anchorText?, documentContent?} + model?`
+- `suggest-edit`: `mode + target{workspaceId?} + input{anchorText, threadDiscussion, documentContent?} + model?`
+- `extract-memory`: `mode + target{threadId} + model?`
+- 旧 `/api/ai/*` 路由若仍承接 legacy 平铺字段，只允许在 adapter 层做一次归一，不能把旧契约继续扩散回共享入口。
 
 5e. deriveStatus 替代 currentStatus
 实现 derive/status.ts，所有消费 currentStatus 的地方改为调推导函数。
@@ -460,11 +465,13 @@ Phase 6：清理收口（2 天）
 Knowledge 表 + Memory 表 → Note 表（scope + kind 区分）
 迁移现有数据
 更新 context-panel UI
+slice 69 已完成差距评估：当前 `SYSTEM.md` 的 `Note { id, scope, scopeId, kind, content, source, sourceRef?, active }` 无法无损承接 `KnowledgeItem.title/sourceType` 与 `Memory.category/sourceThreadId/active`。详情见 `docs/chengxing-note-merge-brief.md`；在 Note contract 决策明确前，6a 视为 stop gate。
 6b. 清理旧壳
 删除 src/lib/wiki/ 目录
 删除 src/types/index.ts 底部兼容 alias（WikiData, SessionWithRelations 等）
 删除旧 API 路由（sessions/, wikis/, documents/，如果还存在的话）
 删除旧 agent API 路由（chat/, comment-reply/, suggest-edit/, research-plan/, extract-memory/）
+slice 67 已完成 `src/lib/wiki/` 兼容壳、未使用 wiki/session/document alias 与剩余 route caller 的删除；slice 68 已完成 `src/framework/**` 的 import guard。当前 Phase 6 剩余主线是 6a Note 合并决策、6d 完成态文档与 6e 通用知识沉淀。
 6c. ESLint 依赖规则
 javascript
 'no-restricted-imports': ['error', {
@@ -474,6 +481,7 @@ javascript
       message: 'framework/ 不能依赖 application 层' }
   ]
 }]
+slice 68 已完成：`eslint.config.mjs` 已为 `src/framework/**/*` 增加 scoped `no-restricted-imports` 规则，并通过 `npx eslint src/framework --max-warnings=0` 与 `npm run verify:iteration`。
 6d. 更新文档
 docs/chengxing-lessons-learned.md 补充本轮经验
 docs/chengxing-project-status.md 更新为完成态

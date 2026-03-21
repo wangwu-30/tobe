@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { mapCommentMessage } from '@/lib/wiki/service';
+import { mapCommentMessage } from '@/objects/comment/view';
 
 export async function PATCH(
   req: NextRequest,

@@ -51,8 +51,6 @@ import {
 import { hasStateLabelKind } from '@/objects/state/schema';
 import { mapCommentMessage, mapCommentThread } from '@/objects/comment/view';
 import {
-  mapKnowledgeItem,
-  mapMemory,
   mapWorkspace,
   mapWorkspaceEditLock,
   mapWorkspaceVersion,
@@ -152,8 +150,6 @@ export {
   mapCommentThread,
   mapConversation,
   mapConversationMessage,
-  mapKnowledgeItem,
-  mapMemory,
   mapWorkspace,
   mapWorkspaceVersion,
 };
@@ -166,8 +162,6 @@ export class WorkspaceLockConflictError extends Error {
     this.detail = detail;
   }
 }
-
-export const WikiLockConflictError = WorkspaceLockConflictError;
 
 export const listWorkspaces = listProjects;
 
@@ -1448,10 +1442,6 @@ export async function getWorkspaceView(params: {
       organizationId: params.organizationId,
     },
     include: {
-      knowledgeItems: {
-        where: { deletedAt: null },
-        orderBy: { createdAt: 'desc' },
-      },
       workspacePlan: {
         select: {
           deliverableType: true,
@@ -1732,7 +1722,6 @@ export async function getWorkspaceView(params: {
       ...workspace,
       deliverable,
       files,
-      knowledgeItems: workspace.knowledgeItems,
       stagedChangeSets,
       versions,
       workspacePlan: hydratedWorkspacePlan,
@@ -1801,71 +1790,6 @@ export async function getConversationWorkspace(params: {
     workspace: view.workspace,
   };
 }
-
-export const listWikis = listWorkspaces;
-export const getWikiWorkspace = async (params: {
-  conversationId?: string | null;
-  organizationId: string;
-  wikiId: string;
-}) => {
-  const view = await getWorkspaceView({
-    conversationId: params.conversationId,
-    organizationId: params.organizationId,
-    workspaceId: params.wikiId,
-  });
-
-  return {
-    currentConversation: view.currentConversation,
-    latestConversation: view.latestConversation,
-    wiki: view.workspace,
-  };
-};
-export const createWikiWithConversation = createWorkspaceWithConversation;
-export const createConversationForWiki = (actor: ActorContext, input: {
-  title?: string;
-  wikiId: string;
-}) =>
-  createConversationForWorkspace(actor, {
-    title: input.title,
-    workspaceId: input.wikiId,
-  });
-export const updateWiki = (actor: ActorContext, input: {
-  content?: string;
-  status?: string;
-  title?: string;
-  wikiId: string;
-}) =>
-  updateWorkspace(actor, {
-    content: input.content,
-    status: input.status,
-    title: input.title,
-    workspaceId: input.wikiId,
-  });
-export const listWikiVersions = (params: {
-  organizationId: string;
-  wikiId: string;
-}) =>
-  listWorkspaceVersions({
-    organizationId: params.organizationId,
-    workspaceId: params.wikiId,
-  });
-export const createWikiVersion = (actor: ActorContext, wikiId: string) =>
-  createWorkspaceVersion(actor, { workspaceId: wikiId });
-export const getActiveWikiLock = getActiveWorkspaceLock;
-export const acquireWikiLock = (actor: ActorContext, input: {
-  lockedVersionId?: string | null;
-  ttlMinutes?: number;
-  wikiId: string;
-}) =>
-  acquireWorkspaceLock(actor, {
-    lockedVersionId: input.lockedVersionId,
-    ttlMinutes: input.ttlMinutes,
-    workspaceId: input.wikiId,
-  });
-export const releaseWikiLock = (actor: ActorContext, wikiId: string) =>
-  releaseWorkspaceLock(actor, wikiId);
-export const mapWiki = mapWorkspace;
-export const mapWikiVersion = mapWorkspaceVersion;
 
 async function ensureWorkspaceEditable(actor: ActorContext, workspaceId: string) {
   const existing = await prisma.wikiEditLock.findUnique({

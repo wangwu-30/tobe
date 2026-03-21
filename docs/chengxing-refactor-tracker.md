@@ -37,27 +37,44 @@
 | 1 | 合约文档 | done | 已创建四份合约文档，并在 `AGENTS.md` 挂接项目合约与 refactor tracker 读序。 |
 | 2 | 巨石拆分 | done | `page.tsx` 已退回 route 适配壳，`service.ts` 的非 Phase 3 seam 基本抽空，并按 stop gate 在 1844 行收口。 |
 | 3 | 版本系统优雅化 | done | 已把 `Label` 合约扩到 `milestone/head/recovery/pinned`，补齐 recovery/pinned 回填与写侧 lifecycle，并让应用层停止读取 `Version.versionType`。 |
-| 4 | 评论系统优雅化 | in_progress | inherited comment classify 与 comment agent binding helper 已下沉；剩余 gap 是把 active agent watching 从 message history 推导出来，同时补齐 stop-listening 的非 JSON 事件语义。 |
-| 5 | Agent 统一 | in_progress | assistant-run lifecycle / prompt / context seam 已集中到 `conversation-runner`，`/api/agent/run` 已承接 chat + research-plan；剩余是为 non-chat AI surface 冻结统一 entry contract。 |
-| 6 | 清理收口 | todo | 合并 Note、删旧壳、补规则与文档。 |
+| 4 | 评论系统优雅化 | done | thread/comment read side 的 active agent watching 已切到 message history derive，`agentBindingsJson` 退回写侧兼容。 |
+| 5 | Agent 统一 | done | `/api/agent/run` 已统一承接 chat / research-plan / comment-reply / suggest-edit / extract-memory，旧 AI route 已全部删除。 |
+| 6 | 清理收口 | in_progress | 旧 AI adapter route、`src/lib/wiki/` 兼容壳、dead alias 与 framework import guard 已完成；`Knowledge + Memory -> Note` 因对象契约差距待决。 |
+
+## 已冻结的 non-chat `/api/agent/run` envelope
+
+- `comment-reply`
+  - `mode: 'comment-reply'`
+  - `target: { threadId, workspaceId?, agentId? }`
+  - `input: { anchorText?, documentContent? }`
+  - `model?`
+- `suggest-edit`
+  - `mode: 'suggest-edit'`
+  - `target: { workspaceId? }`
+  - `input: { anchorText, threadDiscussion, documentContent? }`
+  - `model?`
+- `extract-memory`
+  - `mode: 'extract-memory'`
+  - `target: { threadId }`
+  - `model?`
+- 旧 `/api/ai/*` adapter 继续接受 legacy 平铺字段，但只在 adapter 层兼容；共享入口与 repo docs 统一以上述 `mode + target + input` 契约为准。
 
 ## 当前切片
 
-切片目标：进入 Phase 5 的第六十三个切片，为 `comment-reply / suggest-edit / extract-memory` 冻结统一的 non-chat `/api/agent/run` request envelope，再把剩余旧 AI route 降成 forwarder，而不是继续各自维护独立入口契约。
+切片目标：进入 Phase 6 的第七十个切片，在确认 `Knowledge + Memory -> Note` 的对象契约后，执行 additive schema / migration / Context UI 收口。
 
 当前切片退出条件：
 
-- repo docs 明确 non-chat mode 在统一入口下的 request envelope（至少覆盖 `comment-reply / suggest-edit / extract-memory`）
-- `/api/agent/run` 能按显式 mode + target identifiers 承接剩余 non-chat AI surface
-- `/api/ai/comment-reply`、`/api/ai/suggest-edit`、`/api/ai/extract-memory` 降成 forwarder 或 adapter 层
-- 保持 chat / research / comment / suggest-edit / memory extraction 回归语义不变
-- 若改动了产品代码或行为，完成前运行 `npm run verify:iteration`
+- 确认 `Note` 是否需要补 `title` / category taxonomy 等字段，能无损承接现有 `KnowledgeItem` 与 `Memory` 的用户可见语义
+- 明确 `source` / `sourceRef` 如何覆盖 `KnowledgeItem.sourceType` 与 `Memory.sourceThreadId`
+- 确定 Context 面板是继续保留 `Knowledge / Memory` 双分区，还是改成单 `Note` 视图加过滤
+- 在上述决策明确前，不启动 Note 表、route 或迁移代码
 
 ## 下一候选切片
 
-1. Phase 5：在 repo docs 冻结 non-chat `/api/agent/run` envelope，然后先把 `comment-reply` 接成 forwarder。
-2. Phase 5：在同一 envelope 上继续收口 `suggest-edit / extract-memory`，完成剩余旧 AI route 的入口统一。
-3. Phase 4：为 `stop_agent_listening` 补一层可推导的事件语义，再把 active agent watching 真正切到 message history derive。
+1. Phase 6：确认 `Knowledge + Memory -> Note` 的对象契约后，执行 Note schema / migration / route / view 收口。
+2. Phase 6：回写 `SYSTEM.md` / `docs/chengxing-project-status.md`，把 Phase 6 的完成态文档收口清楚。
+3. Phase 6：回顾本轮可复用的工程经验，补仓库外通用知识沉淀。
 
 ## 剩余验收项
 
@@ -68,11 +85,18 @@
 
 ## Blockers
 
-- Phase 4 剩余的“active agent watching 只从 message history 推导”目前有一个具体阻塞：`stop_agent_listening` 只把移除事件写进 `agentBindingsJson`，没有对应的 message-level stop signal；在不补这层事件语义前，无法安全删除对 binding JSON 的最终 stop 兜底。
-- Phase 5 外部 route 收口在 chat + research-plan 之后有一个新阻塞：当前 repo 还没有冻结 `comment-reply / suggest-edit / extract-memory` 在统一 `/api/agent/run` 下该使用什么 request envelope；若现在直接硬并入口，只能临时发明 `mode + targetId/body` union，风险是把旧 surface 的契约差异重新埋进一层未记录的黑箱。
+- `SYSTEM.md` 里的 `Note` 目前只有 `{ id, scope, scopeId, kind, content, source, sourceRef?, active }`，不足以无损表达 `KnowledgeItem.title/sourceType` 与 `Memory.category/sourceThreadId/active`；`src/components/knowledge/knowledge-panel.tsx` 与 AI context builder 也仍把二者当成不同用户语义。详情见 [docs/chengxing-note-merge-brief.md](./chengxing-note-merge-brief.md)。
+- 在 Note contract 决策明确前，Phase 6 的 6a 不继续落 schema / route / migration 代码；其余只做与该阻塞无关的文档沉淀。
 
 ## Verification History
 
+- 2026-03-21：完成 Phase 6 切片 69，盘点 `Knowledge + Memory -> Note` 的真实差距，新增 [docs/chengxing-note-merge-brief.md](./chengxing-note-merge-brief.md) 并把 blocker 回写 tracker / `refactor_plan.md`；未跑 `npm run verify:iteration`（无产品代码变更）。
+- 2026-03-21：完成 Phase 6 切片 68，为 `src/framework/**` 补 scoped `no-restricted-imports` guard，禁止反依赖 `objects / derive / canvas / surfaces / agent`，并覆盖常见相对路径绕行；`npx eslint src/framework --max-warnings=0` 与 `npm run verify:iteration` 均通过（50 passed）。
+- 2026-03-21：完成 Phase 6 切片 67，把 `src/app/api/{knowledge,memories,conversations,threads/**}` 对 `@/lib/wiki/service` 的剩余依赖全部改指向 canonical `workspace/service` 或 object view seam，删除 `src/lib/wiki/service.ts`、`src/lib/workspace/service.ts` 里的 wiki compatibility export，以及 `src/types/index.ts` 中未再使用的 `Wiki* / SessionWithRelations / DocumentData / VersionData` alias；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-21：完成 Phase 5 切片 66，把 `src/hooks/use-ai-reply.ts` 与 `src/components/comments/comment-sidebar.tsx` 的剩余 caller 切到统一 `/api/agent/run` non-chat envelope，删除旧 `src/app/api/ai/{chat,comment-reply,suggest-edit,research-plan,extract-memory}/route.ts`，并让 `src/lib/comments/reply-run.ts` 直接复用 `conversation-runner` lifecycle、删掉 `src/lib/ai/workspace-assistant-run.ts` 这层旧壳；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-21：完成 Phase 4 切片 65，扩展 `src/derive/agent-watching.ts` 让 comment read side 在有消息历史时完全按 `user mention + stop control + in-flight agent reply refresh` 回放当前 binding，并让 `src/objects/comment/agent-bindings.ts`、`src/app/api/threads/[threadId]/{research-plan,research/start}/route.ts` 改用同一 derive seam 解析 research target；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-21：完成 Phase 4 切片 64，新增 `src/derive/agent-watching.ts`，并在 `src/app/api/threads/[threadId]/route.ts` 为 `stop_agent_listening` 同步写出隐藏 control message；`src/objects/comment/view.ts`、`src/app/api/threads/[threadId]/messages/route.ts`、`src/lib/comments/research-orchestration.ts` 与 `src/lib/ai/non-chat-agent-run.ts` 开始消费 stop-event-aware derive / visible-message filter，修复“stop 后重新 @ 同一角色仍被视为永久停用”的回放语义；`npm run verify:iteration` 通过（50 passed）。
+- 2026-03-21：完成 Phase 5 切片 63，新增 `src/lib/ai/agent-run-request.ts` / `src/lib/ai/non-chat-agent-run.ts`，为 `comment-reply / suggest-edit / extract-memory` 冻结统一的 `mode + target + input` non-chat `/api/agent/run` envelope，并让 `src/app/api/ai/{comment-reply,suggest-edit,extract-memory}/route.ts` 全部退成共享 handler forwarder；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-21：完成 Phase 5 切片 62，新增 `src/lib/ai/agent-run-route.ts` 与 `src/app/api/agent/run/route.ts`，把 chat/light run 与 deep research proposal 收到同一条共享 server handler，并让 `src/agent/run.ts` 改打新入口、旧 `src/app/api/ai/{chat,research-plan}/route.ts` 退成 forwarder；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-21：完成 Phase 5 切片 61，扩展 `src/lib/ai/conversation-runner.ts` 新增 `buildWorkspaceAssistantSystemPrompt`，并让 `comment-reply / research-plan / research-plan/start` 停止各自直连 `buildChatSystemPrompt`，先把 workspace AI route 的 system prompt assembly 收到同一 seam；`npm run verify:iteration` 通过（50 passed）。
 - 2026-03-21：完成 Phase 5 切片 60，扩展 `src/lib/ai/conversation-runner.ts` 新增 `initializeWorkspaceAssistantRun`，并让 `src/app/api/ai/research-plan/route.ts` 与 `src/app/api/workspaces/[workspaceId]/assistant-runs/[runId]/research-plan/start/route.ts` 复用同一条非流式 assistant-run 初始化 seam，不再各自手写 create + initial update；`npm run verify:iteration` 通过（50 passed）。

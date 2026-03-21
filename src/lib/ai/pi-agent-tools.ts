@@ -34,6 +34,11 @@ import {
   discardStagedChangeSet,
   getPendingStagedChangeSets,
 } from '@/lib/workspace/staged-changes';
+import {
+  createNote,
+  listNotes,
+  splitNotesByKind,
+} from '@/objects/note';
 import type { SearchProvider } from '@/lib/search/types';
 import type { DeliverableType, ResearchMode, WorkspaceFileData } from '@/types';
 
@@ -159,19 +164,24 @@ export function createWorkspaceAgentTools({
     };
   };
 
-  const buildScopedDocumentIds = (projectId?: string | null) =>
-    Array.from(new Set([wikiId, projectId].filter(Boolean))) as string[];
+  const buildScopedNoteTargets = (projectId?: string | null) => [
+    ...(wikiId ? [{ scope: 'deliverable' as const, scopeId: wikiId }] : []),
+    ...(projectId ? [{ scope: 'project' as const, scopeId: projectId }] : []),
+  ];
 
-  const resolveContextScopeLabel = (documentId: string | null, projectId?: string | null) => {
-    if (documentId && documentId === wikiId) {
+  const resolveContextScopeLabel = (
+    note: { scope: string; scopeId: string },
+    projectId?: string | null
+  ) => {
+    if (note.scope === 'deliverable' && note.scopeId === wikiId) {
       return 'current';
     }
 
-    if (documentId && projectId && documentId === projectId) {
+    if (note.scope === 'project' && projectId && note.scopeId === projectId) {
       return 'project';
     }
 
-    return 'global';
+    return note.scope === 'user' ? 'user' : note.scope;
   };
 
   const ensureLiveDraftRecoveryCheckpoint = async () => {
@@ -521,7 +531,7 @@ export function createWorkspaceAgentTools({
       name: 'get_workspace_context',
       label: 'Get Workspace Context',
       description:
-        'Inspect the current deliverable workspace, including project deliverable summaries, the live draft, shared brief, visible versions, staged changes, review threads, knowledge items, and memories.',
+        'Inspect the current deliverable workspace, including project deliverable summaries, the live draft, shared brief, visible versions, staged changes, review threads, and reusable notes.',
       parameters: Type.Object({}),
       async execute() {
         const [
@@ -554,11 +564,6 @@ export function createWorkspaceAgentTools({
                   version: true,
                 },
                 orderBy: { updatedAt: 'desc' },
-                take: 20,
-              },
-              knowledgeItems: {
-                where: { deletedAt: null },
-                orderBy: { createdAt: 'desc' },
                 take: 20,
               },
               files: {
@@ -604,34 +609,13 @@ export function createWorkspaceAgentTools({
             workspaceId,
           }),
         ]);
-        const scopedDocumentIds = buildScopedDocumentIds(projectContext?.id || null);
-        const [memories, knowledgeItems] = await Promise.all([
-          prisma.memory.findMany({
-            where: {
-              active: true,
-              deletedAt: null,
-              organizationId,
-              OR: [
-                { documentId: { in: scopedDocumentIds } },
-                { documentId: null },
-              ],
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 20,
-          }),
-          prisma.knowledgeItem.findMany({
-            where: {
-              deletedAt: null,
-              organizationId,
-              OR: [
-                { documentId: { in: scopedDocumentIds } },
-                { documentId: null },
-              ],
-            },
-            orderBy: { createdAt: 'desc' },
-            take: 20,
-          }),
-        ]);
+        const notes = await listNotes({
+          activeOnly: true,
+          organizationId,
+          scopeTargets: buildScopedNoteTargets(projectContext?.id || null),
+          take: 20,
+        });
+        const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
         const previewCapability = detectWorkspacePreviewCapability(wiki?.files || []);
         const activePreviewRun =
           workspaceRuns.find(
@@ -732,21 +716,21 @@ export function createWorkspaceAgentTools({
             : 'No deliverable yet.',
           '',
           'Knowledge items:',
-          knowledgeItems.length > 0
-            ? knowledgeItems
+          knowledgeNotes.length > 0
+            ? knowledgeNotes
                 .map(
                   (item) =>
-                    `- [${resolveContextScopeLabel(item.documentId, projectContext?.id || null)}] ${item.title}: ${item.content}`
+                    `- [${resolveContextScopeLabel(item, projectContext?.id || null)}] ${item.title || 'Untitled'}: ${item.content}`
                 )
                 .join('\n')
             : 'None.',
           '',
           'Active memories:',
-          memories.length > 0
-            ? memories
+          memoryNotes.length > 0
+            ? memoryNotes
                 .map(
                   (memory) =>
-                    `- [${resolveContextScopeLabel(memory.documentId, projectContext?.id || null)} / ${memory.category}] ${memory.content}`
+                    `- [${resolveContextScopeLabel(memory, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
                 )
                 .join('\n')
             : 'None.',
@@ -756,8 +740,7 @@ export function createWorkspaceAgentTools({
           content: [{ type: 'text', text: summary }],
           details: {
             conversation,
-            knowledgeItems,
-            memories,
+            notes,
             projectContext,
             stagedChangeSets,
             workspaceRuns,
@@ -1586,20 +1569,20 @@ export function createWorkspaceAgentTools({
       }),
       async execute(_toolCallId, params) {
         const input = params as { content: string; title: string };
-        const item = await prisma.knowledgeItem.create({
-          data: {
-            content: input.content,
-            createdByUserId: actorUserId,
-            documentId: wikiId,
-            organizationId,
-            originDeviceId,
-            sourceType: 'agent-note',
-            title: input.title,
-          },
+        const item = await createNote({
+          content: input.content,
+          createdByUserId: actorUserId,
+          kind: 'knowledge',
+          organizationId,
+          originDeviceId,
+          scope: 'deliverable',
+          scopeId: wikiId,
+          source: 'agent-note',
+          title: input.title,
         });
 
         return {
-          content: [{ type: 'text', text: `Saved knowledge item "${item.title}".` }],
+          content: [{ type: 'text', text: `Saved knowledge item "${item.title || 'Untitled'}".` }],
           details: item,
         };
       },

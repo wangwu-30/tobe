@@ -617,6 +617,24 @@
 - 为什么：如果直接一刀把 `/api/ai/chat`、`/api/ai/research-plan` 之类的旧入口删掉，客户端 transport、测试矩阵和历史调用面会同时移动，回归一旦出问题很难判断是 handler 逻辑、路由 wiring 还是 transport 切换导致；先落共享 handler 和新入口，可以让“行为收口”和“旧入口退场”分两步观察。
 - 默认做法：先把已有 route 逻辑移进一个共享 server handler，新增统一入口（例如 `/api/agent/run`）消费它，再让旧 route 只保留极薄的 forwarder；等新入口经完整回归验证后，再决定是否继续删除旧入口。
 
+### 62. 非聊天 AI surface 并入口前，先冻结 `mode + target + input` envelope
+
+- 结论：当 `comment-reply`、`suggest-edit`、`extract-memory` 这类非聊天 AI surface 要并到同一个 `/api/agent/run` 入口时，不能直接把旧 body 字段拼成一个松散 union；应先冻结 `mode + target + input (+ model)` 这层 envelope，再让 legacy route 在 adapter 层做一次归一。
+- 为什么：这些 surface 的共同点只在“都要跑 AI”，不在 payload 形状本身。如果不先把 target identifiers 和 input 内容分层，后续共享 handler 很快就会重新长出 `threadId/documentId/wikiContent/...` 这种随模式漂移的平铺字段，文档、adapter 和 handler 也会一起失焦。
+- 默认做法：先在 repo docs 写清每个 mode 的 `target` 和 `input` 契约；共享入口只消费这层标准 envelope，旧 `/api/ai/*` 路由若还存在，只负责把历史平铺字段转换成标准形状，不再维护第二套语义。
+
+### 63. 用消息事件回放交互状态时，必须按“最后事件胜出”处理可逆动作
+
+- 结论：像 comment agent 的 `stop -> 重新 @ 激活` 这种可逆状态，不能把历史 stop 事件当永久 tombstone；derive 必须按时间顺序回放，并让同一对象的最后一次事件决定当前状态。
+- 为什么：如果只维护“曾经 stop 过”的集合，后续重新 mention 虽然已经表达了新的用户意图，read side 仍会把该角色过滤掉，表现成 UI 与最新消息历史相互矛盾。
+- 默认做法：凡是用 message-level control event 表达状态切换，都要么维护“每个对象的最后事件”映射，要么用可重放 reducer 明确支持 stop / reactivate 循环；同时补一条覆盖“先 stop，再重新激活”的回归场景。
+
+### 64. 折叠并行认知模型前，先逐项盘点用户可见字段和 AI 语义
+
+- 结论：像 `KnowledgeItem + Memory -> Note` 这种看起来概念相近的模型收口，不能只看命名相似就直接合表；要先逐项盘点 `title / category / active / source` 这些用户可见字段和 prompt 语义，再决定 canonical contract。
+- 为什么：如果新 contract 先天装不下旧语义，后续迁移就会变成隐性降级，例如 `Context` UI 丢标题、AI prompt 丢 category、来源追踪变模糊。
+- 默认做法：先写一页差距 brief，把现有字段、UI 表达和 AI 消费方式列清；只有当新 contract 能无损承接时，才进入 schema / migration 代码。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来

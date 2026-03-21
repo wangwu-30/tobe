@@ -15,10 +15,10 @@ import {
   buildCommentResearchAgentState,
   resolveCommentResearchTargetFromBindings,
 } from '@/objects/comment/agent-bindings';
+import { mapCommentThread } from '@/objects/comment/view';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { SearchProviderError } from '@/lib/search/types';
-import { mapCommentThread } from '@/lib/wiki/service';
 
 export async function POST(
   req: NextRequest,
@@ -65,6 +65,7 @@ export async function POST(
   const targetResult = resolveCommentResearchTargetFromBindings({
     bindingsJson: thread.agentBindingsJson,
     content: currentResearchState.proposal.query,
+    messages: thread.messages,
     preferredAgentId: currentResearchState.targetAgentId,
     settings,
   });

@@ -1,4 +1,5 @@
 import { buildCommentContext } from '@/lib/ai/context-builder';
+import { isVisibleCommentMessage } from '@/derive/agent-watching';
 import {
   getActiveCommentAgentBindings,
   normalizeCommentAgents,
@@ -103,10 +104,12 @@ export async function buildCommentResearchPrompt(params: {
     anchorText: params.anchorText,
     language: params.settings.language,
     organizationId: params.organizationId,
-    threadMessages: params.messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
+    threadMessages: params.messages
+      .filter(isVisibleCommentMessage)
+      .map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
     wikiContent: params.documentContent,
     wikiId: params.workspaceId,
   });

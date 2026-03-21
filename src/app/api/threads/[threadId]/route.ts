@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isCommentThreadStatus } from '@/lib/comments/status';
 import {
+  parseCommentAgentBindings,
 } from '@/lib/comments/agents';
+import { buildStopCommentAgentControlMessage } from '@/derive/agent-watching';
 import { prisma } from '@/lib/db/prisma';
 import { getBoundVersionIdForWiki } from '@/lib/comments/version-binding';
 import { stopCommentAgentListeningState } from '@/objects/comment/agent-bindings';
+import { mapCommentThread } from '@/objects/comment/view';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { mapCommentThread } from '@/lib/wiki/service';
 
 export async function PATCH(
   req: NextRequest,
@@ -48,31 +50,52 @@ export async function PATCH(
       return NextResponse.json({ error: 'Missing agentId' }, { status: 400 });
     }
 
+    const existingBindings = parseCommentAgentBindings(existingThread.agentBindingsJson);
+    const stoppedBinding =
+      existingBindings.find((binding) => binding.agentId === body.agentId) || null;
     const nextBindings = stopCommentAgentListeningState({
       agentId: body.agentId,
       bindingsJson: existingThread.agentBindingsJson,
     });
 
-    const thread = await prisma.commentThread.update({
-      where: { id: threadId },
-      data: {
-        agentBindingsJson: nextBindings.bindingsJson,
-        createdByUserId: actor.userId,
-        originDeviceId: actor.deviceId,
-        revision: {
-          increment: 1,
+    const thread = await prisma.$transaction(async (tx) => {
+      if (stoppedBinding) {
+        await tx.commentMessage.create({
+          data: {
+            organizationId: actor.organizationId,
+            threadId,
+            ...buildStopCommentAgentControlMessage({
+              agentId: stoppedBinding.agentId,
+              agentLabel: stoppedBinding.agentLabel,
+              handle: stoppedBinding.handle,
+            }),
+            createdByUserId: actor.userId,
+            originDeviceId: actor.deviceId,
+          },
+        });
+      }
+
+      return tx.commentThread.update({
+        where: { id: threadId },
+        data: {
+          agentBindingsJson: nextBindings.bindingsJson,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+          revision: {
+            increment: 1,
+          },
         },
-      },
-      include: {
-        messages: { orderBy: { createdAt: 'asc' } },
-        version: {
-          include: {
-            labels: {
-              where: { deletedAt: null },
+        include: {
+          messages: { orderBy: { createdAt: 'asc' } },
+          version: {
+            include: {
+              labels: {
+                where: { deletedAt: null },
+              },
             },
           },
         },
-      },
+      });
     });
 
     return NextResponse.json({

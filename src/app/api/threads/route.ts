@@ -16,7 +16,7 @@ import {
 } from '@/lib/comments/version-binding';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { parseVersionFiles } from '@/lib/workspace/service';
-import { mapCommentThread } from '@/lib/wiki/service';
+import { mapCommentThread } from '@/objects/comment/view';
 import type {
   CommentThreadData,
   CommentThreadInheritanceState,

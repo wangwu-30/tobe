@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { createConversationMessage, mapConversationMessage } from '@/lib/wiki/service';
+import { createConversationMessage } from '@/lib/workspace/service';
+import { mapConversationMessage } from '@/objects/conversation/view';
 
 export async function GET(
   req: NextRequest,
@@ -35,7 +36,7 @@ export async function POST(
     conversationId,
     model: body.model,
     role: body.role,
-    wikiId: body.wikiId || body.workspaceId,
+    workspaceId: body.wikiId || body.workspaceId,
   });
 
   return NextResponse.json(message);
