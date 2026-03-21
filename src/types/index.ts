@@ -135,6 +135,7 @@ export type WorkspaceVersionFileData = Omit<
   versionId?: string | null;
 };
 
+/** @deprecated Legacy compatibility enum derived from labels. Prefer visible/pinned/recoveryKind. */
 export type WorkspaceVersionType = 'manual' | 'checkpoint' | 'checkpoint_pinned';
 
 export type WorkspaceVersionData = {
@@ -148,6 +149,7 @@ export type WorkspaceVersionData = {
   parentVersionId: string | null;
   sourceConversationId: string | null;
   sourceMessageId: string | null;
+  /** @deprecated Derived legacy compatibility field. Prefer visible/pinned/recoveryKind. */
   versionType: WorkspaceVersionType;
   createdByUserId: string | null;
   originDeviceId: string | null;
@@ -203,6 +205,8 @@ export type ChatAttachmentData = {
 export type DeliverableType = 'document' | 'web';
 
 export type LegacyDeliverableType = DeliverableType | 'slides' | 'code';
+
+export type RenderAs = 'document' | 'slides' | 'web';
 
 export type CommentAgentConfigData = {
   id: string;
@@ -263,6 +267,7 @@ export type DeliverableData = {
   title: string;
   deliverableType: DeliverableType;
   storedDeliverableType: LegacyDeliverableType | null;
+  renderAs: RenderAs;
   persistedStatus: string;
   content: string;
   primaryFileId: string | null;
@@ -360,7 +365,7 @@ export type WorkflowPrimaryActionKind =
   | 'create_version'
   | 'restore_latest';
 
-export type WorkspaceCurrentStatusData = {
+export type WorkspaceWorkflowStatusData = {
   phase:
     | 'idle'
     | 'planning'
@@ -379,7 +384,7 @@ export type WorkspaceCurrentStatusData = {
   isAiWorking: boolean;
 };
 
-export type WorkflowSummaryData = WorkspaceCurrentStatusData;
+export type WorkflowSummaryData = WorkspaceWorkflowStatusData;
 export type WorkflowPlaybookStatus = 'draft' | 'active' | 'archived';
 
 export type StagedChangePatchData = {
@@ -742,7 +747,7 @@ export type WorkspaceViewData = {
   selectedVersion: WorkspaceVersionData | null;
   stagedChangeSets: StagedChangeSetData[];
   workspacePlan: WorkspacePlanData | null;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
   activeLock?: WorkspaceEditLockData | null;
 };
 

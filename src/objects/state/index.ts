@@ -14,7 +14,6 @@ export {
   hasVisibleStateLabel,
   isRecoveryWorkspaceState,
   isVisibleWorkspaceState,
-  normalizeWorkspaceVersionType,
 } from './schema';
 export {
   findNearestVersionBeforeMessage,

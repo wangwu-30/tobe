@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
-import { useAppRouter } from '@/lib/app-router';
+import { useAppRouter, useAppSearchParams } from '@/lib/app-router';
 import {
   buildWorkspaceCreateRecovery,
   clearWorkspaceCreateRecovery,
@@ -26,6 +26,7 @@ import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
 export default function HomePage() {
   const t = useT();
   const router = useAppRouter();
+  const searchParams = useAppSearchParams();
   const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = React.useState<string | null>(null);
@@ -35,7 +36,9 @@ export default function HomePage() {
     React.useState<GoalComposerValues | null>(null);
   const [workspaceCreateContext, setWorkspaceCreateContext] =
     React.useState<WorkspaceCreateContext | null>(null);
-  const [pendingCreateEntry, setPendingCreateEntry] = React.useState(false);
+  const [pendingCreateEntry, setPendingCreateEntry] = React.useState<
+    WorkspaceCreateContext | 'workspace' | null
+  >(null);
   const createWorkspaceRequestIdRef = React.useRef<string | null>(null);
   const createWorkspaceInFlightRef = React.useRef(false);
 
@@ -50,33 +53,61 @@ export default function HomePage() {
         projectId: recovery.context?.projectId || null,
         projectTitle: recovery.context?.projectTitle || null,
       });
-      setCreateWorkspaceError(t('goal.createProjectRetryUnknown'));
-    }
-
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('newWorkspace') === '1') {
-      setPendingCreateEntry(true);
+      setCreateWorkspaceError(
+        t(
+          recovery.context?.projectId
+            ? 'goal.createDeliverableRetryUnknown'
+            : 'goal.createProjectRetryUnknown'
+        )
+      );
     }
   }, [t]);
 
-  const openWorkspaceCreateEntry = React.useCallback(() => {
-    if (createWorkspaceRecoveryActive) {
-      setGoalDialogOpen(true);
+  React.useEffect(() => {
+    const projectId = searchParams.get('newDeliverableProjectId');
+    const projectTitle = searchParams.get('newDeliverableProjectTitle');
+    const shouldOpenWorkspace = searchParams.get('newWorkspace') === '1';
+
+    if (!projectId && !shouldOpenWorkspace) {
       return;
     }
 
-    setCreateWorkspaceError(null);
-    setWorkspaceCreateContext(null);
-    setGoalDialogOpen(true);
-  }, [createWorkspaceRecoveryActive]);
+    setPendingCreateEntry(
+      projectId
+        ? {
+            projectFolderId: null,
+            projectId,
+            projectTitle: projectTitle?.trim() || null,
+          }
+        : 'workspace'
+    );
+    router.replace('/');
+  }, [router, searchParams]);
+
+  const openWorkspaceCreateEntry = React.useCallback(
+    (context: WorkspaceCreateContext | null = null) => {
+      setWorkspaceCreateContext(context);
+
+      if (createWorkspaceRecoveryActive) {
+        setGoalDialogOpen(true);
+        return;
+      }
+
+      setCreateWorkspaceError(null);
+      setGoalDialogOpen(true);
+    },
+    [createWorkspaceRecoveryActive]
+  );
 
   React.useEffect(() => {
     if (!pendingCreateEntry) {
       return;
     }
 
-    openWorkspaceCreateEntry();
-    setPendingCreateEntry(false);
+    openWorkspaceCreateEntry(
+      pendingCreateEntry === 'workspace' ? null : pendingCreateEntry
+    );
+    setPendingCreateEntry(null);
   }, [openWorkspaceCreateEntry, pendingCreateEntry]);
 
   const createWorkspace = async (values: GoalComposerValues) => {
@@ -92,7 +123,11 @@ export default function HomePage() {
     try {
       const workspace = await submitWorkspaceCreateRequest({
         context: workspaceCreateContext,
-        errorMessage: t('goal.createProjectFailed'),
+        errorMessage: t(
+          workspaceCreateContext?.projectId
+            ? 'goal.createDeliverableFailed'
+            : 'goal.createProjectFailed'
+        ),
         headers: getStoredAISettingsHeader(),
         requestId,
         values,
@@ -125,7 +160,13 @@ export default function HomePage() {
       persistWorkspaceCreateRecovery(recovery);
       setCreateWorkspaceRecoveryActive(true);
       setCreateWorkspaceRecoveryValues(values);
-      setCreateWorkspaceError(t('goal.createProjectRetryUnknown'));
+      setCreateWorkspaceError(
+        t(
+          workspaceCreateContext?.projectId
+            ? 'goal.createDeliverableRetryUnknown'
+            : 'goal.createProjectRetryUnknown'
+        )
+      );
     } finally {
       createWorkspaceInFlightRef.current = false;
       setIsCreatingWorkspace(false);
@@ -177,7 +218,7 @@ export default function HomePage() {
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Button
                   className="gap-2 rounded-xl px-5"
-                  onClick={openWorkspaceCreateEntry}
+                  onClick={() => openWorkspaceCreateEntry()}
                 >
                   <Sparkles className="h-4 w-4" />
                   {t('home.startWithGoal')}
@@ -212,6 +253,8 @@ export default function HomePage() {
       </main>
 
       <GoalComposerDialog
+        creationMode={workspaceCreateContext?.projectId ? 'deliverable' : 'project'}
+        currentProjectTitle={workspaceCreateContext?.projectTitle || null}
         disableInputs={createWorkspaceRecoveryActive}
         open={goalDialogOpen}
         errorMessage={createWorkspaceError}

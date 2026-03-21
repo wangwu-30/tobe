@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { updateAssistantRun } from '@/objects/conversation/commands';
 import {
   parseAssistantRunPayload,
   stringifyAssistantRunPayload,
 } from '@/lib/workspace/assistant-run-payload';
-import { updateAssistantRun } from '@/lib/workspace/service';
 
 export async function POST(
   req: NextRequest,

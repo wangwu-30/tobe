@@ -8,25 +8,32 @@ import {
 import { markdownToPlate, plateToMarkdown } from '@/lib/ai/serializer';
 import {
   getBoundVersionIdForWiki,
+  bindDraftThreadsToVersion,
 } from '@/lib/comments/version-binding';
 import {
   listWorkspaceRuns,
   startWorkspacePreview,
   stopWorkspacePreview,
 } from '@/lib/platform/run-service';
+import { recordSyncEvent } from '@/lib/platform/sync';
 import {
-  getCanonicalDeliverableType,
   normalizeStoredDeliverableType,
   parseStoredDeliverableType,
 } from '@/lib/workspace/deliverable-types';
+import { deriveRenderAs } from '@/lib/workspace/render-as';
 import {
-  branchConversation,
   createWorkspaceFile,
-  createWorkspaceVersion,
-  listWorkspaceFiles,
-  listWorkspaceVersions,
   updateWorkspaceFile,
-} from '@/lib/workspace/service';
+} from '@/objects/file/commands';
+import { listWorkspaceFiles } from '@/objects/file/queries';
+import {
+  listWorkspaceVersions,
+  mapWorkspaceVersionWithLabels,
+} from '@/objects/state/queries';
+import {
+  createWorkspaceVersion as createWorkspaceVersionCommand,
+} from '@/objects/state/commands';
+import { branchConversation } from '@/objects/conversation/commands';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import { inferDeliverableType } from '@/lib/workspace/planning';
 import {
@@ -39,8 +46,14 @@ import {
   listNotes,
   splitNotesByKind,
 } from '@/objects/note';
+import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 import type { SearchProvider } from '@/lib/search/types';
-import type { DeliverableType, ResearchMode, WorkspaceFileData } from '@/types';
+import type {
+  DeliverableType,
+  RenderAs,
+  ResearchMode,
+  WorkspaceFileData,
+} from '@/types';
 
 type DebugWorkspacePlanDetails = {
   activeStageId: string | null;
@@ -49,10 +62,17 @@ type DebugWorkspacePlanDetails = {
   goal: string;
   id: string;
   lastProgressNote: string | null;
+  renderAs: RenderAs;
   status: string;
   storedDeliverableType: ReturnType<typeof parseStoredDeliverableType>;
   styleGuide: string | null;
   version: number;
+};
+
+type ResultShapeFile = {
+  isPrimary?: boolean | null;
+  kind: string | null;
+  path: string;
 };
 
 type CreateWorkspaceAgentToolsParams = {
@@ -170,6 +190,29 @@ export function createWorkspaceAgentTools({
     ...(actorUserId ? [{ scope: 'user' as const, scopeId: actorUserId }] : []),
   ];
 
+  const workspaceStateActor = {
+    deviceId: originDeviceId,
+    organizationId,
+    userId: actorUserId,
+  };
+
+  const createVersion = async (input: {
+    bindDraftThreads?: boolean;
+    recovery?: boolean;
+    sourceConversationId?: string | null;
+    sourceMessageId?: string | null;
+    title?: string;
+    workspaceId: string;
+  }) =>
+    mapWorkspaceVersionWithLabels({
+      organizationId,
+      version: await createWorkspaceVersionCommand(workspaceStateActor, input, {
+        bindDraftThreadsToVersion,
+        ensureWorkspaceEditable,
+        recordSyncEvent,
+      }),
+    });
+
   const resolveContextScopeLabel = (
     note: { scope: string; scopeId: string },
     projectId?: string | null
@@ -190,19 +233,12 @@ export function createWorkspaceAgentTools({
       return liveDraftRecoveryCheckpoint;
     }
 
-    const version = await createWorkspaceVersion(
-      {
-        deviceId: originDeviceId,
-        organizationId,
-        userId: actorUserId,
-      },
-      {
-        sourceConversationId: conversationId,
-        title: 'Recovery Point before AI Update',
-        versionType: 'checkpoint',
-        workspaceId,
-      }
-    );
+    const version = await createVersion({
+      recovery: true,
+      sourceConversationId: conversationId,
+      title: 'Recovery Point before AI Update',
+      workspaceId,
+    });
 
     liveDraftRecoveryCheckpoint = {
       id: version.id,
@@ -261,6 +297,46 @@ export function createWorkspaceAgentTools({
     };
   };
 
+  const resolveWorkspacePresentation = (params: {
+    content: string;
+    files: ResultShapeFile[];
+    goal: string | null | undefined;
+    title: string | null | undefined;
+    workspacePlanDeliverableType: string | null | undefined;
+  }): {
+    deliverableType: DeliverableType;
+    renderAs: RenderAs;
+    storedDeliverableType: ReturnType<typeof parseStoredDeliverableType>;
+  } => {
+    const primaryFile =
+      params.files.find((file) => file.isPrimary) || params.files[0] || null;
+    const storedDeliverableType = parseStoredDeliverableType(
+      params.workspacePlanDeliverableType || null
+    );
+    const deliverableType =
+      normalizeStoredDeliverableType(params.workspacePlanDeliverableType) ||
+      inferDeliverableType({
+        explicitType: params.workspacePlanDeliverableType || null,
+        fileKind: primaryFile?.kind || null,
+        files: params.files.map((file) => ({
+          kind: file.kind,
+          path: file.path,
+        })),
+        goal: params.goal || params.title || 'Current deliverable',
+        title: primaryFile?.path || params.title || 'Current deliverable',
+      });
+
+    return {
+      deliverableType,
+      renderAs: deriveRenderAs({
+        content: params.content,
+        deliverableType,
+        storedDeliverableType,
+      }),
+      storedDeliverableType,
+    };
+  };
+
   const mapDebugWorkspacePlanDetails = (
     workspacePlan:
       | {
@@ -275,21 +351,35 @@ export function createWorkspaceAgentTools({
           version: number;
         }
       | null
-      | undefined
+      | undefined,
+    workspaceSurface?: {
+      content?: string | null;
+      files?: ResultShapeFile[] | null;
+      title?: string | null;
+    }
   ): DebugWorkspacePlanDetails | null => {
     if (!workspacePlan) {
       return null;
     }
 
+    const presentation = resolveWorkspacePresentation({
+      content: workspaceSurface?.content || '',
+      files: workspaceSurface?.files || [],
+      goal: workspacePlan.goal,
+      title: workspaceSurface?.title || workspacePlan.goal,
+      workspacePlanDeliverableType: workspacePlan.deliverableType,
+    });
+
     return {
       activeStageId: workspacePlan.activeStageId || null,
       constraints: workspacePlan.constraints || null,
-      deliverableType: normalizeStoredDeliverableType(workspacePlan.deliverableType) || 'document',
+      deliverableType: presentation.deliverableType,
       goal: workspacePlan.goal,
       id: workspacePlan.id,
       lastProgressNote: workspacePlan.lastProgressNote || null,
+      renderAs: presentation.renderAs,
       status: workspacePlan.status,
-      storedDeliverableType: parseStoredDeliverableType(workspacePlan.deliverableType),
+      storedDeliverableType: presentation.storedDeliverableType,
       styleGuide: workspacePlan.styleGuide || null,
       version: workspacePlan.version,
     };
@@ -624,11 +714,22 @@ export function createWorkspaceAgentTools({
               run.kind === 'preview' &&
               (run.status === 'pending' || run.status === 'running')
           ) || null;
-        const workspaceResultShape = workspacePlan?.deliverableType
-          ? getCanonicalDeliverableType(
-              normalizeStoredDeliverableType(workspacePlan.deliverableType)
-            )
-          : null;
+        const workspacePresentation =
+          wiki || workspacePlan
+            ? resolveWorkspacePresentation({
+                content: wiki?.content || '',
+                files:
+                  wiki?.files.map((file) => ({
+                    isPrimary: file.isPrimary,
+                    kind: file.kind,
+                    path: file.path,
+                  })) || [],
+                goal: workspacePlan?.goal || wiki?.title,
+                title: wiki?.title || workspacePlan?.goal,
+                workspacePlanDeliverableType: workspacePlan?.deliverableType,
+              })
+            : null;
+        const workspaceResultShape = workspacePresentation?.renderAs || null;
 
         const summary = [
           `Conversation: ${conversation?.title || conversationId}`,
@@ -745,7 +846,16 @@ export function createWorkspaceAgentTools({
             projectContext,
             stagedChangeSets,
             workspaceRuns,
-            workspacePlan: mapDebugWorkspacePlanDetails(workspacePlan),
+            workspacePlan: mapDebugWorkspacePlanDetails(workspacePlan, {
+              content: wiki?.content || '',
+              files:
+                wiki?.files.map((file) => ({
+                  isPrimary: file.isPrimary,
+                  kind: file.kind,
+                  path: file.path,
+                })) || [],
+              title: wiki?.title || workspacePlan?.goal || null,
+            }),
             wiki,
           },
         };
@@ -814,7 +924,7 @@ export function createWorkspaceAgentTools({
               text: [
                 `Deliverable: ${targetDeliverable.title}`,
                 `Workspace ID: ${targetDeliverable.id}`,
-                `Result shape: ${targetDeliverable.deliverableType}`,
+                `Result shape: ${targetDeliverable.renderAs}`,
                 `Status: ${targetDeliverable.status}`,
                 '',
                 'Files:',
@@ -855,18 +965,11 @@ export function createWorkspaceAgentTools({
           throw new Error('No deliverable exists in the current workspace.');
         }
 
-        const version = await createWorkspaceVersion(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            sourceConversationId: conversationId,
-            title: wiki.title,
-            workspaceId,
-          }
-        );
+        const version = await createVersion({
+          sourceConversationId: conversationId,
+          title: wiki.title,
+          workspaceId,
+        });
         await prisma.document.update({
           where: { id: wiki.id },
           data: {
@@ -1307,18 +1410,11 @@ export function createWorkspaceAgentTools({
       }),
       async execute(_toolCallId, params) {
         const input = params as { title?: string };
-        const version = await createWorkspaceVersion(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            sourceConversationId: conversationId,
-            title: input.title,
-            workspaceId,
-          }
-        );
+        const version = await createVersion({
+          sourceConversationId: conversationId,
+          title: input.title,
+          workspaceId,
+        });
         rememberToolSummary(`Saved milestone "${version.title}".`);
 
         return {

@@ -10,13 +10,13 @@ import { cn } from '@/lib/utils';
 import type {
   DeliverableVersionData,
   StagedChangeSetData,
-  WorkspaceCurrentStatusData,
+  WorkspaceWorkflowStatusData,
   WorkspaceVersionData,
 } from '@/types';
 
 export function WorkspaceHeaderVersionControls({
   currentDraftBaseVersionId,
-  currentStatus,
+  workflowStatus,
   currentText,
   currentVersionId,
   isAssistantBusy,
@@ -31,7 +31,7 @@ export function WorkspaceHeaderVersionControls({
   workspaceId,
 }: {
   currentDraftBaseVersionId?: string | null;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
   currentText: string;
   currentVersionId?: string | null;
   isAssistantBusy: boolean;
@@ -48,24 +48,24 @@ export function WorkspaceHeaderVersionControls({
   const t = useT();
   const statusActivelyRunning = Boolean(
     isAssistantBusy ||
-      currentStatus?.isAiWorking ||
-      currentStatus?.phase === 'implementing'
+      workflowStatus?.isAiWorking ||
+      workflowStatus?.phase === 'implementing'
   );
 
   return (
     <>
-      {currentStatus?.statusTitle || isAssistantBusy ? (
+      {workflowStatus?.statusTitle || isAssistantBusy ? (
         <div
           className={cn(
             'inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium text-foreground',
             statusActivelyRunning && 'border-primary/20 bg-primary/5',
-            currentStatus?.phase === 'blocked' &&
+            workflowStatus?.phase === 'blocked' &&
               'border-amber-500/20 bg-amber-500/5',
-            currentStatus?.phase === 'finalized' &&
+            workflowStatus?.phase === 'finalized' &&
               'border-emerald-500/20 bg-emerald-500/5',
             !statusActivelyRunning &&
-              currentStatus?.phase !== 'blocked' &&
-              currentStatus?.phase !== 'finalized' &&
+              workflowStatus?.phase !== 'blocked' &&
+              workflowStatus?.phase !== 'finalized' &&
               'border-border bg-muted/20'
           )}
         >
@@ -75,17 +75,17 @@ export function WorkspaceHeaderVersionControls({
             <span
               className={cn(
                 'h-2 w-2 rounded-full bg-muted-foreground/70',
-                currentStatus?.phase === 'blocked' && 'bg-amber-500',
-                currentStatus?.phase === 'finalized' && 'bg-emerald-500',
-                (currentStatus?.phase === 'preview_ready' ||
-                  currentStatus?.phase === 'preview_running' ||
-                  currentStatus?.phase === 'reviewing') &&
+                workflowStatus?.phase === 'blocked' && 'bg-amber-500',
+                workflowStatus?.phase === 'finalized' && 'bg-emerald-500',
+                (workflowStatus?.phase === 'preview_ready' ||
+                  workflowStatus?.phase === 'preview_running' ||
+                  workflowStatus?.phase === 'reviewing') &&
                   'bg-primary/70'
               )}
             />
           )}
           <span className="truncate">
-            {currentStatus?.statusTitle || t('status.aiBusy')}
+            {workflowStatus?.statusTitle || t('status.aiBusy')}
           </span>
         </div>
       ) : null}

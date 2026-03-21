@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { createConversationMessage } from '@/lib/workspace/service';
+import { createConversationMessage } from '@/objects/conversation/commands';
 import { mapConversationMessage } from '@/objects/conversation/view';
 
 export async function GET(

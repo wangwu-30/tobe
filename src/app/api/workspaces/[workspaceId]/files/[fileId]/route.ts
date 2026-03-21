@@ -4,8 +4,8 @@ import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import {
   deleteWorkspaceFile,
   updateWorkspaceFile,
-  WorkspaceLockConflictError,
-} from '@/lib/workspace/service';
+} from '@/objects/file/commands';
+import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 
 export async function PATCH(
   req: NextRequest,

@@ -5,12 +5,12 @@ import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
-import type { ResearchMode } from '@/types';
 import {
   createAssistantRun,
   createConversationMessage,
   updateAssistantRun,
-} from '@/lib/workspace/service';
+} from '@/objects/conversation/commands';
+import type { ResearchMode } from '@/types';
 
 type AnyPiModel = PiModel<Api>;
 

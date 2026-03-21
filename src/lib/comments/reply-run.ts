@@ -8,10 +8,8 @@ import { streamWithPi, toPiContextMessages } from '@/lib/ai/pi-runtime';
 import { parseReviewAnchor } from '@/lib/comments/review-anchor';
 import { startWorkspacePreview } from '@/lib/platform/run-service';
 import { refreshCommentAgentBindingsState } from '@/objects/comment/agent-bindings';
-import {
-  createConversationForWorkspace,
-  updateWorkspaceFile,
-} from '@/lib/workspace/service';
+import { createConversationForWorkspace } from '@/objects/conversation/commands';
+import { updateWorkspaceFile } from '@/objects/file/commands';
 
 type ActorContext = {
   deviceId: string;

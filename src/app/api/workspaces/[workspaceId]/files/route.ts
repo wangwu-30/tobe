@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import {
-  createWorkspaceFile,
-  listWorkspaceFiles,
-  WorkspaceLockConflictError,
-} from '@/lib/workspace/service';
+import { createWorkspaceFile } from '@/objects/file/commands';
+import { listWorkspaceFiles } from '@/objects/file/queries';
+import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 
 export async function GET(
   req: NextRequest,

@@ -173,7 +173,7 @@ function WorkspaceSidebar({
   const loadProjects = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/projects');
+      const res = await fetch('/api/project-list');
       if (!res.ok) {
         return;
       }
@@ -235,6 +235,17 @@ function WorkspaceSidebar({
       router.push(`/workspace/${project.workspaceId}`);
     },
     [onNavigate, router, sidebarActions]
+  );
+  const openProjectNextDeliverable = React.useCallback(
+    (project: ProjectSummaryData) => {
+      onNavigate?.();
+      const params = new URLSearchParams({
+        newDeliverableProjectId: project.id,
+        newDeliverableProjectTitle: project.title,
+      });
+      router.push(`/?${params.toString()}`);
+    },
+    [onNavigate, router]
   );
 
   return (
@@ -346,11 +357,7 @@ function WorkspaceSidebar({
                             'bg-background shadow-sm ring-1 ring-border'
                         )}
                       >
-                        <button
-                          type="button"
-                          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
-                          onClick={() => openProject(project)}
-                        >
+                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                           <div className="shrink-0 rounded-md bg-background/80 p-1.5 ring-1 ring-border/60">
                             <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
@@ -358,11 +365,38 @@ function WorkspaceSidebar({
                             <div className="truncate text-sm font-medium leading-5">
                               {project.title}
                             </div>
-                            <div className="truncate text-[11px] text-muted-foreground/80">
-                              {formatProjectListMeta(project, t)}
-                            </div>
+                            {currentWorkspaceId ? (
+                              <button
+                                type="button"
+                                className="mt-1 block truncate text-left text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
+                                onClick={() => openProject(project)}
+                              >
+                                {formatProjectListMeta(project, t)}
+                              </button>
+                            ) : (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="outline"
+                                  className="h-7 gap-1 px-2.5 text-[11px]"
+                                  onClick={() => openProject(project)}
+                                >
+                                  {t('sidebar.continueCurrentDeliverable')}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="ghost"
+                                  className="h-7 gap-1 px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+                                  onClick={() => openProjectNextDeliverable(project)}
+                                >
+                                  {t('plan.nextDeliverableAction')}
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                        </button>
+                        </div>
 
                         <Button
                           size="icon"

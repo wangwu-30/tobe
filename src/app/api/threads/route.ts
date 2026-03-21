@@ -15,8 +15,8 @@ import {
   getCurrentDraftRevisionForDocument,
 } from '@/lib/comments/version-binding';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { parseVersionFiles } from '@/lib/workspace/service';
 import { mapCommentThread } from '@/objects/comment/view';
+import { parseVersionFiles } from '@/objects/file/schema';
 import type {
   CommentThreadData,
   CommentThreadInheritanceState,

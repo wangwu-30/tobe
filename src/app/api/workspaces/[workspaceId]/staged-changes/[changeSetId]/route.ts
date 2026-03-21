@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { mapStagedChangeSet } from '@/lib/workspace/planning';
-import { WorkspaceLockConflictError } from '@/lib/workspace/service';
+import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 import {
   applyStagedChangeSet,
   discardStagedChangeSet,

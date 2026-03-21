@@ -11,7 +11,7 @@ import type {
 } from '@/types';
 import type { WorkspacePreviewCapability } from '@/lib/workspace/preview';
 
-type DeriveWorkflowSummaryParams = {
+type DeriveStatusParams = {
   activeAssistantRun: AssistantRunData | null;
   activePreviewRun: WorkspaceRunData | null;
   currentFiles: WorkspaceFileData[];
@@ -22,8 +22,8 @@ type DeriveWorkflowSummaryParams = {
   stagedChangeSets: StagedChangeSetData[];
 };
 
-export function deriveWorkflowSummary(
-  params: DeriveWorkflowSummaryParams
+export function deriveStatus(
+  params: DeriveStatusParams
 ): WorkflowSummaryData | null {
   if (!params.deliverable) {
     return null;

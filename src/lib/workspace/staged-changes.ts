@@ -1,10 +1,13 @@
 import { prisma } from '@/lib/db/prisma';
-import { markStagedChangeSetStatus, mapStagedChangeSet } from '@/lib/workspace/planning';
+import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
+import { recordSyncEvent } from '@/lib/platform/sync';
 import {
   createWorkspaceFile,
-  createWorkspaceVersion,
   updateWorkspaceFile,
-} from '@/lib/workspace/service';
+} from '@/objects/file/commands';
+import { createWorkspaceVersion } from '@/objects/state/commands';
+import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
+import { markStagedChangeSetStatus, mapStagedChangeSet } from '@/lib/workspace/planning';
 
 type ActorContext = {
   deviceId: string;
@@ -30,12 +33,20 @@ export async function applyStagedChangeSet(
   }
 
   const patches = parseChangeSetPatches(changeSet.changesJson);
-  const checkpoint = await createWorkspaceVersion(actor, {
-    sourceConversationId: changeSet.sessionId,
-    title: input.checkpointTitle || 'Recovery Point before Apply',
-    versionType: 'checkpoint',
-    workspaceId: input.workspaceId,
-  });
+  const checkpoint = await createWorkspaceVersion(
+    actor,
+    {
+      recovery: true,
+      sourceConversationId: changeSet.sessionId,
+      title: input.checkpointTitle || 'Recovery Point before Apply',
+      workspaceId: input.workspaceId,
+    },
+    {
+      bindDraftThreadsToVersion,
+      ensureWorkspaceEditable,
+      recordSyncEvent,
+    }
+  );
 
   for (const patch of patches) {
     const targetFile =

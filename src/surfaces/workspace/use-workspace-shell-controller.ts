@@ -2,9 +2,8 @@
 
 import * as React from 'react';
 
-import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import { updateWorkspacePlanActiveWorkflow } from '@/lib/workspace/plan-client';
-import type { DeliverableType, WorkspaceViewData } from '@/types';
+import type { RenderAs, WorkspaceViewData } from '@/types';
 
 type WorkspaceNoticeAction = {
   label: string;
@@ -31,22 +30,24 @@ const PANE_ORDER_STORAGE_KEY = 'workspace-pane-order';
 function buildFirstPassPrompt(params: {
   constraints: string | null;
   currentText: string;
-  deliverableType: DeliverableType;
   goal: string;
+  renderAs: RenderAs;
   styleGuide: string | null;
 }) {
   const lines = [
     'Take the first author pass for this deliverable.',
     'First inspect the current workspace context.',
     'Then render the first coherent draft directly into the live draft instead of stopping at staged changes.',
-    params.deliverableType === 'web'
+    params.renderAs === 'web'
       ? 'Keep the web draft React-based by default. Use a thin previewable index.html shell only as the mount entrypoint, put most page logic and structure in React source files, and start preview if the workspace supports it.'
+      : params.renderAs === 'slides'
+        ? 'Write into the main live draft file using slide_page blocks, keep one coherent slide per page, and preserve a presentation-ready deck instead of falling back to a plain article.'
       : 'Write into the main live draft file, keep the current structure coherent, and avoid hiding the result in chat only.',
     'Create a recovery point before the pass, keep only the recent recovery points, and mention the newest one in your summary.',
     'Use the main deliverable file when possible.',
     'After using tools, reply with a short summary of what you rendered or saved.',
     '',
-    `Current result shape: ${getCanonicalDeliverableType(params.deliverableType)}`,
+    `Current result shape: ${params.renderAs}`,
     `Goal: ${params.goal}`,
   ];
 
@@ -71,8 +72,8 @@ export function useWorkspaceShellController<
   comparableDeliverableText,
   currentWorkspace,
   deliverable,
-  deliverableType,
   isAssistantBusy,
+  renderAs,
   setWorkspaceNotice,
   setWorkspaceView,
   t,
@@ -83,8 +84,8 @@ export function useWorkspaceShellController<
   comparableDeliverableText: string;
   currentWorkspace: WorkspaceViewData['workspace'] | null;
   deliverable: WorkspaceViewData['deliverable'] | null;
-  deliverableType: DeliverableType;
   isAssistantBusy: boolean;
+  renderAs: RenderAs;
   setWorkspaceNotice: React.Dispatch<
     React.SetStateAction<WorkspaceShellNotice | null>
   >;
@@ -157,7 +158,6 @@ export function useWorkspaceShellController<
 
     const nextPrompt: QueuedPrompt = {
       content: buildFirstPassPrompt({
-        deliverableType,
         goal:
           workspaceBrief?.goal ||
           currentWorkspace.title ||
@@ -166,6 +166,7 @@ export function useWorkspaceShellController<
         constraints: workspaceBrief?.constraints || null,
         styleGuide: workspaceBrief?.styleGuide || null,
         currentText: comparableDeliverableText,
+        renderAs,
       }),
       id: `${Date.now()}`,
     };
@@ -179,8 +180,8 @@ export function useWorkspaceShellController<
     comparableDeliverableText,
     currentWorkspace,
     deliverable?.title,
-    deliverableType,
     isAssistantBusy,
+    renderAs,
     setWorkspaceNotice,
     t,
     workspaceBrief,

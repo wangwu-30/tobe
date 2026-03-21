@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 import {
-  setWorkspaceVersionPinned,
-  WorkspaceLockConflictError,
   WorkspaceRecoveryPinLimitError,
-} from '@/lib/workspace/service';
+  setWorkspaceVersionPinned,
+} from '@/objects/state/commands';
+import { mapWorkspaceVersionWithLabels } from '@/objects/state/queries';
+import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 
 export async function PATCH(
   req: NextRequest,
@@ -16,13 +18,24 @@ export async function PATCH(
   const body = await req.json().catch(() => ({}));
 
   try {
-    const version = await setWorkspaceVersionPinned(actor, {
-      pinned: Boolean(body.pinned),
-      versionId,
-      workspaceId,
-    });
+    const version = await setWorkspaceVersionPinned(
+      actor,
+      {
+        pinned: Boolean(body.pinned),
+        versionId,
+        workspaceId,
+      },
+      {
+        ensureWorkspaceEditable,
+      }
+    );
 
-    return NextResponse.json(version);
+    return NextResponse.json(
+      await mapWorkspaceVersionWithLabels({
+        organizationId: actor.organizationId,
+        version,
+      })
+    );
   } catch (error) {
     if (error instanceof WorkspaceRecoveryPinLimitError) {
       return NextResponse.json({ error: error.message }, { status: 409 });

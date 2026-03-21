@@ -4,7 +4,7 @@ import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
 import type { Settings } from '@/lib/ai/providers';
 import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import { getWorkspacePlanBlueprint } from '@/lib/workspace/plan-blueprints';
-import type { DeliverableType, PlanStepData } from '@/types';
+import type { DeliverableType, PlanStepData, RenderAs } from '@/types';
 
 type AnyPiModel = PiModel<Api>;
 
@@ -13,6 +13,7 @@ export async function generatePlanStepsWithAI(params: {
   deliverableType: DeliverableType;
   goal: string;
   model: AnyPiModel;
+  resultShape: RenderAs;
   settings: Settings;
   styleGuide?: string | null;
 }) {
@@ -32,6 +33,7 @@ export async function generatePlanStepsWithAI(params: {
         'For each stage, rewrite the title and description so they fit the specific goal.',
         'Titles must be short and concrete. Descriptions must be one sentence.',
         'Keep checkpoint booleans aligned with the stage blueprint.',
+        'Treat "Current result shape" as the live presentation format and "Plan blueprint type" as the canonical stage taxonomy.',
         buildPlanLanguageInstruction(params.settings.language),
       ].join('\n'),
       messages: [
@@ -39,7 +41,8 @@ export async function generatePlanStepsWithAI(params: {
           role: 'user',
           content: [
             `Goal: ${params.goal.trim() || 'Create a new deliverable'}`,
-            `Result shape: ${getCanonicalDeliverableType(params.deliverableType)}`,
+            `Current result shape: ${params.resultShape}`,
+            `Plan blueprint type: ${getCanonicalDeliverableType(params.deliverableType)}`,
             params.styleGuide?.trim() ? `Style / tone: ${params.styleGuide.trim()}` : null,
             params.constraints?.trim() ? `Constraints: ${params.constraints.trim()}` : null,
             '',

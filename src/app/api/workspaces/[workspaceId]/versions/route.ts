@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { recordSyncEvent } from '@/lib/platform/sync';
 import {
-  createWorkspaceVersion,
+  createWorkspaceVersion as createWorkspaceVersionCommand,
+} from '@/objects/state/commands';
+import {
   listWorkspaceVersions,
-  WorkspaceLockConflictError,
-} from '@/lib/workspace/service';
+  mapWorkspaceVersionWithLabels,
+} from '@/objects/state/queries';
+import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
+import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 
 export async function GET(
   req: NextRequest,
@@ -33,15 +39,27 @@ export async function POST(
   const body = await req.json().catch(() => ({}));
 
   try {
-    const version = await createWorkspaceVersion(actor, {
-      sourceConversationId: body.sourceConversationId || null,
-      sourceMessageId: body.sourceMessageId || null,
-      title: body.title,
-      versionType: 'manual',
-      workspaceId,
-    });
+    const version = await createWorkspaceVersionCommand(
+      actor,
+      {
+        sourceConversationId: body.sourceConversationId || null,
+        sourceMessageId: body.sourceMessageId || null,
+        title: body.title,
+        workspaceId,
+      },
+      {
+        bindDraftThreadsToVersion,
+        ensureWorkspaceEditable,
+        recordSyncEvent,
+      }
+    );
 
-    return NextResponse.json(version);
+    return NextResponse.json(
+      await mapWorkspaceVersionWithLabels({
+        organizationId: actor.organizationId,
+        version,
+      })
+    );
   } catch (error) {
     if (error instanceof WorkspaceLockConflictError) {
       return NextResponse.json(

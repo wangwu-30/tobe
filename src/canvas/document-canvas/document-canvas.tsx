@@ -23,14 +23,13 @@ import {
 } from '@/lib/workspace/file-presentation';
 import {
   extractSlidePageCards,
-  hasOnlySlidePageBlocks,
 } from '@/lib/workspace/slide-pages';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import type {
   CommentThreadData,
   DeliverableType,
-  LegacyDeliverableType,
-  WorkspaceCurrentStatusData,
+  RenderAs,
+  WorkspaceWorkflowStatusData,
   WorkspaceViewData,
 } from '@/types';
 
@@ -41,8 +40,7 @@ export function buildDeliverablePanel(params: {
   currentText: string;
   draftRevision: number | null;
   deliverableTitle: string;
-  deliverableType: DeliverableType;
-  storedDeliverableType: LegacyDeliverableType | null;
+  renderAs: RenderAs;
   documentPlaceholder: string;
   editorContent: Value | null;
   fileContent: string;
@@ -79,7 +77,7 @@ export function buildDeliverablePanel(params: {
   stopPreviewLabel: string;
   stoppingLabel: string;
   versionActionLabel: string;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
   chatError: {
     error: { detail: string; message: string; retryable: boolean; kind: string };
     retryFn?: () => void;
@@ -91,14 +89,12 @@ export function buildDeliverablePanel(params: {
   const richtextLikeFile = isPlateBackedWorkspaceFile(params.currentFile);
   const isErrorState = !params.selectedVersion && !!params.chatError;
   const projectedRichtextValue = params.editorContent || parsePlateContent(params.fileContent);
-  const shouldProjectDocumentAsSlides =
-    params.deliverableType === 'document' && hasOnlySlidePageBlocks(projectedRichtextValue);
   const statusTitle = isErrorState
     ? params.chatError!.error.message
-    : params.currentStatus?.statusTitle || params.noDocumentTitle;
+    : params.workflowStatus?.statusTitle || params.noDocumentTitle;
   const statusDescription = isErrorState
     ? params.chatError!.error.detail
-    : params.currentStatus?.statusDescription || params.noDocumentDescription;
+    : params.workflowStatus?.statusDescription || params.noDocumentDescription;
   const errorAction = isErrorState && params.chatError?.retryFn ? (
     <Button size="sm" onClick={params.chatError.retryFn}>
       {params.t ? params.t('chat.retry') : 'Retry'}
@@ -106,24 +102,20 @@ export function buildDeliverablePanel(params: {
   ) : undefined;
 
   const showIntentCanvas =
-    !isSupportFile &&
-    !params.showImplementation &&
-    (params.storedDeliverableType === 'slides' ||
-      params.deliverableType === 'web' ||
-      shouldProjectDocumentAsSlides);
+    !isSupportFile && !params.showImplementation && params.renderAs !== 'document';
   const editorStatusTone = params.selectedVersion
     ? 'locked'
-    : params.currentStatus?.phase === 'blocked'
+    : params.workflowStatus?.phase === 'blocked'
       ? 'blocked'
-      : params.currentStatus?.phase === 'reviewing' ||
-          params.currentStatus?.phase === 'preview_ready' ||
-          params.currentStatus?.phase === 'preview_running' ||
-          params.currentStatus?.phase === 'finalized'
+      : params.workflowStatus?.phase === 'reviewing' ||
+          params.workflowStatus?.phase === 'preview_ready' ||
+          params.workflowStatus?.phase === 'preview_running' ||
+          params.workflowStatus?.phase === 'finalized'
         ? 'reviewing'
         : 'draft';
   const editorStatusLabel = params.selectedVersion
     ? undefined
-    : params.currentStatus?.statusTitle || undefined;
+    : params.workflowStatus?.statusTitle || undefined;
   const surfaceTitle =
     isSupportFile && params.currentFile
       ? getWorkspaceFileDisplayName(params.currentFile)
@@ -132,13 +124,14 @@ export function buildDeliverablePanel(params: {
     !isSupportFile &&
     !params.selectedVersion &&
     !params.currentText.trim() &&
-    (params.currentStatus?.phase === 'planning' || params.currentStatus?.phase === 'implementing');
+    (params.workflowStatus?.phase === 'planning' ||
+      params.workflowStatus?.phase === 'implementing');
   const canStartFirstPass =
     !isErrorState &&
     !params.selectedVersion &&
-    params.currentStatus?.primaryAction === 'generate_first_pass';
+    params.workflowStatus?.primaryAction === 'generate_first_pass';
   const activityVariant =
-    params.currentStatus?.phase === 'implementing' || params.isAssistantBusy
+    params.workflowStatus?.phase === 'implementing' || params.isAssistantBusy
       ? 'working'
       : 'idle';
   const firstPassAction = canStartFirstPass ? (
@@ -147,11 +140,11 @@ export function buildDeliverablePanel(params: {
     </Button>
   ) : undefined;
 
-  if (showIntentCanvas && params.deliverableType === 'web') {
+  if (showIntentCanvas && params.renderAs === 'web') {
     return (
       <WebDeliverableCanvas
         actions={params.headerActions}
-        currentStatus={params.currentStatus}
+        workflowStatus={params.workflowStatus}
         draftRevision={params.draftRevision}
         documentContent={params.commentContextContent}
         fileId={params.previewAnchorFileId}
@@ -186,12 +179,12 @@ export function buildDeliverablePanel(params: {
 
   if (
     showIntentCanvas &&
-    (params.storedDeliverableType === 'slides' || shouldProjectDocumentAsSlides)
+    params.renderAs === 'slides'
   ) {
     return (
       <SlidesDeliverableCanvas
         actions={params.headerActions}
-        currentStatus={params.currentStatus}
+        workflowStatus={params.workflowStatus}
         isAssistantBusy={params.isAssistantBusy}
         onGenerateFirstPass={params.onGenerateFirstPass}
         value={projectedRichtextValue}
@@ -302,7 +295,7 @@ function RenderingDeliverableCanvas({
 
 function SlidesDeliverableCanvas({
   actions,
-  currentStatus,
+  workflowStatus,
   isAssistantBusy,
   onGenerateFirstPass,
   subtitle,
@@ -310,7 +303,7 @@ function SlidesDeliverableCanvas({
   title,
 }: {
   actions: React.ReactNode;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
   isAssistantBusy: boolean;
   onGenerateFirstPass: () => void;
   subtitle: string;
@@ -321,12 +314,12 @@ function SlidesDeliverableCanvas({
   const slides = React.useMemo(() => extractSlidePageCards(value, title), [title, value]);
   const hasSlides = slides.length > 0;
   const statusTitle = hasSlides
-    ? currentStatus?.statusTitle || t('workspace.slidesPreviewTitle')
-    : currentStatus?.statusTitle || t('workspace.slidesEmptyTitle');
+    ? workflowStatus?.statusTitle || t('workspace.slidesPreviewTitle')
+    : workflowStatus?.statusTitle || t('workspace.slidesEmptyTitle');
   const statusDescription = hasSlides
-    ? currentStatus?.statusDescription || t('workspace.slidesPreviewDescription')
-    : currentStatus?.statusDescription || t('workspace.slidesEmptyDescription');
-  const showGenerateFirstPassAction = currentStatus?.primaryAction === 'generate_first_pass';
+    ? workflowStatus?.statusDescription || t('workspace.slidesPreviewDescription')
+    : workflowStatus?.statusDescription || t('workspace.slidesEmptyDescription');
+  const showGenerateFirstPassAction = workflowStatus?.primaryAction === 'generate_first_pass';
 
   return (
     <div
@@ -407,7 +400,7 @@ function SlidesDeliverableCanvas({
 
 function WebDeliverableCanvas({
   actions,
-  currentStatus,
+  workflowStatus,
   draftRevision,
   documentContent,
   fileId,
@@ -438,7 +431,7 @@ function WebDeliverableCanvas({
   chatError,
 }: {
   actions: React.ReactNode;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
   draftRevision?: number | null;
   documentContent: string;
   fileId?: string | null;
@@ -482,12 +475,12 @@ function WebDeliverableCanvas({
   const isErrorState = !!chatError;
   const statusTitle = isErrorState
     ? chatError!.error.message
-    : currentStatus?.statusTitle ||
+    : workflowStatus?.statusTitle ||
       (previewCapability.canPreview ? previewEmptyTitle : previewNotReadyTitle);
   const statusDescription = isErrorState
     ? chatError!.error.detail
-    : currentStatus?.blockedReason ||
-      currentStatus?.statusDescription ||
+    : workflowStatus?.blockedReason ||
+      workflowStatus?.statusDescription ||
       (previewCapability.canPreview
         ? previewEmptyDescription
         : previewUnavailableDescription);
@@ -495,15 +488,15 @@ function WebDeliverableCanvas({
     !isErrorState &&
     !previewUrl &&
     previewCapability.canPreview &&
-    currentStatus?.primaryAction === 'start_preview';
+    workflowStatus?.primaryAction === 'start_preview';
   const showGenerateFirstPassAction =
     !isErrorState &&
     !previewUrl &&
-    currentStatus?.primaryAction === 'generate_first_pass';
+    workflowStatus?.primaryAction === 'generate_first_pass';
   const showRestoreAction =
     !isErrorState &&
     !previewUrl &&
-    currentStatus?.primaryAction === 'restore_latest' &&
+    workflowStatus?.primaryAction === 'restore_latest' &&
     onRestoreLatest;
   const errorAction = isErrorState && chatError?.retryFn ? (
     <Button size="sm" onClick={chatError.retryFn}>{t('chat.retry')}</Button>

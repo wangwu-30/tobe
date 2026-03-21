@@ -76,6 +76,27 @@ test('slide and web deliverables stay inside result shells instead of falling ba
     },
     method: 'POST',
   });
+  const slidesView = await apiRequest<{
+    deliverable: { deliverableType: string; renderAs: string };
+  }>(
+    baseURL,
+    `/api/workspaces/${slidesWorkspace.workspace.id}?conversationId=${slidesWorkspace.conversation.id}`
+  );
+  const webView = await apiRequest<{
+    deliverable: { deliverableType: string; renderAs: string };
+  }>(
+    baseURL,
+    `/api/workspaces/${webWorkspace.workspace.id}?conversationId=${webWorkspace.conversation.id}`
+  );
+
+  expect(slidesView.deliverable).toMatchObject({
+    deliverableType: 'document',
+    renderAs: 'slides',
+  });
+  expect(webView.deliverable).toMatchObject({
+    deliverableType: 'web',
+    renderAs: 'web',
+  });
 
   await primeClientState(page);
   await page.goto(

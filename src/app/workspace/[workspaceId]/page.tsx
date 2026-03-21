@@ -30,7 +30,7 @@ import type {
   ChatMessageData,
   CommentThreadData,
   DeliverableType,
-  WorkspaceCurrentStatusData,
+  WorkspaceWorkflowStatusData,
   WorkspaceRunData,
   WorkspaceViewData,
 } from '@/types';
@@ -42,7 +42,7 @@ import { WorkspaceHeaderVersionControls } from '@/surfaces/workspace/workspace-h
 import { useWorkspaceOutlineNavigation } from '@/surfaces/workspace/use-workspace-outline-navigation';
 import { useWorkspaceRouteController } from '@/surfaces/workspace/use-workspace-route-controller';
 import { useWorkspaceShellController } from '@/surfaces/workspace/use-workspace-shell-controller';
-import { WorkspaceTitleSwitcher } from '@/surfaces/workspace/workspace-route-chrome';
+import { WorkspaceRouteTitle } from '@/surfaces/workspace/workspace-route-chrome';
 import { WorkspaceRouteSidebar } from '@/surfaces/workspace/workspace-route-sidebar';
 import { useWorkspaceSidebarActions } from '@/surfaces/workspace/use-workspace-sidebar-actions';
 import { useWorkspaceVersionPreviewController } from '@/surfaces/workspace/use-workspace-version-preview-controller';
@@ -147,7 +147,8 @@ export default function WorkspacePage() {
   }, [currentDraftBaseVersionId, workspaceView?.versions]);
   const deliverable = workspaceView?.deliverable || null;
   const workspaceBrief = workspaceView?.workspacePlan || null;
-  const currentStatus = workspaceView?.currentStatus || null;
+  const workflowStatus = workspaceView?.workflowStatus || null;
+  const renderAs = deliverable?.renderAs || 'document';
   const currentProjectId = currentProject?.id || currentWorkspace?.projectId || null;
   const currentProjectTitleValue = currentProject?.title || null;
   const currentWorkspaceProjectTitle = currentWorkspace?.projectTitle || null;
@@ -180,21 +181,42 @@ export default function WorkspacePage() {
     },
     [currentProjectTitle, currentWorkspace?.projectFolderId, projectFolders]
   );
+  const showProjectContextInHeader = React.useMemo(() => {
+    if (!currentProjectPathLabel) {
+      return false;
+    }
+
+    const currentTitle = currentWorkspace?.title?.trim() || null;
+    const hasDistinctProjectTitle =
+      Boolean(currentProjectTitle?.trim()) &&
+      currentProjectTitle?.trim() !== currentTitle;
+
+    return hasDistinctProjectTitle || projectFolders.length > 0 || projectDeliverables.length > 1;
+  }, [
+    currentProjectPathLabel,
+    currentProjectTitle,
+    currentWorkspace?.title,
+    projectDeliverables.length,
+    projectFolders.length,
+  ]);
   const projectDeliverableSwitchOptions = React.useMemo(
     () =>
       projectDeliverables.map((item) => {
-        const folderPathLabel = listProjectFolderPath(
+        const folderSegments = listProjectFolderPath(
           item.projectFolderId,
           projectFolders
-        ).join(' / ');
+        );
 
         return {
-          folderPathLabel,
+          projectPathLabel:
+            currentProjectTitle || folderSegments.length > 0
+              ? [currentProjectTitle, ...folderSegments].filter(Boolean).join(' / ')
+              : null,
           id: item.id,
           title: item.title,
         };
       }),
-    [projectDeliverables, projectFolders]
+    [currentProjectTitle, projectDeliverables, projectFolders]
   );
 
   const deliverableType: DeliverableType = deliverable?.deliverableType || 'document';
@@ -294,7 +316,7 @@ export default function WorkspacePage() {
     selectedVersion: currentVersion,
     deliverable,
     t,
-    currentStatus,
+    workflowStatus,
   });
   const currentWorkspaceStateLabel = React.useMemo(
     () =>
@@ -302,27 +324,27 @@ export default function WorkspacePage() {
         selectedVersion: currentVersion,
         deliverable,
         t,
-        currentStatus,
+        workflowStatus,
       }),
-    [currentStatus, currentVersion, deliverable, t]
+    [workflowStatus, currentVersion, deliverable, t]
   );
   const workspaceSubtitle = React.useMemo(
-    () =>
-      [currentProjectPathLabel, currentWorkspaceStateLabel]
-        .filter(Boolean)
-        .join(' · '),
-    [currentProjectPathLabel, currentWorkspaceStateLabel]
+    () => currentWorkspaceStateLabel || undefined,
+    [currentWorkspaceStateLabel]
   );
   const canSwitchProjectDeliverable =
     !isVersionView && projectDeliverableSwitchOptions.length > 1;
   const canOpenOutline = outlineItems.some((item) => item.id.startsWith('heading-'));
   const { openOutline } = useWorkspaceOutlineNavigation({ outlineItems });
   const workspaceTitleNode = (
-    <WorkspaceTitleSwitcher
+    <WorkspaceRouteTitle
       currentTitle={currentWorkspace?.title || null}
       enabled={canSwitchProjectDeliverable}
       onSelectDeliverable={(deliverableId) => router.push(`/workspace/${deliverableId}`)}
       options={projectDeliverableSwitchOptions}
+      projectContextLabel={
+        showProjectContextInHeader ? currentProjectPathLabel || currentProjectTitle : null
+      }
       workspaceId={workspaceId}
     />
   );
@@ -337,8 +359,8 @@ export default function WorkspacePage() {
     activePreviewRun,
     currentConversationId,
     currentFileId,
-    currentStatusPrimaryAction: currentStatus?.primaryAction,
-    currentStatusWorking: currentStatus?.isAiWorking,
+    workflowStatusPrimaryAction: workflowStatus?.primaryAction,
+    workflowStatusWorking: workflowStatus?.isAiWorking,
     currentVersionId,
     deliverableType,
     isAssistantBusy,
@@ -370,8 +392,8 @@ export default function WorkspacePage() {
     comparableDeliverableText,
     currentWorkspace,
     deliverable,
-    deliverableType,
     isAssistantBusy,
+    renderAs,
     setWorkspaceNotice,
     setWorkspaceView,
     t,
@@ -476,7 +498,7 @@ export default function WorkspacePage() {
       conversationTitle={currentConversation?.title || null}
       currentProjectId={currentProjectId}
       currentDraftBranchTitle={currentDraftBaseVersion?.title || null}
-      currentStatus={currentStatus}
+      workflowStatus={workflowStatus}
       documentContent={commentContextContent}
       files={workspaceView?.files || []}
       initialMessages={initialMessages}
@@ -511,7 +533,7 @@ export default function WorkspacePage() {
   const headerVersionControls = (
     <WorkspaceHeaderVersionControls
       currentDraftBaseVersionId={currentDraftBaseVersionId}
-      currentStatus={currentStatus}
+      workflowStatus={workflowStatus}
       currentText={comparableDeliverableText}
       currentVersionId={currentVersionId}
       isAssistantBusy={isAssistantBusy}
@@ -533,7 +555,7 @@ export default function WorkspacePage() {
       chatError={chatError}
       commentContextContent={commentContextContent}
       currentFile={currentFile}
-      currentStatus={currentStatus}
+      workflowStatus={workflowStatus}
       currentText={comparableDeliverableText}
       deliverable={deliverable}
       draftRevision={currentWorkspace?.draftRevision || null}
@@ -575,6 +597,7 @@ export default function WorkspacePage() {
       collapsed={collapsed}
       createProjectDeliverable={createProjectDeliverable}
       currentProjectId={currentProjectId}
+      currentProjectTitle={currentProjectTitle}
       currentVersionId={currentVersionId}
       currentWorkspaceId={workspaceId}
       currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
@@ -655,7 +678,7 @@ function describeWorkspaceState(params: {
   selectedVersion: WorkspaceViewData['selectedVersion'];
   deliverable: WorkspaceViewData['deliverable'];
   t: ReturnType<typeof useT>;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
 }) {
   if (!params.deliverable) {
     return params.t('workspace.openProjectToContinue');
@@ -668,7 +691,7 @@ function describeWorkspaceStatusLabel(params: {
   selectedVersion: WorkspaceViewData['selectedVersion'];
   deliverable: WorkspaceViewData['deliverable'];
   t: ReturnType<typeof useT>;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
 }) {
   if (!params.deliverable) {
     return params.t('workspace.openProjectToContinue');
@@ -678,5 +701,5 @@ function describeWorkspaceStatusLabel(params: {
     return params.selectedVersion.title;
   }
 
-  return params.currentStatus?.statusTitle || params.t('workspace.liveDraft');
+  return params.workflowStatus?.statusTitle || params.t('workspace.liveDraft');
 }

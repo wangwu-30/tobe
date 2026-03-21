@@ -7,11 +7,27 @@ import {
   resolveWorkspaceProjectId,
   resolveWorkspaceProjectTitle,
 } from '@/objects/project/queries';
+import type { AppLanguage } from '@/lib/i18n/language';
+import {
+  buildDeliverable,
+  hydrateWorkspacePlanForView,
+} from '@/lib/workspace/planning';
+import {
+  detectWorkspacePreviewCapability,
+} from '@/lib/workspace/preview';
+import { deriveStatus } from '@/lib/workspace/workflow';
 import { deriveWorkspaceStateSemantics } from '@/objects/state/schema';
 import type {
+  AssistantRunData,
+  DeliverableData,
   StateLabelData,
+  StagedChangeSetData,
   WorkspaceData,
   WorkspaceEditLockData,
+  WorkspaceWorkflowStatusData,
+  WorkspaceFileData,
+  WorkspacePlanData,
+  WorkspaceRunData,
   WorkspaceVersionData,
   WorkspaceWithRelations,
 } from '@/types';
@@ -49,7 +65,6 @@ type WorkspaceVersionRecord = {
   originDeviceId: string | null;
   parentVersionId: string | null;
   revision: number;
-  versionType?: string | null;
   sourceMessageId: string | null;
   sourceSessionId: string | null;
   title: string;
@@ -75,6 +90,15 @@ type WorkspaceWithRelationsRecord = WorkspaceRecord & {
   stagedChangeSets?: WorkspaceWithRelations['stagedChangeSets'];
   versions: WorkspaceVersionData[];
   workspacePlan?: WorkspaceWithRelations['workspacePlan'];
+};
+
+type WorkspaceRuntimeSeed = Pick<
+  WorkspaceRecord,
+  'content' | 'currentVersion' | 'id' | 'status' | 'title'
+> & {
+  workspacePlan?: {
+    deliverableType: string;
+  } | null;
 };
 
 export function mapWorkspace(document: WorkspaceRecord): WorkspaceData {
@@ -167,5 +191,60 @@ export function mapWorkspaceWithRelations(
     stagedChangeSets: workspace.stagedChangeSets || [],
     versions: workspace.versions,
     workspacePlan: workspace.workspacePlan || null,
+  };
+}
+
+export function buildWorkspaceRuntimeSurface(params: {
+  activeAssistantRun: AssistantRunData | null;
+  language: AppLanguage;
+  stagedChangeSets: StagedChangeSetData[];
+  versions: WorkspaceVersionData[];
+  workspace: WorkspaceRuntimeSeed;
+  workspaceFiles: WorkspaceFileData[];
+  workspacePlan: WorkspacePlanData | null;
+  workspaceRuns: WorkspaceRunData[];
+}): {
+  activePreviewRun: WorkspaceRunData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
+  deliverable: DeliverableData;
+  workspacePlan: WorkspacePlanData | null;
+} {
+  const deliverableFiles = params.workspaceFiles.filter(
+    (file) => file.role === 'deliverable'
+  );
+  const deliverable = buildDeliverable({
+    currentVersion: params.workspace.currentVersion,
+    files: params.workspaceFiles,
+    plan: params.workspacePlan,
+    storedDeliverableType: params.workspace.workspacePlan?.deliverableType || null,
+    workspace: params.workspace,
+  });
+  const previewCapability = detectWorkspacePreviewCapability(deliverableFiles);
+  const activePreviewRun =
+    params.workspaceRuns.find(
+      (run) =>
+        run.kind === 'preview' &&
+        (run.status === 'pending' || run.status === 'running')
+    ) || null;
+  const workflowStatus = deriveStatus({
+    activePreviewRun,
+    activeAssistantRun: params.activeAssistantRun,
+    currentFiles: deliverableFiles,
+    deliverable,
+    language: params.language,
+    previewCapability,
+    versions: params.versions,
+    stagedChangeSets: params.stagedChangeSets,
+  });
+
+  return {
+    activePreviewRun,
+    workflowStatus,
+    deliverable,
+    workspacePlan: hydrateWorkspacePlanForView({
+      activeAssistantRun: params.activeAssistantRun,
+      workflowStatus,
+      plan: params.workspacePlan,
+    }),
   };
 }

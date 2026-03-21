@@ -60,7 +60,7 @@ export function WorkspaceShellActions({
           onClick={onCreateSiblingDeliverable}
         >
           <FilePlus2 className="h-4 w-4" />
-          {t('sidebar.newSiblingDeliverable')}
+          {t('plan.nextDeliverableAction')}
         </Button>
       ) : null}
       <DropdownMenu>

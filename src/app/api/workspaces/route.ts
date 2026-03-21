@@ -22,11 +22,14 @@ import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-type
 import { createInitialWorkspacePlan } from '@/lib/workspace/planning';
 import {
   getNextProjectTreeSortOrder,
-  listWorkspaces,
-  mapConversation,
-  mapWorkspace,
-  mapWorkspaceFile,
+  listProjects as listWorkspaces,
   PROJECT_TREE_SORT_STEP,
+} from '@/objects/project/queries';
+import { mapConversation } from '@/objects/conversation/view';
+import { mapWorkspaceFile } from '@/objects/file/schema';
+import { mapWorkspace } from '@/objects/workspace/view';
+import {
+  createWorkspaceWithConversation,
 } from '@/lib/workspace/service';
 import {
   formatWorkflowPlaybookForPrompt,

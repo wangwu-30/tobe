@@ -6,6 +6,7 @@ import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-type
 import type {
   AssistantPlanProposalData,
   DeliverableType,
+  RenderAs,
   WorkspacePlanData,
 } from '@/types';
 
@@ -22,6 +23,7 @@ type ReplanDecision = {
 
 export async function maybeBuildReplanProposal(params: {
   currentPlan: WorkspacePlanData | null;
+  currentRenderAs?: RenderAs | null;
   message: string;
   model: AnyPiModel;
   settings: Settings;
@@ -34,6 +36,7 @@ export async function maybeBuildReplanProposal(params: {
 
   const decision = await classifyReplanNeed({
     currentPlan,
+    currentRenderAs: params.currentRenderAs,
     message: params.message,
     model: params.model,
     settings: params.settings,
@@ -56,6 +59,7 @@ export async function maybeBuildReplanProposal(params: {
     deliverableType,
     goal: decision.goal.trim(),
     model: params.model,
+    resultShape: params.currentRenderAs || currentPlan.deliverableType,
     settings: params.settings,
     styleGuide,
   })).map((stage) => ({
@@ -79,6 +83,7 @@ export async function maybeBuildReplanProposal(params: {
 
 async function classifyReplanNeed(params: {
   currentPlan: WorkspacePlanData;
+  currentRenderAs?: RenderAs | null;
   message: string;
   model: AnyPiModel;
   settings: Settings;
@@ -98,7 +103,8 @@ async function classifyReplanNeed(params: {
         {
           role: 'user',
           content: [
-            `Current result shape: ${params.currentPlan.deliverableType}`,
+            `Current result shape: ${params.currentRenderAs || params.currentPlan.deliverableType}`,
+            `Current plan blueprint type: ${params.currentPlan.deliverableType}`,
             `Current goal: ${params.currentPlan.goal}`,
             params.currentPlan.constraints
               ? `Current constraints: ${params.currentPlan.constraints}`

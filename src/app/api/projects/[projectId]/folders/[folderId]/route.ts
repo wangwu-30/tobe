@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { getNextProjectTreeSortOrder } from '@/lib/workspace/service';
+import { getNextProjectTreeSortOrder } from '@/objects/project/queries';
 
 async function findProjectFolder(args: {
   folderId: string;

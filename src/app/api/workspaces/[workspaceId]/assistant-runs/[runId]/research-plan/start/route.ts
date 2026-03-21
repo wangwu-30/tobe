@@ -10,13 +10,13 @@ import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { SearchProviderError } from '@/lib/search/types';
 import {
+  createConversationMessage,
+  updateAssistantRun,
+} from '@/objects/conversation/commands';
+import {
   parseAssistantRunPayload,
   stringifyAssistantRunPayload,
 } from '@/lib/workspace/assistant-run-payload';
-import {
-  createConversationMessage,
-  updateAssistantRun,
-} from '@/lib/workspace/service';
 
 export async function POST(
   req: NextRequest,

@@ -192,11 +192,18 @@ test('finalized deliverables can start the next deliverable in the same project 
   const nextDeliverableCard = page.getByTestId('plan-next-deliverable-card');
   await expect(nextDeliverableCard).toBeVisible();
   await expect(nextDeliverableCard).toContainText(activeWorkflow.title);
+  await expect(page.getByTestId('plan-next-deliverable-action')).toContainText(
+    /继续下一份交付物|Continue to Next Deliverable/
+  );
+  await expect(page.getByTestId('workspace-new-sibling-deliverable')).toContainText(
+    /继续下一份交付物|Continue to Next Deliverable/
+  );
 
   await page.getByTestId('plan-next-deliverable-action').click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(activeWorkflow.title);
+  await expect(dialog).toContainText(/继续推进|continues inside/i);
   await expect(dialog.getByTestId('goal-deliverable-pill')).toHaveCount(0);
   await expect(
     dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ })
@@ -253,7 +260,7 @@ test('workspace header shows the project path and keeps sibling creation in the 
   const suffix = Date.now();
   const projectTitle = `项目路径 ${suffix}`;
   const folderTitle = `执行摘要 ${suffix}`;
-  const siblingTitle = `同级交付物 ${suffix}`;
+  const currentTitle = `当前交付物 ${suffix}`;
 
   const projectWorkspace = await createWorkspace(baseURL, projectTitle);
   const projectView = await getWorkspaceView(
@@ -269,8 +276,8 @@ test('workspace header shows the project path and keeps sibling creation in the 
   }
 
   const projectFolder = await createProjectFolder(baseURL, projectId, folderTitle);
-  const currentWorkspace = await createWorkspace(baseURL, siblingTitle, {
-    goal: '当前交付物属于项目子目录，需要继续创建同级交付物。',
+  const currentWorkspace = await createWorkspace(baseURL, currentTitle, {
+    goal: '当前交付物属于项目子目录，需要继续推进下一份交付物。',
     projectFolderId: projectFolder.id,
     projectId,
     projectTitle,
@@ -281,23 +288,41 @@ test('workspace header shows the project path and keeps sibling creation in the 
     `/workspace/${currentWorkspace.id}?conversationId=${currentWorkspace.conversationId}`
   );
 
-  await expect(page.getByText(`${projectTitle} / ${folderTitle}`)).toBeVisible();
-  await expect(page.getByTestId('workspace-new-sibling-deliverable')).toBeVisible();
+  await expect(page.getByTestId('workspace-title-project-context')).toContainText(
+    `${projectTitle} / ${folderTitle}`
+  );
+  await expect(page.getByTestId('sidebar-current-project-context')).toContainText(projectTitle);
+  await expect(page.getByTestId('sidebar-current-project-context')).toContainText(
+    `当前交付物：${currentTitle}`
+  );
+  await expect(
+    page.getByTestId(`sidebar-project-tree-current-${currentWorkspace.id}`)
+  ).toContainText(currentTitle);
+  await expect(
+    page.getByTestId(`sidebar-project-tree-current-badge-${currentWorkspace.id}`)
+  ).toContainText(/当前|Current/);
+  await expect(page.getByTestId('workspace-new-sibling-deliverable')).toContainText(
+    /继续下一份交付物|Continue to Next Deliverable/
+  );
+  await expect(
+    page.getByTestId(`sidebar-project-tree-create-next-${currentWorkspace.id}`)
+  ).toContainText(/从这里继续下一份|Continue from Here/);
+  await expect(page.getByText(/新建同级交付物|New Sibling Deliverable/)).toHaveCount(0);
 
-  await page.getByTestId('workspace-new-sibling-deliverable').click();
+  await page.getByTestId(`sidebar-project-tree-create-next-${currentWorkspace.id}`).click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(projectTitle);
   await dialog.getByLabel(/目标|Goal/).fill('沿着同一项目目录继续创建下一份交付物。');
   await dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ }).click();
-  const clarifyAfterSiblingCreate = dialog.getByTestId('goal-intent-option-document');
+  const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
-    await clarifyAfterSiblingCreate
+    await clarifyAfterNextDeliverable
       .waitFor({ state: 'visible', timeout: 1500 })
       .then(() => true)
       .catch(() => false)
   ) {
-    await clarifyAfterSiblingCreate.getByRole('button', { name: /选择|Select/ }).click();
+    await clarifyAfterNextDeliverable.getByRole('button', { name: /选择|Select/ }).click();
   }
 
   await expect
@@ -322,7 +347,12 @@ test('workspace header shows the project path and keeps sibling creation in the 
   expect(nextView.currentProject?.id).toBe(projectId);
   expect(nextView.workspace?.projectId).toBe(projectId);
   expect(nextView.workspace?.projectFolderId).toBe(projectFolder.id);
-  await expect(page.getByText(`${projectTitle} / ${folderTitle}`)).toBeVisible();
+  await expect(page.getByTestId('workspace-title-project-context')).toContainText(
+    `${projectTitle} / ${folderTitle}`
+  );
+  await expect(
+    page.getByTestId(`sidebar-project-tree-current-${nextWorkspaceId}`)
+  ).toContainText(nextView.workspace?.title || '');
 });
 
 test('workspace header can switch to another deliverable in the same project', async ({
@@ -356,6 +386,7 @@ test('workspace header can switch to another deliverable in the same project', a
   await page.goto(`/workspace/${firstWorkspace.id}?conversationId=${firstWorkspace.conversationId}`);
 
   const switcher = page.getByTestId('workspace-switch-deliverable');
+  await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(projectTitle);
 
   await switcher.click();
@@ -369,6 +400,7 @@ test('workspace header can switch to another deliverable in the same project', a
       return currentUrl.pathname.split('/').pop() || '';
     })
     .toBe(secondWorkspace.id);
+  await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(secondTitle);
 });
 
@@ -443,7 +475,12 @@ async function getWorkspaceView(
 ) {
   return apiRequest<{
     currentProject: { id: string; title: string } | null;
-    workspace: { projectFolderId: string | null; projectId: string; projectTitle?: string | null } | null;
+    workspace: {
+      projectFolderId: string | null;
+      projectId: string;
+      projectTitle?: string | null;
+      title?: string | null;
+    } | null;
     workspacePlan: { activeWorkflowPlaybookId: string | null } | null;
   }>(baseURL, `/api/workspaces/${workspaceId}?conversationId=${conversationId}`);
 }

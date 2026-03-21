@@ -217,6 +217,7 @@ model Version {
   parentVersionId String?
   sourceSessionId String?
   sourceMessageId String?
+  /// @deprecated Legacy read-compat field. Runtime write/query semantics now derive from `Label`.
   versionType     String         @default("manual")
   lockedAt        DateTime        @default(now())
   createdByUserId String?

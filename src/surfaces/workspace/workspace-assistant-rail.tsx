@@ -26,7 +26,7 @@ export function WorkspaceAssistantRail({
   conversationTitle,
   currentProjectId,
   currentDraftBranchTitle,
-  currentStatus,
+  workflowStatus,
   documentContent,
   files,
   initialMessages,
@@ -61,7 +61,7 @@ export function WorkspaceAssistantRail({
   conversationTitle: AssistantPanelProps['conversationTitle'];
   currentProjectId: ContextPanelProps['projectId'];
   currentDraftBranchTitle: StatusPanelProps['currentDraftBranchTitle'];
-  currentStatus: StatusPanelProps['currentStatus'];
+  workflowStatus: StatusPanelProps['workflowStatus'];
   documentContent: ReviewPanelProps['documentContent'];
   files: ReviewPanelProps['files'];
   initialMessages: AssistantPanelProps['initialMessages'];
@@ -99,7 +99,7 @@ export function WorkspaceAssistantRail({
           isAssistantBusy={isAssistantBusy}
           onCreateNextDeliverable={onCreateNextDeliverable}
           plan={plan}
-          currentStatus={currentStatus}
+          workflowStatus={workflowStatus}
         />
       }
       review={

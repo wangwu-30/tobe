@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { createConversationForWorkspace } from '@/objects/conversation/commands';
+import { listConversations } from '@/objects/conversation/queries';
 import {
-  createConversationForWorkspace,
   getConversationWorkspace,
-  listConversations,
 } from '@/lib/workspace/service';
 
 export async function GET(req: NextRequest) {

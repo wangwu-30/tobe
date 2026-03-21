@@ -7,10 +7,10 @@ import { getWorkspaceMirrorPath } from '@/lib/platform/mirror-manager';
 import { stopWorkspacePreview } from '@/lib/platform/run-service';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { recordSyncEvent } from '@/lib/platform/sync';
+import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 import {
   getWorkspaceView,
   updateWorkspace,
-  WorkspaceLockConflictError,
 } from '@/lib/workspace/service';
 
 export async function GET(

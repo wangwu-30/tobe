@@ -15,6 +15,7 @@ export function WorkspaceSidebar({
   canOpenOutline,
   collapsed,
   currentProjectId,
+  currentProjectTitle,
   currentWorkspaceId,
   currentWorkspaceStatusLabel,
   isVersionView,
@@ -52,6 +53,7 @@ export function WorkspaceSidebar({
   canOpenOutline: boolean;
   collapsed: boolean;
   currentProjectId?: string | null;
+  currentProjectTitle?: string | null;
   currentWorkspaceId: string;
   currentWorkspaceStatusLabel?: string | null;
   isVersionView: boolean;
@@ -111,6 +113,7 @@ export function WorkspaceSidebar({
       activeSupportFileId={activeSupportFileId}
       collapsed={collapsed}
       currentProjectId={currentProjectId}
+      currentProjectTitle={currentProjectTitle}
       currentWorkspaceId={currentWorkspaceId}
       currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
       onCreateWorkspace={onCreateWorkspace}

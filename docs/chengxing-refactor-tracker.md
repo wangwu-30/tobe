@@ -3,6 +3,7 @@
 更新时间：2026-03-21
 状态：done
 来源计划：[refactor_plan.md](../refactor_plan.md)
+后续执行面：[chengxing-v-next-execution-tracker.md](./chengxing-v-next-execution-tracker.md)
 
 ## 当前工作流范围
 
@@ -73,6 +74,7 @@
 ## 下一候选切片
 
 - 当前 repo 内无下一候选切片。
+- 若继续推进用户在 2026-03-21 明确确认的“Phase 7 重构残留收口 -> 产品主线”新工作流，改读 [chengxing-v-next-execution-tracker.md](./chengxing-v-next-execution-tracker.md)。
 - 若后续决定继续做仓库外通用知识沉淀，可把本轮经验整理到外部知识库；这不是当前 workstream 的阻塞项。
 
 ## 剩余验收项

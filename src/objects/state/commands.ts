@@ -9,16 +9,11 @@ import {
   serializeWorkspaceVersion,
 } from '@/objects/file/schema';
 import {
-  isRecoveryVersionType,
-} from '@/lib/workspace/planning';
-import { replaceWorkspaceDraftWithVersionFiles } from './draft-commands';
-import { resolveDraftBaseVersionIdForVersion } from './queries';
-import {
   hasPinnedStateLabel,
   hasRecoveryStateLabel,
-  normalizeWorkspaceVersionType,
 } from './schema';
-import type { WorkspaceVersionType } from '@/types';
+import { replaceWorkspaceDraftWithVersionFiles } from './draft-commands';
+import { resolveDraftBaseVersionIdForVersion } from './queries';
 import type {
   CreateWorkspaceVersionDependencies,
   RestoreWorkspaceVersionDependencies,
@@ -39,7 +34,7 @@ export async function createWorkspaceVersion(
   actor: WorkspaceStateActorContext,
   input: {
     bindDraftThreads?: boolean;
-    versionType?: WorkspaceVersionType;
+    recovery?: boolean;
     sourceConversationId?: string | null;
     sourceMessageId?: string | null;
     title?: string;
@@ -48,11 +43,11 @@ export async function createWorkspaceVersion(
   deps: CreateWorkspaceVersionDependencies
 ) {
   await deps.ensureWorkspaceEditable(actor, input.workspaceId);
-  const versionType = normalizeWorkspaceVersionType(input.versionType);
+  const isRecovery = input.recovery === true;
   const shouldBindDraftThreads =
     input.bindDraftThreads !== undefined
       ? input.bindDraftThreads
-      : versionType !== 'checkpoint';
+      : !isRecovery;
 
   const workspace = await prisma.document.findFirst({
     where: {
@@ -78,7 +73,7 @@ export async function createWorkspaceVersion(
       },
       orderBy: { versionNum: 'desc' },
     }),
-    versionType === 'checkpoint'
+    isRecovery
       ? Promise.resolve(null)
       : prisma.version.findFirst({
           where: {
@@ -112,18 +107,17 @@ export async function createWorkspaceVersion(
         content: versionContent,
         title: versionTitle,
         parentVersionId:
-          versionType === 'checkpoint'
+          isRecovery
             ? latestVersion?.id || null
             : latestVisibleVersion?.id || null,
         sourceSessionId: input.sourceConversationId || null,
         sourceMessageId: input.sourceMessageId || null,
-        versionType,
         createdByUserId: actor.userId,
         originDeviceId: actor.deviceId,
       },
     });
 
-    if (versionType === 'manual') {
+    if (!isRecovery) {
       if (latestVisibleVersion?.id) {
         await tx.label.updateMany({
           where: {
@@ -164,7 +158,7 @@ export async function createWorkspaceVersion(
       });
     }
 
-    if (versionType === 'checkpoint') {
+    if (isRecovery) {
       await tx.label.create({
         data: {
           organizationId: actor.organizationId,
@@ -189,9 +183,7 @@ export async function createWorkspaceVersion(
           increment: 1,
         },
         ...(primaryFile ? { content: primaryFile.content } : {}),
-        ...(isRecoveryVersionType(versionType)
-          ? {}
-          : { draftBaseVersionId: created.id }),
+        ...(isRecovery ? {} : { draftBaseVersionId: created.id }),
       },
     });
 
@@ -222,7 +214,7 @@ export async function createWorkspaceVersion(
     revision: version.revision,
   });
 
-  if (versionType === 'checkpoint') {
+  if (isRecovery) {
     await pruneWorkspaceRecoveryCheckpoints({
       organizationId: actor.organizationId,
       workspaceId: workspace.id,
@@ -387,7 +379,6 @@ export async function setWorkspaceVersionPinned(
         revision: {
           increment: 1,
         },
-        versionType: input.pinned ? 'checkpoint_pinned' : 'checkpoint',
       },
     });
   });
@@ -441,7 +432,7 @@ export async function restoreWorkspaceVersion(
     actor,
     {
       bindDraftThreads: true,
-      versionType: 'checkpoint',
+      recovery: true,
       title: 'Safety Checkpoint before Restore',
       workspaceId: input.workspaceId,
     },

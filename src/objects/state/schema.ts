@@ -1,7 +1,6 @@
 import type {
   StateLabelData,
   WorkspaceVersionData,
-  WorkspaceVersionType,
 } from '@/types';
 
 type StateLabelLike = {
@@ -10,23 +9,12 @@ type StateLabelLike = {
 
 type WorkspaceStateSemanticsSource = {
   labels?: StateLabelLike[] | null;
-  versionType?: string | null;
 };
 
 type WorkspaceStateSemantics = Pick<
   WorkspaceVersionData,
   'pinned' | 'recoveryKind' | 'restorable' | 'versionType' | 'visible'
 >;
-
-export function normalizeWorkspaceVersionType(
-  value: string | null | undefined
-): WorkspaceVersionType {
-  if (value === 'checkpoint' || value === 'checkpoint_pinned') {
-    return value;
-  }
-
-  return 'manual';
-}
 
 export function hasStateLabelKind(
   labels: StateLabelLike[] | null | undefined,

@@ -12,50 +12,52 @@ import {
   LoaderCircle,
   Sparkles,
 } from 'lucide-react';
-import type { WorkspaceCurrentStatusData, WorkspacePlanData } from '@/types';
+import type { WorkspacePlanData, WorkspaceWorkflowStatusData } from '@/types';
 import { useT } from '@/components/providers/language-provider';
 import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
 import { useAppRouter } from '@/lib/app-router';
 
 export function PlanPanel({
   currentDraftBranchTitle,
-  currentStatus,
+  workflowStatus,
   isAssistantBusy = false,
   onCreateNextDeliverable,
   plan,
 }: {
   currentDraftBranchTitle?: string | null;
-  currentStatus?: WorkspaceCurrentStatusData | null;
+  workflowStatus?: WorkspaceWorkflowStatusData | null;
   isAssistantBusy?: boolean;
   onCreateNextDeliverable?: () => void;
   plan?: WorkspacePlanData | null;
 }) {
   const t = useT();
   const router = useAppRouter();
-  const isPlanGenerating = !currentStatus && plan?.status === 'generating';
-  const isPlanBlocked = !currentStatus && plan?.status === 'blocked';
-  const isWorkflowBlocked = currentStatus?.phase === 'blocked';
-  const aiWorking = Boolean(currentStatus?.isAiWorking || isAssistantBusy || isPlanGenerating);
+  const isPlanGenerating = !workflowStatus && plan?.status === 'generating';
+  const isPlanBlocked = !workflowStatus && plan?.status === 'blocked';
+  const isWorkflowBlocked = workflowStatus?.phase === 'blocked';
+  const aiWorking = Boolean(
+    workflowStatus?.isAiWorking || isAssistantBusy || isPlanGenerating
+  );
   const currentStage =
     !isPlanGenerating && !isPlanBlocked
       ? plan?.stages.find((stage) => stage.id === plan.activeStageId) || plan?.stages[0] || null
       : null;
   const currentPhaseTitle =
-    currentStatus?.statusTitle ||
+    workflowStatus?.statusTitle ||
     (isPlanGenerating
       ? t('plan.generatingTitle')
       : isPlanBlocked
         ? t('plan.blockedTitle')
         : currentStage?.title || t('status.noStatusTitle'));
   const progressNote =
-    currentStatus?.blockedReason ||
-    currentStatus?.statusDescription ||
+    workflowStatus?.blockedReason ||
+    workflowStatus?.statusDescription ||
     plan?.lastProgressNote ||
     (isPlanGenerating ? t('plan.generatingDescription') : null) ||
     null;
   const aiStatusValue = aiWorking ? t('status.aiBusy') : t('status.aiIdle');
 
-  if (!plan && !currentStatus) {
+  if (!plan && !workflowStatus) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
         <div>
@@ -179,7 +181,7 @@ export function PlanPanel({
               </div>
             ) : null}
 
-            {currentStatus?.phase === 'finalized' &&
+            {workflowStatus?.phase === 'finalized' &&
             plan?.activeWorkflowPlaybook &&
             onCreateNextDeliverable ? (
               <div
@@ -216,12 +218,12 @@ export function PlanPanel({
             <StatusStat
               label={t('status.preview')}
               value={
-                currentStatus?.phase === 'preview_running'
+                workflowStatus?.phase === 'preview_running'
                   ? t('status.previewRunning')
-                  : currentStatus?.phase === 'preview_ready' ||
-                      currentStatus?.phase === 'finalized'
+                  : workflowStatus?.phase === 'preview_ready' ||
+                      workflowStatus?.phase === 'finalized'
                     ? t('status.previewReady')
-                    : currentStatus?.phase === 'blocked'
+                    : workflowStatus?.phase === 'blocked'
                       ? t('status.previewBlocked')
                       : t('status.previewPending')
               }

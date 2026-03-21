@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { branchConversation } from '@/lib/workspace/service';
+import { branchConversation } from '@/objects/conversation/commands';
 
 export async function POST(
   req: NextRequest,

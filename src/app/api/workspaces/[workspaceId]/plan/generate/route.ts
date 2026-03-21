@@ -4,7 +4,11 @@ import { generatePlanStepsWithAI } from '@/lib/ai/plan-generator';
 import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
 import { translate } from '@/lib/i18n/copy';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
-import { getWorkspacePlan, updateWorkspacePlan } from '@/lib/workspace/planning';
+import {
+  getWorkspacePlan,
+  getWorkspacePlanResultShape,
+  updateWorkspacePlan,
+} from '@/lib/workspace/planning';
 
 export async function POST(
   req: NextRequest,
@@ -23,6 +27,12 @@ export async function POST(
 
   const { model, modelKey, settings } = getSelectedModelFromHeaders(req.headers);
   const language = settings.language || 'zh-CN';
+  const resultShape =
+    (await getWorkspacePlanResultShape({
+      organizationId: actor.organizationId,
+      plan,
+      workspaceId,
+    })) || plan.deliverableType;
 
   await updateWorkspacePlan(actor, {
     lastProgressNote: translate(language, 'plan.generatingDescription'),
@@ -37,6 +47,7 @@ export async function POST(
       deliverableType: plan.deliverableType,
       goal: plan.goal,
       model,
+      resultShape,
       settings,
       styleGuide: plan.styleGuide,
     });

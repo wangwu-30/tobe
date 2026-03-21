@@ -3,6 +3,8 @@ import { prisma } from '@/lib/db/prisma';
 import {
   createConversationForWorkspace,
   createConversationMessage,
+} from '@/objects/conversation/commands';
+import {
   createWorkspaceWithConversation,
   storeMessageSupportAttachments,
 } from '@/lib/workspace/service';

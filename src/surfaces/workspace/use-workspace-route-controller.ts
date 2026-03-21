@@ -42,8 +42,8 @@ export function useWorkspaceRouteController({
   activePreviewRun,
   currentConversationId,
   currentFileId,
-  currentStatusPrimaryAction,
-  currentStatusWorking,
+  workflowStatusPrimaryAction,
+  workflowStatusWorking,
   currentVersionId,
   deliverableType,
   isAssistantBusy,
@@ -67,8 +67,8 @@ export function useWorkspaceRouteController({
   activePreviewRun: WorkspaceRunData | null;
   currentConversationId: string | null;
   currentFileId: string | null;
-  currentStatusPrimaryAction: string | null | undefined;
-  currentStatusWorking: boolean | null | undefined;
+  workflowStatusPrimaryAction: string | null | undefined;
+  workflowStatusWorking: boolean | null | undefined;
   currentVersionId: string | null;
   deliverableType: DeliverableType;
   isAssistantBusy: boolean;
@@ -251,7 +251,7 @@ export function useWorkspaceRouteController({
       return;
     }
 
-    if (currentStatusPrimaryAction !== 'start_preview') {
+    if (workflowStatusPrimaryAction !== 'start_preview') {
       return;
     }
 
@@ -282,7 +282,7 @@ export function useWorkspaceRouteController({
     };
   }, [
     activePreviewRun,
-    currentStatusPrimaryAction,
+    workflowStatusPrimaryAction,
     loadRuns,
     previewEnabled,
     workspaceReady,
@@ -290,7 +290,7 @@ export function useWorkspaceRouteController({
 
   React.useEffect(() => {
     const shouldPollConversation =
-      Boolean(currentConversationId) && Boolean(currentStatusWorking || isAssistantBusy);
+      Boolean(currentConversationId) && Boolean(workflowStatusWorking || isAssistantBusy);
 
     if (!shouldPollConversation) {
       return;
@@ -303,7 +303,7 @@ export function useWorkspaceRouteController({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [currentConversationId, currentStatusWorking, isAssistantBusy, loadWorkspace]);
+  }, [currentConversationId, workflowStatusWorking, isAssistantBusy, loadWorkspace]);
 
   React.useEffect(() => {
     const handleFocus = () => {

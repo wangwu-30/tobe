@@ -14,7 +14,7 @@ export function WorkspaceDeliverablePanel({
   chatError,
   commentContextContent,
   currentFile,
-  currentStatus,
+  workflowStatus,
   currentText,
   deliverable,
   draftRevision,
@@ -45,7 +45,7 @@ export function WorkspaceDeliverablePanel({
   chatError: DeliverablePanelParams['chatError'];
   commentContextContent: DeliverablePanelParams['commentContextContent'];
   currentFile: DeliverablePanelParams['currentFile'];
-  currentStatus: DeliverablePanelParams['currentStatus'];
+  workflowStatus: DeliverablePanelParams['workflowStatus'];
   currentText: DeliverablePanelParams['currentText'];
   deliverable: WorkspaceViewData['deliverable'];
   draftRevision: DeliverablePanelParams['draftRevision'];
@@ -73,8 +73,6 @@ export function WorkspaceDeliverablePanel({
   workspaceTitle: string | null;
 }) {
   const t = useT();
-  const deliverableType = deliverable?.deliverableType || 'document';
-  const storedDeliverableType = deliverable?.storedDeliverableType || null;
   const deliverableTitle =
     deliverable?.title || workspaceTitle || t('workspace.untitledDeliverable');
   const hasDeliverableContent = currentText.trim().length > 0;
@@ -83,16 +81,15 @@ export function WorkspaceDeliverablePanel({
     chatError,
     commentContextContent,
     currentFile,
-    currentStatus,
+    workflowStatus,
     currentText,
     deliverableTitle,
-    deliverableType,
-    storedDeliverableType,
+    renderAs: deliverable?.renderAs || 'document',
     documentPlaceholder:
       !hasDeliverableContent &&
-      currentStatus?.phase === 'reviewing' &&
+      workflowStatus?.phase === 'reviewing' &&
       stagedChangeSets.some((changeSet) => changeSet.status === 'pending')
-        ? currentStatus.statusDescription
+        ? workflowStatus.statusDescription
         : t('workspace.documentPlaceholder'),
     draftRevision,
     editorContent,
@@ -109,8 +106,8 @@ export function WorkspaceDeliverablePanel({
     onChange,
     onGenerateFirstPass,
     onRestoreLatest:
-      currentStatus?.latestRestorableVersionId
-        ? () => void onRestoreVersion(currentStatus.latestRestorableVersionId!)
+      workflowStatus?.latestRestorableVersionId
+        ? () => void onRestoreVersion(workflowStatus.latestRestorableVersionId!)
         : undefined,
     onStartPreview,
     onStopPreview,

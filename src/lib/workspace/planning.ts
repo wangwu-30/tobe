@@ -1,22 +1,24 @@
 import { prisma } from '@/lib/db/prisma';
+import { mapWorkspaceFile } from '@/objects/file/schema';
 import {
   normalizeStoredDeliverableType,
   parseStoredDeliverableType,
 } from '@/lib/workspace/deliverable-types';
+import { deriveRenderAs } from '@/lib/workspace/render-as';
 import { resolveWorkflowExtensionHints } from '@/lib/workflows/extension-hints';
 import { buildDefaultPlanStages } from '@/lib/workspace/plan-blueprints';
 import type {
   AssistantRunData,
   DeliverableData,
   DeliverableType,
+  RenderAs,
   StagedChangePatchData,
   StagedChangeSetData,
   WorkflowPlaybookData,
-  WorkspaceCurrentStatusData,
+  WorkspaceWorkflowStatusData,
   WorkspaceFileData,
   WorkspacePlanData,
   WorkspacePlanStageData,
-  WorkspaceVersionType,
   WorkspaceVersionData,
 } from '@/types';
 
@@ -164,6 +166,37 @@ export async function getWorkspacePlan(params: {
     : null;
 
   return hydratedPlan ? mapWorkspacePlan(hydratedPlan as WorkspacePlanRecord) : null;
+}
+
+export async function getWorkspacePlanResultShape(params: {
+  organizationId: string;
+  plan: WorkspacePlanData | null;
+  workspaceId: string;
+}): Promise<RenderAs | null> {
+  const workspace = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: params.workspaceId,
+      organizationId: params.organizationId,
+    },
+    include: {
+      files: {
+        where: { deletedAt: null },
+      },
+    },
+  });
+
+  if (!workspace) {
+    return null;
+  }
+
+  return buildDeliverable({
+    currentVersion: workspace.currentVersion,
+    files: workspace.files.map(mapWorkspaceFile),
+    plan: params.plan,
+    storedDeliverableType: params.plan?.deliverableType || null,
+    workspace,
+  }).renderAs;
 }
 
 export async function upsertWorkspacePlan(
@@ -518,15 +551,22 @@ export function buildDeliverable(params: {
       files: deliverableFiles.map((file) => ({ path: file.path, kind: file.kind })),
       title: primaryFile?.name || params.workspace.title,
     });
+  const storedDeliverableType = parseStoredDeliverableType(params.storedDeliverableType);
+  const content = primaryFile?.content || params.workspace.content;
 
   return {
     id: primaryFile?.id || params.workspace.id,
     workspaceId: params.workspace.id,
     title: params.workspace.title,
     deliverableType: inferredType,
-    storedDeliverableType: parseStoredDeliverableType(params.storedDeliverableType),
+    storedDeliverableType,
+    renderAs: deriveRenderAs({
+      content,
+      deliverableType: inferredType,
+      storedDeliverableType,
+    }),
     persistedStatus: params.workspace.status,
-    content: primaryFile?.content || params.workspace.content,
+    content,
     primaryFileId: primaryFile?.id || null,
     currentVersion: params.currentVersion,
   };
@@ -585,14 +625,6 @@ export function mapStagedChangeSet(changeSet: StagedChangeSetRecord): StagedChan
     createdAt: changeSet.createdAt,
     updatedAt: changeSet.updatedAt,
   };
-}
-
-export function isRecoveryVersionType(versionType: WorkspaceVersionType | null | undefined) {
-  return versionType === 'checkpoint' || versionType === 'checkpoint_pinned';
-}
-
-export function isPinnedRecoveryVersionType(versionType: WorkspaceVersionType | null | undefined) {
-  return versionType === 'checkpoint_pinned';
 }
 
 export function isVisibleVersion(version: Pick<WorkspaceVersionData, 'visible'>) {
@@ -679,7 +711,7 @@ function mapWorkflowPlaybook(
 export function hydrateWorkspacePlanForView(params: {
   activeAssistantRun: AssistantRunData | null;
   plan: WorkspacePlanData | null;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
 }) {
   if (!params.plan) {
     return null;
@@ -702,8 +734,8 @@ export function hydrateWorkspacePlanForView(params: {
       activeWorkflowPlaybook,
       activeWorkflowPlaybookId,
       lastProgressNote:
-        params.currentStatus?.blockedReason ||
-        params.currentStatus?.statusDescription ||
+        params.workflowStatus?.blockedReason ||
+        params.workflowStatus?.statusDescription ||
         params.plan.lastProgressNote,
       stages: [],
     };
@@ -716,16 +748,16 @@ export function hydrateWorkspacePlanForView(params: {
   const activeStageKind = resolveActiveStageKind({
     activeAssistantRun: params.activeAssistantRun,
     deliverableType: params.plan.deliverableType,
-    currentStatus: params.currentStatus,
+    workflowStatus: params.workflowStatus,
   });
   const activeIndex = stages.findIndex((stage) => stage.kind === activeStageKind);
   const normalizedIndex = activeIndex >= 0 ? activeIndex : 0;
   const normalizedStages = stages.map((stage, index) => {
-    if (params.currentStatus?.phase === 'blocked' && index === normalizedIndex) {
+    if (params.workflowStatus?.phase === 'blocked' && index === normalizedIndex) {
       return { ...stage, status: 'blocked' as const };
     }
 
-    if (params.currentStatus?.phase === 'finalized') {
+    if (params.workflowStatus?.phase === 'finalized') {
       return { ...stage, status: 'completed' as const };
     }
 
@@ -746,8 +778,8 @@ export function hydrateWorkspacePlanForView(params: {
     activeWorkflowPlaybook,
     activeWorkflowPlaybookId,
     lastProgressNote:
-      params.currentStatus?.blockedReason ||
-      params.currentStatus?.statusDescription ||
+      params.workflowStatus?.blockedReason ||
+      params.workflowStatus?.statusDescription ||
       params.plan.lastProgressNote,
     stages: normalizedStages,
   };
@@ -869,14 +901,14 @@ function resolvePlanStages(params: {
 
 function resolveActiveStageKind(params: {
   activeAssistantRun: AssistantRunData | null;
-  currentStatus: WorkspaceCurrentStatusData | null;
+  workflowStatus: WorkspaceWorkflowStatusData | null;
   deliverableType: DeliverableType;
 }) {
-  if (params.currentStatus?.phase === 'planning') {
+  if (params.workflowStatus?.phase === 'planning') {
     return 'clarify';
   }
 
-  if (params.currentStatus?.phase === 'implementing') {
+  if (params.workflowStatus?.phase === 'implementing') {
     if (params.activeAssistantRun?.mode === 'replan') {
       return 'structure';
     }
@@ -889,17 +921,20 @@ function resolveActiveStageKind(params: {
   }
 
   if (
-    params.currentStatus?.phase === 'preview_ready' ||
-    params.currentStatus?.phase === 'preview_running'
+    params.workflowStatus?.phase === 'preview_ready' ||
+    params.workflowStatus?.phase === 'preview_running'
   ) {
     return params.deliverableType === 'web' ? 'preview' : 'review';
   }
 
-  if (params.currentStatus?.phase === 'reviewing' || params.currentStatus?.phase === 'blocked') {
+  if (
+    params.workflowStatus?.phase === 'reviewing' ||
+    params.workflowStatus?.phase === 'blocked'
+  ) {
     return 'review';
   }
 
-  if (params.currentStatus?.phase === 'finalized') {
+  if (params.workflowStatus?.phase === 'finalized') {
     return 'finalize';
   }
 

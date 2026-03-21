@@ -141,9 +141,9 @@ test('context panel shows deliverable, project, and user scope notes together', 
   const suffix = Date.now();
   const projectTitle = `Context Panel 项目 ${suffix}`;
   const workspaceTitle = `Context Panel 交付物 ${suffix}`;
-  const deliverableKnowledge = '交付物级知识：当前交付物要保留本地案例细节。';
-  const projectKnowledge = '项目级知识：整个项目都保持统一品牌术语。';
-  const userMemory = '用户级记忆：默认使用简洁、克制的中文表达。';
+  const deliverableKnowledge = `交付物级知识 ${suffix}：当前交付物要保留本地案例细节。`;
+  const projectKnowledge = `项目级知识 ${suffix}：整个项目都保持统一品牌术语。`;
+  const userMemory = `用户级记忆 ${suffix}：默认使用简洁、克制的中文表达。`;
   const userScopeId = 'local-user';
 
   const workspace = await createWorkspace(baseURL, workspaceTitle, {
@@ -188,9 +188,13 @@ test('context panel shows deliverable, project, and user scope notes together', 
   await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
   await page.getByTestId('assistant-tab-context').click();
 
-  await expect(page.getByText(deliverableKnowledge)).toBeVisible();
-  await expect(page.getByText(projectKnowledge)).toBeVisible();
-  await expect(page.getByText(userMemory)).toBeVisible();
+  await expect(page.getByTestId(`context-note-${deliverableNote.id}`)).toContainText(
+    deliverableKnowledge
+  );
+  await expect(page.getByTestId(`context-note-${projectNote.id}`)).toContainText(
+    projectKnowledge
+  );
+  await expect(page.getByTestId(`context-note-${userNote.id}`)).toContainText(userMemory);
   await expect(page.getByTestId(`context-note-scope-${deliverableNote.id}`)).toHaveText(
     '交付物'
   );
@@ -208,6 +212,8 @@ test('context panel can create scoped knowledge and edit existing knowledge scop
   const suffix = Date.now();
   const projectTitle = `Context Editor 项目 ${suffix}`;
   const workspaceTitle = `Context Editor 交付物 ${suffix}`;
+  const updatedProjectKnowledge = `项目级更新知识 ${suffix}：统一叫成交付物而不是文档。`;
+  const newUserKnowledge = `用户级新知识 ${suffix}：默认先给简洁结论。`;
   const seededKnowledge = await createWorkspace(baseURL, workspaceTitle, {
     goal: '验证 context panel 的 note 创建与编辑入口。',
     projectTitle,
@@ -241,16 +247,14 @@ test('context panel can create scoped knowledge and edit existing knowledge scop
 
   await page.getByTestId(`context-edit-knowledge-${seedNote.id}`).click();
   await page.getByTestId('context-knowledge-title').fill('项目级术语');
-  await page.getByTestId('context-knowledge-content').fill(
-    '项目级更新知识：统一叫成交付物而不是文档。'
-  );
+  await page.getByTestId('context-knowledge-content').fill(updatedProjectKnowledge);
   await page.getByTestId('context-knowledge-scope-project').click();
   await expect(page.getByText('保存后这条知识会归到项目。')).toBeVisible();
   await page.getByTestId('context-save-knowledge').click();
 
-  await expect(
-    page.getByText('项目级更新知识：统一叫成交付物而不是文档。')
-  ).toBeVisible();
+  await expect(page.getByTestId(`context-note-${seedNote.id}`)).toContainText(
+    updatedProjectKnowledge
+  );
   await expect(page.getByTestId(`context-note-scope-${seedNote.id}`)).toHaveText('项目');
 
   const projectNotes = await listNotesForScope(baseURL, {
@@ -265,18 +269,20 @@ test('context panel can create scoped knowledge and edit existing knowledge scop
   expect(deliverableNotes.some((note) => note.id === seedNote.id)).toBeFalsy();
 
   await page.getByTestId('context-knowledge-title').fill('个人表达偏好');
-  await page.getByTestId('context-knowledge-content').fill(
-    '用户级新知识：默认先给简洁结论。'
-  );
+  await page.getByTestId('context-knowledge-content').fill(newUserKnowledge);
   await page.getByTestId('context-knowledge-scope-user').click();
   await expect(page.getByText('这里新建的知识会保存到用户。')).toBeVisible();
   await page.getByTestId('context-save-knowledge').click();
 
-  await expect(page.getByText('用户级新知识：默认先给简洁结论。')).toBeVisible();
   const userNotes = await listNotesForScope(baseURL, { scope: 'user' });
-  expect(
-    userNotes.some((note) => note.content === '用户级新知识：默认先给简洁结论。')
-  ).toBeTruthy();
+  const createdUserNote = userNotes.find((note) => note.content === newUserKnowledge) || null;
+  expect(createdUserNote).toBeTruthy();
+  if (!createdUserNote) {
+    throw new Error('Created user knowledge note should exist.');
+  }
+  await expect(page.getByTestId(`context-note-${createdUserNote.id}`)).toContainText(
+    newUserKnowledge
+  );
 });
 
 test('project AI context does not misclassify code-like primary files as web without a plan', async ({
@@ -375,8 +381,10 @@ test('debug AI workspace context details canonicalize legacy stored deliverable 
     (result) => result.name === 'get_workspace_context'
   );
 
-  expect(workspaceContextTool?.text).toContain('- Result shape: document');
+  expect(workspaceContextTool?.text).toContain('(shape: slides, status:');
+  expect(workspaceContextTool?.text).toContain('- Result shape: slides');
   expect(workspaceContextTool?.details?.workspacePlan?.deliverableType).toBe('document');
+  expect(workspaceContextTool?.details?.workspacePlan?.renderAs).toBe('slides');
   expect(workspaceContextTool?.details?.workspacePlan?.storedDeliverableType).toBe('slides');
 });
 
@@ -471,6 +479,7 @@ async function inspectAiContext(
       details?: {
         workspacePlan?: {
           deliverableType: 'document' | 'web';
+          renderAs: 'document' | 'slides' | 'web';
           storedDeliverableType: 'document' | 'web' | 'slides' | 'code' | null;
         } | null;
       };

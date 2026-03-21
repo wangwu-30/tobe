@@ -1,9 +1,14 @@
 import { prisma } from '@/lib/db/prisma';
-import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
+import {
+  getCanonicalDeliverableType,
+  parseStoredDeliverableType,
+} from '@/lib/workspace/deliverable-types';
+import { deriveRenderAs } from '@/lib/workspace/render-as';
 import { inferDeliverableType } from '@/lib/workspace/planning';
-import type { DeliverableType } from '@/types';
+import type { DeliverableType, RenderAs } from '@/types';
 
 type ProjectContextFileRecord = {
+  content: string;
   id: string;
   isPrimary: boolean;
   kind: string;
@@ -35,6 +40,7 @@ export type ProjectDeliverableContextItem = {
   deliverableType: DeliverableType;
   id: string;
   isCurrent: boolean;
+  renderAs: RenderAs;
   status: string;
   title: string;
   updatedAt: Date;
@@ -62,13 +68,16 @@ function resolveProjectTitle(workspace: {
   return workspace.projectTitle?.trim() || workspace.title;
 }
 
-function resolveDeliverableType(workspace: ProjectContextWorkspaceRecord): DeliverableType {
+function resolveDeliverablePresentation(workspace: ProjectContextWorkspaceRecord): {
+  deliverableType: DeliverableType;
+  renderAs: RenderAs;
+} {
   const primaryFile =
     workspace.files.find((file) => file.isPrimary && file.type === 'file') ||
     workspace.files.find((file) => file.type === 'file') ||
     null;
 
-  return getCanonicalDeliverableType(
+  const deliverableType = getCanonicalDeliverableType(
     inferDeliverableType({
       explicitType: workspace.workspacePlan?.deliverableType || null,
       fileKind: primaryFile?.kind || null,
@@ -77,6 +86,18 @@ function resolveDeliverableType(workspace: ProjectContextWorkspaceRecord): Deliv
       title: primaryFile?.name || workspace.title,
     })
   );
+  const storedDeliverableType = parseStoredDeliverableType(
+    workspace.workspacePlan?.deliverableType || null
+  );
+
+  return {
+    deliverableType,
+    renderAs: deriveRenderAs({
+      content: primaryFile?.content || '',
+      deliverableType,
+      storedDeliverableType,
+    }),
+  };
 }
 
 export async function loadProjectAiContextData(params: {
@@ -120,6 +141,7 @@ export async function loadProjectAiContextData(params: {
         },
         orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
         select: {
+          content: true,
           id: true,
           isPrimary: true,
           kind: true,
@@ -147,14 +169,18 @@ export async function loadProjectAiContextData(params: {
   });
 
   const deliverables = projectDocuments
-    .map((projectWorkspace) => ({
-      deliverableType: resolveDeliverableType(projectWorkspace),
-      id: projectWorkspace.id,
-      isCurrent: projectWorkspace.id === params.workspaceId,
-      status: projectWorkspace.status,
-      title: projectWorkspace.title,
-      updatedAt: projectWorkspace.updatedAt,
-    }))
+    .map((projectWorkspace) => {
+      const presentation = resolveDeliverablePresentation(projectWorkspace);
+
+      return {
+        ...presentation,
+        id: projectWorkspace.id,
+        isCurrent: projectWorkspace.id === params.workspaceId,
+        status: projectWorkspace.status,
+        title: projectWorkspace.title,
+        updatedAt: projectWorkspace.updatedAt,
+      };
+    })
     .sort((left, right) => {
       if (left.isCurrent !== right.isCurrent) {
         return left.isCurrent ? -1 : 1;
@@ -186,7 +212,7 @@ export function formatProjectAiContext(
       const workspaceSuffix = options?.includeWorkspaceIds
         ? ` [workspaceId: ${deliverable.id}]`
         : '';
-      return `- ${currentPrefix}${deliverable.title}${workspaceSuffix} (shape: ${deliverable.deliverableType}, status: ${deliverable.status})`;
+      return `- ${currentPrefix}${deliverable.title}${workspaceSuffix} (shape: ${deliverable.renderAs}, status: ${deliverable.status})`;
     }),
   ];
 

@@ -16,6 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -50,7 +51,11 @@ import { useT } from '@/components/providers/language-provider';
 import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { cn } from '@/lib/utils';
 import { getWorkspaceFileDisplayName } from '@/lib/workspace/file-presentation';
-import { formatProjectListMeta } from '@/lib/workspace/project-summary';
+import {
+  formatProjectDeliverableCount,
+  formatProjectListMeta,
+  listProjectFolderPath,
+} from '@/lib/workspace/project-summary';
 import type { ProjectDeliverableItem } from '@/types';
 import type { ProjectFolderItem } from '@/types';
 import type { ProjectSummaryData } from '@/types';
@@ -86,6 +91,7 @@ export function DeliverableSidebar({
   className,
   collapsed = false,
   currentProjectId,
+  currentProjectTitle,
   currentWorkspaceId,
   currentWorkspaceStatusLabel,
   onCreateWorkspace,
@@ -122,6 +128,7 @@ export function DeliverableSidebar({
   className?: string;
   collapsed?: boolean;
   currentProjectId?: string | null;
+  currentProjectTitle?: string | null;
   currentWorkspaceId?: string | null;
   currentWorkspaceStatusLabel?: string | null;
   onCreateWorkspace?: () => void;
@@ -220,6 +227,51 @@ export function DeliverableSidebar({
     () => new Map(projectDeliverables.map((deliverable) => [deliverable.id, deliverable])),
     [projectDeliverables]
   );
+  const activeProject = React.useMemo(
+    () => projects.find((project) => project.id === currentProjectId) || null,
+    [currentProjectId, projects]
+  );
+  const currentProjectContextTitle = React.useMemo(() => {
+    const explicitTitle = currentProjectTitle?.trim() || null;
+    if (explicitTitle) {
+      return explicitTitle;
+    }
+
+    return activeProject?.title?.trim() || null;
+  }, [activeProject?.title, currentProjectTitle]);
+  const currentProjectDeliverable = React.useMemo(
+    () =>
+      currentWorkspaceId ? projectDeliverablesById.get(currentWorkspaceId) || null : null,
+    [currentWorkspaceId, projectDeliverablesById]
+  );
+  const currentProjectDeliverablePath = React.useMemo(() => {
+    if (!currentProjectContextTitle || !currentProjectDeliverable) {
+      return null;
+    }
+
+    const folderSegments = listProjectFolderPath(
+      currentProjectDeliverable.projectFolderId,
+      projectFolders
+    );
+
+    return [currentProjectContextTitle, ...folderSegments].filter(Boolean).join(' / ');
+  }, [currentProjectContextTitle, currentProjectDeliverable, projectFolders]);
+  const showCurrentProjectContext = React.useMemo(() => {
+    if (!currentProjectContextTitle || !currentProjectDeliverable) {
+      return false;
+    }
+
+    return (
+      projectDeliverables.length > 1 ||
+      projectFolders.length > 0 ||
+      currentProjectContextTitle !== currentProjectDeliverable.title.trim()
+    );
+  }, [
+    currentProjectContextTitle,
+    currentProjectDeliverable,
+    projectDeliverables.length,
+    projectFolders.length,
+  ]);
   const supportItemsById = React.useMemo(
     () => new Map(supportFiles.map((file) => [file.id, file])),
     [supportFiles]
@@ -236,7 +288,7 @@ export function DeliverableSidebar({
   const loadProjects = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/projects');
+      const res = await fetch('/api/project-list');
       if (!res.ok) {
         return;
       }
@@ -284,6 +336,17 @@ export function DeliverableSidebar({
       router.push(`/workspace/${project.workspaceId}`);
     },
     [onNavigate, onOpenWorkspace, router]
+  );
+  const openProjectNextDeliverable = React.useCallback(
+    (project: ProjectSummaryData) => {
+      onNavigate?.();
+      const params = new URLSearchParams({
+        newDeliverableProjectId: project.id,
+        newDeliverableProjectTitle: project.title,
+      });
+      router.push(`/?${params.toString()}`);
+    },
+    [onNavigate, router]
   );
   const openSupportFile = React.useCallback(
     (fileId: string) => {
@@ -1074,10 +1137,10 @@ export function DeliverableSidebar({
                   ) : projects.length === 0 ? (
                     <SidebarInfo text={t('sidebar.noProjectsYet')} />
                   ) : (
-                    <div className="min-w-0 space-y-1">
-                      {projects.map((project) => (
-                        <div
-                          key={project.id}
+                  <div className="min-w-0 space-y-1">
+                    {projects.map((project) => (
+                      <div
+                        key={project.id}
                           className={cn(
                             'group flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 transition-colors hover:bg-accent',
                             currentProjectId === project.id
@@ -1085,11 +1148,7 @@ export function DeliverableSidebar({
                               : ''
                           )}
                         >
-                          <button
-                            type="button"
-                            className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
-                            onClick={() => openProject(project)}
-                          >
+                          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                             <div className="rounded-md bg-background/80 p-1.5 ring-1 ring-border/60">
                               <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
                             </div>
@@ -1102,8 +1161,41 @@ export function DeliverableSidebar({
                                   ? currentWorkspaceStatusLabel
                                   : formatProjectListMeta(project, t)}
                               </div>
+                              {!currentWorkspaceId ? (
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="outline"
+                                    className="h-7 gap-1 px-2.5 text-[11px]"
+                                    data-testid={`sidebar-project-open-${project.id}`}
+                                    onClick={() => openProject(project)}
+                                  >
+                                    {t('sidebar.continueCurrentDeliverable')}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="xs"
+                                    variant="ghost"
+                                    className="h-7 gap-1 px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
+                                    data-testid={`sidebar-project-create-next-${project.id}`}
+                                    onClick={() => openProjectNextDeliverable(project)}
+                                  >
+                                    {t('plan.nextDeliverableAction')}
+                                  </Button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="mt-1 block truncate text-left text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
+                                  data-testid={`sidebar-project-open-${project.id}`}
+                                  onClick={() => openProject(project)}
+                                >
+                                  {formatProjectListMeta(project, t)}
+                                </button>
+                              )}
                             </div>
-                          </button>
+                          </div>
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -1173,6 +1265,39 @@ export function DeliverableSidebar({
                       ) : undefined
                     }
                   >
+                    {showCurrentProjectContext &&
+                    currentProjectContextTitle &&
+                    currentProjectDeliverable ? (
+                      <div
+                        className="mb-2 rounded-2xl border border-border/70 bg-background/80 px-3 py-2.5"
+                        data-testid="sidebar-current-project-context"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                            {t('sidebar.currentProjectLabel')}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground">
+                            {formatProjectDeliverableCount(
+                              activeProject?.deliverableCount ?? projectDeliverables.length,
+                              t
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-1 truncate text-sm font-semibold">
+                          {currentProjectContextTitle}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-muted-foreground">
+                          {t('sidebar.currentDeliverableMeta', {
+                            title: currentProjectDeliverable.title,
+                          })}
+                        </div>
+                        {currentProjectDeliverablePath ? (
+                          <div className="truncate text-[11px] text-muted-foreground/80">
+                            {currentProjectDeliverablePath}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {projectTreeError ? (
                       <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                         {projectTreeError}
@@ -1946,10 +2071,18 @@ function ProjectTreeNodeRow({
   const isDropTarget = isFolder && dragNode && dropTargetFolderId === node.id;
   const canMoveUp = siblingIndex > 0;
   const canMoveDown = siblingIndex < siblingCount - 1;
+  const showCreateNextAction = isActiveDeliverable && Boolean(onCreateSiblingDeliverable);
 
   return (
     <div className="min-w-0 overflow-hidden">
       <div
+        data-testid={
+          !isFolder
+            ? isActiveDeliverable
+              ? `sidebar-project-tree-current-${node.id}`
+              : `sidebar-project-tree-deliverable-${node.id}`
+            : undefined
+        }
         className={cn(
           'group flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 transition-colors hover:bg-accent',
           isActiveDeliverable && 'bg-background shadow-sm ring-1 ring-border',
@@ -2002,6 +2135,7 @@ function ProjectTreeNodeRow({
           <button
             type="button"
             className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
+            data-testid={`sidebar-project-tree-open-${node.id}`}
             onClick={() => {
               if (hasChildren && isActiveDeliverable) {
                 setOpen((value) => !value);
@@ -2012,9 +2146,37 @@ function ProjectTreeNodeRow({
             }}
           >
             <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="block min-w-0 flex-1 truncate text-sm">{node.title}</span>
+            <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+              <span className="block min-w-0 flex-1 truncate text-sm">{node.title}</span>
+              {isActiveDeliverable ? (
+                <Badge
+                  variant="secondary"
+                  className="px-1.5 py-0 text-[10px]"
+                  data-testid={`sidebar-project-tree-current-badge-${node.id}`}
+                >
+                  {t('sidebar.currentDeliverableBadge')}
+                </Badge>
+              ) : null}
+            </div>
           </button>
         )}
+
+        {showCreateNextAction ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            className="h-7 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            data-testid={`sidebar-project-tree-create-next-${node.id}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              void onCreateSiblingDeliverable?.(node.id);
+            }}
+          >
+            <FilePlus2 className="h-3.5 w-3.5" />
+            {t('sidebar.newDeliverableHere')}
+          </Button>
+        ) : null}
 
         {isFolder ? (
           onCreateDeliverable ||
@@ -2102,7 +2264,10 @@ function ProjectTreeNodeRow({
               <Button
                 size="icon-xs"
                 variant="ghost"
-                className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                className={cn(
+                  'h-7 w-7 shrink-0 transition-opacity',
+                  isActiveDeliverable ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                )}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </Button>
@@ -2111,7 +2276,7 @@ function ProjectTreeNodeRow({
               {onCreateSiblingDeliverable ? (
                 <DropdownMenuItem onSelect={() => void onCreateSiblingDeliverable(node.id)}>
                   <Plus className="h-3.5 w-3.5" />
-                  {t('sidebar.newSiblingDeliverable')}
+                  {t('sidebar.newDeliverableHere')}
                 </DropdownMenuItem>
               ) : null}
               {onRequestRenameDeliverable ? (

@@ -1,9 +1,24 @@
 import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
-import type {
-  ProjectFolderItem,
-  ProjectSummaryData,
-} from '@/types';
+
+type ProjectSummaryData = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  preview: string;
+  deliverableCount: number;
+  latestDeliverableTitle: string | null;
+  updatedAt: Date | string;
+};
+
+type ProjectFolderItem = {
+  id: string;
+  projectId: string;
+  parentFolderId: string | null;
+  sortOrder: number;
+  title: string;
+  updatedAt: Date | string;
+};
 
 type ProjectSummarySeed = {
   id: string;

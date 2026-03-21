@@ -222,6 +222,30 @@
 - 为什么：网页预览是运行时投影，用户可能在 `App.js`、`main.js` 或其他当前活动文件上下文里评论一个实际由 `index.html` 或组合源码承载的 DOM 节点。如果线程和 Review 仍按当前文件走，评论会“创建成功但列表消失”，跨版本后也会被误判成 stale。
 - 默认做法：静态 HTML 预览优先绑定到真实 preview 源文件；dev-server 或多文件场景下允许 `fileId=null`，让继承判定和 Review 加载按整份 deliverable surface 做回退匹配，而不是强行锁死到当前活动文件。
 
+### 35. 多交付物项目的项目语境，只有在“比交付物标题多提供信息”时才应该浮出
+
+- 结论：workspace header 和 sidebar 里的 `当前项目` chrome 不该无条件常驻；只有当项目标题、文件夹路径或兄弟交付物关系真的提供新增信息时，才应该显式显示项目上下文。
+- 为什么：如果单交付物项目也总是同时显示“项目 + 交付物”两层标题，用户会把本来清晰的当前对象再次拆成两层心智；但一旦项目里真的存在文件夹或兄弟交付物，不把项目语境抬到第一扫描线，切换和新建就会继续被感知成跳去另一个孤立 workspace。
+- 默认做法：当 `projectTitle != deliverableTitle`、存在 `project folders` 或同项目有多个 deliverable 时，再显示 header 的项目上下文行和 sidebar 的当前项目摘要卡；否则让单交付物项目保持安静，只突出唯一当前交付物。
+
+### 36. 侧栏和首页这类高频读路径，应该走专门的薄读接口
+
+- 结论：像首页项目列表、sidebar 项目摘要这种高频读路径，不应继续绑在一个同时承载动态 CRUD 语义的根路由 surface 上；更稳的做法是给它们单独的薄读接口。
+- 为什么：这轮里 `/api/projects` 在 Turbopack 冷编译下会拖慢甚至卡住首页项目列表，而把同一份聚合读逻辑移到薄路由 `/api/project-list` 后，首页和 sidebar 的项目列表立刻恢复稳定；这说明高频读路径对 route surface 的冷启动稳定性极其敏感。
+- 默认做法：项目列表、导航摘要、context index 这类高频读取优先放到专门的 list/read endpoint；写侧 CRUD 继续保留在各自动态路径里，不把两种职责混在一个高频入口上。
+
+### 37. 一旦 `renderAs` 成为正式 contract，所有“结果形态”叙事都必须切过去
+
+- 结论：只要 `DeliverableData.renderAs` 已经定义为当前结果面的正式派生字段，中心画布、AI debug 工具、项目级上下文摘要和 first-pass prompt 都不该继续拿 canonical `deliverableType` 冒充当前结果形态。
+- 为什么：`deliverableType` 只说明 canonical 归类；像 legacy slides 或 `slide_page` 文档这类交付物，真正影响用户和 agent 判断的是当前怎么被投影。如果 view 层已经认 `slides`，但 prompt / debug 还写 `document`，系统会同时暴露两套自相矛盾的“结果形态”。
+- 默认做法：用户和 agent 可见的 `Result shape`、`shape: ...`、`Current result shape` 一律读 `renderAs`；只有 blueprint、canonical plan taxonomy 和兼容 mapping 才继续读 `deliverableType`。
+
+### 38. 共享 scope note 的回归断言，优先绑定稳定 note id，而不是裸文本
+
+- 结论：像 `deliverable / project / user` scope Note 这种会在同一 run 内重复出现、编辑器里也会回显的内容，Playwright 回归不该直接对裸文本做 `getByText(...)` 断言。
+- 为什么：一旦 user-scope note 跨测试复用，或者保存后编辑器 textarea 还保留同一段内容，strict locator 就会同时命中“卡片正文”和“编辑器输入框”，把真正通过的功能打成假红。
+- 默认做法：已有 note 一律优先用 `context-note-{id}` / `context-note-scope-{id}` 这类稳定 selector；新建 note 先通过 API 结果或 list endpoint 找到 note id，再断言卡片本身，而不是直接用文本做全局查找。
+
 ## 产品踩坑记录
 
 ### 1. 兼容语义进入主表面，会把过渡态永久化
@@ -658,6 +682,42 @@
 - 结论：当 `Context` 面板开始允许用户手工创建或编辑 `deliverable + project + user` scope Note 时，不能只靠隐藏的 `scopeId` 规则或默认猜测决定落点；scope 选择、当前归属提示和 route fallback 都要一起做成显式契约。
 - 为什么：如果用户只能改标题和内容，却看不到这条知识最终会落到哪一层，`project / user` 这类长效认知就会重新变成黑箱；而 `scope='user'` 又天然不该要求客户端硬编码 actor user id，否则 UI 很快会把实现细节重新泄漏出来。
 - 默认做法：composer 默认预选最近邻 scope（通常是当前交付物），同时显示明确的 scope 文案和可切换入口；服务端为 `scope='user'` 提供 actor fallback，客户端只传语义 scope；编辑已有 note 时允许显式迁移 scope，并用完整 iteration 回归同时覆盖 UI 交互和 `/api/notes` 写侧契约。
+
+### 69. 旧 enum 退场时，写侧 API 也要同轮改名成新语义
+
+- 结论：当 legacy enum 已经不再是真相源时，不能只停止写库；command / service / route 的输入 contract 也要同轮改成新语义参数，例如把 `versionType` 改成显式 `recovery`。
+- 为什么：如果底层字段不再写，但上层调用链还在继续传 `versionType='checkpoint'` 这类旧心智，façade、tool、staged-change、restore 和 AI writer 仍会围绕过时模型组织，最后形成“存储已收口、调用链却还没收口”的半迁移状态。
+- 默认做法：删 legacy 写入的同一刀里，同时 `rg` 所有 writer 和调用方，把输入改成面向新模型的布尔或结构化语义，再用 `rg "versionType"` 和 `npm run verify:iteration` 关门。
+
+### 70. service 巨石剪 façade 时，要同轮把调用方切到 object seam
+
+- 结论：把 CRUD 实现从 `service.ts` 挪到 `objects/*` 还不够；同一轮必须把 route、AI runner、comment 和 tool 调用方的 import 一起切到新 seam。
+- 为什么：如果 service 继续保留薄转发，调用方仍会把它当成默认主入口，后续搜索、职责边界和下一刀拆分都不会真正变清晰，结果只是“代码搬家了，但真相源没变”。
+- 默认做法：按对象簇成组迁移，例如一次收掉 `conversation + assistant run + workspace lock`；落新模块后立刻改掉所有邻近调用方、删旧 export，再用 `npm run verify:iteration` 关门。
+
+### 71. `getWorkspaceView` 巨石开拆时，先搬走 conversation cluster 往往最稳
+
+- 结论：当 `getWorkspaceView` 同时混着 conversation、version、project 和 status 组装时，第一刀优先抽走 `current/latest conversation`、`conversationTree` 和 `assistant runs` 这簇，通常比先碰 active file 或 deliverable/status 更稳。
+- 为什么：conversation cluster 天然已经有 `objects/conversation/view.ts` 和 query seam，可以连同 preview 文本、pending change 计数和 assistant run 选择一起收口；这样既能明显缩短 `service.ts`，又不会同时改动 version/current-file 选择规则。
+- 默认做法：先在 `objects/conversation/queries.ts` 新增一个返回 `currentConversation / latestConversation / conversationTree / conversationRuns / activeAssistantRun` 的聚合 query，把 `getWorkspaceView` 退回协调者；等这一刀跑绿后，再继续拆 version/current-file 与 project/status builder。
+
+### 72. 拆聚合型 view 巨石时，第二刀优先抽纯 derive seam，第三刀再抽 surface builder
+
+- 结论：像 `getWorkspaceView` 这种同时夹着查询、选择规则和 UI surface 组装的函数，通常最稳的顺序是：先拆 conversation 聚合查询，再拆 `version/current-file` 这类纯 derive seam，最后再拆 `deliverable/status/project` surface builder。
+- 为什么：`version/current-file` 选择只依赖已取回的 `versions / workspaceFiles / activeFileId / requestedFileId`，属于无副作用的纯派生逻辑，最适合作为中间刀；等纯 derive seam 抽干净后，再把 `deliverable / currentStatus / currentProject` 这类面向 UI 的 surface builder 一起下沉，能避免在同一刀里同时改查询边界和状态派生。
+- 默认做法：遇到类似隐形巨石时，先按“聚合查询 -> 纯 derive -> UI surface builder”三段顺序切；每一刀结束都跑完整 iteration 门禁，防止后两刀把前一刀的职责边界又揉回 service。
+
+### 73. 多交付物项目的项目树里，当前交付物不能只靠高亮色传达
+
+- 结论：当项目树同时承担“切换兄弟交付物”和“从当前交付物继续创建下一份”的任务时，不能只靠当前行背景高亮来表达焦点；至少要补上显式 `当前` 标识和可见的继续创建动作。
+- 为什么：只用高亮时，用户仍然会把左栏理解成一棵中性的 deliverable tree，很难一眼看懂“现在我在哪个交付物上”和“下一份交付物应该从哪里切出去”；尤其同项目里节点一多，继续创建入口若还藏在 hover 菜单里，项目语境会再次退回实现细节。
+- 默认做法：在当前交付物行同时给出显式 badge 和稳定可见的“在这里继续新建交付物”入口，再用完整 iteration 回归覆盖当前标识和项目树内创建流，确保同项目创建不会重新退回 header 外的隐式动作。
+
+### 74. 同一个“下一份交付物”动作跨 surface 出现时，必须统一产品语义而不是沿用结构词
+
+- 结论：当“从当前交付物继续下一份”同时出现在标题栏、完成态卡片和项目树时，用户可见文案必须共享同一套产品语义；不能一个地方叫 `next`，另一个地方叫 `sibling`，第三个地方再叫“在这里新建”。
+- 为什么：这些入口实际上都在触发同一件事，只是落点上下文不同；如果表面上混用结构词和动作词，用户会误以为它们是不同能力，甚至把“同级”理解成文件系统结构，而不是当前项目里的自然派生下一步。
+- 默认做法：先确定一个主动作名作为 canonical 叙事，比如“继续下一份交付物”；其他 surface 只允许做上下文压缩，如项目树里改成“从这里继续下一份”，但不能重新引入 `sibling` 这类实现词。回归里同时断言新主文案存在，旧结构词退出用户表面。
 
 ## 技术踩坑记录
 

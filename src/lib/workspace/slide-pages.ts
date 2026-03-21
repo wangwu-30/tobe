@@ -63,6 +63,19 @@ export function hasOnlySlidePageBlocks(value: Value | null | undefined) {
   return nodes.length > 0 && nodes.every(isSlidePageNode);
 }
 
+export function parseSlidePageValue(content: string): Value | null {
+  try {
+    const parsed = JSON.parse(content);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function contentHasOnlySlidePageBlocks(content: string) {
+  return hasOnlySlidePageBlocks(parseSlidePageValue(content));
+}
+
 function extractLegacySlides(value: Value, fallbackTitle: string) {
   const slides: SlidePageCard[] = [];
   let current: { body: string[]; title: string } | null = null;

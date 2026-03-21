@@ -1,10 +1,18 @@
 import { mapWorkspaceFile } from '@/objects/file/schema';
-import { resolveWorkspaceProjectId } from '@/objects/project/queries';
+import {
+  buildProjectFolders,
+  buildProjectSummary,
+  resolveWorkspaceProjectId,
+} from '@/objects/project/queries';
 import {
   buildDeliverable,
   mapWorkspacePlan,
 } from '@/lib/workspace/planning';
-import type { ProjectDeliverableItem } from '@/types';
+import type {
+  ProjectDeliverableItem,
+  ProjectFolderItem,
+  ProjectSummaryData,
+} from '@/types';
 
 type ProjectDeliverableSeed = {
   content: string;
@@ -13,11 +21,20 @@ type ProjectDeliverableSeed = {
   id: string;
   projectFolderId?: string | null;
   projectId: string | null;
+  projectTitle: string | null;
   status: string;
   title: string;
   treeSortOrder: number;
   updatedAt: Date;
   workspacePlan: Parameters<typeof mapWorkspacePlan>[0] | null;
+};
+
+type ProjectSurfaceSeed = {
+  id: string;
+  projectId: string | null;
+  projectTitle: string | null;
+  title: string;
+  updatedAt: Date;
 };
 
 export function buildProjectDeliverables(
@@ -56,4 +73,27 @@ export function buildProjectDeliverables(
 
       return left.sortOrder - right.sortOrder;
     });
+}
+
+export function buildWorkspaceProjectSurface(params: {
+  projectDocuments: ProjectDeliverableSeed[];
+  projectFolders: Array<{
+    id: string;
+    parentId: string | null;
+    projectId: string;
+    treeSortOrder: number;
+    title: string;
+    updatedAt: Date;
+  }>;
+  workspace: ProjectSurfaceSeed;
+}): {
+  currentProject: ProjectSummaryData | null;
+  projectDeliverables: ProjectDeliverableItem[];
+  projectFolders: ProjectFolderItem[];
+} {
+  return {
+    currentProject: buildProjectSummary(params.projectDocuments, params.workspace),
+    projectDeliverables: buildProjectDeliverables(params.projectDocuments),
+    projectFolders: buildProjectFolders(params.projectFolders),
+  };
 }

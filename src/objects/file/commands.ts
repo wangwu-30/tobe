@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
 import { recordSyncEvent } from '@/lib/platform/sync';
+import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 
 import {
   buildWorkspacePath,
@@ -144,7 +145,7 @@ export async function createWorkspaceFile(
     role?: 'deliverable' | 'support';
     workspaceId: string;
   },
-  deps: FileCommandDependencies
+  deps: FileCommandDependencies = { ensureWorkspaceEditable }
 ) {
   await deps.ensureWorkspaceEditable(actor, input.workspaceId);
   await ensureWorkspaceFiles(actor.organizationId, input.workspaceId);
@@ -219,7 +220,7 @@ export async function createWorkspaceFile(
 export async function ensureSupportUploadsFolder(
   actor: WorkspaceFileActorContext,
   workspaceId: string,
-  deps: FileCommandDependencies
+  deps: FileCommandDependencies = { ensureWorkspaceEditable }
 ) {
   const existing = await prisma.workspaceFile.findFirst({
     where: {
@@ -261,7 +262,7 @@ export async function updateWorkspaceFile(
     sortOrder?: number;
     workspaceId: string;
   },
-  deps: FileCommandDependencies
+  deps: FileCommandDependencies = { ensureWorkspaceEditable }
 ) {
   await deps.ensureWorkspaceEditable(actor, input.workspaceId);
 
@@ -482,7 +483,7 @@ export async function deleteWorkspaceFile(
     fileId: string;
     workspaceId: string;
   },
-  deps: FileCommandDependencies
+  deps: FileCommandDependencies = { ensureWorkspaceEditable }
 ) {
   await deps.ensureWorkspaceEditable(actor, input.workspaceId);
 

@@ -2,7 +2,11 @@ import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
 import { markdownToPlate } from '@/lib/ai/serializer';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider, SearchCitation, SearchResult } from '@/lib/search/types';
-import { createWorkspaceFile, listWorkspaceFiles, updateWorkspaceFile } from '@/lib/workspace/service';
+import {
+  createWorkspaceFile,
+  updateWorkspaceFile,
+} from '@/objects/file/commands';
+import { listWorkspaceFiles } from '@/objects/file/queries';
 import type {
   DeepResearchPlanProposalData,
   ResearchProgressData,
