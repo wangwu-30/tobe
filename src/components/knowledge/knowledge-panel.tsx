@@ -87,6 +87,7 @@ export function KnowledgePanel({
   const [workflowSourceThreadId, setWorkflowSourceThreadId] = React.useState<string | null>(
     null
   );
+  const [isSavingWorkflow, setIsSavingWorkflow] = React.useState(false);
   const [workflowNotice, setWorkflowNotice] = React.useState<{
     tone: 'error' | 'info';
     text: string;
@@ -219,55 +220,72 @@ export function KnowledgePanel({
       newWorkflowChecklist.trim() ||
       newWorkflowContent.trim();
     if (!newWorkflowTitle.trim() || !hasWorkflowBody) return;
-    const res = await apiFetch('/api/workflows', {
-      method: editingWorkflowId ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: editingWorkflowId,
-        title: newWorkflowTitle,
-        summary: newWorkflowSummary,
-        steps: toStructuredLines(newWorkflowSteps),
-        constraints: toStructuredLines(newWorkflowConstraints),
-        checklist: toStructuredLines(newWorkflowChecklist),
-        extensionHints: buildWorkflowExtensionHints({
-          mcp: newWorkflowMcpHint,
-          skills: newWorkflowSkillsHint,
-          tools: newWorkflowToolsHint,
-        }),
-        content: newWorkflowContent,
-        status: editingWorkflowId ? editingWorkflowStatus : 'draft',
-        wikiId,
-        sourceThreadId: workflowSourceThreadId,
-        sourceVersionId: workflowSourceVersionId,
-      }),
-    });
-    if (res.ok) {
-      setNewWorkflowTitle('');
-      setNewWorkflowSummary('');
-      setNewWorkflowSteps('');
-      setNewWorkflowConstraints('');
-      setNewWorkflowChecklist('');
-      setNewWorkflowToolsHint('');
-      setNewWorkflowMcpHint('');
-      setNewWorkflowSkillsHint('');
-      setNewWorkflowContent('');
-      setEditingWorkflowId(null);
-      setEditingWorkflowStatus('draft');
-      setWorkflowDraftWarnings([]);
-      setWorkflowSourceVersionId(null);
-      setWorkflowSourceThreadId(null);
-      setWorkflowNotice({
-        tone: 'info',
-        text: t(editingWorkflowId ? 'context.workflowUpdated' : 'context.workflowSaved'),
-      });
-      loadData();
-      return;
-    }
+    const isEditingWorkflow = Boolean(editingWorkflowId);
 
+    setIsSavingWorkflow(true);
     setWorkflowNotice({
-      tone: 'error',
-      text: t('context.workflowSaveFailed'),
+      tone: 'info',
+      text: t('context.workflowSaving'),
     });
+
+    try {
+      const res = await apiFetch('/api/workflows', {
+        method: editingWorkflowId ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingWorkflowId,
+          title: newWorkflowTitle,
+          summary: newWorkflowSummary,
+          steps: toStructuredLines(newWorkflowSteps),
+          constraints: toStructuredLines(newWorkflowConstraints),
+          checklist: toStructuredLines(newWorkflowChecklist),
+          extensionHints: buildWorkflowExtensionHints({
+            mcp: newWorkflowMcpHint,
+            skills: newWorkflowSkillsHint,
+            tools: newWorkflowToolsHint,
+          }),
+          content: newWorkflowContent,
+          status: editingWorkflowId ? editingWorkflowStatus : 'draft',
+          wikiId,
+          sourceThreadId: workflowSourceThreadId,
+          sourceVersionId: workflowSourceVersionId,
+        }),
+      });
+      if (res.ok) {
+        setNewWorkflowTitle('');
+        setNewWorkflowSummary('');
+        setNewWorkflowSteps('');
+        setNewWorkflowConstraints('');
+        setNewWorkflowChecklist('');
+        setNewWorkflowToolsHint('');
+        setNewWorkflowMcpHint('');
+        setNewWorkflowSkillsHint('');
+        setNewWorkflowContent('');
+        setEditingWorkflowId(null);
+        setEditingWorkflowStatus('draft');
+        setWorkflowDraftWarnings([]);
+        setWorkflowSourceVersionId(null);
+        setWorkflowSourceThreadId(null);
+        setWorkflowNotice({
+          tone: 'info',
+          text: t(isEditingWorkflow ? 'context.workflowUpdated' : 'context.workflowSaved'),
+        });
+        await loadData();
+        return;
+      }
+
+      setWorkflowNotice({
+        tone: 'error',
+        text: t('context.workflowSaveFailed'),
+      });
+    } catch {
+      setWorkflowNotice({
+        tone: 'error',
+        text: t('context.workflowSaveFailed'),
+      });
+    } finally {
+      setIsSavingWorkflow(false);
+    }
   };
 
   const deleteWorkflowPlaybook = async (id: string) => {
@@ -648,21 +666,24 @@ export function KnowledgePanel({
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <Button
-                          size="icon"
+                          size="sm"
                           variant="ghost"
-                          className="h-5 w-5"
+                          className="h-6 gap-1 px-2 text-[11px]"
                           data-testid={`context-edit-knowledge-${item.id}`}
                           onClick={() => editKnowledgeItem(item)}
                         >
                           <Pencil className="h-3 w-3" />
+                          {t('context.editKnowledgeAction')}
                         </Button>
                         <Button
-                          size="icon"
+                          size="sm"
                           variant="ghost"
-                          className="h-5 w-5"
+                          className="h-6 gap-1 px-2 text-[11px]"
+                          data-testid={`context-delete-knowledge-${item.id}`}
                           onClick={() => deleteKnowledgeItem(item.id)}
                         >
                           <Trash2 className="h-3 w-3" />
+                          {t('context.deleteKnowledgeAction')}
                         </Button>
                       </div>
                     </div>
@@ -754,6 +775,7 @@ export function KnowledgePanel({
                   variant="outline"
                   className="h-7 w-full text-xs"
                   onClick={buildWorkflowDraft}
+                  disabled={isSavingWorkflow}
                 >
                   {t('context.buildWorkflowDraft')}
                 </Button>
@@ -764,6 +786,7 @@ export function KnowledgePanel({
                 value={newWorkflowTitle}
                 onChange={(event) => setNewWorkflowTitle(event.target.value)}
                 className="h-8 text-xs"
+                disabled={isSavingWorkflow}
               />
               <Input
                 placeholder={t('context.workflowOverviewPlaceholder')}
@@ -771,8 +794,10 @@ export function KnowledgePanel({
                 value={newWorkflowSummary}
                 onChange={(event) => setNewWorkflowSummary(event.target.value)}
                 className="h-8 text-xs"
+                disabled={isSavingWorkflow}
               />
               <WorkflowField
+                disabled={isSavingWorkflow}
                 label={t('context.workflowStepsLabel')}
                 placeholder={t('context.workflowStepsPlaceholder')}
                 rows={4}
@@ -780,6 +805,7 @@ export function KnowledgePanel({
                 onChange={setNewWorkflowSteps}
               />
               <WorkflowField
+                disabled={isSavingWorkflow}
                 label={t('context.workflowConstraintsLabel')}
                 placeholder={t('context.workflowConstraintsPlaceholder')}
                 rows={3}
@@ -787,6 +813,7 @@ export function KnowledgePanel({
                 onChange={setNewWorkflowConstraints}
               />
               <WorkflowField
+                disabled={isSavingWorkflow}
                 label={t('context.workflowChecklistLabel')}
                 placeholder={t('context.workflowChecklistPlaceholder')}
                 rows={3}
@@ -794,6 +821,7 @@ export function KnowledgePanel({
                 onChange={setNewWorkflowChecklist}
               />
               <WorkflowField
+                disabled={isSavingWorkflow}
                 label={t('context.workflowExtensionTools')}
                 placeholder={t('context.workflowExtensionToolsPlaceholder')}
                 rows={2}
@@ -801,6 +829,7 @@ export function KnowledgePanel({
                 onChange={setNewWorkflowToolsHint}
               />
               <WorkflowField
+                disabled={isSavingWorkflow}
                 label={t('context.workflowExtensionMcp')}
                 placeholder={t('context.workflowExtensionMcpPlaceholder')}
                 rows={2}
@@ -808,6 +837,7 @@ export function KnowledgePanel({
                 onChange={setNewWorkflowMcpHint}
               />
               <WorkflowField
+                disabled={isSavingWorkflow}
                 label={t('context.workflowExtensionSkills')}
                 placeholder={t('context.workflowExtensionSkillsPlaceholder')}
                 rows={2}
@@ -824,12 +854,14 @@ export function KnowledgePanel({
                 onChange={(event) => setNewWorkflowContent(event.target.value)}
                 className="min-h-[88px] resize-none text-xs"
                 rows={4}
+                disabled={isSavingWorkflow}
               />
               <Button
                 size="sm"
                 className="h-7 w-full text-xs"
                 onClick={addWorkflowPlaybook}
                 disabled={
+                  isSavingWorkflow ||
                   !newWorkflowTitle.trim() ||
                   !(
                     newWorkflowSteps.trim() ||
@@ -848,12 +880,14 @@ export function KnowledgePanel({
                   variant="ghost"
                   className="h-7 w-full text-xs"
                   onClick={cancelWorkflowEdit}
+                  disabled={isSavingWorkflow}
                 >
                   {t('common.cancel')}
                 </Button>
               ) : null}
               {workflowNotice ? (
                 <div
+                  data-testid="context-workflow-notice"
                   className={cn(
                     'rounded-md px-2 py-1.5 text-[11px] leading-relaxed',
                     workflowNotice.tone === 'error'
@@ -1181,12 +1215,14 @@ function getWorkflowExtensionHintValue(
 }
 
 function WorkflowField({
+  disabled = false,
   label,
   onChange,
   placeholder,
   rows,
   value,
 }: {
+  disabled?: boolean;
   label: string;
   onChange: (value: string) => void;
   placeholder: string;
@@ -1203,6 +1239,7 @@ function WorkflowField({
         aria-label={label}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        disabled={disabled}
         className="min-h-[72px] resize-none text-xs"
         rows={rows}
       />
@@ -1240,7 +1277,7 @@ function WorkflowPlaybookPreview({
         />
       ) : null}
       {workflow.content ? (
-        <div className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+        <div className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
           {workflow.content}
         </div>
       ) : null}

@@ -108,6 +108,26 @@ export function inferWorkspaceCreateIntent(input: {
   return workflowIntent;
 }
 
+export function shouldClarifyWorkspaceCreateGoal(goal: string | null | undefined) {
+  const normalizedGoal = normalizeCorpus([goal]);
+  if (!normalizedGoal) {
+    return false;
+  }
+
+  if (matchesAny(normalizedGoal, VAGUE_GOAL_PATTERNS)) {
+    return true;
+  }
+
+  return (
+    normalizedGoal.length <= 12 &&
+    !matchesAny(normalizedGoal, [
+      ...DOCUMENT_INTENT_PATTERNS,
+      ...GOAL_DETAIL_PATTERNS,
+      ...WEB_INTENT_PATTERNS,
+    ])
+  );
+}
+
 function inferIntentFromWorkflowId(workflowPlaybookId: string | null | undefined) {
   if (!workflowPlaybookId) {
     return null;
@@ -146,6 +166,29 @@ const BOTH_INTENT_PATTERNS = [
   /(文档|报告|方案|brief|spec|specification|requirements?|需求|规格).*(网页|网站|落地页|页面|web|website|landing page|site|page)/i,
   /(网页|网站|落地页|页面|web|website|landing page|site|page).*(文档|报告|方案|brief|spec|specification|requirements?|需求|规格)/i,
   /(同时|并且|并|together|along with|also).*(网页|网站|落地页|页面|web|website|landing page|site|page).*(文档|报告|方案|brief|spec|requirements?|需求|规格)/i,
+];
+
+const GOAL_DETAIL_PATTERNS = [
+  /\baudience\b/i,
+  /\bcustomer(s)?\b/i,
+  /\bfor\b/i,
+  /\blaunch\b/i,
+  /\bresult\b/i,
+  /\bsales\b/i,
+  /\bteam\b/i,
+  /\buser(s)?\b/i,
+  /\bwho\b/i,
+  /产品/i,
+  /介绍/i,
+  /分析/i,
+  /受众/i,
+  /团队/i,
+  /客户/i,
+  /目标/i,
+  /用户/i,
+  /结果/i,
+  /转化/i,
+  /面向/i,
 ];
 
 const DOCUMENT_INTENT_PATTERNS = [
@@ -205,4 +248,11 @@ const WEB_INTENT_PATTERNS = [
   /官网/i,
   /前端/i,
   /在线工具/i,
+];
+
+const VAGUE_GOAL_PATTERNS = [
+  /\b(make|build|create)\s+(something|anything|stuff|whatever|a thing)\b/i,
+  /\bhelp me (make|build|create)(\s+(something|anything|stuff|whatever|a thing))?\b/i,
+  /帮我(弄|做|搞|整)(个|一个)?(东西|内容|玩意儿)?/i,
+  /(弄|做|搞|整)(个|一个)?(东西|内容|玩意儿)/i,
 ];

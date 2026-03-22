@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { useAppRouter, useAppSearchParams } from '@/lib/app-router';
 import {
+  buildCreatedWorkspaceLocation,
   buildWorkspaceCreateRecovery,
   clearWorkspaceCreateRecovery,
   loadWorkspaceCreateRecovery,
@@ -143,7 +144,11 @@ export default function HomePage() {
       createWorkspaceRequestIdRef.current = null;
       setGoalDialogOpen(false);
       router.push(
-        `/workspace/${workspace.workspace.id}?conversationId=${workspace.conversation.id}`
+        buildCreatedWorkspaceLocation({
+          autoStartFirstPass: true,
+          conversationId: workspace.conversation.id,
+          workspaceId: workspace.workspace.id,
+        })
       );
     } catch (error) {
       if (error instanceof WorkspaceCreateActionError) {

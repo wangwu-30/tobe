@@ -22,6 +22,7 @@ export function WorkspaceDeliverablePanel({
   fileContent,
   headerActions,
   isAssistantBusy,
+  isFirstPassQueued,
   isReadOnly,
   isSavingTextFile,
   isStartingPreview,
@@ -53,6 +54,7 @@ export function WorkspaceDeliverablePanel({
   fileContent: DeliverablePanelParams['fileContent'];
   headerActions: DeliverablePanelParams['headerActions'];
   isAssistantBusy: DeliverablePanelParams['isAssistantBusy'];
+  isFirstPassQueued: DeliverablePanelParams['isFirstPassQueued'];
   isReadOnly: DeliverablePanelParams['isReadOnly'];
   isSavingTextFile: DeliverablePanelParams['isSavingTextFile'];
   isStartingPreview: DeliverablePanelParams['isStartingPreview'];
@@ -96,6 +98,7 @@ export function WorkspaceDeliverablePanel({
     fileContent,
     headerActions,
     isAssistantBusy,
+    isFirstPassQueued,
     isReadOnly,
     isSavingTextFile,
     isStartingPreview,

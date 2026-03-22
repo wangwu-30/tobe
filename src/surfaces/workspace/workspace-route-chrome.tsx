@@ -1,8 +1,13 @@
 'use client';
 
+import type { DeliverableType } from '@/types';
 import { Check, ChevronDown } from 'lucide-react';
 
 import { useT } from '@/components/providers/language-provider';
+import {
+  DeliverableTypeBadge,
+  DeliverableTypeIcon,
+} from '@/components/workspace/deliverable-type-badge';
 import {
   GoalComposerDialog,
   type GoalComposerValues,
@@ -16,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 type WorkspaceTitleSwitchOption = {
+  deliverableType: DeliverableType;
   id: string;
   projectPathLabel: string | null;
   title: string;
@@ -23,6 +29,7 @@ type WorkspaceTitleSwitchOption = {
 
 export function WorkspaceRouteTitle({
   currentTitle,
+  currentDeliverableType,
   enabled,
   onSelectDeliverable,
   options,
@@ -30,6 +37,7 @@ export function WorkspaceRouteTitle({
   workspaceId,
 }: {
   currentTitle: string | null;
+  currentDeliverableType: DeliverableType;
   enabled: boolean;
   onSelectDeliverable: (deliverableId: string) => void;
   options: WorkspaceTitleSwitchOption[];
@@ -59,14 +67,23 @@ export function WorkspaceRouteTitle({
             <Button
               variant="ghost"
               size="sm"
-              className="h-auto max-w-full justify-start gap-1 px-0 py-0 text-left hover:bg-transparent"
+              className="h-auto max-w-full justify-start gap-2 px-0 py-0 text-left hover:bg-transparent"
               data-testid="workspace-switch-deliverable"
             >
+              <DeliverableTypeIcon
+                className="h-4 w-4 shrink-0 text-muted-foreground"
+                deliverableType={currentDeliverableType}
+              />
               <span className="truncate text-sm font-semibold">{resolvedTitle}</span>
+              <DeliverableTypeBadge
+                className="shrink-0"
+                deliverableType={currentDeliverableType}
+                variant="secondary"
+              />
               <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
+          <DropdownMenuContent align="start" className="w-80">
             {options.map((option) => (
               <DropdownMenuItem
                 key={option.id}
@@ -79,7 +96,13 @@ export function WorkspaceRouteTitle({
                   {option.id === workspaceId ? <Check className="h-4 w-4" /> : null}
                 </span>
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">{option.title}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="truncate text-sm font-medium">{option.title}</div>
+                    <DeliverableTypeBadge
+                      className="shrink-0"
+                      deliverableType={option.deliverableType}
+                    />
+                  </div>
                   <div className="truncate text-xs text-muted-foreground">
                     {option.projectPathLabel || t('workspace.projectTitleFallback')}
                   </div>

@@ -245,6 +245,8 @@ test('context panel can create scoped knowledge and edit existing knowledge scop
   );
   await page.getByTestId('assistant-tab-context').click();
 
+  await expect(page.getByTestId(`context-edit-knowledge-${seedNote.id}`)).toBeVisible();
+  await expect(page.getByTestId(`context-delete-knowledge-${seedNote.id}`)).toBeVisible();
   await page.getByTestId(`context-edit-knowledge-${seedNote.id}`).click();
   await page.getByTestId('context-knowledge-title').fill('项目级术语');
   await page.getByTestId('context-knowledge-content').fill(updatedProjectKnowledge);

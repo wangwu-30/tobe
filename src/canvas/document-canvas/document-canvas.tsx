@@ -51,6 +51,7 @@ export function buildDeliverablePanel(params: {
   fileContent: string;
   headerActions: React.ReactNode;
   isAssistantBusy: boolean;
+  isFirstPassQueued: boolean;
   isReadOnly: boolean;
   isSavingTextFile: boolean;
   isStartingPreview: boolean;
@@ -96,10 +97,14 @@ export function buildDeliverablePanel(params: {
   const projectedRichtextValue = params.editorContent || parsePlateContent(params.fileContent);
   const statusTitle = isErrorState
     ? params.chatError!.error.message
-    : params.workflowStatus?.statusTitle || params.noDocumentTitle;
+    : params.isFirstPassQueued
+      ? params.t('workflow.implementingTitle')
+      : params.workflowStatus?.statusTitle || params.noDocumentTitle;
   const statusDescription = isErrorState
     ? params.chatError!.error.detail
-    : params.workflowStatus?.statusDescription || params.noDocumentDescription;
+    : params.isFirstPassQueued
+      ? params.t('workspace.aiPreparingFirstPass')
+      : params.workflowStatus?.statusDescription || params.noDocumentDescription;
   const errorAction = isErrorState && params.chatError?.retryFn ? (
     <Button size="sm" onClick={params.chatError.retryFn}>
       {params.t ? params.t('chat.retry') : 'Retry'}
@@ -120,7 +125,9 @@ export function buildDeliverablePanel(params: {
         : 'draft';
   const editorStatusLabel = params.selectedVersion
     ? undefined
-    : params.workflowStatus?.statusTitle || undefined;
+    : params.isFirstPassQueued
+      ? params.t('workflow.implementingTitle')
+      : params.workflowStatus?.statusTitle || undefined;
   const surfaceTitle =
     isSupportFile && params.currentFile
       ? getWorkspaceFileDisplayName(params.currentFile)
@@ -134,14 +141,23 @@ export function buildDeliverablePanel(params: {
   const canStartFirstPass =
     !isErrorState &&
     !params.selectedVersion &&
+    !params.isFirstPassQueued &&
     params.workflowStatus?.primaryAction === 'generate_first_pass';
   const activityVariant =
-    params.workflowStatus?.phase === 'implementing' || params.isAssistantBusy
+    params.workflowStatus?.phase === 'implementing' ||
+    params.isAssistantBusy ||
+    params.isFirstPassQueued
       ? 'working'
       : 'idle';
   const firstPassAction = canStartFirstPass ? (
-    <Button size="sm" onClick={params.onGenerateFirstPass} disabled={params.isAssistantBusy}>
-      {params.isAssistantBusy ? params.t('plan.aiDrafting') : params.t('plan.firstPassAction')}
+    <Button
+      size="sm"
+      onClick={params.onGenerateFirstPass}
+      disabled={params.isAssistantBusy || params.isFirstPassQueued}
+    >
+      {params.isAssistantBusy || params.isFirstPassQueued
+        ? params.t('plan.aiDrafting')
+        : params.t('plan.firstPassAction')}
     </Button>
   ) : undefined;
   const commentCapability = resolveCommentCapability({
@@ -166,6 +182,7 @@ export function buildDeliverablePanel(params: {
         documentContent={params.commentContextContent}
         fileId={params.previewAnchorFileId}
         isAssistantBusy={params.isAssistantBusy}
+        isFirstPassQueued={params.isFirstPassQueued}
         isStartingPreview={params.isStartingPreview}
         isStoppingPreview={params.isStoppingPreview}
         onGenerateFirstPass={params.onGenerateFirstPass}
@@ -204,6 +221,7 @@ export function buildDeliverablePanel(params: {
         commentAction={manualCommentAction}
         workflowStatus={params.workflowStatus}
         isAssistantBusy={params.isAssistantBusy}
+        isFirstPassQueued={params.isFirstPassQueued}
         onGenerateFirstPass={params.onGenerateFirstPass}
         value={projectedRichtextValue}
         subtitle={params.readOnlyLabel}
@@ -317,6 +335,7 @@ function SlidesDeliverableCanvas({
   commentAction,
   workflowStatus,
   isAssistantBusy,
+  isFirstPassQueued,
   onGenerateFirstPass,
   subtitle,
   value,
@@ -326,6 +345,7 @@ function SlidesDeliverableCanvas({
   commentAction?: React.ReactNode;
   workflowStatus: WorkspaceWorkflowStatusData | null;
   isAssistantBusy: boolean;
+  isFirstPassQueued: boolean;
   onGenerateFirstPass: () => void;
   subtitle: string;
   value: Value;
@@ -335,12 +355,21 @@ function SlidesDeliverableCanvas({
   const slides = React.useMemo(() => extractSlidePageCards(value, title), [title, value]);
   const hasSlides = slides.length > 0;
   const statusTitle = hasSlides
-    ? workflowStatus?.statusTitle || t('workspace.slidesPreviewTitle')
-    : workflowStatus?.statusTitle || t('workspace.slidesEmptyTitle');
+    ? isFirstPassQueued
+      ? t('workflow.implementingTitle')
+      : workflowStatus?.statusTitle || t('workspace.slidesPreviewTitle')
+    : isFirstPassQueued
+      ? t('workflow.implementingTitle')
+      : workflowStatus?.statusTitle || t('workspace.slidesEmptyTitle');
   const statusDescription = hasSlides
-    ? workflowStatus?.statusDescription || t('workspace.slidesPreviewDescription')
-    : workflowStatus?.statusDescription || t('workspace.slidesEmptyDescription');
-  const showGenerateFirstPassAction = workflowStatus?.primaryAction === 'generate_first_pass';
+    ? isFirstPassQueued
+      ? t('workspace.aiPreparingFirstPass')
+      : workflowStatus?.statusDescription || t('workspace.slidesPreviewDescription')
+    : isFirstPassQueued
+      ? t('workspace.aiPreparingFirstPass')
+      : workflowStatus?.statusDescription || t('workspace.slidesEmptyDescription');
+  const showGenerateFirstPassAction =
+    !isFirstPassQueued && workflowStatus?.primaryAction === 'generate_first_pass';
 
   return (
     <div
@@ -408,8 +437,14 @@ function SlidesDeliverableCanvas({
         <DeliverableActivityState
           action={combineActions(
             showGenerateFirstPassAction ? (
-              <Button size="sm" onClick={onGenerateFirstPass} disabled={isAssistantBusy}>
-                {isAssistantBusy ? t('plan.aiDrafting') : t('plan.firstPassAction')}
+              <Button
+                size="sm"
+                onClick={onGenerateFirstPass}
+                disabled={isAssistantBusy || isFirstPassQueued}
+              >
+                {isAssistantBusy || isFirstPassQueued
+                  ? t('plan.aiDrafting')
+                  : t('plan.firstPassAction')}
               </Button>
             ) : undefined,
             commentAction
@@ -431,6 +466,7 @@ function WebDeliverableCanvas({
   documentContent,
   fileId,
   isAssistantBusy,
+  isFirstPassQueued,
   isStartingPreview,
   isStoppingPreview,
   onGenerateFirstPass,
@@ -463,6 +499,7 @@ function WebDeliverableCanvas({
   documentContent: string;
   fileId?: string | null;
   isAssistantBusy: boolean;
+  isFirstPassQueued: boolean;
   isStartingPreview: boolean;
   isStoppingPreview: boolean;
   onGenerateFirstPass: () => void;
@@ -502,11 +539,15 @@ function WebDeliverableCanvas({
   const isErrorState = !!chatError;
   const statusTitle = isErrorState
     ? chatError!.error.message
-    : workflowStatus?.statusTitle ||
+    : isFirstPassQueued
+      ? t('workflow.implementingTitle')
+      : workflowStatus?.statusTitle ||
       (previewCapability.canPreview ? previewEmptyTitle : previewNotReadyTitle);
   const statusDescription = isErrorState
     ? chatError!.error.detail
-    : workflowStatus?.blockedReason ||
+    : isFirstPassQueued
+      ? t('workspace.aiPreparingFirstPass')
+      : workflowStatus?.blockedReason ||
       workflowStatus?.statusDescription ||
       (previewCapability.canPreview
         ? previewEmptyDescription
@@ -519,6 +560,7 @@ function WebDeliverableCanvas({
   const showGenerateFirstPassAction =
     !isErrorState &&
     !previewUrl &&
+    !isFirstPassQueued &&
     workflowStatus?.primaryAction === 'generate_first_pass';
   const showRestoreAction =
     !isErrorState &&
@@ -634,8 +676,14 @@ function WebDeliverableCanvas({
                   {isStartingPreview ? startingLabel : startPreviewLabel}
                 </Button>
               ) : showGenerateFirstPassAction ? (
-                <Button size="sm" onClick={onGenerateFirstPass} disabled={isAssistantBusy}>
-                  {isAssistantBusy ? t('plan.aiDrafting') : t('plan.firstPassAction')}
+                <Button
+                  size="sm"
+                  onClick={onGenerateFirstPass}
+                  disabled={isAssistantBusy || isFirstPassQueued}
+                >
+                  {isAssistantBusy || isFirstPassQueued
+                    ? t('plan.aiDrafting')
+                    : t('plan.firstPassAction')}
                 </Button>
               ) : showRestoreAction ? (
                 <Button

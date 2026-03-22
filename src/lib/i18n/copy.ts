@@ -295,6 +295,14 @@ const COPY = {
       'Could not determine the best result shape right now. Try once more.',
     'goal.intentSelect': 'Select',
     'goal.goal': 'Goal',
+    'goal.goalClarifyPrompt':
+      'Add a bit more direction before I start so I do not fall back to a generic template.',
+    'goal.goalClarifyDeliverableHint':
+      'What are you trying to produce: a page, a brief, a report, or something else?',
+    'goal.goalClarifyAudienceHint':
+      'Who is it for: a customer, your team, leadership, or another audience?',
+    'goal.goalClarifyOutcomeHint':
+      'What should it achieve: explain, convert, align, summarize, or support a decision?',
     'goal.goalPlaceholder':
       'Describe the deliverable you want, who it is for, and the outcome you want.',
     'guide.chatDescription':
@@ -349,6 +357,8 @@ const COPY = {
     'context.scopeProject': 'Project',
     'context.scopeUser': 'User',
     'context.cancelKnowledgeEdit': 'Cancel',
+    'context.deleteKnowledgeAction': 'Delete',
+    'context.editKnowledgeAction': 'Edit',
     'context.updateKnowledge': 'Update Knowledge',
     'context.noKnowledgeDescription':
       'Capture durable facts or references you want AI to reuse for this deliverable.',
@@ -400,6 +410,7 @@ const COPY = {
       'No recent applied or resolved review signals were found, so the checklist is mostly default.',
     'context.workflowSaveFailed': 'Could not save the workflow.',
     'context.workflowSaved': 'Workflow saved.',
+    'context.workflowSaving': 'Saving workflow…',
     'context.workflowActivationNeedsReview':
       'This workflow draft still has review warnings. Activate it anyway?',
     'context.workflowRestored': 'Workflow restored.',
@@ -725,7 +736,9 @@ const COPY = {
     'version.defaultTitle': 'Deliverable Version',
     'version.tree': 'Version Tree',
     'version.treeDescription':
-      'Milestones are the saved versions worth comparing. Recovery points are quick fallback states from recent AI passes, with 3 pin slots plus 1 latest temporary slot.',
+      'Milestones are the visible saved versions worth comparing. Recovery points are automatic safety fallbacks from recent AI passes, with 3 pin slots plus 1 latest temporary slot.',
+    'version.milestoneVsRecoveryHint':
+      'Save Milestone creates the visible version. Recovery points are created automatically while AI works, and Pin only keeps one beyond the latest temporary slot.',
     'version.lockVersion': 'Lock Version',
     'version.milestone': 'Milestone',
     'version.noPinnedRecoveryPoints': 'No pinned recovery points yet.',
@@ -740,16 +753,20 @@ const COPY = {
     'version.globalPinnedRecoveryPoints': 'Global Pinned Recovery Points',
     'version.pendingStagedChanges': 'Advanced: staged changes',
     'version.recoveryPoint': 'Recovery Point',
+    'version.recoveryPointsStat': 'Recovery Points',
+    'version.savedMilestonesStat': 'Saved Milestones',
     'version.showAllBranches': 'Show All Branches',
     'version.restore': 'Restore',
     'version.restoring': 'Restoring…',
     'version.restoreDescription':
       'Restoring creates a safety recovery point first, then replaces the live draft with the selected version.',
     'version.restoredAt': 'Saved {time}',
+    'version.latestTemporaryStat': 'Latest Temporary',
     'version.temporaryBadge': 'Temporary',
     'version.temporaryRecoveryPoint': 'Temporary Recovery Point',
     'version.globalTemporaryRecoveryPoint': 'Global Temporary Recovery Point',
     'version.unpin': 'Unpin',
+    'version.pinnedRecoveryStat': 'Pinned Recovery',
     'version.unlockForEditing': 'Unlock for editing',
     'version.viewBranch': 'View Branch',
     'version.viewingBranch': 'Viewing Branch',
@@ -763,7 +780,7 @@ const COPY = {
       'AI is writing directly into the live draft now. Each pass creates one temporary recovery point, and you can pin up to 3 of them.',
     'workflow.implementingTitle': 'AI is rendering the next pass',
     'workflow.planDescription':
-      'Confirm the goal and result shape first. Once you manually start the first pass, AI will begin drafting into the live result.',
+      'Confirm the goal and result shape first. New workspaces can auto-start the first pass, and this action remains as the fallback when the draft has not started yet.',
     'workflow.planTitle': 'Ready to generate the first pass',
     'workflow.previewReadyDescription':
       'The live draft is ready to inspect. Open preview to review the rendered result instead of reading source first.',
@@ -1112,6 +1129,11 @@ const COPY = {
     'goal.intentResolveFailed': '暂时无法判断最合适的结果形态，请再试一次。',
     'goal.intentSelect': '选择',
     'goal.goal': '目标',
+    'goal.goalClarifyPrompt': '先补一点方向信息，我再开始，避免直接落成通用模板。',
+    'goal.goalClarifyDeliverableHint': '你到底想产出什么：网页、方案、报告，还是别的东西？',
+    'goal.goalClarifyAudienceHint': '它主要给谁看：客户、团队、管理层，还是其他受众？',
+    'goal.goalClarifyOutcomeHint':
+      '它希望达成什么结果：介绍清楚、提高转化、统一认知、总结信息，还是支持决策？',
     'goal.goalPlaceholder': '描述你想要的交付物、它面向谁，以及你期待的结果。',
     'guide.chatDescription':
       '更大的推进、对话切换和深度研究都放到 Chat；局部措辞修改继续留在 Review。',
@@ -1162,6 +1184,8 @@ const COPY = {
     'context.scopeProject': '项目',
     'context.scopeUser': '用户',
     'context.cancelKnowledgeEdit': '取消',
+    'context.deleteKnowledgeAction': '删除',
+    'context.editKnowledgeAction': '编辑',
     'context.updateKnowledge': '更新知识',
     'context.noKnowledgeDescription': '把希望 AI 在当前交付物里反复复用的稳定事实或参考写在这里。',
     'context.noKnowledgeTitle': '暂无知识',
@@ -1206,6 +1230,7 @@ const COPY = {
       '最近没有足够的已应用或已解决评审信号，当前检查项主要还是默认兜底内容。',
     'context.workflowSaveFailed': '保存 Workflow 失败。',
     'context.workflowSaved': '已保存 Workflow。',
+    'context.workflowSaving': '正在保存 Workflow……',
     'context.workflowActivationNeedsReview': '这个 Workflow 草稿还有提醒，仍然要激活吗？',
     'context.workflowRestored': '已恢复 Workflow。',
     'context.workflowRestoredToDraft': '已把 Workflow 恢复为草稿。',
@@ -1493,7 +1518,9 @@ const COPY = {
     'version.defaultTitle': '交付物版本',
     'version.tree': '版本树',
     'version.treeDescription':
-      '里程碑是值得对比和恢复的正式版本。回退点是最近几轮 AI 输出留下的快速回撤位，其中有 3 个 Pin 位，加 1 个最近临时位。',
+      '里程碑是值得对比和恢复的正式可见版本。回退点是 AI 最近几轮输出自动留下的安全回撤位，其中有 3 个 Pin 位，加 1 个最近临时位。',
+    'version.milestoneVsRecoveryHint':
+      '“保存里程碑”会创建可见正式版本。回退点是在 AI 工作时自动生成的安全快照，Pin 只是把它保留得更久。',
     'version.lockVersion': '锁定版本',
     'version.milestone': '里程碑',
     'version.noPinnedRecoveryPoints': '还没有 pin 的回退点。',
@@ -1508,16 +1535,20 @@ const COPY = {
     'version.globalPinnedRecoveryPoints': '全局已 Pin 回退点',
     'version.pendingStagedChanges': '高级：staged changes',
     'version.recoveryPoint': '回退点',
+    'version.recoveryPointsStat': '回退点',
+    'version.savedMilestonesStat': '正式里程碑',
     'version.showAllBranches': '返回全部分支',
     'version.restore': '恢复',
     'version.restoring': '恢复中……',
     'version.restoreDescription':
       '恢复前会先自动创建一个安全回退点，然后用选中的快照替换当前 live draft。',
     'version.restoredAt': '保存于 {time}',
+    'version.latestTemporaryStat': '最近临时位',
     'version.temporaryBadge': '临时',
     'version.temporaryRecoveryPoint': '临时回退点',
     'version.globalTemporaryRecoveryPoint': '全局临时回退点',
     'version.unpin': '取消 Pin',
+    'version.pinnedRecoveryStat': '已 Pin 回退',
     'version.unlockForEditing': '解锁以编辑',
     'version.viewBranch': '查看这条分支',
     'version.viewingBranch': '正在查看分支',
@@ -1531,7 +1562,7 @@ const COPY = {
       'AI 正在直接写入 live draft。每次输出都会生成 1 个临时回退点，你最多可以再 Pin 住 3 个。',
     'workflow.implementingTitle': 'AI 正在渲染下一版',
     'workflow.planDescription':
-      '先确认目标和结果形态。只有在你手动启动第一稿之后，AI 才会进入 live draft 的起草状态。',
+      '先确认目标和结果形态。新建工作区时系统会自动尝试启动第一稿；如果还没起草成功，这里仍然保留手动兜底动作。',
     'workflow.planTitle': '准备生成第一稿',
     'workflow.previewReadyDescription':
       'live draft 已经可以检查。先打开预览看渲染结果，而不是先读源码。',

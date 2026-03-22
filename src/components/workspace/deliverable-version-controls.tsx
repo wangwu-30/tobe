@@ -595,15 +595,18 @@ export function DeliverableVersionControls({
           <GitBranch className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">{t('version.tree')}</span>
           <HeaderDivider />
-          <HeaderStat label={t('version.milestone')} value={String(visibleVersions.length)} />
+          <HeaderStat
+            label={t('version.savedMilestonesStat')}
+            value={String(visibleVersions.length)}
+          />
           <HeaderDivider />
           <HeaderStat
-            label={t('version.pinnedBadge')}
+            label={t('version.pinnedRecoveryStat')}
             value={`${pinnedRecoveryPoints.length}/3`}
           />
           <HeaderDivider />
           <HeaderStat
-            label={t('version.temporaryBadge')}
+            label={t('version.latestTemporaryStat')}
             value={String(temporaryRecoveryPoints.length)}
             emphasized={temporaryRecoveryPoints.length > 0}
           />
@@ -731,15 +734,18 @@ export function DeliverableVersionControls({
                 className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
                 data-testid="version-tree-header-stats"
               >
-                <HeaderStat label={t('version.milestone')} value={String(visibleVersions.length)} />
+                <HeaderStat
+                  label={t('version.savedMilestonesStat')}
+                  value={String(visibleVersions.length)}
+                />
                 <HeaderDivider />
                 <HeaderStat
-                  label={t('version.pinnedBadge')}
+                  label={t('version.pinnedRecoveryStat')}
                   value={`${pinnedRecoveryPoints.length}/3`}
                 />
                 <HeaderDivider />
                 <HeaderStat
-                  label={t('version.temporaryBadge')}
+                  label={t('version.latestTemporaryStat')}
                   value={String(temporaryRecoveryPoints.length)}
                   emphasized={temporaryRecoveryPoints.length > 0}
                 />
@@ -749,6 +755,9 @@ export function DeliverableVersionControls({
             <SheetDescription className="text-xs leading-5">
               {t('version.treeDescription')}
             </SheetDescription>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t('version.milestoneVsRecoveryHint')}
+            </p>
             <p className="text-xs leading-5 text-muted-foreground">
               {t('version.restoreDescription')}
             </p>
@@ -870,24 +879,24 @@ export function DeliverableVersionControls({
                           data-testid="version-branch-workspace-stats"
                         >
                           <HeaderStat
-                            label={t('version.milestone')}
+                            label={t('version.savedMilestonesStat')}
                             value={String(focusedBranch.path.length)}
                           />
                           <HeaderDivider />
                           <HeaderStat
-                            label={t('version.recoveryPoint')}
+                            label={t('version.recoveryPointsStat')}
                             value={String(focusedBranchWorkspace.recoveryCount)}
                             emphasized={focusedBranchWorkspace.recoveryCount > 0}
                           />
                           <HeaderDivider />
                           <HeaderStat
-                            label={t('version.pinnedBadge')}
+                            label={t('version.pinnedRecoveryStat')}
                             value={String(focusedBranchWorkspace.pinnedRecoveryCount)}
                             emphasized={focusedBranchWorkspace.pinnedRecoveryCount > 0}
                           />
                           <HeaderDivider />
                           <HeaderStat
-                            label={t('version.temporaryBadge')}
+                            label={t('version.latestTemporaryStat')}
                             value={String(focusedBranchWorkspace.temporaryRecoveryCount)}
                             emphasized={focusedBranchWorkspace.temporaryRecoveryCount > 0}
                           />

@@ -55,19 +55,10 @@ test('home starter exposes built-in workflows and can start from the research wo
       .getByText('成形类产品市场分析报告', { exact: true })
   ).toBeVisible();
   await expect(
-    page
-      .getByRole('tabpanel', { name: /状态|Status/ })
-      .getByText(/^准备生成第一稿$|^Ready to generate the first pass$/)
-      .first()
+    page.getByText(/AI 正在启动第一版 live draft|AI is starting the first live draft/)
   ).toBeVisible();
-  const firstPassButton = page.getByRole('button', {
-    name: /生成第一稿|Generate First Pass/,
-  });
-  await expect(firstPassButton.first()).toBeVisible();
   await expect(
-    page
-      .getByRole('tabpanel', { name: /状态|Status/ })
-      .getByRole('button', { name: /生成第一稿|Generate First Pass/ })
+    page.getByRole('button', { name: /生成第一稿|Generate First Pass/ })
   ).toHaveCount(0);
 });
 
@@ -96,6 +87,32 @@ test('home create flow surfaces clarify cards for ambiguous goals', async ({ pag
       .getByRole('button', { name: /选择|Select/ })
       .click(),
   ]);
+});
+
+test('home create flow asks for goal detail before accepting an extremely vague request', async ({
+  page,
+}) => {
+  await primeClientState(page);
+  await page.goto('/');
+
+  await page.getByRole('main').getByRole('button', { name: /从目标开始|Start with a Goal/ }).click();
+
+  const goalDialog = page.getByRole('dialog');
+  await expect(goalDialog).toBeVisible();
+
+  await goalDialog.getByLabel(/目标|Goal/).fill('帮我弄个东西');
+  await goalDialog.getByRole('button', { name: /创建项目|Create Project/ }).click();
+
+  await expect(goalDialog.getByTestId('goal-goal-clarify')).toBeVisible();
+  await expect(goalDialog.getByTestId('goal-goal-clarify')).toContainText(
+    /产出什么|page, a brief, a report/
+  );
+  await expect(goalDialog.getByTestId('goal-goal-clarify')).toContainText(
+    /给谁看|Who is it for/
+  );
+  await expect(goalDialog.getByTestId('goal-goal-clarify')).toContainText(
+    /达成什么结果|What should it achieve/
+  );
 });
 
 test('home project list summarizes deliverables and opens the latest deliverable', async ({

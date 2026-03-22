@@ -15,6 +15,7 @@ import {
   useAppRouter,
   useAppSearchParams,
 } from '@/lib/app-router';
+import { WORKSPACE_AUTO_START_FIRST_PASS_PARAM } from '@/lib/workspace/create-request';
 import { isPlateBackedWorkspaceFile } from '@/lib/workspace/file-presentation';
 import {
   detectWorkspacePreviewCapability,
@@ -66,6 +67,10 @@ export default function WorkspacePage() {
   const requestedConversationId = searchParams.get('conversationId');
   const requestedFileId = searchParams.get('fileId');
   const requestedVersionId = searchParams.get('versionId');
+  const searchParamsKey = searchParams.toString();
+  const shouldAutoStartFirstPass =
+    searchParams.get(WORKSPACE_AUTO_START_FIRST_PASS_PARAM) === '1';
+  const workspacePath = React.useMemo(() => `/workspace/${workspaceId}`, [workspaceId]);
 
   const [workspaceView, setWorkspaceView] = React.useState<WorkspaceViewData | null>(null);
   const [initialMessages, setInitialMessages] = React.useState<ChatMessageData[]>([]);
@@ -86,6 +91,7 @@ export default function WorkspacePage() {
     retryFn?: () => void;
   } | null>(null);
   const promptedRecoveryPointRef = React.useRef<string | null>(null);
+  const autoStartedFirstPassRef = React.useRef<string | null>(null);
 
   const currentWorkspace = workspaceView?.workspace || null;
   const currentProject = workspaceView?.currentProject || null;
@@ -203,6 +209,7 @@ export default function WorkspacePage() {
         );
 
         return {
+          deliverableType: item.deliverableType,
           projectPathLabel:
             currentProjectTitle || folderSegments.length > 0
               ? [currentProjectTitle, ...folderSegments].filter(Boolean).join(' / ')
@@ -348,6 +355,7 @@ export default function WorkspacePage() {
   const workspaceTitleNode = (
     <WorkspaceRouteTitle
       currentTitle={currentWorkspace?.title || null}
+      currentDeliverableType={deliverableType}
       enabled={canSwitchProjectDeliverable}
       onSelectDeliverable={(deliverableId) => router.push(`/workspace/${deliverableId}`)}
       options={projectDeliverableSwitchOptions}
@@ -411,6 +419,46 @@ export default function WorkspacePage() {
     workspaceNotice,
     workspaceId,
   });
+
+  React.useEffect(() => {
+    if (
+      !shouldAutoStartFirstPass ||
+      currentVersion ||
+      isAssistantBusy ||
+      queuedPrompt ||
+      workflowStatus?.primaryAction !== 'generate_first_pass'
+    ) {
+      return;
+    }
+
+    const autoStartKey = `${workspaceId}:${currentConversationId || 'default'}`;
+    if (autoStartedFirstPassRef.current === autoStartKey) {
+      return;
+    }
+
+    autoStartedFirstPassRef.current = autoStartKey;
+    handleGenerateFirstPass();
+
+    const nextSearchParams = new URLSearchParams(searchParamsKey);
+    nextSearchParams.delete(WORKSPACE_AUTO_START_FIRST_PASS_PARAM);
+    router.replace(
+      nextSearchParams.size > 0
+        ? `${workspacePath}?${nextSearchParams.toString()}`
+        : workspacePath
+    );
+  }, [
+    currentConversationId,
+    currentVersion,
+    handleGenerateFirstPass,
+    isAssistantBusy,
+    queuedPrompt,
+    router,
+    searchParamsKey,
+    shouldAutoStartFirstPass,
+    workflowStatus?.primaryAction,
+    workspaceId,
+    workspacePath,
+  ]);
 
   const { saveCurrentFileContent } = useWorkspaceFileSaveController({
     currentFileId,
@@ -579,6 +627,7 @@ export default function WorkspacePage() {
       fileContent={fileContent}
       headerActions={headerVersionControls}
       isAssistantBusy={isAssistantBusy}
+      isFirstPassQueued={Boolean(queuedPrompt)}
       isReadOnly={isVersionView}
       isSavingTextFile={isSavingTextFile}
       isStartingPreview={isStartingPreview}

@@ -122,6 +122,9 @@ test('custom workflow extension hints persist across context and status surfaces
   await contextPanel.getByLabel(/^MCP$/).fill(mcpHint);
   await contextPanel.getByLabel(/^Skills$/).fill(skillsHint);
   await contextPanel.getByRole('button', { name: /保存 Workflow|Save Workflow/ }).click();
+  await expect(contextPanel.getByTestId('context-workflow-notice')).toContainText(
+    /已保存 Workflow|Workflow saved/
+  );
 
   const draftCard = contextPanel
     .locator('div.rounded-lg.border.p-3.text-xs')
@@ -362,6 +365,7 @@ test('workspace header can switch to another deliverable in the same project', a
   }
 
   const secondWorkspace = await createWorkspace(baseURL, secondTitle, {
+    deliverableType: 'web',
     goal: '同一项目里还有另一份交付物，需要直接切换过去继续工作。',
     projectId,
     projectTitle,
@@ -373,8 +377,12 @@ test('workspace header can switch to another deliverable in the same project', a
   const switcher = page.getByTestId('workspace-switch-deliverable');
   await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(projectTitle);
+  await expect(switcher).toContainText(/文档|Document/);
 
   await switcher.click();
+  await expect(
+    page.getByTestId(`workspace-switch-deliverable-${secondWorkspace.id}`)
+  ).toContainText(/网页|Web Page/);
   await page
     .getByTestId(`workspace-switch-deliverable-${secondWorkspace.id}`)
     .click();
@@ -387,6 +395,7 @@ test('workspace header can switch to another deliverable in the same project', a
     .toBe(secondWorkspace.id);
   await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(secondTitle);
+  await expect(switcher).toContainText(/网页|Web Page/);
 });
 
 async function createWorkflow(baseURL: string, workspaceId: string, title: string) {
@@ -419,6 +428,7 @@ async function createProjectFolder(baseURL: string, projectId: string, title: st
 }
 
 type CreateWorkspaceOptions = {
+  deliverableType?: 'document' | 'web';
   goal?: string;
   projectFolderId?: string | null;
   projectId?: string | null;
@@ -435,7 +445,7 @@ async function createWorkspace(
     workspace: { id: string };
   }>(baseURL, '/api/workspaces', {
     body: {
-      deliverableType: 'document',
+      deliverableType: options?.deliverableType || 'document',
       goal:
         options?.goal ||
         `${title} 的当前交付物已经完成，需要继续下一个交付物。`,

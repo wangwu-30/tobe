@@ -52,6 +52,10 @@ import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { cn } from '@/lib/utils';
 import { getWorkspaceFileDisplayName } from '@/lib/workspace/file-presentation';
 import {
+  DeliverableTypeBadge,
+  DeliverableTypeIcon,
+} from '@/components/workspace/deliverable-type-badge';
+import {
   formatProjectDeliverableCount,
   formatProjectListMeta,
   listProjectFolderPath,
@@ -2133,6 +2137,7 @@ function ProjectTreeNodeRow({
             type="button"
             className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
             data-testid={`sidebar-project-tree-open-${node.id}`}
+            title={node.title}
             onClick={() => {
               if (hasChildren && isActiveDeliverable) {
                 setOpen((value) => !value);
@@ -2142,9 +2147,16 @@ function ProjectTreeNodeRow({
               onOpenDeliverable?.(node.id);
             }}
           >
-            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <DeliverableTypeIcon
+              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+              deliverableType={node.deliverableType}
+            />
             <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
               <span className="block min-w-0 flex-1 truncate text-sm">{node.title}</span>
+              <DeliverableTypeBadge
+                className="shrink-0"
+                deliverableType={node.deliverableType}
+              />
               {isActiveDeliverable ? (
                 <Badge
                   variant="secondary"

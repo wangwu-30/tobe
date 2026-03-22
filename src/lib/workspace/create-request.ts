@@ -11,6 +11,7 @@ import { apiCallOrThrow, safeJsonParse } from '@/framework/resilience';
 
 
 export const WORKSPACE_CREATE_IDEMPOTENCY_HEADER = 'x-dao-idempotency-key';
+export const WORKSPACE_AUTO_START_FIRST_PASS_PARAM = 'autoStartFirstPass';
 
 const WORKSPACE_CREATE_RECOVERY_STORAGE_KEY = 'dao-workspace-create-recovery';
 
@@ -163,6 +164,22 @@ export function buildWorkspaceCreateRecovery(params: {
     requestId: params.requestId,
     values: params.values,
   } satisfies WorkspaceCreateRecovery;
+}
+
+export function buildCreatedWorkspaceLocation(params: {
+  autoStartFirstPass?: boolean;
+  conversationId: string;
+  workspaceId: string;
+}) {
+  const searchParams = new URLSearchParams({
+    conversationId: params.conversationId,
+  });
+
+  if (params.autoStartFirstPass) {
+    searchParams.set(WORKSPACE_AUTO_START_FIRST_PASS_PARAM, '1');
+  }
+
+  return `/workspace/${params.workspaceId}?${searchParams.toString()}`;
 }
 
 export async function submitWorkspaceCreateRequest(params: {

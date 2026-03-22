@@ -598,6 +598,15 @@ test('branch overview groups visible heads and can switch the live draft to anot
   expect(continuedConversationId).not.toBeNull();
 
   const branchVersionTree = await openVersionTree(page);
+  await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
+    /正式里程碑|Saved Milestones/
+  );
+  await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
+    /最近临时位|Latest Temporary/
+  );
+  await expect(branchVersionTree).toContainText(
+    /保存里程碑.*可见正式版本|Save Milestone creates the visible version/
+  );
   await expect(
     branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
   ).toBeVisible();

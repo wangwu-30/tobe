@@ -8,6 +8,7 @@ import {
   mapCreateIntentToDeliverableType,
   mapDeliverableTypeToCreateIntent,
   normalizeWorkspaceCreateIntentChoice,
+  shouldClarifyWorkspaceCreateGoal,
   type WorkspaceCreateIntent,
   type WorkspaceCreateIntentChoice,
 } from '@/lib/workspace/create-intent';
@@ -144,6 +145,7 @@ export function GoalComposerDialog({
   const [intentClarifyPrompt, setIntentClarifyPrompt] = React.useState<string | null>(
     null
   );
+  const [goalClarifyPrompt, setGoalClarifyPrompt] = React.useState<string | null>(null);
   const [intentOptions, setIntentOptions] = React.useState<GoalComposerIntentOption[]>([]);
   const [intentNotes, setIntentNotes] = React.useState(EMPTY_INTENT_NOTES);
   const [intentError, setIntentError] = React.useState<string | null>(null);
@@ -178,6 +180,7 @@ export function GoalComposerDialog({
     }
 
     setValues(resolvedInitialValues);
+    setGoalClarifyPrompt(null);
     setLocationError(null);
     setIntentClarifyPrompt(null);
     setIntentOptions([]);
@@ -253,6 +256,15 @@ export function GoalComposerDialog({
 
   const resolveIntent = React.useCallback(
     async (selection?: WorkspaceCreateIntentChoice) => {
+      if (shouldClarifyWorkspaceCreateGoal(values.goal)) {
+        setGoalClarifyPrompt(t('goal.goalClarifyPrompt'));
+        setIntentClarifyPrompt(null);
+        setIntentOptions([]);
+        setIntentError(null);
+        return;
+      }
+
+      setGoalClarifyPrompt(null);
       const selectedIntent = selection || values.selectedIntent;
       const selectedIntentNote = selectedIntent ? intentNotes[selectedIntent] || '' : '';
 
@@ -386,12 +398,28 @@ export function GoalComposerDialog({
               id="goal"
               value={values.goal}
               disabled={disableInputs || isSubmitting || isResolvingIntent}
-              onChange={(event) =>
-                setValues((current) => ({ ...current, goal: event.target.value }))
-              }
+              onChange={(event) => {
+                setGoalClarifyPrompt(null);
+                setValues((current) => ({ ...current, goal: event.target.value }));
+              }}
               placeholder={t('goal.goalPlaceholder')}
               className="min-h-[120px]"
             />
+            {goalClarifyPrompt ? (
+              <div
+                data-testid="goal-goal-clarify"
+                className="rounded-[24px] border border-amber-500/25 bg-amber-500/5 px-4 py-3"
+              >
+                <div className="text-sm font-medium text-foreground">
+                  {goalClarifyPrompt}
+                </div>
+                <div className="mt-2 space-y-1 text-xs leading-5 text-muted-foreground">
+                  <p>- {t('goal.goalClarifyDeliverableHint')}</p>
+                  <p>- {t('goal.goalClarifyAudienceHint')}</p>
+                  <p>- {t('goal.goalClarifyOutcomeHint')}</p>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">

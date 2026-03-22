@@ -36,6 +36,8 @@ export async function streamPiAgentChat({
   onFinish,
 }: StreamPiAgentChatParams) {
   const encoder = new TextEncoder();
+  let isStreamSettled = false;
+  let cleanupStreamResources: (() => void) | null = null;
 
   const agent = new Agent({
     initialState: {
@@ -56,15 +58,54 @@ export async function streamPiAgentChat({
   const stream = new ReadableStream({
     async start(controller) {
       let streamedText = '';
-      let isClosed = false;
-      const heartbeatId = setInterval(() => {
-        if (isClosed) {
+      let heartbeatId: ReturnType<typeof setInterval> | null = null;
+      let unsubscribe = () => {};
+      const cleanup = () => {
+        if (heartbeatId) {
+          clearInterval(heartbeatId);
+          heartbeatId = null;
+        }
+        unsubscribe();
+        unsubscribe = () => {};
+      };
+      const settleStream = (mode: 'close' | 'error', error?: unknown) => {
+        if (isStreamSettled) {
           return;
         }
 
-        controller.enqueue(encoder.encode(AI_STREAM_HEARTBEAT_TOKEN));
+        isStreamSettled = true;
+        cleanup();
+        cleanupStreamResources = null;
+        try {
+          if (mode === 'close') {
+            controller.close();
+            return;
+          }
+          controller.error(error);
+        } catch {
+          // Ignore controller state races triggered by abort/cancel during teardown.
+        }
+      };
+      const enqueueChunk = (chunk: Uint8Array) => {
+        if (isStreamSettled) {
+          return false;
+        }
+
+        try {
+          controller.enqueue(chunk);
+          return true;
+        } catch {
+          settleStream('close');
+          return false;
+        }
+      };
+
+      cleanupStreamResources = cleanup;
+
+      heartbeatId = setInterval(() => {
+        enqueueChunk(encoder.encode(AI_STREAM_HEARTBEAT_TOKEN));
       }, STREAM_HEARTBEAT_INTERVAL_MS);
-      const unsubscribe = agent.subscribe((event) => {
+      unsubscribe = agent.subscribe((event) => {
         if (
           event.type === 'message_update' &&
           event.assistantMessageEvent.type === 'text_delta'
@@ -73,7 +114,7 @@ export async function streamPiAgentChat({
             void onFirstText?.();
           }
           streamedText += event.assistantMessageEvent.delta;
-          controller.enqueue(encoder.encode(event.assistantMessageEvent.delta));
+          enqueueChunk(encoder.encode(event.assistantMessageEvent.delta));
         }
       });
 
@@ -81,21 +122,19 @@ export async function streamPiAgentChat({
         await agent.continue();
         const finalText = getLastAssistantMessageText(agent.state.messages) || streamedText;
         await onFinish?.({ text: finalText });
-        isClosed = true;
-        clearInterval(heartbeatId);
-        controller.close();
+        settleStream('close');
       } catch (error) {
         await onError?.(error);
-        isClosed = true;
-        clearInterval(heartbeatId);
-        controller.error(error);
+        settleStream('error', error);
       } finally {
-        isClosed = true;
-        clearInterval(heartbeatId);
-        unsubscribe();
+        cleanup();
+        cleanupStreamResources = null;
       }
     },
     cancel() {
+      isStreamSettled = true;
+      cleanupStreamResources?.();
+      cleanupStreamResources = null;
       agent.abort();
     },
   });
