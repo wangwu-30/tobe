@@ -9,8 +9,10 @@ import {
   getWorkspacePlanResultShape,
   updateWorkspacePlan,
 } from '@/lib/workspace/planning';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -82,4 +84,4 @@ export async function POST(
       { status: nextError.statusCode || 500 }
     );
   }
-}
+});

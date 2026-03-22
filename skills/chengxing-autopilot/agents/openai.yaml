@@ -1,4 +1,0 @@
-interface:
-  display_name: "成形 Autopilot"
-  short_description: "Drive 成形 plan execution across successive slices until active repo goals are actually done."
-  default_prompt: "Use $chengxing-autopilot to continue the 成形 repo plan, close one bounded slice end-to-end, then immediately detect and execute the next unresolved slice until the active repo goals are truly complete."

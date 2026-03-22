@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { LanguageProvider } from "@/components/providers/language-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { GlobalErrorHandlers } from "@/framework/resilience";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,7 +21,10 @@ export default function RootLayout({
         className="antialiased"
       >
         <LanguageProvider>
-          <TooltipProvider>{children}</TooltipProvider>
+          <TooltipProvider>
+            <GlobalErrorHandlers />
+            {children}
+          </TooltipProvider>
         </LanguageProvider>
       </body>
     </html>

@@ -5,8 +5,10 @@ import {
   createStagedChangeSet,
   listStagedChangeSets,
 } from '@/lib/workspace/planning';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -18,9 +20,9 @@ export async function GET(
   });
 
   return NextResponse.json(items);
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -39,4 +41,4 @@ export async function POST(
   });
 
   return NextResponse.json(changeSet);
-}
+});

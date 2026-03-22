@@ -1,4 +1,5 @@
 import { translate } from '@/lib/i18n/copy';
+import { safeJsonParse } from '@/framework/resilience';
 import type { AppLanguage } from '@/lib/i18n/language';
 import type {
   AssistantRunData,
@@ -248,12 +249,12 @@ function hasMeaningfulDeliverableContent(content: string) {
     return false;
   }
 
-  try {
-    const parsed = JSON.parse(normalized) as unknown;
-    return hasMeaningfulStructuredContent(parsed);
-  } catch {
+  const parsed = safeJsonParse<unknown>(normalized, null);
+  if (parsed === null) {
     return normalized.length > 0;
   }
+
+  return hasMeaningfulStructuredContent(parsed);
 }
 
 function hasMeaningfulStructuredContent(value: unknown): boolean {

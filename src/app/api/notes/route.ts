@@ -7,6 +7,8 @@ import {
   updateNote,
 } from '@/objects/note';
 import type { NoteScope } from '@/types';
+import { defineRoute } from '@/framework/resilience';
+
 
 function resolveNoteScope(value: string | null): NoteScope {
   if (value === 'user' || value === 'project') {
@@ -44,7 +46,7 @@ function resolveNoteScopeTarget(params: {
   };
 }
 
-export async function GET(req: NextRequest) {
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const scopeId = searchParams.get('scopeId');
@@ -69,9 +71,9 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(notes);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json();
   const scopeTarget = resolveNoteScopeTarget({
@@ -107,9 +109,9 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(note);
-}
+});
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = defineRoute(async function PATCH(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json();
   if (!body.id) {
@@ -154,9 +156,9 @@ export async function PATCH(req: NextRequest) {
   });
 
   return NextResponse.json(note);
-}
+});
 
-export async function DELETE(req: NextRequest) {
+export const DELETE = defineRoute(async function DELETE(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -170,4 +172,4 @@ export async function DELETE(req: NextRequest) {
   });
 
   return NextResponse.json({ ok: true });
-}
+});

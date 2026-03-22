@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
 import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { defineRoute } from '@/framework/resilience';
+
 
 export const runtime = 'nodejs';
 
@@ -10,7 +12,7 @@ type DebugToolCall = {
   params?: unknown;
 };
 
-export async function POST(req: NextRequest) {
+export const POST = defineRoute(async function POST(req: NextRequest) {
   if (process.env.DAO_E2E !== '1') {
     return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   }
@@ -75,4 +77,4 @@ export async function POST(req: NextRequest) {
     systemPrompt,
     toolResults,
   });
-}
+});

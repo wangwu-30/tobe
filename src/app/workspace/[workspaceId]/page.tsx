@@ -9,17 +9,12 @@ import {
   parsePlateContent,
 } from '@/canvas/document-canvas/document-canvas';
 import { plateToMarkdown } from '@/lib/ai/serializer';
-import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { useT } from '@/components/providers/language-provider';
 import {
   useAppParams,
   useAppRouter,
   useAppSearchParams,
 } from '@/lib/app-router';
-import {
-  buildPreviewBridgeUrl,
-  WEB_PREVIEW_BRIDGE_CHANNEL,
-} from '@/lib/workspace/preview-bridge';
 import { isPlateBackedWorkspaceFile } from '@/lib/workspace/file-presentation';
 import {
   detectWorkspacePreviewCapability,
@@ -254,6 +249,20 @@ export default function WorkspacePage() {
     () => resolveWebPreviewAnchorFile(currentDeliverableFiles, previewCapability)?.id || null,
     [currentDeliverableFiles, previewCapability]
   );
+  const previewAutoStartKey = React.useMemo(() => {
+    if (!previewCapability.canPreview || currentDeliverableFiles.length === 0) {
+      return null;
+    }
+
+    const fileSignature = currentDeliverableFiles
+      .filter((file) => file.nodeType === 'file')
+      .map((file) => `${file.id || file.path}:${file.revision}:${file.content.length}`)
+      .join('|');
+
+    return fileSignature
+      ? `${workspaceId}:${currentVersionId || 'draft'}:${previewCapability.entryPath}:${fileSignature}`
+      : null;
+  }, [currentDeliverableFiles, currentVersionId, previewCapability, workspaceId]);
   const activePreviewRun = React.useMemo(
     () =>
       workspaceRuns.find(
@@ -375,6 +384,7 @@ export default function WorkspacePage() {
     setInitialMessages,
     setReviewThreads,
     setShowImplementation,
+    setWorkspaceNotice,
     setWorkspaceRuns,
     setWorkspaceView,
     workspaceBriefStatus: workspaceBrief?.status,
@@ -431,6 +441,7 @@ export default function WorkspacePage() {
     loadThreads,
     loadWorkspace,
     loadWorkspaceView,
+    previewAutoStartKey,
     previewEnabled: previewCapability.canPreview,
     promptedRecoveryPointRef,
     setIsStartingPreview,
@@ -441,6 +452,7 @@ export default function WorkspacePage() {
     t,
     versionTitle:
       deliverable?.title || currentWorkspace?.title || t('version.defaultTitle'),
+    workflowStatusPrimaryAction: workflowStatus?.primaryAction,
     workspaceId,
     workspaceReady: Boolean(workspaceView),
   });
@@ -498,6 +510,8 @@ export default function WorkspacePage() {
       conversationTitle={currentConversation?.title || null}
       currentProjectId={currentProjectId}
       currentDraftBranchTitle={currentDraftBaseVersion?.title || null}
+      draftRevision={currentWorkspace?.draftRevision || null}
+      versionId={currentVersionId}
       workflowStatus={workflowStatus}
       documentContent={commentContextContent}
       files={workspaceView?.files || []}
@@ -523,7 +537,9 @@ export default function WorkspacePage() {
       }}
       plan={workspaceBrief}
       queuedPrompt={queuedPrompt}
-      refreshThreads={loadThreads}
+      refreshThreads={async () => {
+        await loadThreads();
+      }}
       reviewThreads={reviewThreads}
       wikiId={workspaceId}
       workspaceId={workspaceId}
@@ -572,7 +588,9 @@ export default function WorkspacePage() {
       onRestoreVersion={restoreVersion}
       onStartPreview={startPreview}
       onStopPreview={stopPreview}
-      onThreadsChanged={loadThreads}
+      onThreadsChanged={async () => {
+        await loadThreads();
+      }}
       previewAnchorFileId={previewAnchorFileId}
       previewCapability={previewCapability}
       reviewThreads={reviewThreads}

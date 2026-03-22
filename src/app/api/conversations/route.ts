@@ -5,8 +5,10 @@ import { listConversations } from '@/objects/conversation/queries';
 import {
   getConversationWorkspace,
 } from '@/lib/workspace/service';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(req: NextRequest) {
+
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const conversationId = searchParams.get('id');
@@ -31,9 +33,9 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({ items: conversations });
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json();
   const wikiId = body.wikiId || body.workspaceId;
@@ -52,4 +54,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(conversation);
-}
+});

@@ -98,6 +98,14 @@ src/agent/
 - `api/` 只 import `objects/` 与 `agent/` 的公开导出
 - `surfaces/` 与 `canvas/` 不要反向依赖 `api/`
 
+## 健壮性约定
+
+- 运行时安全能力统一落在 `src/framework/resilience/`，不要把相同职责分散回各 surface / route 的局部 helper。
+- 前端非流式 API 调用默认使用 `apiCall` 或 `apiCallOrThrow`；只有流式 assistant runtime、外部 provider 请求和 preview bridge 代理这类特例才保留裸 `fetch`。
+- 任意 JSON 解析默认使用 `safeJsonParse`；不要在 feature 代码里重新长出局部 `try/catch + JSON.parse`。
+- `src/app/api/**/route.ts` 的 HTTP 导出必须通过 `defineRoute(...)` 包裹，route 文件只保留参数解析和响应适配。
+- 页面级和大区块级 UI 默认按失败域包 `ZoneErrorBoundary`；Next route 层错误页通过 `app/error.tsx` 或子路由 `error.tsx` 承接。
+
 ## 文档同步规则
 
 - 对象模型变了：更新 [SYSTEM.md](./SYSTEM.md)

@@ -5,12 +5,17 @@ import type { Value } from 'platejs';
 import { LoaderCircle, Sparkles } from 'lucide-react';
 
 import { WebSelectionCommentTrigger } from '@/components/comments/web-selection-comment-trigger';
+import { resolveCommentCapability } from '@/derive/comment-capability';
+import { safeJsonParse } from '@/framework/resilience';
 import { DeliverableOutlineItem } from '@/components/workspace/deliverable-sidebar';
 import { EditorWrapper } from '@/components/editor/editor-wrapper';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { plateToMarkdown } from '@/lib/ai/serializer';
-import { COMMENT_THREAD_FOCUS_EVENT } from '@/lib/comments/constants';
+import {
+  COMMENT_THREAD_FOCUS_EVENT,
+  requestManualCommentComposerOpen,
+} from '@/lib/comments/constants';
 import { useT } from '@/components/providers/language-provider';
 import { cn } from '@/lib/utils';
 import {
@@ -139,11 +144,23 @@ export function buildDeliverablePanel(params: {
       {params.isAssistantBusy ? params.t('plan.aiDrafting') : params.t('plan.firstPassAction')}
     </Button>
   ) : undefined;
+  const commentCapability = resolveCommentCapability({
+    previewRunning: Boolean(params.previewRunId || params.previewUrl),
+    renderAs: params.renderAs,
+    workflowPhase: params.workflowStatus?.phase,
+  });
+  const manualCommentAction =
+    commentCapability === 'manual' ? (
+      <Button size="sm" variant="outline" onClick={requestManualCommentComposerOpen}>
+        {params.t('comments.manualOpenComposer')}
+      </Button>
+    ) : null;
 
   if (showIntentCanvas && params.renderAs === 'web') {
     return (
       <WebDeliverableCanvas
         actions={params.headerActions}
+        commentAction={manualCommentAction}
         workflowStatus={params.workflowStatus}
         draftRevision={params.draftRevision}
         documentContent={params.commentContextContent}
@@ -184,6 +201,7 @@ export function buildDeliverablePanel(params: {
     return (
       <SlidesDeliverableCanvas
         actions={params.headerActions}
+        commentAction={manualCommentAction}
         workflowStatus={params.workflowStatus}
         isAssistantBusy={params.isAssistantBusy}
         onGenerateFirstPass={params.onGenerateFirstPass}
@@ -199,7 +217,7 @@ export function buildDeliverablePanel(params: {
       return (
         <RenderingDeliverableCanvas
           actions={params.headerActions}
-          action={errorAction || firstPassAction}
+          action={combineActions(errorAction || firstPassAction, manualCommentAction)}
           statusDescription={statusDescription}
           statusTitle={statusTitle}
           subtitle={params.readOnlyLabel}
@@ -242,6 +260,7 @@ export function buildDeliverablePanel(params: {
   return (
     <SourceDeliverableCanvas
       actions={params.headerActions}
+      commentAction={manualCommentAction}
       content={params.fileContent}
       isReadOnly={params.isReadOnly}
       isSaving={params.isSavingTextFile}
@@ -295,6 +314,7 @@ function RenderingDeliverableCanvas({
 
 function SlidesDeliverableCanvas({
   actions,
+  commentAction,
   workflowStatus,
   isAssistantBusy,
   onGenerateFirstPass,
@@ -303,6 +323,7 @@ function SlidesDeliverableCanvas({
   title,
 }: {
   actions: React.ReactNode;
+  commentAction?: React.ReactNode;
   workflowStatus: WorkspaceWorkflowStatusData | null;
   isAssistantBusy: boolean;
   onGenerateFirstPass: () => void;
@@ -331,7 +352,10 @@ function SlidesDeliverableCanvas({
           <h2 className="truncate text-sm font-semibold">{title}</h2>
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {commentAction}
+          {actions}
+        </div>
       </div>
 
       {hasSlides ? (
@@ -382,13 +406,14 @@ function SlidesDeliverableCanvas({
         </div>
       ) : (
         <DeliverableActivityState
-          action={
+          action={combineActions(
             showGenerateFirstPassAction ? (
               <Button size="sm" onClick={onGenerateFirstPass} disabled={isAssistantBusy}>
                 {isAssistantBusy ? t('plan.aiDrafting') : t('plan.firstPassAction')}
               </Button>
-            ) : undefined
-          }
+            ) : undefined,
+            commentAction
+          )}
           description={statusDescription}
           title={statusTitle}
           variant={showGenerateFirstPassAction ? 'idle' : 'working'}
@@ -400,6 +425,7 @@ function SlidesDeliverableCanvas({
 
 function WebDeliverableCanvas({
   actions,
+  commentAction,
   workflowStatus,
   draftRevision,
   documentContent,
@@ -431,6 +457,7 @@ function WebDeliverableCanvas({
   chatError,
 }: {
   actions: React.ReactNode;
+  commentAction?: React.ReactNode;
   workflowStatus: WorkspaceWorkflowStatusData | null;
   draftRevision?: number | null;
   documentContent: string;
@@ -560,6 +587,7 @@ function WebDeliverableCanvas({
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {commentAction}
           {iframePreviewUrl ? (
             <Button
               size="sm"
@@ -596,7 +624,7 @@ function WebDeliverableCanvas({
           </div>
         ) : (
           <DeliverableActivityState
-            action={
+            action={combineActions(
               errorAction ? errorAction : showStartPreviewAction ? (
                 <Button
                   size="sm"
@@ -617,8 +645,9 @@ function WebDeliverableCanvas({
                 >
                   {t('version.restore')}
                 </Button>
-              ) : null
-            }
+              ) : null,
+              commentAction
+            )}
             description={statusDescription}
             title={statusTitle}
             variant={showGenerateFirstPassAction ? 'idle' : 'working'}
@@ -710,6 +739,7 @@ function DeliverableActivityState({
 
 function SourceDeliverableCanvas({
   actions,
+  commentAction,
   content,
   isReadOnly,
   isSaving,
@@ -719,6 +749,7 @@ function SourceDeliverableCanvas({
   title,
 }: {
   actions: React.ReactNode;
+  commentAction?: React.ReactNode;
   content: string;
   isReadOnly: boolean;
   isSaving: boolean;
@@ -738,6 +769,7 @@ function SourceDeliverableCanvas({
           <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          {commentAction}
           {isSaving ? <span className="text-xs text-muted-foreground">{savingLabel}</span> : null}
           {actions}
         </div>
@@ -756,25 +788,32 @@ function SourceDeliverableCanvas({
 }
 
 export function parsePlateContent(content: string): Value {
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : [{ type: 'p', children: [{ text: '' }] }];
-  } catch {
-    return [{ type: 'p', children: [{ text: '' }] }];
-  }
+  const parsed = safeJsonParse<unknown>(content, null);
+  return Array.isArray(parsed) ? parsed : [{ type: 'p', children: [{ text: '' }] }];
 }
 
 export function normalizeDeliverableText(content: string) {
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) {
-      return plateToMarkdown(parsed);
-    }
-  } catch {
-    // fall through
+  const parsed = safeJsonParse<unknown>(content, null);
+  if (Array.isArray(parsed)) {
+    return plateToMarkdown(parsed);
   }
 
   return content;
+}
+
+function combineActions(...actions: Array<React.ReactNode | null | undefined>) {
+  const visibleActions = actions.filter(Boolean);
+  if (visibleActions.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-2">
+      {visibleActions.map((action, index) => (
+        <React.Fragment key={index}>{action}</React.Fragment>
+      ))}
+    </div>
+  );
 }
 
 export function buildOutlineItems(params: {

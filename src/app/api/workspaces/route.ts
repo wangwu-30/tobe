@@ -29,25 +29,24 @@ import { mapConversation } from '@/objects/conversation/view';
 import { mapWorkspaceFile } from '@/objects/file/schema';
 import { mapWorkspace } from '@/objects/workspace/view';
 import {
-  createWorkspaceWithConversation,
-} from '@/lib/workspace/service';
-import {
   formatWorkflowPlaybookForPrompt,
   materializeWorkflowPlaybookSelection,
 } from '@/lib/workflows/service';
 import type { DeliverableType } from '@/types';
+import { defineRoute } from '@/framework/resilience';
+
 
 class WorkspaceCreateValidationError extends Error {}
 
 type CreatedWorkspaceRecord = Awaited<ReturnType<typeof createWorkspaceForRequest>>;
 
-export async function GET(req: NextRequest) {
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const workspaces = await listWorkspaces(actor.organizationId);
   return NextResponse.json({ items: workspaces });
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json().catch(() => ({}));
   const settings = getSettingsFromHeaders(req.headers);
@@ -211,7 +210,7 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});
 
 async function createWorkspaceForRequest(
   actor: { deviceId: string; organizationId: string; userId: string },

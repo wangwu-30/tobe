@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db/prisma';
 import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
 import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
+import { safeJsonParse } from '@/framework/resilience';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
 import {
@@ -384,23 +385,19 @@ export async function streamWorkspaceAssistantRun(
 }
 
 function readImageBlockFromStoredContent(content: string, mimeType: string | null) {
-  try {
-    const parsed = JSON.parse(content) as {
-      base64?: string;
-      encoding?: string;
-      kind?: string;
-      mimeType?: string | null;
-    };
-    if (parsed.kind !== 'binary' || parsed.encoding !== 'base64' || !parsed.base64) {
-      return null;
-    }
-
-    return {
-      type: 'image' as const,
-      data: parsed.base64,
-      mimeType: mimeType || parsed.mimeType || 'application/octet-stream',
-    };
-  } catch {
+  const parsed = safeJsonParse<{
+    base64?: string;
+    encoding?: string;
+    kind?: string;
+    mimeType?: string | null;
+  } | null>(content, null);
+  if (!parsed || parsed.kind !== 'binary' || parsed.encoding !== 'base64' || !parsed.base64) {
     return null;
   }
+
+  return {
+    type: 'image' as const,
+    data: parsed.base64,
+    mimeType: mimeType || parsed.mimeType || 'application/octet-stream',
+  };
 }

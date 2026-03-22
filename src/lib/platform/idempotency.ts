@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { safeJsonParse } from '@/framework/resilience';
 
 const IDEMPOTENCY_WAIT_INTERVAL_MS = 150;
 const IDEMPOTENCY_WAIT_TIMEOUT_MS = 30_000;
@@ -18,6 +19,8 @@ type MutationRequestRow = {
   updatedAt: string;
   userId: string;
 };
+
+const INVALID_JSON = Symbol('invalid-json');
 
 export class IdempotencyConflictError extends Error {
   constructor() {
@@ -72,7 +75,7 @@ export async function withIdempotency<T>(params: {
     assertMatchingHash(existing, params.requestHash);
 
     if (existing.status === 'completed' && existing.responseJson) {
-      return JSON.parse(existing.responseJson) as T;
+      return parseStoredMutationResponse<T>(existing.responseJson);
     }
 
     if (existing.status === 'failed') {
@@ -93,7 +96,7 @@ export async function withIdempotency<T>(params: {
     });
 
     if (resolved?.status === 'completed' && resolved.responseJson) {
-      return JSON.parse(resolved.responseJson) as T;
+      return parseStoredMutationResponse<T>(resolved.responseJson);
     }
 
     if (resolved?.status === 'failed') {
@@ -105,6 +108,15 @@ export async function withIdempotency<T>(params: {
   }
 
   throw new IdempotencyInProgressError();
+}
+
+function parseStoredMutationResponse<T>(responseJson: string): T {
+  const parsed = safeJsonParse<T | typeof INVALID_JSON>(responseJson, INVALID_JSON);
+  if (parsed === INVALID_JSON) {
+    throw new Error('Stored mutation response could not be parsed.');
+  }
+
+  return parsed as T;
 }
 
 async function executeOwnedMutation<T>(

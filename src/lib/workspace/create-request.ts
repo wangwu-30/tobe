@@ -7,6 +7,8 @@ import {
   type WorkspaceCreateIntentChoice,
 } from '@/lib/workspace/create-intent';
 import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
+import { apiCallOrThrow, safeJsonParse } from '@/framework/resilience';
+
 
 export const WORKSPACE_CREATE_IDEMPOTENCY_HEADER = 'x-dao-idempotency-key';
 
@@ -70,7 +72,7 @@ export function loadWorkspaceCreateRecovery() {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as Partial<WorkspaceCreateRecovery> | null;
+    const parsed = safeJsonParse<Partial<WorkspaceCreateRecovery> | null>(raw, null);
     const createMode = normalizeWorkspaceCreateIntent(parsed?.values?.createMode);
     const deliverableType = normalizeStoredDeliverableType(parsed?.values?.deliverableType);
     const selectedIntent = normalizeWorkspaceCreateIntentChoice(
@@ -170,26 +172,27 @@ export async function submitWorkspaceCreateRequest(params: {
   requestId: string;
   values: WorkspaceCreateValues;
 }) {
-  const response = await fetch('/api/workspaces', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: params.requestId,
-      ...(params.headers || {}),
-    },
-    body: JSON.stringify(
-      buildWorkspaceCreateBody({
-        context: params.context,
-        values: params.values,
-      })
-    ),
-  });
-  const payload = (await response.json().catch(() => null)) as
-    | (WorkspaceCreateResult & { error?: string })
-    | null;
+  const payload = await apiCallOrThrow<WorkspaceCreateResult & { error?: string }>(
+    '/api/workspaces',
+    {
+      body: JSON.stringify(
+        buildWorkspaceCreateBody({
+          context: params.context,
+          values: params.values,
+        })
+      ),
+      fallbackMessage: params.errorMessage,
+      headers: {
+        'Content-Type': 'application/json',
+        [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: params.requestId,
+        ...(params.headers || {}),
+      },
+      method: 'POST',
+    }
+  );
 
-  if (!response.ok || !payload?.workspace?.id || !payload?.conversation?.id) {
-    throw new WorkspaceCreateActionError(payload?.error || params.errorMessage);
+  if (!payload?.workspace?.id || !payload?.conversation?.id) {
+    throw new WorkspaceCreateActionError(params.errorMessage);
   }
 
   return payload;

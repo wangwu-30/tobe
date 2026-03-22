@@ -26,6 +26,8 @@ import {
 } from '@/lib/comments/constants';
 import { threadsToDiscussions } from '@/lib/comments/discussion-sync';
 import type { CommentThreadData } from '@/types';
+import { apiFetch } from '@/framework/resilience';
+
 
 const emptyValue: Value = [{ type: 'p', children: [{ text: '' }] }];
 
@@ -143,7 +145,7 @@ export function EditorWrapper({
       searchParams.set('draftOnly', '1');
     }
 
-    const res = await fetch(`/api/threads?${searchParams.toString()}`);
+    const res = await apiFetch(`/api/threads?${searchParams.toString()}`);
     if (!res.ok) return;
 
     const nextThreads = (await res.json()) as CommentThreadData[];

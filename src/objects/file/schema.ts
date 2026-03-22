@@ -1,5 +1,6 @@
 import type { Value } from 'platejs';
 
+import { safeJsonParse } from '@/framework/resilience';
 import type {
   WorkspaceFileData,
   WorkspaceVersionFileData,
@@ -71,25 +72,21 @@ export function mapWorkspaceFile(file: WorkspaceFileRecord): WorkspaceFileData {
 }
 
 export function parseVersionFiles(content: string): WorkspaceVersionFileData[] {
-  try {
-    const parsed = JSON.parse(content) as VersionPayload | Value;
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      'files' in parsed &&
-      Array.isArray(parsed.files)
-    ) {
-      return parsed.files.map((file) => ({
-        ...file,
-        kind: normalizeFileKind(file.kind),
-        role: normalizeWorkspaceFileRole(file.role),
-        language: file.language || null,
-        nodeType: file.nodeType === 'folder' ? 'folder' : 'file',
-        versionId: file.versionId || null,
-      }));
-    }
-  } catch {
-    // fall through to legacy version payload decoding below
+  const parsed = safeJsonParse<VersionPayload | Value | null>(content, null);
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    'files' in parsed &&
+    Array.isArray((parsed as VersionPayload).files)
+  ) {
+    return (parsed as VersionPayload).files.map((file) => ({
+      ...file,
+      kind: normalizeFileKind(file.kind),
+      role: normalizeWorkspaceFileRole(file.role),
+      language: file.language || null,
+      nodeType: file.nodeType === 'folder' ? 'folder' : 'file',
+      versionId: file.versionId || null,
+    }));
   }
 
   return [

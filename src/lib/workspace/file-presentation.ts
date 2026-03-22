@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@/framework/resilience';
 import type { WorkspaceFileData, WorkspaceVersionFileData } from '@/types';
 
 type WorkspaceFileLike =
@@ -10,22 +11,18 @@ export function looksLikePlateDocumentContent(content: string) {
     return false;
   }
 
-  try {
-    const parsed = JSON.parse(trimmed);
-    return (
-      Array.isArray(parsed) &&
-      (parsed.length === 0 ||
-        parsed.every(
-          (entry) =>
-            entry &&
-            typeof entry === 'object' &&
-            !Array.isArray(entry) &&
-            ('children' in entry || 'text' in entry || 'type' in entry)
-        ))
-    );
-  } catch {
-    return false;
-  }
+  const parsed = safeJsonParse<unknown>(trimmed, null);
+  return (
+    Array.isArray(parsed) &&
+    (parsed.length === 0 ||
+      parsed.every(
+        (entry) =>
+          entry &&
+          typeof entry === 'object' &&
+          !Array.isArray(entry) &&
+          ('children' in entry || 'text' in entry || 'type' in entry)
+      ))
+  );
 }
 
 export function isPlateBackedWorkspaceFile(file: WorkspaceFileLike | null | undefined) {

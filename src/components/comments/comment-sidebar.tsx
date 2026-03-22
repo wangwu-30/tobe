@@ -5,6 +5,7 @@ import { CommentAgentTextarea } from '@/components/comments/comment-agent-textar
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { markdownToPlate, plateToMarkdown } from '@/lib/ai/serializer';
 import { useAiReply } from '@/hooks/use-ai-reply';
 import { useCommentAgents } from '@/hooks/use-comment-agents';
@@ -34,6 +35,7 @@ import type {
 } from '@/types';
 import {
   COMMENT_THREAD_FOCUS_EVENT,
+  OPEN_MANUAL_COMMENT_COMPOSER_EVENT,
   notifyCommentThreadsChanged,
   requestCommentThreadFocus,
 } from '@/lib/comments/constants';
@@ -55,12 +57,19 @@ import { useT } from '@/components/providers/language-provider';
 import { formatStableDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { useAppRouter } from '@/lib/app-router';
-import { isPlateBackedWorkspaceFile } from '@/lib/workspace/file-presentation';
+import {
+  getWorkspaceFileDisplayName,
+  isPlateBackedWorkspaceFile,
+} from '@/lib/workspace/file-presentation';
+import { apiCallOrThrow, apiFetch, safeJsonParse } from '@/framework/resilience';
+
 
 export function CommentSidebar({
   className,
+  currentFileId,
   documentId,
   documentContent,
+  draftRevision,
   embedded = false,
   files = [],
   onClose,
@@ -71,12 +80,15 @@ export function CommentSidebar({
   showHeader = !embedded,
   threads,
   refreshThreads,
+  versionId,
 }: {
   className?: string;
   documentId: string;
   documentContent: string;
+  draftRevision?: number | null;
   embedded?: boolean;
   files?: WorkspaceFileData[];
+  currentFileId?: string | null;
   onClose?: () => void;
   onOpenChange?: (open: boolean) => void;
   onOpenFile?: (fileId: string) => void;
@@ -85,6 +97,7 @@ export function CommentSidebar({
   showHeader?: boolean;
   threads: CommentThreadData[];
   refreshThreads: () => Promise<void>;
+  versionId?: string | null;
 }) {
   const t = useT();
   const router = useAppRouter();
@@ -108,6 +121,13 @@ export function CommentSidebar({
     tone: 'error' | 'info';
     text: string;
   } | null>(null);
+  const manualAnchorFieldId = React.useId();
+  const manualCommentFieldId = React.useId();
+  const [manualComposerOpen, setManualComposerOpen] = React.useState(false);
+  const [manualAnchorText, setManualAnchorText] = React.useState('');
+  const [manualCommentText, setManualCommentText] = React.useState('');
+  const [manualComposerError, setManualComposerError] = React.useState<string | null>(null);
+  const [manualSubmitting, setManualSubmitting] = React.useState(false);
   const {
     isReplying,
     streamingContent,
@@ -116,6 +136,28 @@ export function CommentSidebar({
   } = useAiReply();
   const threadRefs = React.useRef(new Map<string, HTMLDivElement>());
   const [now, setNow] = React.useState(() => Date.now());
+  const defaultManualAnchor = React.useMemo(
+    () =>
+      buildManualCommentAnchor({
+        currentFileId,
+        files,
+        t,
+      }),
+    [currentFileId, files, t]
+  );
+  const openManualComposer = React.useCallback(() => {
+    setManualComposerOpen(true);
+    setManualAnchorText((current) => current || defaultManualAnchor);
+    setManualComposerError(null);
+    setThreadStatusNotice(null);
+    onOpenChange?.(true);
+  }, [defaultManualAnchor, onOpenChange]);
+  const closeManualComposer = React.useCallback(() => {
+    setManualComposerOpen(false);
+    setManualAnchorText(defaultManualAnchor);
+    setManualCommentText('');
+    setManualComposerError(null);
+  }, [defaultManualAnchor]);
 
   React.useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -152,6 +194,13 @@ export function CommentSidebar({
       window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleThreadFocus);
     };
   }, [onOpenChange, threads]);
+
+  React.useEffect(() => {
+    window.addEventListener(OPEN_MANUAL_COMMENT_COMPOSER_EVENT, openManualComposer);
+    return () => {
+      window.removeEventListener(OPEN_MANUAL_COMMENT_COMPOSER_EVENT, openManualComposer);
+    };
+  }, [openManualComposer]);
 
   React.useEffect(() => {
     if (!focusedThreadId) return;
@@ -229,6 +278,84 @@ export function CommentSidebar({
     [documentContent, documentId, refreshThreads, sendCommentReply, t]
   );
 
+  const submitManualComment = React.useCallback(async () => {
+    const trimmed = manualCommentText.trim();
+    const anchorText =
+      manualAnchorText.trim() ||
+      trimmed.split('\n')[0]?.trim().slice(0, 80) ||
+      defaultManualAnchor;
+
+    if (!trimmed || !anchorText) {
+      return;
+    }
+
+    setManualSubmitting(true);
+    setManualComposerError(null);
+
+    try {
+      const thread = await apiCallOrThrow<CommentThreadData>('/api/threads', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getStoredAISettingsHeader(),
+        },
+        body: JSON.stringify({
+          anchorText,
+          documentId,
+          draftRevision: versionId ? null : draftRevision ?? null,
+          fileId: currentFileId || null,
+          firstMessage: trimmed,
+          selectionAnchor: JSON.stringify({
+            anchorPayload: {
+              excerpt: anchorText,
+            },
+            bindingType: 'manual',
+            previewVersionId: versionId || null,
+            sourceMapping: {
+              fileId: currentFileId || null,
+            },
+            surfaceType: 'manual',
+          }),
+          versionId: versionId || null,
+        }),
+        fallbackMessage: t('comments.manualCreateFailed'),
+      });
+      closeManualComposer();
+      notifyCommentThreadsChanged();
+      await refreshThreads();
+      requestCommentThreadFocus(thread.id);
+
+      if (thread.agentBindings.length > 0) {
+        await runAgentReplies(
+          thread,
+          thread.agentBindings.map((binding) => ({
+            agentId: binding.agentId,
+            agentLabel: binding.agentLabel,
+            handle: binding.handle,
+          }))
+        );
+      }
+    } catch (error) {
+      setManualComposerError(
+        error instanceof Error ? error.message : t('comments.manualCreateFailed')
+      );
+    } finally {
+      setManualSubmitting(false);
+    }
+  }, [
+    closeManualComposer,
+    currentFileId,
+    defaultManualAnchor,
+    documentId,
+    draftRevision,
+    manualAnchorText,
+    manualCommentText,
+    refreshThreads,
+    runAgentReplies,
+    t,
+    versionId,
+  ]);
+
   const submitFollowUpForThread = React.useCallback(
     async (thread: CommentThreadData, content: string) => {
       const trimmed = content.trim();
@@ -239,7 +366,7 @@ export function CommentSidebar({
       setThreadStatusNotice(null);
       setSubmittingThreadId(thread.id);
       try {
-        const response = await fetch(`/api/threads/${thread.id}/messages`, {
+        const response = await apiFetch(`/api/threads/${thread.id}/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -288,7 +415,7 @@ export function CommentSidebar({
       setSubmittingThreadId(thread.id);
 
       try {
-        const response = await fetch(`/api/threads/${thread.id}/research-plan`, {
+        const response = await apiFetch(`/api/threads/${thread.id}/research-plan`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -353,7 +480,7 @@ export function CommentSidebar({
         if (nextContent === plan.targetFile.content) {
           throw new Error(t('comments.applyNoMaterialChange'));
         }
-        const createResponse = await fetch(`/api/workspaces/${documentId}/staged-changes`, {
+        const createResponse = await apiFetch(`/api/workspaces/${documentId}/staged-changes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -378,7 +505,7 @@ export function CommentSidebar({
         }
 
         const changeSet = (await createResponse.json()) as { id: string };
-        const applyResponse = await fetch(
+        const applyResponse = await apiFetch(
           `/api/workspaces/${documentId}/staged-changes/${changeSet.id}`,
           {
             method: 'PATCH',
@@ -395,7 +522,7 @@ export function CommentSidebar({
           throw new Error(payload?.error || 'Failed to apply staged changes');
         }
 
-        const threadResponse = await fetch(`/api/threads/${thread.id}`, {
+        const threadResponse = await apiFetch(`/api/threads/${thread.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'applied' }),
@@ -420,7 +547,7 @@ export function CommentSidebar({
 
   const handleStopAgentListening = React.useCallback(
     async (threadId: string, agentId: string) => {
-      const response = await fetch(`/api/threads/${threadId}`, {
+      const response = await apiFetch(`/api/threads/${threadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -457,7 +584,7 @@ export function CommentSidebar({
 
   const handleResolve = React.useCallback(
     async (threadId: string) => {
-      const res = await fetch(`/api/threads/${threadId}`, {
+      const res = await apiFetch(`/api/threads/${threadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'resolved' }),
@@ -482,7 +609,7 @@ export function CommentSidebar({
         | null;
 
       try {
-        await fetch('/api/agent/run', {
+        await apiFetch('/api/agent/run', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -515,7 +642,7 @@ export function CommentSidebar({
 
   const handleReopen = React.useCallback(
     async (threadId: string) => {
-      const res = await fetch(`/api/threads/${threadId}`, {
+      const res = await apiFetch(`/api/threads/${threadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'open' }),
@@ -551,7 +678,7 @@ export function CommentSidebar({
 
       try {
         if (action === 'dismiss') {
-          const dismissResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+          const dismissResponse = await apiFetch(`/api/threads/${thread.id}/research-plan`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -570,7 +697,7 @@ export function CommentSidebar({
 
         const proposalStatus = thread.researchState?.proposal?.status || 'pending';
         if (proposalStatus !== 'approved') {
-          const approveResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+          const approveResponse = await apiFetch(`/api/threads/${thread.id}/research-plan`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -590,7 +717,7 @@ export function CommentSidebar({
         }, 1500);
 
         try {
-          const startResponse = await fetch(`/api/threads/${thread.id}/research/start`, {
+          const startResponse = await apiFetch(`/api/threads/${thread.id}/research/start`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -687,6 +814,16 @@ export function CommentSidebar({
             </div>
           ) : null}
           <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={openManualComposer}
+            >
+              <PenLine className="mr-1 h-3.5 w-3.5" />
+              {t('comments.manualOpenComposer')}
+            </Button>
             {onClose && (
               <Button
                 type="button"
@@ -714,6 +851,94 @@ export function CommentSidebar({
             )}
           >
             {threadStatusNotice.text}
+          </div>
+        ) : null}
+        {manualComposerOpen ? (
+          <div
+            className="rounded-xl border border-border/70 bg-background/80 p-3"
+            data-testid="manual-comment-composer"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold">{t('comments.manualComposerTitle')}</p>
+                <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                  {t('comments.manualComposerDescription')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                onClick={closeManualComposer}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label
+                className="text-[11px] font-medium text-foreground"
+                htmlFor={manualAnchorFieldId}
+              >
+                {t('comments.manualAnchorLabel')}
+              </label>
+              <Input
+                id={manualAnchorFieldId}
+                data-testid="manual-comment-anchor-input"
+                value={manualAnchorText}
+                onChange={(event) => setManualAnchorText(event.target.value)}
+                placeholder={t('comments.manualAnchorPlaceholder')}
+              />
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label
+                className="text-[11px] font-medium text-foreground"
+                htmlFor={manualCommentFieldId}
+              >
+                {t('comments.manualCommentLabel')}
+              </label>
+              <CommentAgentTextarea
+                agents={commentAgents}
+                id={manualCommentFieldId}
+                data-testid="manual-comment-textarea"
+                value={manualCommentText}
+                onChange={setManualCommentText}
+                placeholder={t('comments.manualCommentPlaceholder')}
+                className="min-h-[104px]"
+              />
+            </div>
+
+            {manualComposerError ? (
+              <p className="mt-2 text-[11px] text-destructive">{manualComposerError}</p>
+            ) : null}
+
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <p className="text-[11px] text-muted-foreground">
+                {t('comments.agentMentionHint')}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={closeManualComposer}
+                  disabled={manualSubmitting}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void submitManualComment()}
+                  disabled={manualSubmitting || !manualCommentText.trim()}
+                >
+                  {manualSubmitting
+                    ? t('comments.manualCreating')
+                    : t('comments.manualCreate')}
+                </Button>
+              </div>
+            </div>
           </div>
         ) : null}
       </div>
@@ -746,6 +971,16 @@ export function CommentSidebar({
                     <p className="mt-1 opacity-70">
                       {t('comments.leaveCommentForAi')}
                     </p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="mt-3 h-8"
+                      onClick={openManualComposer}
+                    >
+                      <PenLine className="mr-1.5 h-3.5 w-3.5" />
+                      {t('comments.manualOpenComposer')}
+                    </Button>
                   </div>
                 ) : (
                   openThreads.map(thread => (
@@ -2015,11 +2250,8 @@ function getEditableText(file: WorkspaceFileData) {
     return file.content;
   }
 
-  try {
-    return plateToMarkdown(JSON.parse(file.content));
-  } catch {
-    return file.content;
-  }
+  const parsed = safeJsonParse<unknown>(file.content, null);
+  return Array.isArray(parsed) ? plateToMarkdown(parsed) : file.content;
 }
 
 function toWorkspaceFileContent(file: WorkspaceFileData, content: string) {
@@ -2169,6 +2401,23 @@ function buildNormalizedSearchIndex(value: string) {
   }
 
   return { indexMap, text };
+}
+
+function buildManualCommentAnchor(params: {
+  currentFileId?: string | null;
+  files: WorkspaceFileData[];
+  t: ReturnType<typeof useT>;
+}) {
+  const currentFile =
+    params.currentFileId
+      ? params.files.find((file) => file.id === params.currentFileId) || null
+      : null;
+
+  if (!currentFile) {
+    return params.t('comments.manualDefaultAnchor');
+  }
+
+  return getWorkspaceFileDisplayName(currentFile) || params.t('comments.manualDefaultAnchor');
 }
 
 function normalizeAnchorText(value: string) {

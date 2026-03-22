@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getNextProjectTreeSortOrder } from '@/objects/project/queries';
+import { defineRoute } from '@/framework/resilience';
+
 
 async function findProjectFolder(args: {
   folderId: string;
@@ -19,7 +21,7 @@ async function findProjectFolder(args: {
   });
 }
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ folderId: string; projectId: string }> }
 ) {
@@ -130,9 +132,9 @@ export async function PATCH(
     title: updatedFolder.title,
     updatedAt: updatedFolder.updatedAt,
   });
-}
+});
 
-export async function DELETE(
+export const DELETE = defineRoute(async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ folderId: string; projectId: string }> }
 ) {
@@ -188,4 +190,4 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true });
-}
+});

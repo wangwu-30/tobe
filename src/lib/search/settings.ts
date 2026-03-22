@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@/framework/resilience';
 import {
   BRAVE_SEARCH_PROVIDER_ID,
   DEFAULT_BRAVE_SEARCH_ENDPOINT,
@@ -20,15 +21,10 @@ export function getSearchSettingsFromHeaders(headers: Headers): SearchSettings {
     return normalizeSearchSettings({});
   }
 
-  try {
-    return normalizeSearchSettings(JSON.parse(settingsHeader));
-  } catch {
-    try {
-      return normalizeSearchSettings(JSON.parse(decodeURIComponent(settingsHeader)));
-    } catch {
-      return normalizeSearchSettings({});
-    }
-  }
+  const parsed =
+    safeJsonParse<unknown>(settingsHeader, null) ??
+    safeJsonParse<unknown>(decodeURIComponent(settingsHeader), null);
+  return normalizeSearchSettings(parsed ?? {});
 }
 
 export function normalizeSearchSettings(input: unknown): SearchSettings {

@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@/framework/resilience';
 import { saveExtractedNotes } from '@/objects/note';
 
 type ExtractedMemory = {
@@ -6,23 +7,19 @@ type ExtractedMemory = {
 };
 
 export function parseMemoryExtractionResponse(response: string): ExtractedMemory[] {
-  try {
-    const parsed = JSON.parse(response);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter(
-      (memory: ExtractedMemory) =>
-        Boolean(memory.category) &&
-        Boolean(memory.content) &&
-        ['correction', 'preference', 'domain_knowledge', 'constraint'].includes(
-          memory.category
-        )
-    );
-  } catch {
+  const parsed = safeJsonParse<unknown>(response, null);
+  if (!Array.isArray(parsed)) {
     return [];
   }
+
+  return parsed.filter(
+    (memory: ExtractedMemory) =>
+      Boolean(memory.category) &&
+      Boolean(memory.content) &&
+      ['correction', 'preference', 'domain_knowledge', 'constraint'].includes(
+        memory.category
+      )
+  );
 }
 
 export async function saveExtractedMemories(params: {

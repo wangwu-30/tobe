@@ -1,3 +1,4 @@
+import { isRecord, safeJsonParse } from '@/framework/resilience';
 import type { ReviewAnchorData } from '@/types';
 
 export function parseReviewAnchor(selectionAnchor: string | null): ReviewAnchorData | null {
@@ -5,20 +6,14 @@ export function parseReviewAnchor(selectionAnchor: string | null): ReviewAnchorD
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(selectionAnchor);
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof parsed.surfaceType === 'string' &&
-      typeof parsed.bindingType === 'string' &&
-      parsed.anchorPayload &&
-      typeof parsed.anchorPayload === 'object'
-    ) {
-      return parsed as ReviewAnchorData;
-    }
-  } catch {
-    return null;
+  const parsed = safeJsonParse<unknown>(selectionAnchor, null);
+  if (
+    isRecord(parsed) &&
+    typeof parsed.surfaceType === 'string' &&
+    typeof parsed.bindingType === 'string' &&
+    isRecord(parsed.anchorPayload)
+  ) {
+    return parsed as ReviewAnchorData;
   }
 
   return null;

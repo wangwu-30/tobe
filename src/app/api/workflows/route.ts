@@ -7,6 +7,8 @@ import {
   listWorkflowPlaybooks,
   updateWorkflowPlaybook,
 } from '@/lib/workflows/service';
+import { defineRoute } from '@/framework/resilience';
+
 
 function resolveWorkspaceId(searchParams: URLSearchParams) {
   return (
@@ -79,7 +81,7 @@ function readWorkflowExtensionHints(value: unknown) {
     );
 }
 
-export async function GET(req: NextRequest) {
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
 
@@ -90,9 +92,9 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(items);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json().catch(() => ({}));
 
@@ -140,9 +142,9 @@ export async function POST(req: NextRequest) {
 
     throw error;
   }
-}
+});
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = defineRoute(async function PATCH(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json().catch(() => ({}));
 
@@ -185,9 +187,9 @@ export async function PATCH(req: NextRequest) {
 
     throw error;
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
+export const DELETE = defineRoute(async function DELETE(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -198,4 +200,4 @@ export async function DELETE(req: NextRequest) {
 
   await deleteWorkflowPlaybook(actor, id);
   return NextResponse.json({ ok: true });
-}
+});

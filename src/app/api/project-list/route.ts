@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { defineRoute } from '@/framework/resilience';
+
 
 type ProjectListSeed = {
   id: string;
@@ -71,8 +73,8 @@ async function listProjectsForOrganization(organizationId: string) {
     );
 }
 
-export async function GET(req: NextRequest) {
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const projects = await listProjectsForOrganization(actor.organizationId);
   return NextResponse.json({ items: projects });
-}
+});

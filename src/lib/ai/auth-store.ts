@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getOAuthApiKey } from '@mariozechner/pi-ai/oauth';
+import { safeJsonParse } from '@/framework/resilience';
 import { ensurePlatformDirectories, getPlatformPaths } from '@/lib/platform/paths';
 
 function getOAuthPaths() {
@@ -117,7 +118,7 @@ async function readOAuthAuthMap(): Promise<OAuthAuthMap> {
 
   try {
     const raw = await fs.readFile(authStorePath, 'utf8');
-    return JSON.parse(raw) as OAuthAuthMap;
+    return safeJsonParse<OAuthAuthMap>(raw, {});
   } catch {
     return {};
   }
@@ -134,7 +135,10 @@ async function readLegacyOpenAICodexCredentials() {
 
   try {
     const raw = await fs.readFile(legacyOpenAICodexPath, 'utf8');
-    const credentials = JSON.parse(raw) as Record<string, unknown>;
+    const credentials = safeJsonParse<Record<string, unknown> | null>(raw, null);
+    if (!credentials) {
+      return null;
+    }
     return {
       type: 'oauth',
       ...credentials,
@@ -177,10 +181,10 @@ function decodeJwtClaims(token: unknown) {
       .replace(/_/g, '/')
       .padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
 
-    return JSON.parse(Buffer.from(payload, 'base64').toString('utf8')) as Record<
-      string,
-      unknown
-    >;
+    return safeJsonParse<Record<string, unknown> | null>(
+      Buffer.from(payload, 'base64').toString('utf8'),
+      null
+    );
   } catch {
     return null;
   }

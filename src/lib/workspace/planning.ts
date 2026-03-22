@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { safeJsonParse } from '@/framework/resilience';
 import { mapWorkspaceFile } from '@/objects/file/schema';
 import {
   normalizeStoredDeliverableType,
@@ -800,27 +801,23 @@ function normalizeChangeStatus(
 }
 
 function parseChangeSetPatches(changesJson: string): StagedChangePatchData[] {
-  try {
-    const parsed = JSON.parse(changesJson);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.map((change) => ({
-      fileId: typeof change?.fileId === 'string' ? change.fileId : null,
-      name: typeof change?.name === 'string' ? change.name : 'Untitled change',
-      summary: typeof change?.summary === 'string' ? change.summary : '',
-      nextContent: typeof change?.nextContent === 'string' ? change.nextContent : '',
-      kind:
-        change?.kind === 'markdown' ||
-        change?.kind === 'text' ||
-        change?.kind === 'code'
-          ? change.kind
-          : 'richtext',
-    }));
-  } catch {
+  const parsed = safeJsonParse<unknown>(changesJson, null);
+  if (!Array.isArray(parsed)) {
     return [];
   }
+
+  return parsed.map((change) => ({
+    fileId: typeof change?.fileId === 'string' ? change.fileId : null,
+    name: typeof change?.name === 'string' ? change.name : 'Untitled change',
+    summary: typeof change?.summary === 'string' ? change.summary : '',
+    nextContent: typeof change?.nextContent === 'string' ? change.nextContent : '',
+    kind:
+      change?.kind === 'markdown' ||
+      change?.kind === 'text' ||
+      change?.kind === 'code'
+        ? change.kind
+        : 'richtext',
+  }));
 }
 
 function parsePlanStages(
@@ -830,57 +827,53 @@ function parsePlanStages(
 ): WorkspacePlanStageData[] {
   const allowEmptyStages = status === 'generating' || status === 'blocked';
 
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) {
-      return allowEmptyStages ? [] : buildDefaultPlanStages(deliverableType);
-    }
-
-    const fallbackStages = buildDefaultPlanStages(deliverableType);
-    const normalized = parsed
-      .map((stage, index) => {
-        if (!stage || typeof stage !== 'object') {
-          return null;
-        }
-
-        const stageRecord = stage as Record<string, unknown>;
-        const fallback = fallbackStages[index] || fallbackStages[fallbackStages.length - 1];
-        return {
-          id:
-            typeof stageRecord.id === 'string' && stageRecord.id.trim()
-              ? stageRecord.id.trim()
-              : fallback?.id || `stage-${index + 1}`,
-          kind:
-            typeof stageRecord.kind === 'string' && stageRecord.kind.trim()
-              ? stageRecord.kind.trim()
-              : fallback?.kind || 'clarify',
-          title:
-            typeof stageRecord.title === 'string' && stageRecord.title.trim()
-              ? stageRecord.title.trim()
-              : fallback?.title || 'Stage',
-          description:
-            typeof stageRecord.description === 'string'
-              ? stageRecord.description.trim()
-              : fallback?.description || '',
-          status:
-            stageRecord.status === 'completed' ||
-            stageRecord.status === 'blocked' ||
-            stageRecord.status === 'in_progress'
-              ? stageRecord.status
-              : 'pending',
-          checkpoint: Boolean(stageRecord.checkpoint ?? fallback?.checkpoint),
-        } satisfies WorkspacePlanStageData;
-      })
-      .filter((stage): stage is WorkspacePlanStageData => Boolean(stage));
-
-    if (normalized.length > 0) {
-      return normalized;
-    }
-
-    return allowEmptyStages ? [] : fallbackStages;
-  } catch {
+  const parsed = safeJsonParse<unknown>(raw, null);
+  if (!Array.isArray(parsed)) {
     return allowEmptyStages ? [] : buildDefaultPlanStages(deliverableType);
   }
+
+  const fallbackStages = buildDefaultPlanStages(deliverableType);
+  const normalized = parsed
+    .map((stage, index) => {
+      if (!stage || typeof stage !== 'object') {
+        return null;
+      }
+
+      const stageRecord = stage as Record<string, unknown>;
+      const fallback = fallbackStages[index] || fallbackStages[fallbackStages.length - 1];
+      return {
+        id:
+          typeof stageRecord.id === 'string' && stageRecord.id.trim()
+            ? stageRecord.id.trim()
+            : fallback?.id || `stage-${index + 1}`,
+        kind:
+          typeof stageRecord.kind === 'string' && stageRecord.kind.trim()
+            ? stageRecord.kind.trim()
+            : fallback?.kind || 'clarify',
+        title:
+          typeof stageRecord.title === 'string' && stageRecord.title.trim()
+            ? stageRecord.title.trim()
+            : fallback?.title || 'Stage',
+        description:
+          typeof stageRecord.description === 'string'
+            ? stageRecord.description.trim()
+            : fallback?.description || '',
+        status:
+          stageRecord.status === 'completed' ||
+          stageRecord.status === 'blocked' ||
+          stageRecord.status === 'in_progress'
+            ? stageRecord.status
+            : 'pending',
+        checkpoint: Boolean(stageRecord.checkpoint ?? fallback?.checkpoint),
+      } satisfies WorkspacePlanStageData;
+    })
+    .filter((stage): stage is WorkspacePlanStageData => Boolean(stage));
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  return allowEmptyStages ? [] : fallbackStages;
 }
 
 function resolvePlanStages(params: {

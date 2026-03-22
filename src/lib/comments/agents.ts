@@ -3,6 +3,7 @@ import type {
   CommentAgentConfigData,
   CommentAgentReferenceData,
 } from '@/types';
+import { safeJsonParse } from '@/framework/resilience';
 import type { AppLanguage } from '@/lib/i18n/language';
 
 export const COMMENT_AGENT_LISTENING_WINDOW_MS = 3 * 60 * 1000;
@@ -140,47 +141,43 @@ export function parseCommentAgentBindings(
     return [];
   }
 
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const bindings: Array<CommentAgentBindingData | null> = parsed
-      .map((item) => {
-        if (!item || typeof item !== 'object') {
-          return null;
-        }
-        const record = item as Record<string, unknown>;
-        if (
-          typeof record.agentId !== 'string' ||
-          typeof record.agentLabel !== 'string' ||
-          typeof record.handle !== 'string' ||
-          typeof record.listeningUntil !== 'string' ||
-          typeof record.lastActivatedAt !== 'string'
-        ) {
-          return null;
-        }
-
-        return {
-          agentId: record.agentId,
-          agentLabel: record.agentLabel,
-          handle: normalizeHandle(record.handle),
-          listeningUntil: record.listeningUntil,
-          lastActivatedAt: record.lastActivatedAt,
-          sortOrder:
-            typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)
-              ? record.sortOrder
-              : 0,
-        } satisfies CommentAgentBindingData;
-      });
-
-    return bindings
-      .filter((item): item is CommentAgentBindingData => item !== null)
-      .sort((left, right) => left.sortOrder - right.sortOrder);
-  } catch {
+  const parsed = safeJsonParse<unknown>(value, null);
+  if (!Array.isArray(parsed)) {
     return [];
   }
+
+  const bindings: Array<CommentAgentBindingData | null> = parsed
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const record = item as Record<string, unknown>;
+      if (
+        typeof record.agentId !== 'string' ||
+        typeof record.agentLabel !== 'string' ||
+        typeof record.handle !== 'string' ||
+        typeof record.listeningUntil !== 'string' ||
+        typeof record.lastActivatedAt !== 'string'
+      ) {
+        return null;
+      }
+
+      return {
+        agentId: record.agentId,
+        agentLabel: record.agentLabel,
+        handle: normalizeHandle(record.handle),
+        listeningUntil: record.listeningUntil,
+        lastActivatedAt: record.lastActivatedAt,
+        sortOrder:
+          typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)
+            ? record.sortOrder
+            : 0,
+      } satisfies CommentAgentBindingData;
+    });
+
+  return bindings
+    .filter((item): item is CommentAgentBindingData => item !== null)
+    .sort((left, right) => left.sortOrder - right.sortOrder);
 }
 
 export function stringifyCommentAgentBindings(bindings: CommentAgentBindingData[]) {
@@ -198,36 +195,32 @@ export function parseCommentAgentMentionsJson(
     return [];
   }
 
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== 'object') {
-          return null;
-        }
-        const record = item as Record<string, unknown>;
-        if (
-          typeof record.agentId !== 'string' ||
-          typeof record.agentLabel !== 'string' ||
-          typeof record.handle !== 'string'
-        ) {
-          return null;
-        }
-
-        return {
-          agentId: record.agentId,
-          agentLabel: record.agentLabel,
-          handle: normalizeHandle(record.handle),
-        } satisfies CommentAgentReferenceData;
-      })
-      .filter((item): item is CommentAgentReferenceData => Boolean(item));
-  } catch {
+  const parsed = safeJsonParse<unknown>(value, null);
+  if (!Array.isArray(parsed)) {
     return [];
   }
+
+  return parsed
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const record = item as Record<string, unknown>;
+      if (
+        typeof record.agentId !== 'string' ||
+        typeof record.agentLabel !== 'string' ||
+        typeof record.handle !== 'string'
+      ) {
+        return null;
+      }
+
+      return {
+        agentId: record.agentId,
+        agentLabel: record.agentLabel,
+        handle: normalizeHandle(record.handle),
+      } satisfies CommentAgentReferenceData;
+    })
+    .filter((item): item is CommentAgentReferenceData => Boolean(item));
 }
 
 export function refreshCommentAgentBindings(params: {

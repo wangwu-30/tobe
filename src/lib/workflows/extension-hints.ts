@@ -1,4 +1,5 @@
 import { getBuiltinWorkflowPlaybookByOriginDeviceId } from '@/lib/workflows/builtin-playbooks';
+import { safeJsonParse } from '@/framework/resilience';
 import type { WorkflowExtensionHintData, WorkflowExtensionKind } from '@/types';
 
 function isWorkflowExtensionKind(value: unknown): value is WorkflowExtensionKind {
@@ -55,11 +56,7 @@ export function parseWorkflowExtensionHints(raw: string | null | undefined) {
     return [];
   }
 
-  try {
-    return normalizeWorkflowExtensionHints(JSON.parse(raw));
-  } catch {
-    return [];
-  }
+  return normalizeWorkflowExtensionHints(safeJsonParse<unknown>(raw, []));
 }
 
 export function serializeWorkflowExtensionHints(

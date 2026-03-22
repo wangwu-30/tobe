@@ -1,3 +1,5 @@
+import { safeJsonParse } from '@/framework/resilience';
+
 type PreviewableWorkspaceFile =
   | {
       id?: string | null;
@@ -36,21 +38,18 @@ export function detectWorkspacePreviewCapability(
   });
 
   if (packageJsonFile) {
-    try {
-      const parsed = JSON.parse(packageJsonFile.content) as {
-        scripts?: Record<string, string>;
-      };
+    const parsed = safeJsonParse<{ scripts?: Record<string, string> } | null>(
+      packageJsonFile.content,
+      null
+    );
 
-      if (parsed.scripts?.dev) {
-        return {
-          canPreview: true,
-          entryPath: 'package.json',
-          reason: 'Preview can start from the workspace dev script.',
-          target: 'dev-server',
-        };
-      }
-    } catch {
-      // Fall through so the caller sees the more actionable fallback reason below.
+    if (parsed?.scripts?.dev) {
+      return {
+        canPreview: true,
+        entryPath: 'package.json',
+        reason: 'Preview can start from the workspace dev script.',
+        target: 'dev-server',
+      };
     }
   }
 

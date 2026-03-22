@@ -1,6 +1,6 @@
 # 成形经验教训台账
 
-更新时间：2026-03-21
+更新时间：2026-03-22
 状态：持续维护中
 相关文档：[项目状态](./chengxing-project-status.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
 
@@ -245,6 +245,12 @@
 - 结论：像 `deliverable / project / user` scope Note 这种会在同一 run 内重复出现、编辑器里也会回显的内容，Playwright 回归不该直接对裸文本做 `getByText(...)` 断言。
 - 为什么：一旦 user-scope note 跨测试复用，或者保存后编辑器 textarea 还保留同一段内容，strict locator 就会同时命中“卡片正文”和“编辑器输入框”，把真正通过的功能打成假红。
 - 默认做法：已有 note 一律优先用 `context-note-{id}` / `context-note-scope-{id}` 这类稳定 selector；新建 note 先通过 API 结果或 list endpoint 找到 note id，再断言卡片本身，而不是直接用文本做全局查找。
+
+### 39. 分支视图一旦进入树状化，里程碑和回退点就必须回到同一条 branch workspace
+
+- 结论：branch focus 不能长期停留在“只过滤里程碑列表”的中间态；一旦系统已经有 branch head、继续续写和恢复点，分支视图就应该同时展示这一条 lineage 的里程碑和 recovery point。
+- 为什么：如果 focus 模式只裁掉别的里程碑，却继续把 recovery point 留在全局 pinned / temporary 分区里，用户仍然无法回答“这个回退点属于哪条分支”，树状版本管理就会继续停在半成品状态。
+- 默认做法：分支视图默认做成 branch workspace；里程碑、恢复点和分支摘要围绕同一条 lineage 组织，只有回到全局历史视图时才展示跨分支的汇总分区。
 
 ## 产品踩坑记录
 
@@ -719,6 +725,24 @@
 - 为什么：这些入口实际上都在触发同一件事，只是落点上下文不同；如果表面上混用结构词和动作词，用户会误以为它们是不同能力，甚至把“同级”理解成文件系统结构，而不是当前项目里的自然派生下一步。
 - 默认做法：先确定一个主动作名作为 canonical 叙事，比如“继续下一份交付物”；其他 surface 只允许做上下文压缩，如项目树里改成“从这里继续下一份”，但不能重新引入 `sibling` 这类实现词。回归里同时断言新主文案存在，旧结构词退出用户表面。
 
+### 75. 运行时安全治理必须同轮引入编译期门禁，否则旧写法会立刻回流
+
+- 结论：当项目开始统一 `ErrorBoundary / safeJsonParse / api client / route wrapper` 这类运行时安全层时，必须在同一轮把 `JSON.parse`、裸 `fetch`、裸 route handler 的 ESLint 门禁一起落下。
+- 为什么：如果只改一批调用方而没有编译期约束，后续任何新功能都很容易继续写回局部 `try/catch + JSON.parse`、分散 `fetch` 或直接 `export async function GET()`；这样“安全层”会退化成一次性的清理，而不是稳定边界。
+- 默认做法：先提供共享能力，再把 feature 调用链迁移过去，最后用 lint 明确封门；允许的裸 `fetch` 和裸解析例外要写进 repo 合约，而不是留在口头约定里。
+
+### 76. 首屏即发起的读请求，E2E 必须先挂响应等待器再触发导航
+
+- 结论：像首页这种一进入就会立刻请求 `/api/project-list` 的页面，Playwright 不能先 `page.goto()` 再 `waitForResponse()`。
+- 为什么：在文件级或全量回归下，首个请求经常会在监听器注册前就返回，功能本身是好的，测试却会因为等不到已发生的响应而假红。
+- 默认做法：对这类场景统一写成 `Promise.all([page.waitForResponse(...), page.goto(...)])`；凡是“导航后立即自发请求”的入口都按同一模式验收。
+
+### 77. 跨 workspace 的继续流验收，必须等 `workspaceId + conversationId` 一起稳定
+
+- 结论：像“继续下一份交付物”这种会同时新建 workspace 和 conversation 的动作，E2E 不能只轮询 pathname 变了或 id 不等于旧值。
+- 为什么：路由切换早期会出现中间态；如果过早读取 URL，就会把真实成功的项目继承流程误判成“project 关联丢失”。
+- 默认做法：为这类用例提供统一 helper，等待 `/workspace/:workspaceId?conversationId=:conversationId` 两个事实同时稳定后，再断言项目继承和后续 UI。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来
@@ -754,4 +778,4 @@
 
 ## 待验证方向
 
-- 当前无开放的 `待验证` 方向。后续若再出现尚未落地但值得持续跟进的产品或技术方向，再单独补进本节。
+- **运行时健壮性验收闭环**（`待验证`）：`framework/resilience/`、route error page、全局异常监听、`safeJsonParse` / `api client` / `defineRoute` 与对应 ESLint 门禁已落地，但全量 `npm run verify:iteration` 在 E2E 阶段被 Next/Turbopack panic 阻断，`A1-A9` 的完整运行时验收仍需在稳定 dev server 上补完。

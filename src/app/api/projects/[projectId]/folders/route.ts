@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getNextProjectTreeSortOrder } from '@/objects/project/queries';
+import { defineRoute } from '@/framework/resilience';
+
 
 async function assertProjectExists(organizationId: string, projectId: string) {
   const project = await prisma.document.findFirst({
@@ -17,7 +19,7 @@ async function assertProjectExists(organizationId: string, projectId: string) {
   return Boolean(project);
 }
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
@@ -83,4 +85,4 @@ export async function POST(
     title: folder.title,
     updatedAt: folder.updatedAt,
   });
-}
+});

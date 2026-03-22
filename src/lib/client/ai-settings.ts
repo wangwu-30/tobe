@@ -5,6 +5,7 @@ import {
   normalizeAppLanguage,
   type AppLanguage,
 } from '@/lib/i18n/language';
+import { safeJsonParse } from '@/framework/resilience';
 import type { ModelCatalogData, ModelSelectionData } from '@/types';
 
 export const AI_SETTINGS_CHANGED_EVENT = 'dao:ai-settings-changed';
@@ -56,17 +57,28 @@ export function getStoredAISettings(): StoredAISettings {
     };
   }
 
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return {
-      ...parsed,
-      language: normalizeAppLanguage(parsed.language as string | null | undefined),
-    };
-  } catch {
+  const parsed = safeJsonParse<Record<string, unknown> | null>(raw, null);
+  if (!parsed) {
     return {
       language: getBrowserAppLanguage(),
     };
   }
+
+  return {
+    ...parsed,
+    language: normalizeAppLanguage(parsed.language as string | null | undefined),
+  };
+}
+
+export function setStoredAppLanguage(language: AppLanguage) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  setStoredAISettings({
+    ...getStoredAISettings(),
+    language,
+  });
 }
 
 export function getStoredDefaultModelKey() {

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { acceptSyncEvents } from '@/lib/platform/sync';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(req: NextRequest) {
+
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json().catch(() => ({}));
   const events = Array.isArray(body.events) ? body.events : [];
@@ -22,4 +24,4 @@ export async function POST(req: NextRequest) {
     accepted,
     backend,
   });
-}
+});

@@ -21,10 +21,12 @@ import type {
   CommentThreadData,
   CommentThreadInheritanceState,
 } from '@/types';
+import { defineRoute } from '@/framework/resilience';
+
 
 type ThreadRecord = Parameters<typeof mapCommentThread>[0];
 
-export async function GET(req: NextRequest) {
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const workspaceId =
@@ -177,9 +179,9 @@ export async function GET(req: NextRequest) {
     });
 
   return NextResponse.json([...mappedDirectThreads, ...mappedInheritedThreads]);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const settings = getSettingsFromHeaders(req.headers);
   const body = await req.json();
@@ -240,7 +242,7 @@ export async function POST(req: NextRequest) {
     },
   });
   return NextResponse.json(mapCommentThread(thread));
-}
+});
 
 function mapThreadResponse(
   thread: ThreadRecord,

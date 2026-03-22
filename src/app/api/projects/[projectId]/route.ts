@@ -6,6 +6,8 @@ import { getWorkspaceMirrorPath } from '@/lib/platform/mirror-manager';
 import { stopWorkspacePreview } from '@/lib/platform/run-service';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { recordSyncEvent } from '@/lib/platform/sync';
+import { defineRoute } from '@/framework/resilience';
+
 
 async function listProjectDocuments(organizationId: string, projectId: string) {
   return prisma.document.findMany({
@@ -18,7 +20,7 @@ async function listProjectDocuments(organizationId: string, projectId: string) {
   });
 }
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
@@ -71,9 +73,9 @@ export async function PATCH(
   );
 
   return NextResponse.json({ id: projectId, title });
-}
+});
 
-export async function DELETE(
+export const DELETE = defineRoute(async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ projectId: string }> }
 ) {
@@ -333,4 +335,4 @@ export async function DELETE(
   ]);
 
   return NextResponse.json({ ok: true });
-}
+});

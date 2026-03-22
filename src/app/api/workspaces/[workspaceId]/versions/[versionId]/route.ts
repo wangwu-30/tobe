@@ -8,8 +8,10 @@ import {
 } from '@/objects/state/commands';
 import { mapWorkspaceVersionWithLabels } from '@/objects/state/queries';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
+import { defineRoute } from '@/framework/resilience';
 
-export async function PATCH(
+
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ versionId: string; workspaceId: string }> }
 ) {
@@ -53,4 +55,4 @@ export async function PATCH(
 
     throw error;
   }
-}
+});

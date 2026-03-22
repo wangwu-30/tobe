@@ -9,8 +9,10 @@ import { restoreWorkspaceVersion } from '@/objects/state/commands';
 import { mapWorkspaceVersionsWithLabels } from '@/objects/state/queries';
 import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   {
     params,
@@ -60,4 +62,4 @@ export async function POST(
 
     throw error;
   }
-}
+});

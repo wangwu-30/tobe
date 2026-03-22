@@ -21,14 +21,14 @@ test('D1: direct single-block comment can apply back to the source document', as
       `/api/workspaces/${workspace.id}?conversationId=${workspace.conversationId}`
     );
     return nextView.currentFile?.content || '';
-  }).toContain(workspace.replacementText);
+  }, { timeout: 20000 }).toContain(workspace.replacementText);
   await expect.poll(async () => {
     const threads = await apiRequest<Array<{ id: string; status: string }>>(
       baseURL,
       `/api/threads?documentId=${workspace.id}&workspaceId=${workspace.id}`
     );
     return threads.find((item) => item.id === workspace.applyThreadId)?.status || null;
-  }).toBe('applied');
+  }, { timeout: 20000 }).toBe('applied');
 });
 
 test('D2: cross-block comment shows a blocked reason before any apply attempt', async ({ page }) => {

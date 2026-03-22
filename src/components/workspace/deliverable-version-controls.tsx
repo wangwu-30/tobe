@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useT } from '@/components/providers/language-provider';
+import { apiCall, safeJsonParse } from '@/framework/resilience';
+
 import type {
   DeliverableVersionData,
   StagedChangeSetData,
@@ -63,13 +65,14 @@ export function DeliverableVersionControls({
   const [isPinningId, setIsPinningId] = React.useState<string | null>(null);
 
   const loadVersions = React.useCallback(async () => {
-    const response = await fetch(`/api/workspaces/${workspaceId}/versions?scope=all`);
-    if (!response.ok) {
+    const result = await apiCall<DeliverableVersionData[]>(
+      `/api/workspaces/${workspaceId}/versions?scope=all`
+    );
+    if (!result.ok) {
       return;
     }
 
-    const data = (await response.json()) as DeliverableVersionData[];
-    setAllVersions(data);
+    setAllVersions(result.data || []);
   }, [workspaceId]);
 
   React.useEffect(() => {
@@ -93,6 +96,10 @@ export function DeliverableVersionControls({
   const visibleVersions = React.useMemo(
     () => allVersions.filter((version) => version.visible),
     [allVersions]
+  );
+  const visibleVersionIds = React.useMemo(
+    () => new Set(visibleVersions.map((version) => version.id)),
+    [visibleVersions]
   );
   const versionsById = React.useMemo(
     () => new Map(allVersions.map((version) => [version.id, version])),
@@ -137,6 +144,19 @@ export function DeliverableVersionControls({
       visibleBranchOverview.find((branch) => branch.head.id === historyFocusedBranchHeadId) || null,
     [historyFocusedBranchHeadId, visibleBranchOverview]
   );
+  const focusedBranchWorkspace = React.useMemo(() => {
+    if (!focusedBranch) {
+      return null;
+    }
+
+    return buildVisibleBranchWorkspace({
+      branch: focusedBranch,
+      nodes: visibleVersionTree,
+      recoveryPoints,
+      versionsById,
+      visibleIds: visibleVersionIds,
+    });
+  }, [focusedBranch, recoveryPoints, versionsById, visibleVersionIds, visibleVersionTree]);
   const historyVisibleVersionTree = React.useMemo(() => {
     if (!focusedBranch) {
       return visibleVersionTree;
@@ -270,6 +290,129 @@ export function DeliverableVersionControls({
       setHistoryOpen(false);
     },
     [onSelectVersion]
+  );
+  const renderMilestoneActions = React.useCallback(
+    (version: WorkspaceVersionData, branchHead: boolean) => (
+      <>
+        {onContinueFromVersion ? (
+          <Button
+            size="sm"
+            className="h-8"
+            data-testid={`version-continue-${version.id}`}
+            onClick={() => void handleContinue(version)}
+            disabled={
+              isContinuingId === version.id || currentDraftBaseVersionId === version.id
+            }
+          >
+            {currentDraftBaseVersionId === version.id
+              ? t('version.currentDraftBase')
+              : isContinuingId === version.id
+                ? t('version.continueStarting')
+                : t('version.continueHere')}
+          </Button>
+        ) : null}
+        {onSwitchToVersionBranch && branchHead && currentDraftBaseVersionId !== version.id ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            data-testid={`version-switch-branch-${version.id}`}
+            onClick={() => void handleSwitchBranch(version)}
+            disabled={isSwitchingId === version.id}
+          >
+            {isSwitchingId === version.id
+              ? t('version.switchBranchStarting')
+              : t('version.switchToBranch')}
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8"
+          onClick={() => openCompareFromVersion(version.id)}
+        >
+          {t('version.compare')}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8"
+          onClick={() => void handleRestore(version.id)}
+          disabled={isRestoringId === version.id}
+        >
+          <RotateCcw className="mr-1 h-3.5 w-3.5" />
+          {isRestoringId === version.id ? t('version.restoring') : t('version.restore')}
+        </Button>
+      </>
+    ),
+    [
+      currentDraftBaseVersionId,
+      handleContinue,
+      handleRestore,
+      handleSwitchBranch,
+      isContinuingId,
+      isRestoringId,
+      isSwitchingId,
+      onContinueFromVersion,
+      onSwitchToVersionBranch,
+      openCompareFromVersion,
+      t,
+    ]
+  );
+  const renderRecoveryActions = React.useCallback(
+    (version: WorkspaceVersionData) => (
+      <>
+        {onContinueFromVersion ? (
+          <Button
+            size="sm"
+            className="h-8"
+            data-testid={`version-continue-${version.id}`}
+            onClick={() => void handleContinue(version)}
+            disabled={isContinuingId === version.id}
+          >
+            {isContinuingId === version.id
+              ? t('version.continueStarting')
+              : t('version.continueHere')}
+          </Button>
+        ) : null}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8"
+          onClick={() => void handleRestore(version.id)}
+          disabled={isRestoringId === version.id}
+        >
+          <RotateCcw className="mr-1 h-3.5 w-3.5" />
+          {isRestoringId === version.id ? t('version.restoring') : t('version.restore')}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8"
+          onClick={() => void handleTogglePin(version.id, !version.pinned)}
+          disabled={isPinningId === version.id || (!version.pinned && pinSlotsFull)}
+        >
+          {isPinningId === version.id
+            ? t('common.saving')
+            : version.pinned
+              ? t('version.unpin')
+              : pinSlotsFull
+                ? t('version.pinLimitReached')
+                : t('version.pin')}
+        </Button>
+      </>
+    ),
+    [
+      handleContinue,
+      handleRestore,
+      handleTogglePin,
+      isContinuingId,
+      isPinningId,
+      isRestoringId,
+      onContinueFromVersion,
+      pinSlotsFull,
+      t,
+    ]
   );
 
   return (
@@ -531,6 +674,35 @@ export function DeliverableVersionControls({
                         {': '}
                         {focusedBranch.path.map((version) => version.title).join(' -> ')}
                       </div>
+                      {focusedBranchWorkspace ? (
+                        <div
+                          className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+                          data-testid="version-branch-workspace-stats"
+                        >
+                          <HeaderStat
+                            label={t('version.milestone')}
+                            value={String(focusedBranch.path.length)}
+                          />
+                          <HeaderDivider />
+                          <HeaderStat
+                            label={t('version.recoveryPoint')}
+                            value={String(focusedBranchWorkspace.recoveryCount)}
+                            emphasized={focusedBranchWorkspace.recoveryCount > 0}
+                          />
+                          <HeaderDivider />
+                          <HeaderStat
+                            label={t('version.pinnedBadge')}
+                            value={String(focusedBranchWorkspace.pinnedRecoveryCount)}
+                            emphasized={focusedBranchWorkspace.pinnedRecoveryCount > 0}
+                          />
+                          <HeaderDivider />
+                          <HeaderStat
+                            label={t('version.temporaryBadge')}
+                            value={String(focusedBranchWorkspace.temporaryRecoveryCount)}
+                            emphasized={focusedBranchWorkspace.temporaryRecoveryCount > 0}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                     <Button
                       size="sm"
@@ -545,249 +717,198 @@ export function DeliverableVersionControls({
                 </section>
               ) : null}
 
-              <section className="space-y-2">
-                <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
-                  {t('version.milestone')}
-                </div>
-                {historyVisibleVersionTree.length === 0 ? (
-                  <EmptyHistoryCard text={t('version.noVersions')} />
-                ) : (
-                  historyVisibleVersionTree.map((node) => (
-                    <HistoryCard
-                      key={node.version.id}
-                      actions={
-                        <>
-                          {onContinueFromVersion ? (
-                            <Button
-                              size="sm"
-                              className="h-8"
-                              data-testid={`version-continue-${node.version.id}`}
-                              onClick={() => void handleContinue(node.version)}
-                              disabled={
-                                isContinuingId === node.version.id ||
-                                currentDraftBaseVersionId === node.version.id
-                              }
-                            >
-                              {currentDraftBaseVersionId === node.version.id
-                                ? t('version.currentDraftBase')
-                                : isContinuingId === node.version.id
-                                ? t('version.continueStarting')
-                                : t('version.continueHere')}
-                            </Button>
-                          ) : null}
-                          {onSwitchToVersionBranch &&
-                          node.branchHead &&
-                          currentDraftBaseVersionId !== node.version.id ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8"
-                              data-testid={`version-switch-branch-${node.version.id}`}
-                              onClick={() => void handleSwitchBranch(node.version)}
-                              disabled={isSwitchingId === node.version.id}
-                            >
-                              {isSwitchingId === node.version.id
-                                ? t('version.switchBranchStarting')
-                                : t('version.switchToBranch')}
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8"
-                            onClick={() => openCompareFromVersion(node.version.id)}
-                          >
-                            {t('version.compare')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8"
-                            onClick={() => void handleRestore(node.version.id)}
-                            disabled={isRestoringId === node.version.id}
-                          >
-                            <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                            {isRestoringId === node.version.id
-                              ? t('version.restoring')
-                              : t('version.restore')}
-                          </Button>
-                        </>
-                      }
-                      badge={t('version.milestone')}
-                      branchHead={node.branchHead}
-                      branchHeadLabel={t('version.branchHead')}
-                      branchHeadTestId={
-                        node.branchHead ? `version-branch-head-${node.version.id}` : undefined
-                      }
-                      cardTestId={`version-history-card-${node.version.id}`}
-                      current={currentVersionId === node.version.id}
-                      currentLabel={t('version.current')}
-                      depth={node.depth}
-                      draftBase={currentDraftBaseVersionId === node.version.id}
-                      draftBaseLabel={t('version.currentDraftBase')}
-                      draftBaseTestId={`version-draft-base-${node.version.id}`}
-                      lineage={
-                        node.visibleParentId && versionsById.get(node.visibleParentId)
-                          ? t('version.basedOn', {
-                              title: versionsById.get(node.visibleParentId)!.title,
-                            })
-                          : null
-                      }
-                      onOpen={() => openReadOnlyVersion(node.version.id)}
-                      subtitle={formatVersionTime(node.version.lockedAt, t)}
-                      title={node.version.title}
+              {focusedBranch && focusedBranchWorkspace ? (
+                <section className="space-y-3" data-testid="version-branch-workspace">
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                      {t('version.branchWorkspace')}
+                    </div>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t('version.branchWorkspaceDescription')}
+                    </p>
+                  </div>
+                  {focusedBranchWorkspace.sections.map((section) => (
+                    <div
+                      key={section.node.version.id}
+                      className="space-y-2"
+                      data-testid={`version-branch-workspace-section-${section.node.version.id}`}
+                    >
+                      <HistoryCard
+                        actions={renderMilestoneActions(
+                          section.node.version,
+                          section.node.branchHead
+                        )}
+                        badge={t('version.milestone')}
+                        branchHead={section.node.branchHead}
+                        branchHeadLabel={t('version.branchHead')}
+                        branchHeadTestId={
+                          section.node.branchHead
+                            ? `version-branch-head-${section.node.version.id}`
+                            : undefined
+                        }
+                        cardTestId={`version-history-card-${section.node.version.id}`}
+                        current={currentVersionId === section.node.version.id}
+                        currentLabel={t('version.current')}
+                        depth={section.node.depth}
+                        draftBase={currentDraftBaseVersionId === section.node.version.id}
+                        draftBaseLabel={t('version.currentDraftBase')}
+                        draftBaseTestId={`version-draft-base-${section.node.version.id}`}
+                        lineage={
+                          section.node.visibleParentId &&
+                          versionsById.get(section.node.visibleParentId)
+                            ? t('version.basedOn', {
+                                title: versionsById.get(section.node.visibleParentId)!.title,
+                              })
+                            : null
+                        }
+                        onOpen={() => openReadOnlyVersion(section.node.version.id)}
+                        subtitle={formatVersionTime(section.node.version.lockedAt, t)}
+                        title={section.node.version.title}
+                      />
+                      {section.recoveryPoints.map((version) => (
+                        <HistoryCard
+                          key={version.id}
+                          actions={renderRecoveryActions(version)}
+                          badge={
+                            version.pinned
+                              ? t('version.pinnedBadge')
+                              : t('version.temporaryBadge')
+                          }
+                          branchHead={false}
+                          branchHeadLabel={t('version.branchHead')}
+                          cardTestId={`version-branch-recovery-${version.id}`}
+                          current={currentVersionId === version.id}
+                          currentLabel={t('version.current')}
+                          depth={section.node.depth + 1}
+                          draftBase={currentDraftBaseVersionId === version.id}
+                          draftBaseLabel={t('version.currentDraftBase')}
+                          draftBaseTestId={`version-draft-base-${version.id}`}
+                          lineage={t('version.basedOn', {
+                            title: section.node.version.title,
+                          })}
+                          subtitle={formatVersionTime(version.lockedAt, t)}
+                          title={version.title}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                  {focusedBranchWorkspace.recoveryCount === 0 ? (
+                    <EmptyHistoryCard
+                      text={t('version.noBranchRecoveryPoints')}
+                      testId="version-branch-workspace-empty"
                     />
-                  ))
-                )}
-              </section>
+                  ) : null}
+                </section>
+              ) : (
+                <>
+                  <section className="space-y-2">
+                    <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                      {t('version.milestone')}
+                    </div>
+                    {historyVisibleVersionTree.length === 0 ? (
+                      <EmptyHistoryCard text={t('version.noVersions')} />
+                    ) : (
+                      historyVisibleVersionTree.map((node) => (
+                        <HistoryCard
+                          key={node.version.id}
+                          actions={renderMilestoneActions(node.version, node.branchHead)}
+                          badge={t('version.milestone')}
+                          branchHead={node.branchHead}
+                          branchHeadLabel={t('version.branchHead')}
+                          branchHeadTestId={
+                            node.branchHead ? `version-branch-head-${node.version.id}` : undefined
+                          }
+                          cardTestId={`version-history-card-${node.version.id}`}
+                          current={currentVersionId === node.version.id}
+                          currentLabel={t('version.current')}
+                          depth={node.depth}
+                          draftBase={currentDraftBaseVersionId === node.version.id}
+                          draftBaseLabel={t('version.currentDraftBase')}
+                          draftBaseTestId={`version-draft-base-${node.version.id}`}
+                          lineage={
+                            node.visibleParentId && versionsById.get(node.visibleParentId)
+                              ? t('version.basedOn', {
+                                  title: versionsById.get(node.visibleParentId)!.title,
+                                })
+                              : null
+                          }
+                          onOpen={() => openReadOnlyVersion(node.version.id)}
+                          subtitle={formatVersionTime(node.version.lockedAt, t)}
+                          title={node.version.title}
+                        />
+                      ))
+                    )}
+                  </section>
 
-              <section className="space-y-2">
-                <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
-                  {t('version.pinnedRecoveryPoints')}
-                </div>
-                {pinnedRecoveryPoints.length === 0 ? (
-                  <EmptyHistoryCard text={t('version.noPinnedRecoveryPoints')} />
-                ) : (
-                  pinnedRecoveryPoints.map((version) => (
-                    <HistoryCard
-                      key={version.id}
-                      actions={
-                        <>
-                          {onContinueFromVersion ? (
-                            <Button
-                              size="sm"
-                              className="h-8"
-                              data-testid={`version-continue-${version.id}`}
-                              onClick={() => void handleContinue(version)}
-                              disabled={isContinuingId === version.id}
-                            >
-                              {isContinuingId === version.id
-                                ? t('version.continueStarting')
-                                : t('version.continueHere')}
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8"
-                            onClick={() => void handleRestore(version.id)}
-                            disabled={isRestoringId === version.id}
-                          >
-                            <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                            {isRestoringId === version.id
-                              ? t('version.restoring')
-                              : t('version.restore')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8"
-                            onClick={() => void handleTogglePin(version.id, false)}
-                            disabled={isPinningId === version.id}
-                          >
-                            {isPinningId === version.id
-                              ? t('common.saving')
-                              : t('version.unpin')}
-                          </Button>
-                        </>
-                      }
-                      badge={t('version.pinnedBadge')}
-                      branchHead={false}
-                      branchHeadLabel={t('version.branchHead')}
-                      draftBase={currentDraftBaseVersionId === version.id}
-                      draftBaseLabel={t('version.currentDraftBase')}
-                      currentLabel={t('version.current')}
-                      current={currentVersionId === version.id}
-                      depth={0}
-                      draftBaseTestId={`version-draft-base-${version.id}`}
-                      lineage={
-                        version.parentVersionId && versionsById.get(version.parentVersionId)
-                          ? t('version.basedOn', {
-                              title: versionsById.get(version.parentVersionId)!.title,
-                            })
-                          : null
-                      }
-                      subtitle={formatVersionTime(version.lockedAt, t)}
-                      title={version.title}
-                    />
-                  ))
-                )}
-              </section>
+                  <section className="space-y-2">
+                    <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                      {t('version.pinnedRecoveryPoints')}
+                    </div>
+                    {pinnedRecoveryPoints.length === 0 ? (
+                      <EmptyHistoryCard text={t('version.noPinnedRecoveryPoints')} />
+                    ) : (
+                      pinnedRecoveryPoints.map((version) => (
+                        <HistoryCard
+                          key={version.id}
+                          actions={renderRecoveryActions(version)}
+                          badge={t('version.pinnedBadge')}
+                          branchHead={false}
+                          branchHeadLabel={t('version.branchHead')}
+                          current={currentVersionId === version.id}
+                          currentLabel={t('version.current')}
+                          depth={0}
+                          draftBase={currentDraftBaseVersionId === version.id}
+                          draftBaseLabel={t('version.currentDraftBase')}
+                          draftBaseTestId={`version-draft-base-${version.id}`}
+                          lineage={
+                            version.parentVersionId && versionsById.get(version.parentVersionId)
+                              ? t('version.basedOn', {
+                                  title: versionsById.get(version.parentVersionId)!.title,
+                                })
+                              : null
+                          }
+                          subtitle={formatVersionTime(version.lockedAt, t)}
+                          title={version.title}
+                        />
+                      ))
+                    )}
+                  </section>
 
-              <section className="space-y-2">
-                <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
-                  {t('version.temporaryRecoveryPoint')}
-                </div>
-                {temporaryRecoveryPoints.length === 0 ? (
-                  <EmptyHistoryCard text={t('version.noTemporaryRecoveryPoint')} />
-                ) : (
-                  temporaryRecoveryPoints.map((version) => (
-                    <HistoryCard
-                      key={version.id}
-                      actions={
-                        <>
-                          {onContinueFromVersion ? (
-                            <Button
-                              size="sm"
-                              className="h-8"
-                              data-testid={`version-continue-${version.id}`}
-                              onClick={() => void handleContinue(version)}
-                              disabled={isContinuingId === version.id}
-                            >
-                              {isContinuingId === version.id
-                                ? t('version.continueStarting')
-                                : t('version.continueHere')}
-                            </Button>
-                          ) : null}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8"
-                            onClick={() => void handleRestore(version.id)}
-                            disabled={isRestoringId === version.id}
-                          >
-                            <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                            {isRestoringId === version.id
-                              ? t('version.restoring')
-                              : t('version.restore')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8"
-                            onClick={() => void handleTogglePin(version.id, true)}
-                            disabled={pinSlotsFull || isPinningId === version.id}
-                          >
-                            {isPinningId === version.id
-                              ? t('common.saving')
-                              : pinSlotsFull
-                                ? t('version.pinLimitReached')
-                                : t('version.pin')}
-                          </Button>
-                        </>
-                      }
-                      badge={t('version.temporaryBadge')}
-                      branchHead={false}
-                      branchHeadLabel={t('version.branchHead')}
-                      draftBase={currentDraftBaseVersionId === version.id}
-                      draftBaseLabel={t('version.currentDraftBase')}
-                      currentLabel={t('version.current')}
-                      current={currentVersionId === version.id}
-                      depth={0}
-                      draftBaseTestId={`version-draft-base-${version.id}`}
-                      lineage={
-                        version.parentVersionId && versionsById.get(version.parentVersionId)
-                          ? t('version.basedOn', {
-                              title: versionsById.get(version.parentVersionId)!.title,
-                            })
-                          : null
-                      }
-                      subtitle={formatVersionTime(version.lockedAt, t)}
-                      title={version.title}
-                    />
-                  ))
-                )}
-              </section>
+                  <section className="space-y-2">
+                    <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
+                      {t('version.temporaryRecoveryPoint')}
+                    </div>
+                    {temporaryRecoveryPoints.length === 0 ? (
+                      <EmptyHistoryCard text={t('version.noTemporaryRecoveryPoint')} />
+                    ) : (
+                      temporaryRecoveryPoints.map((version) => (
+                        <HistoryCard
+                          key={version.id}
+                          actions={renderRecoveryActions(version)}
+                          badge={t('version.temporaryBadge')}
+                          branchHead={false}
+                          branchHeadLabel={t('version.branchHead')}
+                          current={currentVersionId === version.id}
+                          currentLabel={t('version.current')}
+                          depth={0}
+                          draftBase={currentDraftBaseVersionId === version.id}
+                          draftBaseLabel={t('version.currentDraftBase')}
+                          draftBaseTestId={`version-draft-base-${version.id}`}
+                          lineage={
+                            version.parentVersionId && versionsById.get(version.parentVersionId)
+                              ? t('version.basedOn', {
+                                  title: versionsById.get(version.parentVersionId)!.title,
+                                })
+                              : null
+                          }
+                          subtitle={formatVersionTime(version.lockedAt, t)}
+                          title={version.title}
+                        />
+                      ))
+                    )}
+                  </section>
+                </>
+              )}
 
               {pendingStagedChanges.length > 0 ? (
                 <section className="space-y-2">
@@ -1047,9 +1168,12 @@ function HistoryCard({
   );
 }
 
-function EmptyHistoryCard({ text }: { text: string }) {
+function EmptyHistoryCard({ text, testId }: { text: string; testId?: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-border/80 px-4 py-5 text-center text-xs text-muted-foreground">
+    <div
+      className="rounded-2xl border border-dashed border-border/80 px-4 py-5 text-center text-xs text-muted-foreground"
+      data-testid={testId}
+    >
       {text}
     </div>
   );
@@ -1136,22 +1260,17 @@ function getVersionPreviewText(version: DeliverableVersionData) {
 }
 
 function normalizePreviewText(content: string) {
-  try {
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed)) {
-      return plateToMarkdown(parsed);
-    }
+  const parsed = safeJsonParse<unknown>(content, null);
+  if (Array.isArray(parsed)) {
+    return plateToMarkdown(parsed);
+  }
 
-    if (parsed && typeof parsed === 'object' && Array.isArray(parsed.files)) {
-      const primary =
-        parsed.files.find((file: { isPrimary?: boolean }) => file.isPrimary) ||
-        parsed.files[0];
-      if (primary?.content) {
-        return normalizePreviewText(primary.content);
-      }
+  if (parsed && typeof parsed === 'object' && Array.isArray((parsed as { files?: unknown }).files)) {
+    const files = (parsed as { files: Array<{ content?: string; isPrimary?: boolean }> }).files;
+    const primary = files.find((file) => file.isPrimary) || files[0];
+    if (primary?.content) {
+      return normalizePreviewText(primary.content);
     }
-  } catch {
-    // fall back to raw content
   }
 
   return content;
@@ -1197,6 +1316,18 @@ type VisibleVersionTreeNode = {
 type VisibleVersionBranch = {
   head: DeliverableVersionData;
   path: DeliverableVersionData[];
+};
+
+type BranchWorkspaceSection = {
+  node: VisibleVersionTreeNode;
+  recoveryPoints: WorkspaceVersionData[];
+};
+
+type VisibleBranchWorkspace = {
+  pinnedRecoveryCount: number;
+  recoveryCount: number;
+  sections: BranchWorkspaceSection[];
+  temporaryRecoveryCount: number;
 };
 
 function buildVisibleVersionTree(params: {
@@ -1310,6 +1441,65 @@ function buildVisibleBranchOverview(params: {
   });
 
   return branches;
+}
+
+function buildVisibleBranchWorkspace(params: {
+  branch: VisibleVersionBranch;
+  nodes: VisibleVersionTreeNode[];
+  recoveryPoints: WorkspaceVersionData[];
+  versionsById: Map<string, WorkspaceVersionData>;
+  visibleIds: Set<string>;
+}): VisibleBranchWorkspace {
+  const branchIds = new Set(params.branch.path.map((version) => version.id));
+  const sections: BranchWorkspaceSection[] = params.nodes
+    .filter((node) => branchIds.has(node.version.id))
+    .map((node) => ({
+      node,
+      recoveryPoints: [],
+    }));
+  const sectionsById = new Map(sections.map((section) => [section.node.version.id, section]));
+
+  let pinnedRecoveryCount = 0;
+  let temporaryRecoveryCount = 0;
+
+  for (const version of params.recoveryPoints) {
+    const branchAnchorId = findNearestVisibleAncestorId(
+      version.parentVersionId,
+      params.versionsById,
+      params.visibleIds
+    );
+    if (!branchAnchorId || !branchIds.has(branchAnchorId)) {
+      continue;
+    }
+
+    const section = sectionsById.get(branchAnchorId);
+    if (!section) {
+      continue;
+    }
+
+    section.recoveryPoints.push(version);
+    if (version.pinned) {
+      pinnedRecoveryCount += 1;
+    } else {
+      temporaryRecoveryCount += 1;
+    }
+  }
+
+  for (const section of sections) {
+    section.recoveryPoints.sort((left, right) => {
+      if (left.pinned !== right.pinned) {
+        return left.pinned ? -1 : 1;
+      }
+      return right.versionNum - left.versionNum;
+    });
+  }
+
+  return {
+    pinnedRecoveryCount,
+    recoveryCount: pinnedRecoveryCount + temporaryRecoveryCount,
+    sections,
+    temporaryRecoveryCount,
+  };
 }
 
 function findNearestVisibleAncestorId(

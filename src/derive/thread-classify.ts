@@ -2,6 +2,7 @@ import {
   extractReviewAnchorIdentityCandidates,
   extractReviewAnchorSearchCandidates,
 } from '@/lib/comments/review-anchor';
+import { safeJsonParse } from '@/framework/resilience';
 import type {
   CommentThreadData,
   CommentThreadInheritanceState,
@@ -196,11 +197,12 @@ function buildSearchableContent(content: string) {
   const rawText = normalizeSearchText(content);
   const extractedText: string[] = [];
 
-  try {
-    collectJsonText(JSON.parse(content), extractedText);
-  } catch {
+  const parsed = safeJsonParse<unknown>(content, null);
+  if (parsed === null) {
     return rawText;
   }
+
+  collectJsonText(parsed, extractedText);
 
   const jsonText = normalizeSearchText(extractedText.join(' '));
   if (!jsonText) {

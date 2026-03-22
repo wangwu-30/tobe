@@ -9,8 +9,10 @@ import { getBoundVersionIdForWiki } from '@/lib/comments/version-binding';
 import { stopCommentAgentListeningState } from '@/objects/comment/agent-bindings';
 import { mapCommentThread } from '@/objects/comment/view';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { defineRoute } from '@/framework/resilience';
 
-export async function PATCH(
+
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
@@ -149,4 +151,4 @@ export async function PATCH(
     },
     thread: mapCommentThread(thread),
   });
-}
+});

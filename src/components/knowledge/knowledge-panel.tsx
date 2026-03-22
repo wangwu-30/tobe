@@ -32,6 +32,8 @@ import { cn } from '@/lib/utils';
 import { useT } from '@/components/providers/language-provider';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
 import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
+import { apiFetch } from '@/framework/resilience';
+
 
 export function KnowledgePanel({
   activeWorkflowPlaybookId,
@@ -140,7 +142,7 @@ export function KnowledgePanel({
     }
     const [noteResponses, wRes] = await Promise.all([
       Promise.all(noteTargets.map((target) => fetchNotesForScope(target))),
-      fetch(`/api/workflows?${workflowParams.toString()}`),
+      apiFetch(`/api/workflows?${workflowParams.toString()}`),
     ]);
     setNotes(mergeNotes(noteResponses.flat()));
     if (wRes.ok) setWorkflowPlaybooks(await wRes.json());
@@ -162,7 +164,7 @@ export function KnowledgePanel({
 
   const submitKnowledgeItem = async () => {
     if (!canSubmitKnowledge) return;
-    const res = await fetch('/api/notes', {
+    const res = await apiFetch('/api/notes', {
       method: editingKnowledgeId ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -189,7 +191,7 @@ export function KnowledgePanel({
   }, []);
 
   const deleteKnowledgeItem = async (id: string) => {
-    await fetch(`/api/notes?id=${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/notes?id=${id}`, { method: 'DELETE' });
     if (editingKnowledgeId === id) {
       resetKnowledgeComposer();
     }
@@ -197,7 +199,7 @@ export function KnowledgePanel({
   };
 
   const toggleMemory = async (id: string, active: boolean) => {
-    await fetch('/api/notes', {
+    await apiFetch('/api/notes', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, active }),
@@ -206,7 +208,7 @@ export function KnowledgePanel({
   };
 
   const deleteMemory = async (id: string) => {
-    await fetch(`/api/notes?id=${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/notes?id=${id}`, { method: 'DELETE' });
     loadData();
   };
 
@@ -217,7 +219,7 @@ export function KnowledgePanel({
       newWorkflowChecklist.trim() ||
       newWorkflowContent.trim();
     if (!newWorkflowTitle.trim() || !hasWorkflowBody) return;
-    const res = await fetch('/api/workflows', {
+    const res = await apiFetch('/api/workflows', {
       method: editingWorkflowId ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -269,7 +271,7 @@ export function KnowledgePanel({
   };
 
   const deleteWorkflowPlaybook = async (id: string) => {
-    await fetch(`/api/workflows?id=${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/workflows?id=${id}`, { method: 'DELETE' });
     if (activeWorkflowPlaybookId === id) {
       await onApplyWorkflow?.(null);
     }
@@ -277,7 +279,7 @@ export function KnowledgePanel({
   };
 
   const duplicateWorkflowPlaybook = async (workflow: WorkflowPlaybookData) => {
-    const res = await fetch('/api/workflows', {
+    const res = await apiFetch('/api/workflows', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -351,7 +353,7 @@ export function KnowledgePanel({
       return;
     }
 
-    const res = await fetch('/api/workflows/draft', {
+    const res = await apiFetch('/api/workflows/draft', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ wikiId }),
@@ -445,7 +447,7 @@ export function KnowledgePanel({
     status: WorkflowPlaybookStatus,
     forceActivate = false
   ) => {
-    const res = await fetch('/api/workflows', {
+    const res = await apiFetch('/api/workflows', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1403,7 +1405,7 @@ async function fetchNotesForScope(params: {
     searchParams.set('scopeId', params.scopeId);
   }
 
-  const response = await fetch(`/api/notes?${searchParams.toString()}`);
+  const response = await apiFetch(`/api/notes?${searchParams.toString()}`);
   if (!response.ok) {
     return [] as NoteData[];
   }

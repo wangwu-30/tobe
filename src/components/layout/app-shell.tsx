@@ -28,6 +28,8 @@ import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { formatStableDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { formatProjectListMeta } from '@/lib/workspace/project-summary';
+import { apiFetch } from '@/framework/resilience';
+
 import type {
   ConversationBranchSummary,
   ProjectSummaryData,
@@ -173,7 +175,7 @@ function WorkspaceSidebar({
   const loadProjects = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/project-list');
+      const res = await apiFetch('/api/project-list');
       if (!res.ok) {
         return;
       }
@@ -204,7 +206,7 @@ function WorkspaceSidebar({
       if (sidebarActions?.onDeleteWorkspace) {
         await sidebarActions.onDeleteWorkspace(projectId);
       } else {
-        const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        const response = await apiFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
         if (!response.ok) {
           return;
         }

@@ -6,8 +6,10 @@ import {
   inferWorkspaceCreateIntent,
   type WorkspaceCreateIntentChoice,
 } from '@/lib/workspace/create-intent';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(req: NextRequest) {
+
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const settings = getSettingsFromHeaders(req.headers);
   const language = settings.language || 'zh-CN';
@@ -66,4 +68,4 @@ export async function POST(req: NextRequest) {
     prompt: translate(language, 'goal.intentClarifyPrompt'),
     status: 'clarify',
   });
-}
+});

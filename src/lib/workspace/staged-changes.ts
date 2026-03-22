@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma';
 import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
+import { safeJsonParse } from '@/framework/resilience';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import {
   createWorkspaceFile,
@@ -157,10 +158,6 @@ async function getStagedChangeSet(
 }
 
 function parseChangeSetPatches(changesJson: string) {
-  try {
-    const parsed = JSON.parse(changesJson);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  const parsed = safeJsonParse<unknown>(changesJson, null);
+  return Array.isArray(parsed) ? parsed : [];
 }

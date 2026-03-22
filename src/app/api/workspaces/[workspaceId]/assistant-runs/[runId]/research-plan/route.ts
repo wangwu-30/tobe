@@ -6,8 +6,10 @@ import {
   parseAssistantRunPayload,
   stringifyAssistantRunPayload,
 } from '@/lib/workspace/assistant-run-payload';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ runId: string; workspaceId: string }> }
 ) {
@@ -75,4 +77,4 @@ export async function POST(
     run: updatedRun,
     shouldStart: action === 'approve',
   });
-}
+});

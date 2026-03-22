@@ -1,11 +1,7 @@
 'use client';
 
 import type { ProjectDeliverableItem, ProjectFolderItem } from '@/types';
-
-async function readProjectTreeActionError(response: Response, fallbackMessage: string) {
-  const payload = await response.json().catch(() => null);
-  return payload?.error || fallbackMessage;
-}
+import { apiCallOrThrow } from '@/framework/resilience';
 
 async function patchProjectTreeFolder(params: {
   errorMessage: string;
@@ -15,23 +11,21 @@ async function patchProjectTreeFolder(params: {
   title?: string;
   treeSortOrder?: number;
 }) {
-  const response = await fetch(`/api/projects/${params.projectId}/folders/${params.folderId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      parentId: params.parentId,
-      title: params.title,
-      treeSortOrder: params.treeSortOrder,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await readProjectTreeActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as ProjectFolderItem;
+  return apiCallOrThrow<ProjectFolderItem>(
+    `/api/projects/${params.projectId}/folders/${params.folderId}`,
+    {
+      body: JSON.stringify({
+        parentId: params.parentId,
+        title: params.title,
+        treeSortOrder: params.treeSortOrder,
+      }),
+      fallbackMessage: params.errorMessage,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'PATCH',
+    }
+  );
 }
 
 async function patchProjectTreeDeliverable(params: {
@@ -41,23 +35,18 @@ async function patchProjectTreeDeliverable(params: {
   treeSortOrder?: number;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  return apiCallOrThrow<ProjectDeliverableItem>(`/api/workspaces/${params.workspaceId}`, {
     body: JSON.stringify({
       projectFolderId: params.projectFolderId,
       title: params.title,
       treeSortOrder: params.treeSortOrder,
     }),
+    fallbackMessage: params.errorMessage,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'PATCH',
   });
-
-  if (!response.ok) {
-    throw new Error(await readProjectTreeActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as ProjectDeliverableItem;
 }
 
 export async function createProjectTreeFolder(params: {
@@ -66,22 +55,17 @@ export async function createProjectTreeFolder(params: {
   projectId: string;
   title: string;
 }) {
-  const response = await fetch(`/api/projects/${params.projectId}/folders`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  return apiCallOrThrow<ProjectFolderItem>(`/api/projects/${params.projectId}/folders`, {
     body: JSON.stringify({
       parentId: params.parentId,
       title: params.title,
     }),
+    fallbackMessage: params.errorMessage,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
   });
-
-  if (!response.ok) {
-    throw new Error(await readProjectTreeActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as ProjectFolderItem;
 }
 
 export async function renameProjectTreeFolder(params: {
@@ -98,13 +82,14 @@ export async function deleteProjectTreeFolder(params: {
   folderId: string;
   projectId: string;
 }) {
-  const response = await fetch(`/api/projects/${params.projectId}/folders/${params.folderId}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    throw new Error(await readProjectTreeActionError(response, params.errorMessage));
-  }
+  await apiCallOrThrow<null>(
+    `/api/projects/${params.projectId}/folders/${params.folderId}`,
+    {
+      fallbackMessage: params.errorMessage,
+      method: 'DELETE',
+      parseAs: 'void',
+    }
+  );
 }
 
 export async function moveProjectTreeFolder(params: {
@@ -137,13 +122,11 @@ export async function deleteProjectTreeDeliverable(params: {
   errorMessage: string;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}`, {
+  await apiCallOrThrow<null>(`/api/workspaces/${params.workspaceId}`, {
+    fallbackMessage: params.errorMessage,
     method: 'DELETE',
+    parseAs: 'void',
   });
-
-  if (!response.ok) {
-    throw new Error(await readProjectTreeActionError(response, params.errorMessage));
-  }
 }
 
 export async function moveProjectTreeDeliverable(params: {

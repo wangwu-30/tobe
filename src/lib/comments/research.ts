@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@/framework/resilience';
 import type {
   CommentResearchStateData,
   DeepResearchPlanProposalData,
@@ -11,33 +12,32 @@ export function parseCommentResearchState(
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(value) as {
-      progress?: Partial<ResearchProgressData> | null;
-      proposal?: Partial<DeepResearchPlanProposalData> | null;
-      reportFileId?: string | null;
-      reportFileName?: string | null;
-      summary?: string | null;
-      targetAgentId?: string | null;
-      targetAgentLabel?: string | null;
-    };
-
-    return {
-      progress: parseResearchProgress(parsed.progress),
-      proposal: parseResearchPlanProposal(parsed.proposal),
-      reportFileId:
-        typeof parsed.reportFileId === 'string' ? parsed.reportFileId : null,
-      reportFileName:
-        typeof parsed.reportFileName === 'string' ? parsed.reportFileName : null,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : null,
-      targetAgentId:
-        typeof parsed.targetAgentId === 'string' ? parsed.targetAgentId : null,
-      targetAgentLabel:
-        typeof parsed.targetAgentLabel === 'string' ? parsed.targetAgentLabel : null,
-    };
-  } catch {
+  const parsed = safeJsonParse<{
+    progress?: Partial<ResearchProgressData> | null;
+    proposal?: Partial<DeepResearchPlanProposalData> | null;
+    reportFileId?: string | null;
+    reportFileName?: string | null;
+    summary?: string | null;
+    targetAgentId?: string | null;
+    targetAgentLabel?: string | null;
+  } | null>(value, null);
+  if (!parsed) {
     return null;
   }
+
+  return {
+    progress: parseResearchProgress(parsed.progress),
+    proposal: parseResearchPlanProposal(parsed.proposal),
+    reportFileId:
+      typeof parsed.reportFileId === 'string' ? parsed.reportFileId : null,
+    reportFileName:
+      typeof parsed.reportFileName === 'string' ? parsed.reportFileName : null,
+    summary: typeof parsed.summary === 'string' ? parsed.summary : null,
+    targetAgentId:
+      typeof parsed.targetAgentId === 'string' ? parsed.targetAgentId : null,
+    targetAgentLabel:
+      typeof parsed.targetAgentLabel === 'string' ? parsed.targetAgentLabel : null,
+  };
 }
 
 export function stringifyCommentResearchState(value: CommentResearchStateData | null) {

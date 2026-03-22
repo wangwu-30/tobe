@@ -1,4 +1,5 @@
 import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
+import { safeJsonParse } from '@/framework/resilience';
 import type {
   AssistantPlanProposalData,
   DeepResearchPlanProposalData,
@@ -22,27 +23,27 @@ export function parseAssistantRunPayload(raw: string | null | undefined) {
     } satisfies AssistantRunPayload;
   }
 
-  try {
-    const parsed = JSON.parse(raw) as {
-      planProposal?: Partial<AssistantPlanProposalData> | null;
-      researchPlanProposal?: Partial<DeepResearchPlanProposalData> | null;
-      researchProgress?: Partial<ResearchProgressData> | null;
-    };
-    const planProposal = parsePlanProposal(parsed.planProposal);
-    const researchPlanProposal = parseResearchPlanProposal(parsed.researchPlanProposal);
-    const researchProgress = parseResearchProgress(parsed.researchProgress);
-    return {
-      planProposal,
-      researchPlanProposal,
-      researchProgress,
-    } satisfies AssistantRunPayload;
-  } catch {
+  const parsed = safeJsonParse<{
+    planProposal?: Partial<AssistantPlanProposalData> | null;
+    researchPlanProposal?: Partial<DeepResearchPlanProposalData> | null;
+    researchProgress?: Partial<ResearchProgressData> | null;
+  } | null>(raw, null);
+  if (!parsed) {
     return {
       planProposal: null,
       researchPlanProposal: null,
       researchProgress: null,
     } satisfies AssistantRunPayload;
   }
+
+  const planProposal = parsePlanProposal(parsed.planProposal);
+  const researchPlanProposal = parseResearchPlanProposal(parsed.researchPlanProposal);
+  const researchProgress = parseResearchProgress(parsed.researchProgress);
+  return {
+    planProposal,
+    researchPlanProposal,
+    researchProgress,
+  } satisfies AssistantRunPayload;
 }
 
 export function stringifyAssistantRunPayload(payload: AssistantRunPayload) {

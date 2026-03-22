@@ -3,8 +3,10 @@ import {
   getConfiguredOAuthProviders,
   removeOAuthCredentials,
 } from '@/lib/ai/auth-store';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET() {
+
+export const GET = defineRoute(async function GET() {
   const providers = await getConfiguredOAuthProviders();
   const openaiCodex = providers.find(provider => provider.providerId === 'openai-codex');
 
@@ -13,9 +15,9 @@ export async function GET() {
     openaiCodexConfigured: Boolean(openaiCodex),
     savedAt: openaiCodex?.savedAt || null,
   });
-}
+});
 
-export async function DELETE() {
+export const DELETE = defineRoute(async function DELETE() {
   await removeOAuthCredentials('openai-codex');
   const providers = await getConfiguredOAuthProviders();
 
@@ -23,4 +25,4 @@ export async function DELETE() {
     providers,
     removed: true,
   });
-}
+});

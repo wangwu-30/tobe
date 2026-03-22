@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { mapCommentMessage } from '@/objects/comment/view';
+import { defineRoute } from '@/framework/resilience';
 
-export async function PATCH(
+
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> }
 ) {
@@ -55,9 +57,9 @@ export async function PATCH(
   });
 
   return NextResponse.json(mapCommentMessage(message));
-}
+});
 
-export async function DELETE(
+export const DELETE = defineRoute(async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ threadId: string; messageId: string }> }
 ) {
@@ -128,4 +130,4 @@ export async function DELETE(
   });
 
   return NextResponse.json({ deletedThread: false });
-}
+});

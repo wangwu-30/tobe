@@ -1,30 +1,21 @@
 'use client';
 
 import type { WorkspaceVersionData } from '@/types';
-
-async function readVersionActionError(response: Response, fallbackMessage: string) {
-  const payload = await response.json().catch(() => null);
-  return payload?.error || fallbackMessage;
-}
+import { apiCall, apiCallOrThrow } from '@/framework/resilience';
 
 export async function createWorkspaceVersion(params: {
   errorMessage: string;
   title: string;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}/versions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  return apiCallOrThrow<WorkspaceVersionData>(`/api/workspaces/${params.workspaceId}/versions`, {
     body: JSON.stringify({
       title: params.title,
     }),
+    fallbackMessage: params.errorMessage,
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
   });
-
-  if (!response.ok) {
-    throw new Error(await readVersionActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as WorkspaceVersionData;
 }
 
 export async function toggleWorkspaceRecoveryPointPin(params: {
@@ -33,20 +24,15 @@ export async function toggleWorkspaceRecoveryPointPin(params: {
   versionId: string;
   workspaceId: string;
 }) {
-  const response = await fetch(
+  return apiCallOrThrow<WorkspaceVersionData>(
     `/api/workspaces/${params.workspaceId}/versions/${params.versionId}`,
     {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pinned: params.pinned }),
+      fallbackMessage: params.errorMessage,
+      headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
     }
   );
-
-  if (!response.ok) {
-    throw new Error(await readVersionActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as WorkspaceVersionData;
 }
 
 export async function restoreWorkspaceVersion(params: {
@@ -54,41 +40,33 @@ export async function restoreWorkspaceVersion(params: {
   versionId: string;
   workspaceId: string;
 }) {
-  const response = await fetch(
-    `/api/workspaces/${params.workspaceId}/versions/${params.versionId}/restore`,
-    {
-      method: 'POST',
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(await readVersionActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as {
+  return apiCallOrThrow<{
     restoredVersion: WorkspaceVersionData;
-  };
+  }>(`/api/workspaces/${params.workspaceId}/versions/${params.versionId}/restore`, {
+    fallbackMessage: params.errorMessage,
+    method: 'POST',
+  });
 }
 
 export async function branchConversationFromMessage(params: {
   conversationId: string;
   messageId: string;
 }) {
-  const response = await fetch(`/api/conversations/${params.conversationId}/branch`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messageId: params.messageId }),
-  });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json()) as {
+  const result = await apiCall<{
     conversation: {
       id: string;
     };
-  };
+  }>(`/api/conversations/${params.conversationId}/branch`, {
+    body: JSON.stringify({ messageId: params.messageId }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  });
+
+  if (!result.ok) {
+    return null;
+  }
+
+  return result.data;
 }
 
 type WorkspaceVersionConversationActionParams = {
@@ -104,53 +82,37 @@ type WorkspaceVersionConversationActionParams = {
 export async function continueWorkspaceConversationFromVersion(
   params: WorkspaceVersionConversationActionParams
 ) {
-  const response = await fetch(
-    `/api/workspaces/${params.workspaceId}/versions/${params.versionId}/continue`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        activeFileId: params.activeFileId,
-        parentConversationId: params.parentConversationId,
-        safetyCheckpointTitle: params.safetyCheckpointTitle,
-        title: params.title,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(await readVersionActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as {
+  return apiCallOrThrow<{
     baseVersion: WorkspaceVersionData;
     conversation: { id: string };
-  };
+  }>(`/api/workspaces/${params.workspaceId}/versions/${params.versionId}/continue`, {
+    body: JSON.stringify({
+      activeFileId: params.activeFileId,
+      parentConversationId: params.parentConversationId,
+      safetyCheckpointTitle: params.safetyCheckpointTitle,
+      title: params.title,
+    }),
+    fallbackMessage: params.errorMessage,
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  });
 }
 
 export async function switchWorkspaceConversationToVersionBranch(
   params: WorkspaceVersionConversationActionParams
 ) {
-  const response = await fetch(
-    `/api/workspaces/${params.workspaceId}/versions/${params.versionId}/switch`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        activeFileId: params.activeFileId,
-        parentConversationId: params.parentConversationId,
-        safetyCheckpointTitle: params.safetyCheckpointTitle,
-        title: params.title,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(await readVersionActionError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as {
+  return apiCallOrThrow<{
     baseVersion: WorkspaceVersionData;
     conversation: { id: string };
-  };
+  }>(`/api/workspaces/${params.workspaceId}/versions/${params.versionId}/switch`, {
+    body: JSON.stringify({
+      activeFileId: params.activeFileId,
+      parentConversationId: params.parentConversationId,
+      safetyCheckpointTitle: params.safetyCheckpointTitle,
+      title: params.title,
+    }),
+    fallbackMessage: params.errorMessage,
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  });
 }

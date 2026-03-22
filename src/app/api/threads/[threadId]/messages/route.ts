@@ -8,8 +8,10 @@ import { prisma } from '@/lib/db/prisma';
 import { buildCommentMessageAgentState } from '@/objects/comment/agent-bindings';
 import { mapCommentMessage } from '@/objects/comment/view';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
@@ -24,9 +26,9 @@ export async function GET(
     orderBy: { createdAt: 'asc' },
   });
   return NextResponse.json(messages.filter(isVisibleCommentMessage).map(mapCommentMessage));
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
@@ -95,4 +97,4 @@ export async function POST(
   });
 
   return NextResponse.json(mapCommentMessage(message));
-}
+});

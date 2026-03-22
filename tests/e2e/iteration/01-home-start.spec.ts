@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, extractWorkspaceIdFromLocation, primeClientState } from './helpers';
+import {
+  apiRequest,
+  extractWorkspaceIdFromLocation,
+  primeClientState,
+  waitForWorkspaceRoute,
+} from './helpers';
 
 test('home starter exposes built-in workflows and can start from the research workflow', async ({
   page,
@@ -128,13 +133,15 @@ test('home project list summarizes deliverables and opens the latest deliverable
   });
 
   await primeClientState(page);
-  await page.goto('/');
-  await page.waitForResponse(
-    (response) =>
-      /\/api\/project-list(?:\?|$)/.test(response.url()) &&
-      response.request().method() === 'GET',
-    { timeout: 45000 }
-  );
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        /\/api\/project-list(?:\?|$)/.test(response.url()) &&
+        response.request().method() === 'GET',
+      { timeout: 45000 }
+    ),
+    page.goto('/'),
+  ]);
 
   const continueCurrentButton = page.getByTestId(
     `sidebar-project-open-${firstWorkspace.workspace.id}`
@@ -195,13 +202,15 @@ test('home project cards can continue the next deliverable inside the same proje
   });
 
   await primeClientState(page);
-  await page.goto('/');
-  await page.waitForResponse(
-    (response) =>
-      /\/api\/project-list(?:\?|$)/.test(response.url()) &&
-      response.request().method() === 'GET',
-    { timeout: 45000 }
-  );
+  await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        /\/api\/project-list(?:\?|$)/.test(response.url()) &&
+        response.request().method() === 'GET',
+      { timeout: 45000 }
+    ),
+    page.goto('/'),
+  ]);
 
   await page
     .getByTestId(`sidebar-project-create-next-${firstWorkspace.workspace.id}`)
@@ -226,19 +235,15 @@ test('home project cards can continue the next deliverable inside the same proje
     await clarifyAfterNextDeliverable.getByRole('button', { name: /选择|Select/ }).click();
   }
 
-  await expect
-    .poll(() => {
-      const currentUrl = new URL(page.url());
-      return currentUrl.pathname.split('/').pop() || '';
-    })
-    .not.toBe(firstWorkspace.workspace.id);
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get('conversationId') || '')
-    .not.toBe(firstWorkspace.conversation.id);
+  const nextRoute = await waitForWorkspaceRoute(page, {
+    excludeConversationId: firstWorkspace.conversation.id,
+    excludeWorkspaceId: firstWorkspace.workspace.id,
+  });
+  const nextWorkspaceId = nextRoute.workspaceId;
+  const nextConversationId = nextRoute.conversationId;
 
-  const nextUrl = new URL(page.url());
-  const nextWorkspaceId = nextUrl.pathname.split('/').pop() || '';
-  const nextConversationId = nextUrl.searchParams.get('conversationId') || '';
+  expect(nextRoute.pathname).toMatch(/^\/workspace\/[^/]+$/);
+
   const nextView = await getWorkspaceView(baseURL, nextWorkspaceId, nextConversationId);
 
   expect(nextView.currentProject?.id).toBe(firstWorkspace.workspace.id);

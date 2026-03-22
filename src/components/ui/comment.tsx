@@ -61,6 +61,8 @@ import { parseCommentAgentMentions } from '@/lib/comments/agents';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 
 import { Editor, EditorContainer } from './editor';
+import { apiFetch } from '@/framework/resilience';
+
 
 export type TComment = {
   id: string;
@@ -103,7 +105,7 @@ export function Comment(props: {
     isEdited: boolean;
   }) => {
     const content = NodeApi.string({ children: input.contentRich, type: KEYS.p });
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/threads/${input.discussionId}/messages/${input.id}`,
       {
         method: 'PATCH',
@@ -149,7 +151,7 @@ export function Comment(props: {
 
   const onResolveComment = () => {
     void (async () => {
-      const response = await fetch(`/api/threads/${comment.discussionId}`, {
+      const response = await apiFetch(`/api/threads/${comment.discussionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'resolved' }),
@@ -307,7 +309,7 @@ function CommentMoreDropdown(props: {
       return alert('You are operating too quickly, please try again later.');
 
     void (async () => {
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/threads/${comment.discussionId}/messages/${comment.id}`,
         {
           method: 'DELETE',
@@ -438,7 +440,7 @@ export function CommentCreateForm({
 
     if (editorSession?.documentId) {
       if (isReply && discussionId) {
-        const response = await fetch(`/api/threads/${discussionId}/messages`, {
+        const response = await apiFetch(`/api/threads/${discussionId}/messages`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -465,7 +467,7 @@ export function CommentCreateForm({
       }
 
       if (commentsNodeEntry.length > 0) {
-        const response = await fetch('/api/threads', {
+        const response = await apiFetch('/api/threads', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

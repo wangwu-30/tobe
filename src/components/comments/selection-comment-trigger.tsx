@@ -30,6 +30,8 @@ import {
 import { useT } from '@/components/providers/language-provider';
 import { cn } from '@/lib/utils';
 import type { CommentThreadData } from '@/types';
+import { apiFetch } from '@/framework/resilience';
+
 
 type TriggerPosition = {
   left: number;
@@ -211,7 +213,7 @@ export function SelectionCommentTrigger({
       ...editor.getApi(commentPlugin).comment.nodes({ at: [], isDraft: true }),
     ];
     if (draftEntries.length === 0) {
-      setError('Selection expired. Please select the text again.');
+      setError(t('comments.selectionExpired'));
       closeComposer(true);
       return;
     }
@@ -224,7 +226,7 @@ export function SelectionCommentTrigger({
         composerState.anchorText ||
         draftEntries.map(([node]) => node.text).join('').trim();
 
-      const response = await fetch('/api/threads', {
+      const response = await apiFetch('/api/threads', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -260,7 +262,7 @@ export function SelectionCommentTrigger({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create comment thread');
+        throw new Error(t('comments.createFailed'));
       }
 
       const thread = (await response.json()) as CommentThreadData;
@@ -296,7 +298,7 @@ export function SelectionCommentTrigger({
           throw new Error(t('comments.researchNeedsSingleAgent'));
         }
 
-        const researchResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+        const researchResponse = await apiFetch(`/api/threads/${thread.id}/research-plan`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -339,7 +341,7 @@ export function SelectionCommentTrigger({
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add comment');
+      setError(err instanceof Error ? err.message : t('comments.createFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -473,10 +475,9 @@ export function SelectionCommentTrigger({
         >
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold">Comment to AI</p>
+              <p className="text-xs font-semibold">{t('comments.commentToAi')}</p>
               <p className="text-[11px] text-muted-foreground">
-                This request will appear in the sidebar and be sent to AI after
-                you submit.
+                {t('comments.composerDescription')}
               </p>
             </div>
             <Button
@@ -486,7 +487,7 @@ export function SelectionCommentTrigger({
               disabled={isSubmitting || isReplying}
               onClick={() => closeComposer(true)}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
           </div>
 
@@ -508,7 +509,7 @@ export function SelectionCommentTrigger({
               }
             }}
             className="min-h-[92px] resize-none text-sm"
-            placeholder="Tell AI what you want reviewed here..."
+            placeholder={t('comments.commentPlaceholder')}
             rows={4}
           />
 
@@ -552,10 +553,10 @@ export function SelectionCommentTrigger({
                 {isSubmitting
                   ? researchMode === 'deep'
                     ? t('comments.researchPlanning')
-                    : 'Commenting...'
+                    : t('comments.creatingComment')
                   : researchMode === 'deep'
                     ? t('comments.createResearchPlan')
-                    : 'Comment'}
+                    : t('common.comment')}
               </Button>
             </div>
           </div>

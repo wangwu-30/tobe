@@ -195,10 +195,63 @@ export async function primeClientState(
       writable: true,
     });
 
-    window.localStorage.setItem('ai-settings', JSON.stringify(aiSettings));
+    if (!window.localStorage.getItem('ai-settings')) {
+      window.localStorage.setItem('ai-settings', JSON.stringify(aiSettings));
+    }
   }, {
     commentAgents: options?.commentAgents || [],
     isDesktop: options?.isDesktop ?? false,
     projectRoot: options?.projectRoot || resolveIterationProjectsRoot(),
   });
+}
+
+export async function waitForWorkspaceRoute(
+  page: Page,
+  options?: {
+    excludeConversationId?: string;
+    excludeWorkspaceId?: string;
+    timeout?: number;
+  }
+) {
+  await page.waitForFunction(
+    (payload) => {
+      const match = window.location.pathname.match(/^\/workspace\/([^/]+)$/);
+      const conversationId =
+        new URLSearchParams(window.location.search).get('conversationId') || '';
+
+      if (!match || !conversationId) {
+        return false;
+      }
+
+      if (payload.excludeWorkspaceId && match[1] === payload.excludeWorkspaceId) {
+        return false;
+      }
+
+      if (payload.excludeConversationId && conversationId === payload.excludeConversationId) {
+        return false;
+      }
+
+      return true;
+    },
+    {
+      excludeConversationId: options?.excludeConversationId || '',
+      excludeWorkspaceId: options?.excludeWorkspaceId || '',
+    },
+    { timeout: options?.timeout ?? 10000 }
+  );
+
+  const currentUrl = new URL(page.url());
+  const match = currentUrl.pathname.match(/^\/workspace\/([^/]+)$/);
+  const workspaceId = match?.[1] || '';
+  const conversationId = currentUrl.searchParams.get('conversationId') || '';
+
+  if (!workspaceId || !conversationId) {
+    throw new Error(`Expected workspace route, received ${page.url()}`);
+  }
+
+  return {
+    conversationId,
+    pathname: currentUrl.pathname,
+    workspaceId,
+  };
 }

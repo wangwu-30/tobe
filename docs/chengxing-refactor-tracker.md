@@ -15,7 +15,7 @@
 
 ## 已确认决策
 
-- 本 workstream 由通用 skill `program-autopilot` 驱动，不使用 repo 旧的 `chengxing-autopilot` 作为主追踪器。
+- 本 workstream 由通用 skill `program-autopilot` 驱动，不再使用 repo-local autopilot 作为主追踪器。
 - `program-autopilot` 需要支持当前 workstream override、contract docs、tracker bootstrap 和 workstream-local stop gate。
 - 当前重构不是单纯目录搬迁，目标边界是统一 runtime、对象模型、derive 层和 renderAs 扩展缝。
 - Agent 边界按 `Context + ToolKit + Persona + Policy + RenderAdapter` 理解，而不是只按前三项。

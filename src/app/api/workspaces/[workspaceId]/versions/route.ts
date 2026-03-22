@@ -12,8 +12,10 @@ import {
 } from '@/objects/state/queries';
 import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -28,9 +30,9 @@ export async function GET(
   return NextResponse.json(
     scope === 'all' ? versions : versions.filter((version) => version.visible)
   );
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -73,4 +75,4 @@ export async function POST(
 
     throw error;
   }
-}
+});

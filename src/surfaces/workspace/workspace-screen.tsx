@@ -6,6 +6,7 @@ import { AppShell } from '@/components/layout/app-shell';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
 import { SplitView } from '@/components/layout/split-view';
 import { Button } from '@/components/ui/button';
+import { ZoneErrorBoundary } from '@/framework/resilience';
 import { cn } from '@/lib/utils';
 import type { DeliverableType } from '@/types';
 
@@ -60,7 +61,11 @@ export function WorkspaceScreen({
     <AppShell
       actions={actions}
       currentWorkspaceId={workspaceId}
-      renderSidebar={renderSidebar}
+      renderSidebar={(props) => (
+        <ZoneErrorBoundary level="recoverable" zone="workspace-sidebar">
+          {renderSidebar(props)}
+        </ZoneErrorBoundary>
+      )}
       subtitle={subtitle}
       title={title}
       titleNode={titleNode}
@@ -114,9 +119,29 @@ export function WorkspaceScreen({
         <SplitView
           className="flex-1"
           defaultRatio={paneOrder === 'deliverable-left' ? 0.68 : 0.32}
-          left={paneOrder === 'deliverable-left' ? deliverablePanel : assistantRail}
+          left={
+            paneOrder === 'deliverable-left' ? (
+              <ZoneErrorBoundary level="critical" zone="workspace-deliverable">
+                {deliverablePanel}
+              </ZoneErrorBoundary>
+            ) : (
+              <ZoneErrorBoundary level="recoverable" zone="workspace-assistant">
+                {assistantRail}
+              </ZoneErrorBoundary>
+            )
+          }
           resetKey={`${workspaceId}:${paneOrder}:${deliverableType}`}
-          right={paneOrder === 'deliverable-left' ? assistantRail : deliverablePanel}
+          right={
+            paneOrder === 'deliverable-left' ? (
+              <ZoneErrorBoundary level="recoverable" zone="workspace-assistant">
+                {assistantRail}
+              </ZoneErrorBoundary>
+            ) : (
+              <ZoneErrorBoundary level="critical" zone="workspace-deliverable">
+                {deliverablePanel}
+              </ZoneErrorBoundary>
+            )
+          }
         />
       </div>
 

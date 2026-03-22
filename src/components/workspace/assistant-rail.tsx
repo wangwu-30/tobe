@@ -5,6 +5,7 @@ import { BookOpen, MessageSquare, Sparkles, MessagesSquare } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { COMMENT_THREAD_FOCUS_EVENT } from '@/lib/comments/constants';
+import { OPEN_MANUAL_COMMENT_COMPOSER_EVENT } from '@/lib/comments/constants';
 import { cn } from '@/lib/utils';
 import { useT } from '@/components/providers/language-provider';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
@@ -67,8 +68,10 @@ export function AssistantRail({
     };
 
     window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleFocus);
+    window.addEventListener(OPEN_MANUAL_COMMENT_COMPOSER_EVENT, handleFocus);
     return () => {
       window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleFocus);
+      window.removeEventListener(OPEN_MANUAL_COMMENT_COMPOSER_EVENT, handleFocus);
     };
   }, []);
 

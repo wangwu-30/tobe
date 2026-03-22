@@ -41,6 +41,17 @@
 - `RenderAdapter` 负责不同 `renderAs` 的文件 / 预览 / anchor / diff 契约
 - `Action` 的 pending / confirmation / progress 是真实生命周期，不是需要被强行删除的杂质
 
+## 健壮性约束
+
+- 禁止在 `src/` 里裸用 `JSON.parse`；唯一例外是 `src/framework/resilience/safe-data.ts`
+- 禁止在前端非流式调用链里裸用 `fetch`；默认统一走 `framework/resilience/api-client.ts`
+- 禁止在 `src/app/api/**/route.ts` 里直接导出裸 HTTP handler；必须通过 `defineRoute(...)`
+- 允许保留裸 `fetch` 的场景只包括：
+  - assistant runtime 的流式请求
+  - 外部 search provider 请求
+  - preview bridge 的服务端代理
+- 新的运行时防护不要回退成局部补丁；优先扩展 `framework/resilience/`，而不是复制 wrapper/helper
+
 ## 验证约束
 
 - 纯文档或纯 skill 切片可以不跑 `npm run verify:iteration`，但必须在 tracker 的 verification history 里写明原因

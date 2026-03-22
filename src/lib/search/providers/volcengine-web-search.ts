@@ -10,6 +10,7 @@ import {
   type SearchResult,
   VOLCENGINE_WEB_SEARCH_PROVIDER_ID,
 } from '@/lib/search/types';
+import { safeJsonParse } from '@/framework/resilience';
 
 type VolcengineResponsesRequest = {
   model: string;
@@ -347,12 +348,7 @@ async function parseResponseBody(response: Response) {
   }
 
   const text = await response.text();
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { error: text };
-  }
+  return safeJsonParse<Record<string, unknown>>(text, { error: text });
 }
 
 function getErrorMessage(payload: unknown, status: number) {

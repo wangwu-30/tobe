@@ -8,8 +8,10 @@ import {
   applyStagedChangeSet,
   discardStagedChangeSet,
 } from '@/lib/workspace/staged-changes';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ changeSetId: string; workspaceId: string }> }
 ) {
@@ -30,9 +32,9 @@ export async function GET(
   }
 
   return NextResponse.json(mapStagedChangeSet(changeSet));
-}
+});
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ changeSetId: string; workspaceId: string }> }
 ) {
@@ -83,4 +85,4 @@ export async function PATCH(
 
     throw error;
   }
-}
+});

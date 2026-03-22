@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@/framework/resilience';
 import type { ReviewAnchorData, ReviewAnchorPointData } from '@/types';
 
 export type DocumentSelectionRangeData = {
@@ -153,13 +154,7 @@ function resolvePlateRange(content: string, range: DocumentSelectionRangeData) {
     return null;
   }
 
-  let parsedValue: unknown;
-  try {
-    parsedValue = JSON.parse(content);
-  } catch {
-    return null;
-  }
-
+  const parsedValue = safeJsonParse<unknown>(content, null);
   if (!Array.isArray(parsedValue)) {
     return null;
   }

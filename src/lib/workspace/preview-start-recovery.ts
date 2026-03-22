@@ -1,3 +1,5 @@
+import { safeJsonParse } from '@/framework/resilience';
+
 const PREVIEW_START_RECOVERY_STORAGE_KEY = 'dao-preview-start-recovery';
 const PREVIEW_START_RECOVERY_MAX_AGE_MS = 30_000;
 
@@ -12,39 +14,17 @@ export function loadPendingPreviewStart(workspaceId: string) {
     return null;
   }
 
-  try {
-    const raw = window.sessionStorage.getItem(PREVIEW_START_RECOVERY_STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PreviewStartRecovery> | null;
-    if (
-      !parsed ||
-      parsed.workspaceId !== workspaceId ||
-      typeof parsed.requestedAt !== 'number' ||
-      (parsed.versionId !== null &&
-        parsed.versionId !== undefined &&
-        typeof parsed.versionId !== 'string')
-    ) {
-      clearPendingPreviewStart(workspaceId);
-      return null;
-    }
-
-    if (Date.now() - parsed.requestedAt > PREVIEW_START_RECOVERY_MAX_AGE_MS) {
-      clearPendingPreviewStart(workspaceId);
-      return null;
-    }
-
-    return {
-      requestedAt: parsed.requestedAt,
-      versionId: typeof parsed.versionId === 'string' ? parsed.versionId : null,
-      workspaceId: parsed.workspaceId,
-    } satisfies PreviewStartRecovery;
-  } catch {
+  const parsed = readPreviewStartRecoveryRecord();
+  if (
+    !parsed ||
+    parsed.workspaceId !== workspaceId ||
+    Date.now() - parsed.requestedAt > PREVIEW_START_RECOVERY_MAX_AGE_MS
+  ) {
     clearPendingPreviewStart(workspaceId);
     return null;
   }
+
+  return parsed;
 }
 
 export function persistPendingPreviewStart(input: {
@@ -70,17 +50,33 @@ export function clearPendingPreviewStart(workspaceId: string) {
     return;
   }
 
-  try {
-    const raw = window.sessionStorage.getItem(PREVIEW_START_RECOVERY_STORAGE_KEY);
-    if (!raw) {
-      return;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<PreviewStartRecovery> | null;
-    if (!parsed || parsed.workspaceId === workspaceId) {
-      window.sessionStorage.removeItem(PREVIEW_START_RECOVERY_STORAGE_KEY);
-    }
-  } catch {
+  const parsed = readPreviewStartRecoveryRecord();
+  if (!parsed || parsed.workspaceId === workspaceId) {
     window.sessionStorage.removeItem(PREVIEW_START_RECOVERY_STORAGE_KEY);
   }
+}
+
+function readPreviewStartRecoveryRecord(): PreviewStartRecovery | null {
+  const raw = window.sessionStorage.getItem(PREVIEW_START_RECOVERY_STORAGE_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  const parsed = safeJsonParse<Partial<PreviewStartRecovery> | null>(raw, null);
+  if (
+    !parsed ||
+    typeof parsed.workspaceId !== 'string' ||
+    typeof parsed.requestedAt !== 'number' ||
+    (parsed.versionId !== null &&
+      parsed.versionId !== undefined &&
+      typeof parsed.versionId !== 'string')
+  ) {
+    return null;
+  }
+
+  return {
+    requestedAt: parsed.requestedAt,
+    versionId: typeof parsed.versionId === 'string' ? parsed.versionId : null,
+    workspaceId: parsed.workspaceId,
+  };
 }

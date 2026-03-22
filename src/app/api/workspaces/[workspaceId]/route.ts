@@ -12,8 +12,10 @@ import {
   getWorkspaceView,
   updateWorkspace,
 } from '@/lib/workspace/service';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -39,9 +41,9 @@ export async function GET(
   }
 
   return NextResponse.json(view);
-}
+});
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -94,9 +96,9 @@ export async function PATCH(
 
     throw error;
   }
-}
+});
 
-export async function DELETE(
+export const DELETE = defineRoute(async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -370,4 +372,4 @@ export async function DELETE(
   ]);
 
   return NextResponse.json({ ok: true });
-}
+});

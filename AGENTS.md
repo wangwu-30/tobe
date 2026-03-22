@@ -4,13 +4,13 @@
 
 - `dao-change-briefs`: Standardize architecture, product, design, and implementation decision writeups. Use for tradeoff explanations, change proposals, future decision reports, and “what do you mean by X” clarification. Responses should be organized as `现状 / 目标 / 差距 / 执行计划 / 验收标准`. (file: `/Users/wangwu/claude/chat-to-your-mind/skills/dao-change-briefs/SKILL.md`)
 - `dao-design-principles`: Apply Dao Ke Dao product and UI design principles when working on navigation, information architecture, layout density, interaction feedback, or frontend cleanup. (file: `/Users/wangwu/claude/chat-to-your-mind/skills/dao-design-principles/SKILL.md`)
-- `chengxing-autopilot`: Drive long-running execution in this repo with plan-first discipline. Use when asked to continue autonomously, finish remaining repo goals, clear items from `PLAN_1.md` / `PLAN_2.md`, or keep iterating until the current in-scope 成形 tasks are actually done. (file: `/Users/wangwu/claude/chat-to-your-mind/skills/chengxing-autopilot/SKILL.md`)
+- `program-autopilot`: Drive long-running repo execution as a program instead of isolated patches. Use when asked to continue autonomously, keep iterating across bounded slices, finish remaining repo goals, or run an explicitly activated workstream until its active goals are truly done. (file: `/Users/wangwu/.codex/skills/program-autopilot/SKILL.md`)
 
 ### How to use skills
 
 - If a request is about architecture direction, tradeoff explanation, change proposals, decision summaries, or future implementation/design decisions, use `dao-change-briefs`.
 - If a request is about product design, UI cleanup, navigation, layout consistency, interaction behavior, or simplifying a page while preserving capability, use `dao-design-principles`.
-- If a request is about continuing execution autonomously, finishing remaining project plan items, or iterating in this repo until all current scoped goals are closed, use `chengxing-autopilot`.
+- If a request is about continuing execution autonomously, finishing remaining project plan items, or iterating in this repo until all current scoped goals are closed, use `program-autopilot`.
 - Read only the skill file and the specific reference files it points to when needed.
 
 ## Iteration Gate

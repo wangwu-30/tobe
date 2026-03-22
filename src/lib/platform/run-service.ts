@@ -4,6 +4,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { prisma } from '@/lib/db/prisma';
+import { safeJsonParse } from '@/framework/resilience';
 import { getPlatformPaths } from '@/lib/platform/paths';
 import {
   materializeWorkspaceMirror,
@@ -341,13 +342,12 @@ async function detectPreviewTarget(mirrorDir: string) {
   const packageJsonPath = path.join(mirrorDir, 'package.json');
   if (await pathExists(packageJsonPath)) {
     try {
-      const packageJson = JSON.parse(
-        await fsPromises.readFile(packageJsonPath, 'utf8')
-      ) as {
-        scripts?: Record<string, string>;
-      };
+      const packageJson = safeJsonParse<{ scripts?: Record<string, string> } | null>(
+        await fsPromises.readFile(packageJsonPath, 'utf8'),
+        null
+      );
 
-      if (packageJson.scripts?.dev) {
+      if (packageJson?.scripts?.dev) {
         return {
           command: 'npm run dev',
         };

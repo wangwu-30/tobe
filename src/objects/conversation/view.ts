@@ -1,3 +1,4 @@
+import { safeJsonParse } from '@/framework/resilience';
 import { parseAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
 import { mapWorkspace } from '@/objects/workspace/view';
 import type {
@@ -296,17 +297,13 @@ function buildAttachmentPreviewUrl(
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(storedContent) as SupportFileEnvelope;
-    if (parsed.kind !== 'binary' || parsed.encoding !== 'base64' || !parsed.base64) {
-      return null;
-    }
-
-    const resolvedMimeType = mimeType || parsed.mimeType || 'application/octet-stream';
-    return `data:${resolvedMimeType};base64,${parsed.base64}`;
-  } catch {
+  const parsed = safeJsonParse<SupportFileEnvelope | null>(storedContent, null);
+  if (!parsed || parsed.kind !== 'binary' || parsed.encoding !== 'base64' || !parsed.base64) {
     return null;
   }
+
+  const resolvedMimeType = mimeType || parsed.mimeType || 'application/octet-stream';
+  return `data:${resolvedMimeType};base64,${parsed.base64}`;
 }
 
 function normalizeAttachmentKind(kind?: string | null): ChatAttachmentData['kind'] {

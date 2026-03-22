@@ -1,17 +1,15 @@
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import type { WorkspacePlanData } from '@/types';
-
-async function readWorkspacePlanError(response: Response, fallbackMessage: string) {
-  const payload = await response.json().catch(() => null);
-  return payload?.error || fallbackMessage;
-}
+import { apiCallOrThrow } from '@/framework/resilience';
 
 export async function generateWorkspacePlan(workspaceId: string) {
-  return fetch(`/api/workspaces/${workspaceId}/plan/generate`, {
-    method: 'POST',
+  await apiCallOrThrow<null>(`/api/workspaces/${workspaceId}/plan/generate`, {
+    fallbackMessage: 'Could not generate the workspace plan.',
     headers: {
       ...getStoredAISettingsHeader(),
     },
+    method: 'POST',
+    parseAs: 'void',
   });
 }
 
@@ -20,19 +18,14 @@ export async function updateWorkspacePlanActiveWorkflow(params: {
   workflowPlaybookId: string | null;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}/plan`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  return apiCallOrThrow<WorkspacePlanData>(`/api/workspaces/${params.workspaceId}/plan`, {
     body: JSON.stringify({
       activeWorkflowPlaybookId: params.workflowPlaybookId,
     }),
+    fallbackMessage: params.errorMessage,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'PATCH',
   });
-
-  if (!response.ok) {
-    throw new Error(await readWorkspacePlanError(response, params.errorMessage));
-  }
-
-  return (await response.json()) as WorkspacePlanData;
 }

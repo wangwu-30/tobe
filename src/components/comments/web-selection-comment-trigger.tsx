@@ -10,6 +10,8 @@ import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { resolveSingleResearchTarget } from '@/lib/comments/agents';
 import { useT } from '@/components/providers/language-provider';
 import type { CommentThreadData } from '@/types';
+import { apiFetch } from '@/framework/resilience';
+
 import {
   OPEN_SELECTION_COMMENT_COMPOSER_EVENT,
   requestCommentThreadFocus,
@@ -119,7 +121,7 @@ export function WebSelectionCommentTrigger({
     setError(null);
 
     try {
-      const response = await fetch('/api/threads', {
+      const response = await apiFetch('/api/threads', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -152,7 +154,7 @@ export function WebSelectionCommentTrigger({
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create thread.');
+        throw new Error(t('comments.createFailed'));
       }
 
       const thread = (await response.json()) as CommentThreadData;
@@ -169,7 +171,7 @@ export function WebSelectionCommentTrigger({
           throw new Error(t('comments.researchNeedsSingleAgent'));
         }
 
-        const researchResponse = await fetch(`/api/threads/${thread.id}/research-plan`, {
+        const researchResponse = await apiFetch(`/api/threads/${thread.id}/research-plan`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -215,7 +217,7 @@ export function WebSelectionCommentTrigger({
 
       closeComposer();
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Failed to create thread.');
+      setError(nextError instanceof Error ? nextError.message : t('comments.createFailed'));
     } finally {
       setIsSubmitting(false);
     }
@@ -286,6 +288,15 @@ export function WebSelectionCommentTrigger({
         setSelectionAvailable(false);
         readinessTimeoutRef.current = null;
       }, 1200);
+      window.setTimeout(() => {
+        iframe.contentWindow?.postMessage(
+          {
+            channel: WEB_PREVIEW_BRIDGE_CHANNEL,
+            type: 'handshake',
+          },
+          '*'
+        );
+      }, 0);
     };
 
     iframe.addEventListener('load', handleLoad);
@@ -360,7 +371,7 @@ export function WebSelectionCommentTrigger({
             onClick={openComposer}
           >
             <MessageSquarePlus className="h-3.5 w-3.5" />
-            评论
+            {t('common.comment')}
           </Button>
         </div>
       ) : null}
@@ -384,7 +395,7 @@ export function WebSelectionCommentTrigger({
             ref={textareaRef}
             value={commentText}
             onChange={setCommentText}
-            placeholder="让 AI 调整这里的页面表现……"
+            placeholder={t('comments.commentPlaceholder')}
             className="min-h-[96px]"
           />
           <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
@@ -410,7 +421,7 @@ export function WebSelectionCommentTrigger({
                 : t('comments.deepResearch')}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={closeComposer}>
-              取消
+              {t('common.cancel')}
             </Button>
             <Button
               type="button"
@@ -421,10 +432,10 @@ export function WebSelectionCommentTrigger({
               {isSubmitting
                 ? researchMode === 'deep'
                   ? t('comments.researchPlanning')
-                  : '提交中…'
+                  : t('comments.creatingComment')
                 : researchMode === 'deep'
                   ? t('comments.createResearchPlan')
-                  : '提交评论'}
+                  : t('common.comment')}
             </Button>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
 import { buildPlanLanguageInstruction } from '@/lib/ai/language';
 import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
+import { safeJsonParse } from '@/framework/resilience';
 import type { Settings } from '@/lib/ai/providers';
 import { getCanonicalDeliverableType } from '@/lib/workspace/deliverable-types';
 import { getWorkspacePlanBlueprint } from '@/lib/workspace/plan-blueprints';
@@ -71,18 +72,19 @@ function parsePlanStepsResponse(
   raw: string,
   blueprint: Array<{ checkpoint: boolean; id: string }>
 ) {
-  const parsed = JSON.parse(stripJsonFences(raw)) as {
+  const parsed = safeJsonParse<{
     steps?: Array<Record<string, unknown>>;
-  };
+  } | null>(stripJsonFences(raw), null);
 
-  if (!Array.isArray(parsed.steps)) {
+  const steps = parsed?.steps;
+  if (!Array.isArray(steps)) {
     throw new Error('Plan generator did not return a steps array.');
   }
 
   const normalized = blueprint.map((stage, index) => {
     const matching =
-      parsed.steps?.find((step) => step?.id === stage.id) ||
-      parsed.steps?.[index] ||
+      steps.find((step) => step?.id === stage.id) ||
+      steps[index] ||
       null;
 
     return {

@@ -584,12 +584,22 @@ test('branch overview can focus the milestone list on a single branch lineage', 
   await expect(branchHistoryDialog.getByTestId('version-branch-focus-banner')).toContainText(
     '版本里程碑 V2'
   );
+  await expect(branchHistoryDialog.getByTestId('version-branch-workspace')).toBeVisible();
+  await expect(branchHistoryDialog.getByTestId('version-branch-workspace-stats')).toContainText(
+    /1|Temporary|临时/
+  );
   await expect(
     branchHistoryDialog.getByTestId(`version-history-card-${workspace.versionId}`)
   ).toBeVisible();
   await expect(
     branchHistoryDialog.getByTestId(`version-history-card-${workspace.secondVersionId!}`)
   ).toBeVisible();
+  await expect(
+    branchHistoryDialog.getByTestId(`version-branch-workspace-section-${workspace.secondVersionId!}`)
+  ).toContainText(/继续前安全回退点|Safety Checkpoint before Continue/);
+  await expect(
+    branchHistoryDialog.getByTestId(`version-branch-workspace-section-${workspace.versionId}`)
+  ).not.toContainText(/继续前安全回退点|Safety Checkpoint before Continue/);
   await expect(
     branchHistoryDialog
       .locator('[data-testid^="version-history-card-"]')

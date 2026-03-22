@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConfiguredOAuthProviders } from '@/lib/ai/auth-store';
 import { getModelCatalog, getSettingsFromHeaders } from '@/lib/ai/providers';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(req: NextRequest) {
+
+export const GET = defineRoute(async function GET(req: NextRequest) {
   const settings = getSettingsFromHeaders(req.headers);
   const oauthProviders = await getConfiguredOAuthProviders();
   const modelCatalog = getModelCatalog({
@@ -11,4 +13,4 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(modelCatalog);
-}
+});

@@ -4,8 +4,10 @@ import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { updateAssistantRun } from '@/objects/conversation/commands';
 import { parseAssistantRunPayload, stringifyAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
 import { updateWorkspacePlan } from '@/lib/workspace/planning';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ runId: string; workspaceId: string }> }
 ) {
@@ -80,4 +82,4 @@ export async function POST(
     run: updatedRun,
     shouldContinue: action === 'apply',
   });
-}
+});

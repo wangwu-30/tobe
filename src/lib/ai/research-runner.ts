@@ -1,5 +1,6 @@
 import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
 import { markdownToPlate } from '@/lib/ai/serializer';
+import { safeJsonParse } from '@/framework/resilience';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider, SearchCitation, SearchResult } from '@/lib/search/types';
 import {
@@ -82,35 +83,14 @@ export async function generateDeepResearchPlan(params: {
   });
 
   const fallbackTitle = params.message.trim().slice(0, 40) || '研究计划';
-  try {
-    const parsed = JSON.parse(stripJsonFences(extractTextContent(response))) as {
-      allowedDomains?: unknown;
-      reportOutline?: unknown;
-      subquestions?: unknown;
-      summary?: unknown;
-      title?: unknown;
-    };
-    return {
-      status: 'pending' as const,
-      title:
-        typeof parsed.title === 'string' && parsed.title.trim()
-          ? parsed.title.trim()
-          : fallbackTitle,
-      query: params.message.trim(),
-      summary:
-        typeof parsed.summary === 'string' && parsed.summary.trim()
-          ? parsed.summary.trim()
-          : `围绕“${fallbackTitle}”整理公开网页与当前工作区中的关键信息。`,
-      subquestions: parseStringList(parsed.subquestions, 5),
-      reportOutline: parseStringList(parsed.reportOutline, 6),
-      allowedDomains: parseStringList(parsed.allowedDomains, 8),
-      sourceScope: {
-        attachments: params.sourceScope?.attachments !== false,
-        web: params.sourceScope?.web !== false,
-        workspace: params.sourceScope?.workspace !== false,
-      },
-    } satisfies DeepResearchPlanProposalData;
-  } catch {
+  const parsedProposal = safeJsonParse<{
+    allowedDomains?: unknown;
+    reportOutline?: unknown;
+    subquestions?: unknown;
+    summary?: unknown;
+    title?: unknown;
+  } | null>(stripJsonFences(extractTextContent(response)), null);
+  if (!parsedProposal) {
     return {
       status: 'pending',
       title: fallbackTitle,
@@ -126,6 +106,27 @@ export async function generateDeepResearchPlan(params: {
       },
     };
   }
+
+  return {
+    status: 'pending' as const,
+    title:
+      typeof parsedProposal.title === 'string' && parsedProposal.title.trim()
+        ? parsedProposal.title.trim()
+        : fallbackTitle,
+    query: params.message.trim(),
+    summary:
+      typeof parsedProposal.summary === 'string' && parsedProposal.summary.trim()
+        ? parsedProposal.summary.trim()
+        : `围绕“${fallbackTitle}”整理公开网页与当前工作区中的关键信息。`,
+    subquestions: parseStringList(parsedProposal.subquestions, 5),
+    reportOutline: parseStringList(parsedProposal.reportOutline, 6),
+    allowedDomains: parseStringList(parsedProposal.allowedDomains, 8),
+    sourceScope: {
+      attachments: params.sourceScope?.attachments !== false,
+      web: params.sourceScope?.web !== false,
+      workspace: params.sourceScope?.workspace !== false,
+    },
+  } satisfies DeepResearchPlanProposalData;
 }
 
 export async function executeDeepResearch(params: {
@@ -328,26 +329,25 @@ async function analyzeResearchGaps(params: {
     },
   });
 
-  try {
-    const parsed = JSON.parse(stripJsonFences(extractTextContent(response))) as {
-      followUpQueries?: unknown;
-      gapSummary?: unknown;
-    };
-    return {
-      followUpQueries: Array.isArray(parsed.followUpQueries)
-        ? parsed.followUpQueries
-            .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-            .filter(Boolean)
-        : [],
-      gapSummary:
-        typeof parsed.gapSummary === 'string' ? parsed.gapSummary.trim() : '',
-    };
-  } catch {
+  const parsedGap = safeJsonParse<{
+    followUpQueries?: unknown;
+    gapSummary?: unknown;
+  } | null>(stripJsonFences(extractTextContent(response)), null);
+  if (!parsedGap) {
     return {
       followUpQueries: [],
       gapSummary: '',
     };
   }
+
+  return {
+    followUpQueries: Array.isArray(parsedGap.followUpQueries)
+      ? parsedGap.followUpQueries
+          .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+          .filter(Boolean)
+      : [],
+    gapSummary: typeof parsedGap.gapSummary === 'string' ? parsedGap.gapSummary.trim() : '',
+  };
 }
 
 async function synthesizeResearchReport(params: {
@@ -396,34 +396,13 @@ async function synthesizeResearchReport(params: {
     },
   });
 
-  try {
-    const parsed = JSON.parse(stripJsonFences(extractTextContent(response))) as {
-      executiveSummary?: unknown;
-      keyFindings?: unknown;
-      reportMarkdown?: unknown;
-      reportTitle?: unknown;
-    };
-    const reportMarkdown =
-      typeof parsed.reportMarkdown === 'string' && parsed.reportMarkdown.trim()
-        ? parsed.reportMarkdown.trim()
-        : buildFallbackReport(params.proposal, params.results);
-    return {
-      reportTitle:
-        typeof parsed.reportTitle === 'string' && parsed.reportTitle.trim()
-          ? parsed.reportTitle.trim()
-          : params.proposal.title,
-      executiveSummary:
-        typeof parsed.executiveSummary === 'string' && parsed.executiveSummary.trim()
-          ? parsed.executiveSummary.trim()
-          : params.proposal.summary,
-      keyFindings: Array.isArray(parsed.keyFindings)
-        ? parsed.keyFindings
-            .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-            .filter(Boolean)
-        : [],
-      reportMarkdown,
-    };
-  } catch {
+  const parsedReport = safeJsonParse<{
+    executiveSummary?: unknown;
+    keyFindings?: unknown;
+    reportMarkdown?: unknown;
+    reportTitle?: unknown;
+  } | null>(stripJsonFences(extractTextContent(response)), null);
+  if (!parsedReport) {
     return {
       reportTitle: params.proposal.title,
       executiveSummary: params.proposal.summary,
@@ -431,6 +410,27 @@ async function synthesizeResearchReport(params: {
       reportMarkdown: buildFallbackReport(params.proposal, params.results),
     };
   }
+
+  const reportMarkdown =
+    typeof parsedReport.reportMarkdown === 'string' && parsedReport.reportMarkdown.trim()
+      ? parsedReport.reportMarkdown.trim()
+      : buildFallbackReport(params.proposal, params.results);
+  return {
+    reportTitle:
+      typeof parsedReport.reportTitle === 'string' && parsedReport.reportTitle.trim()
+        ? parsedReport.reportTitle.trim()
+        : params.proposal.title,
+    executiveSummary:
+      typeof parsedReport.executiveSummary === 'string' && parsedReport.executiveSummary.trim()
+        ? parsedReport.executiveSummary.trim()
+        : params.proposal.summary,
+    keyFindings: Array.isArray(parsedReport.keyFindings)
+      ? parsedReport.keyFindings
+          .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+          .filter(Boolean)
+      : [],
+    reportMarkdown,
+  };
 }
 
 async function writeResearchReportFile(params: {

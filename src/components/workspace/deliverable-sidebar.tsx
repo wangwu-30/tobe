@@ -61,6 +61,8 @@ import type { ProjectFolderItem } from '@/types';
 import type { ProjectSummaryData } from '@/types';
 import type { WorkspaceFileData } from '@/types';
 import type { WorkspaceVersionFileData } from '@/types';
+import { apiFetch } from '@/framework/resilience';
+
 
 export type DeliverableOutlineItem = {
   active?: boolean;
@@ -288,7 +290,7 @@ export function DeliverableSidebar({
   const loadProjects = React.useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await fetch('/api/project-list');
+      const res = await apiFetch('/api/project-list');
       if (!res.ok) {
         return;
       }
@@ -313,7 +315,7 @@ export function DeliverableSidebar({
       if (onDeleteWorkspace) {
         await onDeleteWorkspace(projectId);
       } else {
-        const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' });
+        const response = await apiFetch(`/api/projects/${projectId}`, { method: 'DELETE' });
         if (!response.ok) {
           return;
         }
@@ -426,7 +428,7 @@ export function DeliverableSidebar({
         if (onRenameWorkspace) {
           await onRenameWorkspace(renameWorkspaceId, nextTitle);
         } else {
-          const response = await fetch(`/api/projects/${renameWorkspaceId}`, {
+          const response = await apiFetch(`/api/projects/${renameWorkspaceId}`, {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -844,7 +846,7 @@ export function DeliverableSidebar({
         if (onRenameSupportFile) {
           await onRenameSupportFile(renameSupportFileId, nextName);
         } else if (currentWorkspaceId) {
-          const response = await fetch(
+          const response = await apiFetch(
             `/api/workspaces/${currentWorkspaceId}/files/${renameSupportFileId}`,
             {
               method: 'PATCH',
@@ -895,7 +897,7 @@ export function DeliverableSidebar({
         return;
       }
 
-      await fetch(`/api/workspaces/${currentWorkspaceId}/files/${fileId}`, {
+      await apiFetch(`/api/workspaces/${currentWorkspaceId}/files/${fileId}`, {
         method: 'DELETE',
       });
     },

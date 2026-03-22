@@ -1,42 +1,32 @@
 'use client';
 
-async function readProjectActionError(response: Response, fallbackMessage: string) {
-  const payload = await response.json().catch(() => null);
-  return payload?.error || fallbackMessage;
-}
+import { apiCallOrThrow } from '@/framework/resilience';
 
 export async function renameWorkspaceProject(params: {
   errorMessage: string;
   projectId: string;
   title: string;
 }) {
-  const response = await fetch(`/api/projects/${params.projectId}`, {
-    method: 'PATCH',
+  return apiCallOrThrow<{
+    id: string;
+    title: string;
+  } | null>(`/api/projects/${params.projectId}`, {
+    body: JSON.stringify({ title: params.title }),
+    fallbackMessage: params.errorMessage,
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ title: params.title }),
+    method: 'PATCH',
   });
-
-  if (!response.ok) {
-    throw new Error(await readProjectActionError(response, params.errorMessage));
-  }
-
-  return (await response.json().catch(() => null)) as {
-    id: string;
-    title: string;
-  } | null;
 }
 
 export async function deleteWorkspaceProject(params: {
   errorMessage: string;
   projectId: string;
 }) {
-  const response = await fetch(`/api/projects/${params.projectId}`, {
+  await apiCallOrThrow<null>(`/api/projects/${params.projectId}`, {
+    fallbackMessage: params.errorMessage,
     method: 'DELETE',
+    parseAs: 'void',
   });
-
-  if (!response.ok) {
-    throw new Error(await readProjectActionError(response, params.errorMessage));
-  }
 }

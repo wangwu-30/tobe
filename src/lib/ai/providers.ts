@@ -1,5 +1,6 @@
 import { getModel as getPiModel, getModels, getProviders } from '@mariozechner/pi-ai';
 import type { Api, Model as PiModel, Provider as PiProvider } from '@mariozechner/pi-ai';
+import { safeJsonParse } from '@/framework/resilience';
 import { normalizeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { translate } from '@/lib/i18n/copy';
 import { normalizeCommentAgents } from '@/lib/comments/agents';
@@ -185,20 +186,19 @@ export function getSettingsFromHeaders(headers: Headers): Settings {
     };
   }
 
-  try {
-    return normalizeSettings(JSON.parse(settingsHeader));
-  } catch {
-    try {
-      return normalizeSettings(JSON.parse(decodeURIComponent(settingsHeader)));
-    } catch {
-      return {
-        defaultModel: DEFAULT_MODEL_KEY,
-        language: normalizeAppLanguage(),
-        commentAgents: normalizeCommentAgents([], normalizeAppLanguage()),
-        providerApiKeys: {},
-      };
-    }
+  const parsed =
+    safeJsonParse<unknown>(settingsHeader, null) ??
+    safeJsonParse<unknown>(decodeURIComponent(settingsHeader), null);
+  if (parsed !== null) {
+    return normalizeSettings(parsed);
   }
+
+  return {
+    defaultModel: DEFAULT_MODEL_KEY,
+    language: normalizeAppLanguage(),
+    commentAgents: normalizeCommentAgents([], normalizeAppLanguage()),
+    providerApiKeys: {},
+  };
 }
 
 export function normalizeSettings(input: unknown): Settings {

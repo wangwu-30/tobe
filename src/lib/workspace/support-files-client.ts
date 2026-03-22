@@ -1,9 +1,6 @@
 'use client';
 
-async function readSupportFileActionError(response: Response, fallbackMessage: string) {
-  const payload = await response.json().catch(() => null);
-  return payload?.error || fallbackMessage;
-}
+import { apiCallOrThrow } from '@/framework/resilience';
 
 export async function createWorkspaceSupportNode(params: {
   errorMessage: string;
@@ -13,11 +10,7 @@ export async function createWorkspaceSupportNode(params: {
   parentId?: string | null;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}/files`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  return apiCallOrThrow<{ id: string }>(`/api/workspaces/${params.workspaceId}/files`, {
     body: JSON.stringify({
       kind: params.kind,
       name: params.name,
@@ -25,14 +18,12 @@ export async function createWorkspaceSupportNode(params: {
       parentId: params.parentId,
       role: 'support',
     }),
+    fallbackMessage: params.errorMessage,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'POST',
   });
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok || !payload?.id) {
-    throw new Error(payload?.error || params.errorMessage);
-  }
-
-  return payload as { id: string };
 }
 
 export async function deleteWorkspaceSupportFile(params: {
@@ -40,13 +31,11 @@ export async function deleteWorkspaceSupportFile(params: {
   fileId: string;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}/files/${params.fileId}`, {
+  await apiCallOrThrow<null>(`/api/workspaces/${params.workspaceId}/files/${params.fileId}`, {
+    fallbackMessage: params.errorMessage,
     method: 'DELETE',
+    parseAs: 'void',
   });
-
-  if (!response.ok) {
-    throw new Error(await readSupportFileActionError(response, params.errorMessage));
-  }
 }
 
 export async function renameWorkspaceSupportFile(params: {
@@ -55,17 +44,15 @@ export async function renameWorkspaceSupportFile(params: {
   name: string;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}/files/${params.fileId}`, {
-    method: 'PATCH',
+  await apiCallOrThrow<null>(`/api/workspaces/${params.workspaceId}/files/${params.fileId}`, {
+    body: JSON.stringify({ name: params.name }),
+    fallbackMessage: params.errorMessage,
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ name: params.name }),
+    method: 'PATCH',
+    parseAs: 'void',
   });
-
-  if (!response.ok) {
-    throw new Error(await readSupportFileActionError(response, params.errorMessage));
-  }
 }
 
 export async function moveWorkspaceSupportFile(params: {
@@ -75,18 +62,16 @@ export async function moveWorkspaceSupportFile(params: {
   sortOrder?: number;
   workspaceId: string;
 }) {
-  const response = await fetch(`/api/workspaces/${params.workspaceId}/files/${params.fileId}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  await apiCallOrThrow<null>(`/api/workspaces/${params.workspaceId}/files/${params.fileId}`, {
     body: JSON.stringify({
       parentId: params.parentId,
       sortOrder: params.sortOrder,
     }),
+    fallbackMessage: params.errorMessage,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    method: 'PATCH',
+    parseAs: 'void',
   });
-
-  if (!response.ok) {
-    throw new Error(await readSupportFileActionError(response, params.errorMessage));
-  }
 }

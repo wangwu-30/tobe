@@ -17,6 +17,10 @@ export type WebPreviewAnchorPayloadData = {
 export type WebPreviewBridgeMessage =
   | {
       channel: typeof WEB_PREVIEW_BRIDGE_CHANNEL;
+      type: 'handshake';
+    }
+  | {
+      channel: typeof WEB_PREVIEW_BRIDGE_CHANNEL;
       type: 'ready';
     }
   | {
@@ -54,16 +58,33 @@ export function buildPreviewBridgeUrl(params: {
 
 export function injectPreviewBridgeIntoHtml(html: string) {
   const scriptTag = `<script>${buildPreviewBridgeScript()}</script>`;
+  const normalizedHtml = ensureHtmlShell(html);
 
-  if (html.includes('</body>')) {
-    return html.replace('</body>', `${scriptTag}</body>`);
+  if (normalizedHtml.includes('</body>')) {
+    return normalizedHtml.replace('</body>', `${scriptTag}</body>`);
   }
 
-  if (html.includes('</head>')) {
-    return html.replace('</head>', `${scriptTag}</head>`);
+  if (normalizedHtml.includes('</head>')) {
+    return normalizedHtml.replace('</head>', `${scriptTag}</head>`);
   }
 
-  return `${html}\n${scriptTag}`;
+  return `${normalizedHtml}\n${scriptTag}`;
+}
+
+function ensureHtmlShell(html: string) {
+  const trimmed = html.trim();
+  if (trimmed.includes('<html') && (trimmed.includes('</head>') || trimmed.includes('</body>'))) {
+    return html;
+  }
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>${html}</body>
+</html>`;
 }
 
 function buildPreviewBridgeScript() {
@@ -290,7 +311,17 @@ function buildPreviewBridgeScript() {
 
   window.addEventListener('message', (event) => {
     const data = event.data;
-    if (!data || data.channel !== CHANNEL || data.type !== 'focus') {
+    if (!data || data.channel !== CHANNEL) {
+      return;
+    }
+
+    if (data.type === 'handshake') {
+      post('ready');
+      publishSelection();
+      return;
+    }
+
+    if (data.type !== 'focus') {
       return;
     }
 

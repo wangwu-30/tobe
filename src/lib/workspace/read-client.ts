@@ -1,5 +1,7 @@
 'use client';
 
+import { apiCall } from '@/framework/resilience';
+
 import type {
   CommentThreadData,
   DeliverableType,
@@ -18,24 +20,13 @@ export async function readWorkspaceView(params: {
   if (params.fileId) query.set('fileId', params.fileId);
   if (params.versionId) query.set('versionId', params.versionId);
 
-  const response = await fetch(
+  return apiCall<WorkspaceViewData>(
     `/api/workspaces/${params.workspaceId}${query.size > 0 ? `?${query.toString()}` : ''}`
   );
-
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json().catch(() => null)) as WorkspaceViewData | null;
 }
 
 export async function readWorkspaceRuns(workspaceId: string) {
-  const response = await fetch(`/api/workspaces/${workspaceId}/runs`);
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json().catch(() => null)) as WorkspaceRunData[] | null;
+  return apiCall<WorkspaceRunData[]>(`/api/workspaces/${workspaceId}/runs`);
 }
 
 export async function readWorkspaceReviewThreads(params: {
@@ -54,10 +45,5 @@ export async function readWorkspaceReviewThreads(params: {
     query.set('draftOnly', '1');
   }
 
-  const response = await fetch(`/api/threads?${query.toString()}`);
-  if (!response.ok) {
-    return null;
-  }
-
-  return (await response.json().catch(() => null)) as CommentThreadData[] | null;
+  return apiCall<CommentThreadData[]>(`/api/threads?${query.toString()}`);
 }

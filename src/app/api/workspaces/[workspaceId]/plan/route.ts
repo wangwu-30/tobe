@@ -9,6 +9,8 @@ import {
   upsertWorkspacePlan,
 } from '@/lib/workspace/planning';
 import type { WorkspacePlanStageData } from '@/types';
+import { defineRoute } from '@/framework/resilience';
+
 
 function parsePlanStages(value: unknown): WorkspacePlanStageData[] | undefined {
   if (!Array.isArray(value)) {
@@ -50,7 +52,7 @@ function parsePlanStages(value: unknown): WorkspacePlanStageData[] | undefined {
   return stages.length > 0 ? stages : undefined;
 }
 
-export async function GET(
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -62,9 +64,9 @@ export async function GET(
   });
 
   return NextResponse.json(plan);
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -107,9 +109,9 @@ export async function POST(
       { status: 400 }
     );
   }
-}
+});
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -163,4 +165,4 @@ export async function PATCH(
       { status: 400 }
     );
   }
-}
+});

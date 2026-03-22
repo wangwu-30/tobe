@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { parseStoredDeliverableType } from '@/lib/workspace/deliverable-types';
+import { defineRoute } from '@/framework/resilience';
+
 
 export const runtime = 'nodejs';
 
-export async function DELETE(
+export const DELETE = defineRoute(async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -30,9 +32,9 @@ export async function DELETE(
   });
 
   return NextResponse.json({ ok: true });
-}
+});
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -75,4 +77,4 @@ export async function PATCH(
   }
 
   return NextResponse.json({ ok: true });
-}
+});

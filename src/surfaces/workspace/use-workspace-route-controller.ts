@@ -4,6 +4,7 @@ import * as React from 'react';
 import type { Value } from 'platejs';
 
 import { parsePlateContent } from '@/canvas/document-canvas/document-canvas';
+import { createPollController } from '@/framework/resilience';
 import { COMMENT_THREAD_FOCUS_EVENT } from '@/lib/comments/constants';
 import { clearPendingPreviewStart } from '@/lib/workspace/preview-start-recovery';
 import { generateWorkspacePlan } from '@/lib/workspace/plan-client';
@@ -38,6 +39,16 @@ const PREVIEW_RECOVERY_POLL_INTERVAL_MS = 500;
 const PREVIEW_RECOVERY_POLL_TIMEOUT_MS = 5000;
 const CONVERSATION_POLL_INTERVAL_MS = 3000;
 
+type WorkspaceRouteNotice = {
+  actions?: Array<{
+    label: string;
+    onClick: () => void;
+    variant?: 'default' | 'ghost' | 'outline';
+  }>;
+  text: string;
+  tone: 'error' | 'info' | 'success';
+};
+
 export function useWorkspaceRouteController({
   activePreviewRun,
   currentConversationId,
@@ -58,6 +69,7 @@ export function useWorkspaceRouteController({
   setInitialMessages,
   setReviewThreads,
   setShowImplementation,
+  setWorkspaceNotice,
   setWorkspaceRuns,
   setWorkspaceView,
   workspaceBriefStatus,
@@ -83,6 +95,7 @@ export function useWorkspaceRouteController({
   setInitialMessages: React.Dispatch<React.SetStateAction<ChatMessageData[]>>;
   setReviewThreads: React.Dispatch<React.SetStateAction<CommentThreadData[]>>;
   setShowImplementation: React.Dispatch<React.SetStateAction<boolean>>;
+  setWorkspaceNotice: React.Dispatch<React.SetStateAction<WorkspaceRouteNotice | null>>;
   setWorkspaceRuns: React.Dispatch<React.SetStateAction<WorkspaceRunData[]>>;
   setWorkspaceView: React.Dispatch<React.SetStateAction<WorkspaceViewData | null>>;
   workspaceBriefStatus: string | null | undefined;
@@ -91,6 +104,15 @@ export function useWorkspaceRouteController({
 }) {
   const pendingPlanGenerationRef = React.useRef<string | null>(null);
   const loadedSurfaceRef = React.useRef<LoadedWorkspaceSurface | null>(null);
+  const showLoadError = React.useCallback(
+    (message: string) => {
+      setWorkspaceNotice({
+        text: message,
+        tone: 'error',
+      });
+    },
+    [setWorkspaceNotice]
+  );
 
   const loadWorkspaceView = React.useCallback(
     async (target?: {
@@ -108,15 +130,20 @@ export function useWorkspaceRouteController({
         target && 'fileId' in target ? target.fileId || null : requestedFileId;
       const versionId =
         target && 'versionId' in target ? target.versionId || null : requestedVersionId;
-      const nextView = await readWorkspaceView({
+      const result = await readWorkspaceView({
         conversationId,
         fileId,
         versionId,
         workspaceId: resolvedWorkspaceId,
       });
-      if (!nextView) {
+      if (!result.ok) {
+        showLoadError(result.error.message);
+        throw new Error(result.error.message);
+      }
+      if (!result.data) {
         return null;
       }
+      const nextView = result.data;
 
       setWorkspaceView(nextView);
       setInitialMessages(nextView.currentConversation?.messages || []);
@@ -152,6 +179,7 @@ export function useWorkspaceRouteController({
       setFileContent,
       setInitialMessages,
       setShowImplementation,
+      showLoadError,
       setWorkspaceView,
       workspaceId,
     ]
@@ -162,44 +190,49 @@ export function useWorkspaceRouteController({
   }, [loadWorkspaceView]);
 
   const loadRuns = React.useCallback(async () => {
-    const nextRuns = await readWorkspaceRuns(workspaceId);
-    if (!nextRuns) {
-      return;
+    const result = await readWorkspaceRuns(workspaceId);
+    if (!result.ok) {
+      showLoadError(result.error.message);
+      throw new Error(result.error.message);
     }
 
-    setWorkspaceRuns(nextRuns);
-  }, [setWorkspaceRuns, workspaceId]);
+    setWorkspaceRuns(result.data || []);
+    return result.data || [];
+  }, [setWorkspaceRuns, showLoadError, workspaceId]);
 
   const loadThreads = React.useCallback(async () => {
-    const nextThreads = await readWorkspaceReviewThreads({
+    const result = await readWorkspaceReviewThreads({
       currentFileId,
       currentVersionId,
       deliverableType,
       workspaceId,
     });
-    if (!nextThreads) {
-      return;
+    if (!result.ok) {
+      showLoadError(result.error.message);
+      throw new Error(result.error.message);
     }
 
-    setReviewThreads(nextThreads);
+    setReviewThreads(result.data || []);
+    return result.data || [];
   }, [
     currentFileId,
     currentVersionId,
     deliverableType,
     setReviewThreads,
+    showLoadError,
     workspaceId,
   ]);
 
   React.useEffect(() => {
-    void loadWorkspace();
+    loadWorkspace().catch(() => undefined);
   }, [loadWorkspace]);
 
   React.useEffect(() => {
-    void loadRuns();
+    loadRuns().catch(() => undefined);
   }, [loadRuns]);
 
   React.useEffect(() => {
-    void loadThreads();
+    loadThreads().catch(() => undefined);
   }, [loadThreads]);
 
   const triggerPlanGeneration = React.useCallback(
@@ -215,7 +248,7 @@ export function useWorkspaceRouteController({
       } finally {
         pendingPlanGenerationRef.current = null;
         if (targetWorkspaceId === workspaceId) {
-          void loadWorkspace();
+          loadWorkspace().catch(() => undefined);
         }
       }
     },
@@ -227,7 +260,7 @@ export function useWorkspaceRouteController({
       return;
     }
 
-    void triggerPlanGeneration(workspaceId);
+    triggerPlanGeneration(workspaceId).catch(() => undefined);
   }, [triggerPlanGeneration, workspaceBriefStatus, workspaceId]);
 
   React.useEffect(() => {
@@ -237,12 +270,15 @@ export function useWorkspaceRouteController({
 
     clearPendingPreviewStart(workspaceId);
 
-    const intervalId = window.setInterval(() => {
-      void loadRuns();
-    }, PREVIEW_RUN_POLL_INTERVAL_MS);
+    const controller = createPollController({
+      baseInterval: PREVIEW_RUN_POLL_INTERVAL_MS,
+      fn: loadRuns,
+      maxInterval: 48_000,
+    });
+    controller.start();
 
     return () => {
-      window.clearInterval(intervalId);
+      controller.stop();
     };
   }, [activePreviewRun, loadRuns, workspaceId]);
 
@@ -266,18 +302,21 @@ export function useWorkspaceRouteController({
       return;
     }
 
-    void loadRuns();
+    loadRuns().catch(() => undefined);
 
-    const intervalId = window.setInterval(() => {
-      void loadRuns();
-    }, PREVIEW_RECOVERY_POLL_INTERVAL_MS);
+    const controller = createPollController({
+      baseInterval: PREVIEW_RECOVERY_POLL_INTERVAL_MS,
+      fn: loadRuns,
+      maxInterval: PREVIEW_RECOVERY_POLL_INTERVAL_MS,
+    });
+    controller.start();
 
     const timeoutId = window.setTimeout(() => {
-      window.clearInterval(intervalId);
+      controller.stop();
     }, PREVIEW_RECOVERY_POLL_TIMEOUT_MS);
 
     return () => {
-      window.clearInterval(intervalId);
+      controller.stop();
       window.clearTimeout(timeoutId);
     };
   }, [
@@ -296,18 +335,21 @@ export function useWorkspaceRouteController({
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      void loadWorkspace();
-    }, CONVERSATION_POLL_INTERVAL_MS);
+    const controller = createPollController({
+      baseInterval: CONVERSATION_POLL_INTERVAL_MS,
+      fn: loadWorkspace,
+      maxInterval: 48_000,
+    });
+    controller.start();
 
     return () => {
-      window.clearInterval(intervalId);
+      controller.stop();
     };
   }, [currentConversationId, workflowStatusWorking, isAssistantBusy, loadWorkspace]);
 
   React.useEffect(() => {
     const handleFocus = () => {
-      void loadThreads();
+      loadThreads().catch(() => undefined);
     };
 
     window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleFocus);

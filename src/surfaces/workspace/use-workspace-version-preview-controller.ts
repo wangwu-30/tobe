@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 
+import { createPollController } from '@/framework/resilience';
 import {
   clearPendingPreviewStart,
   loadPendingPreviewStart,
@@ -45,9 +46,14 @@ type WorkspaceLocationSync = {
 };
 
 type PreviewStartOptions = {
+  auto?: boolean;
   fromRecovery?: boolean;
   versionId?: string | null;
 };
+
+const PREVIEW_RECOVERY_POLL_INTERVAL_MS = 500;
+const PREVIEW_RECOVERY_POLL_TIMEOUT_MS = 5_000;
+const PREVIEW_RECOVERY_START_DELAY_MS = 1_500;
 
 export function useWorkspaceVersionPreviewController<
   TTranslate extends (...args: any[]) => string,
@@ -61,6 +67,7 @@ export function useWorkspaceVersionPreviewController<
   loadThreads,
   loadWorkspace,
   loadWorkspaceView,
+  previewAutoStartKey,
   previewEnabled,
   promptedRecoveryPointRef,
   setIsStartingPreview,
@@ -70,6 +77,7 @@ export function useWorkspaceVersionPreviewController<
   syncLocation,
   t,
   versionTitle,
+  workflowStatusPrimaryAction,
   workspaceId,
   workspaceReady,
 }: {
@@ -82,6 +90,7 @@ export function useWorkspaceVersionPreviewController<
   loadThreads: () => Promise<unknown>;
   loadWorkspace: () => Promise<WorkspaceViewData | null>;
   loadWorkspaceView: (target?: WorkspaceLocationSync) => Promise<WorkspaceViewData | null>;
+  previewAutoStartKey: string | null;
   previewEnabled: boolean;
   promptedRecoveryPointRef: React.MutableRefObject<string | null>;
   setIsStartingPreview: React.Dispatch<React.SetStateAction<boolean>>;
@@ -91,9 +100,12 @@ export function useWorkspaceVersionPreviewController<
   syncLocation: (next: WorkspaceLocationSync) => void;
   t: TTranslate;
   versionTitle: string;
+  workflowStatusPrimaryAction: string | null | undefined;
   workspaceId: string;
   workspaceReady: boolean;
 }) {
+  const lastAutoStartedPreviewKeyRef = React.useRef<string | null>(null);
+  const lastManualStopPreviewKeyRef = React.useRef<string | null>(null);
   const createVersion = React.useCallback(async () => {
     try {
       const version = await createWorkspaceVersion({
@@ -305,6 +317,7 @@ export function useWorkspaceVersionPreviewController<
     async (options?: PreviewStartOptions) => {
       const targetVersionId =
         options && 'versionId' in options ? options.versionId || null : currentVersionId;
+      const shouldMarkAutoStart = Boolean(options?.auto && previewAutoStartKey);
 
       if (!options?.fromRecovery) {
         persistPendingPreviewStart({
@@ -320,6 +333,9 @@ export function useWorkspaceVersionPreviewController<
           versionId: targetVersionId,
           workspaceId,
         });
+        if (shouldMarkAutoStart) {
+          lastAutoStartedPreviewKeyRef.current = previewAutoStartKey;
+        }
 
         clearPendingPreviewStart(workspaceId);
         if (startedRun?.id) {
@@ -336,6 +352,9 @@ export function useWorkspaceVersionPreviewController<
         });
       } catch (error) {
         clearPendingPreviewStart(workspaceId);
+        if (shouldMarkAutoStart) {
+          lastAutoStartedPreviewKeyRef.current = previewAutoStartKey;
+        }
         setWorkspaceNotice({
           tone: 'error',
           text: error instanceof Error ? error.message : t('workspace.previewCouldNotStart'),
@@ -347,6 +366,7 @@ export function useWorkspaceVersionPreviewController<
     [
       currentVersionId,
       loadRuns,
+      previewAutoStartKey,
       setIsStartingPreview,
       setWorkspaceNotice,
       setWorkspaceRuns,
@@ -370,24 +390,32 @@ export function useWorkspaceVersionPreviewController<
       return;
     }
 
-    const pollIntervalId = window.setInterval(() => {
-      void loadRuns();
-    }, 500);
+    const controller = createPollController({
+      baseInterval: PREVIEW_RECOVERY_POLL_INTERVAL_MS,
+      fn: loadRuns,
+      maxInterval: PREVIEW_RECOVERY_POLL_INTERVAL_MS,
+    });
+    controller.start();
 
-    const recoveryTimeoutId = window.setTimeout(() => {
+    const recoveryStartId = window.setTimeout(() => {
       if (isStartingPreview || activePreviewRun) {
         return;
       }
 
-      void startPreview({
+      startPreview({
         fromRecovery: true,
         versionId: pendingPreviewStart.versionId,
-      });
-    }, 1500);
+      }).catch(() => undefined);
+    }, PREVIEW_RECOVERY_START_DELAY_MS);
+
+    const recoveryStopId = window.setTimeout(() => {
+      controller.stop();
+    }, PREVIEW_RECOVERY_POLL_TIMEOUT_MS);
 
     return () => {
-      window.clearInterval(pollIntervalId);
-      window.clearTimeout(recoveryTimeoutId);
+      controller.stop();
+      window.clearTimeout(recoveryStartId);
+      window.clearTimeout(recoveryStopId);
     };
   }, [
     activePreviewRun,
@@ -399,7 +427,35 @@ export function useWorkspaceVersionPreviewController<
     workspaceReady,
   ]);
 
+  React.useEffect(() => {
+    if (!previewAutoStartKey || !previewEnabled || !workspaceReady) {
+      return;
+    }
+
+    if (workflowStatusPrimaryAction !== 'start_preview' || activePreviewRun || isStartingPreview) {
+      return;
+    }
+
+    if (
+      lastAutoStartedPreviewKeyRef.current === previewAutoStartKey ||
+      lastManualStopPreviewKeyRef.current === previewAutoStartKey
+    ) {
+      return;
+    }
+
+    startPreview({ auto: true }).catch(() => undefined);
+  }, [
+    activePreviewRun,
+    isStartingPreview,
+    previewAutoStartKey,
+    previewEnabled,
+    startPreview,
+    workflowStatusPrimaryAction,
+    workspaceReady,
+  ]);
+
   const stopPreview = React.useCallback(async () => {
+    lastManualStopPreviewKeyRef.current = previewAutoStartKey;
     setIsStoppingPreview(true);
     try {
       await stopWorkspacePreview({
@@ -420,7 +476,14 @@ export function useWorkspaceVersionPreviewController<
     } finally {
       setIsStoppingPreview(false);
     }
-  }, [loadRuns, setIsStoppingPreview, setWorkspaceNotice, t, workspaceId]);
+  }, [
+    loadRuns,
+    previewAutoStartKey,
+    setIsStoppingPreview,
+    setWorkspaceNotice,
+    t,
+    workspaceId,
+  ]);
 
   const handleConversationComplete = React.useCallback(async () => {
     const [nextView] = await Promise.all([loadWorkspace(), loadRuns(), loadThreads()]);

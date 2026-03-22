@@ -8,8 +8,10 @@ import { getSelectedModelFromHeaders } from '@/lib/ai/providers';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { parseAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ runId: string; workspaceId: string }> }
 ) {
@@ -83,4 +85,4 @@ export async function POST(
     ],
     workspaceId,
   });
-}
+});

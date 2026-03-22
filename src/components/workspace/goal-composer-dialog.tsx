@@ -34,6 +34,8 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { apiFetch } from '@/framework/resilience';
+
 
 type GoalComposerIntentOption = {
   description: string;
@@ -200,7 +202,7 @@ export function GoalComposerDialog({
       ? `?workspaceId=${encodeURIComponent(workflowContextId)}`
       : '';
 
-    void fetch(`/api/workflows${query}`)
+    void apiFetch(`/api/workflows${query}`)
       .then((response) => (response.ok ? response.json() : []))
       .then((items: WorkflowPlaybookData[]) => {
         if (!cancelled) {
@@ -258,7 +260,7 @@ export function GoalComposerDialog({
       setIntentError(null);
 
       try {
-        const response = await fetch('/api/workspaces/intent', {
+        const response = await apiFetch('/api/workspaces/intent', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

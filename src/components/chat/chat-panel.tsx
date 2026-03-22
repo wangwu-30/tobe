@@ -31,6 +31,7 @@ import {
   resolveStoredModelSelection,
 } from '@/lib/client/ai-settings';
 import { useT } from '@/components/providers/language-provider';
+import { apiCall, apiCallOrThrow } from '@/framework/resilience';
 import { shouldHydrateChatMessages } from '@/lib/chat/message-hydration';
 import { useAppRouter } from '@/lib/app-router';
 
@@ -144,14 +145,14 @@ export function ChatPanel({
   );
 
   const loadModelCatalog = React.useCallback(async () => {
-    const response = await fetch('/api/ai/models', {
+    const result = await apiCall<ModelCatalogData>('/api/ai/models', {
       headers: getStoredAISettingsHeader(),
     });
-    if (!response.ok) {
+    if (!result.ok || !result.data) {
       return;
     }
 
-    const data = (await response.json()) as ModelCatalogData;
+    const data = result.data;
     setModelCatalog(data);
     setSelectedModelSelection((current) =>
       resolveStoredModelSelection(
@@ -265,7 +266,7 @@ export function ChatPanel({
       setProposalActionError(null);
 
       try {
-        const response = await fetch(
+        await apiCallOrThrow(
           `/api/workspaces/${workspaceId}/assistant-runs/${run.id}/proposal`,
           {
             method: 'POST',
@@ -274,13 +275,9 @@ export function ChatPanel({
               ...getStoredAISettingsHeader(),
             },
             body: JSON.stringify({ action }),
+            fallbackMessage: t('chat.replanActionFailed'),
           }
         );
-
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(payload?.error || t('chat.replanActionFailed'));
-        }
 
         if (action === 'dismiss') {
           await onConversationComplete?.();
@@ -322,7 +319,7 @@ export function ChatPanel({
       setProposalActionError(null);
 
       try {
-        const response = await fetch(
+        await apiCallOrThrow(
           `/api/workspaces/${workspaceId}/assistant-runs/${run.id}/research-plan`,
           {
             method: 'POST',
@@ -331,13 +328,9 @@ export function ChatPanel({
               ...getStoredAISettingsHeader(),
             },
             body: JSON.stringify({ action: action === 'dismiss' ? 'dismiss' : 'approve' }),
+            fallbackMessage: t('chat.researchActionFailed'),
           }
         );
-
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(payload?.error || t('chat.researchActionFailed'));
-        }
 
         await onConversationComplete?.();
         if (action === 'dismiss') {

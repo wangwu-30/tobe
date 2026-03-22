@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { stopWorkspacePreview } from '@/lib/platform/run-service';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -12,4 +14,4 @@ export async function POST(
   return NextResponse.json(
     await stopWorkspacePreview(actor.organizationId, workspaceId)
   );
-}
+});

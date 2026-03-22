@@ -1,6 +1,7 @@
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { Type } from '@mariozechner/pi-ai';
 import { prisma } from '@/lib/db/prisma';
+import { safeJsonParse } from '@/framework/resilience';
 import {
   formatProjectAiContext,
   loadProjectAiContextData,
@@ -1699,11 +1700,8 @@ function extractTitleFromMarkdown(markdown: string) {
 }
 
 function serializeWikiContent(content: string) {
-  try {
-    return plateToMarkdown(JSON.parse(content));
-  } catch {
-    return content;
-  }
+  const parsed = safeJsonParse<unknown>(content, null);
+  return Array.isArray(parsed) ? plateToMarkdown(parsed) : content;
 }
 
 function summarizeThreads(

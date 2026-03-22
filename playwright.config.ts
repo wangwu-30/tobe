@@ -37,7 +37,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: `./node_modules/.bin/next dev --hostname 127.0.0.1 --port ${port}`,
+    command: `./node_modules/.bin/next dev --webpack --hostname 127.0.0.1 --port ${port}`,
     env: {
       ...process.env,
       DAO_APP_DATA_ROOT:

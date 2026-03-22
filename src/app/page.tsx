@@ -81,7 +81,11 @@ export default function HomePage() {
           }
         : 'workspace'
     );
-    router.replace('/');
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${window.location.hash}`
+    );
   }, [router, searchParams]);
 
   const openWorkspaceCreateEntry = React.useCallback(

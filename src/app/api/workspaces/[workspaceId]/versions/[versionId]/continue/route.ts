@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { continueWorkspaceFromVersion } from '@/lib/workspace/service';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   {
     params,
@@ -25,4 +27,4 @@ export async function POST(
   });
 
   return NextResponse.json(result);
-}
+});

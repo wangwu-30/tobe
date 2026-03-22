@@ -33,11 +33,18 @@ import {
   getStoredAISettingsHeader,
   getStoredDefaultModelSelection,
   resolveStoredModelSelection,
+  setStoredAppLanguage,
   setStoredAISettings,
 } from '@/lib/client/ai-settings';
 import { useAppLanguage, useT } from '@/components/providers/language-provider';
 import { APP_LANGUAGE_OPTIONS, type AppLanguage } from '@/lib/i18n/language';
 import { ModelPicker } from '@/components/ai/model-picker';
+import {
+  apiFetch,
+  safeJsonParse,
+  ZoneErrorBoundary,
+} from '@/framework/resilience';
+
 import type {
   CommentAgentConfigData,
   ModelCatalogData,
@@ -114,10 +121,16 @@ export default function SettingsPage() {
   }, [language]);
 
   React.useEffect(() => {
+    setCommentAgents((current) =>
+      normalizeCommentAgents(buildStoredCommentAgents(current), language)
+    );
+  }, [language]);
+
+  React.useEffect(() => {
     const stored = localStorage.getItem('ai-settings');
     if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as Record<string, unknown>;
+      const parsed = safeJsonParse<Record<string, unknown> | null>(stored, null);
+      if (parsed) {
         if (typeof parsed.defaultModel === 'string') {
           setDefaultModelSelection(resolveStoredModelSelection(null, null, parsed.defaultModel));
         }
@@ -192,20 +205,18 @@ export default function SettingsPage() {
         setProviderKeyRows(
           Object.entries(stripSearchProviderEntries(storedProviderApiKeys)).map(
             ([providerId, apiKey], index) => ({
-            id: `provider-${index}-${providerId}`,
-            providerId,
-            apiKey,
+              id: `provider-${index}-${providerId}`,
+              providerId,
+              apiKey,
             })
           )
         );
-      } catch {
-        // Ignore invalid local settings.
       }
     }
   }, []);
 
   const loadModels = React.useCallback(async () => {
-    const response = await fetch('/api/ai/models', {
+    const response = await apiFetch('/api/ai/models', {
       headers: getStoredAISettingsHeader(),
     });
     if (!response.ok) return;
@@ -218,7 +229,7 @@ export default function SettingsPage() {
   }, []);
 
   const loadOAuthStatus = React.useCallback(async () => {
-    const response = await fetch('/api/auth/openai-oauth');
+    const response = await apiFetch('/api/auth/openai-oauth');
     if (!response.ok) return;
 
     const data = await response.json();
@@ -231,7 +242,7 @@ export default function SettingsPage() {
       setSearchProvidersError(null);
 
       try {
-        const response = await fetch('/api/search/providers', {
+        const response = await apiFetch('/api/search/providers', {
           headers: getStoredAISettingsHeader(),
         });
         const data = await response.json().catch(() => null);
@@ -260,7 +271,7 @@ export default function SettingsPage() {
         return;
       }
 
-      const response = await fetch('/api/platform/status');
+      const response = await apiFetch('/api/platform/status');
       if (!response.ok) return;
 
       setPlatformStatus(await response.json());
@@ -350,6 +361,12 @@ export default function SettingsPage() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  const handleAppLanguageChange = React.useCallback((value: string) => {
+    const nextLanguage = value as AppLanguage;
+    setAppLanguage(nextLanguage);
+    setStoredAppLanguage(nextLanguage);
+  }, []);
 
   const addProviderKey = () => {
     setProviderKeyRows(rows => [
@@ -451,7 +468,7 @@ export default function SettingsPage() {
     setIsDisconnectingProviderId(providerId);
 
     try {
-      const response = await fetch('/api/auth/openai-oauth', {
+      const response = await apiFetch('/api/auth/openai-oauth', {
         method: 'DELETE',
       });
 
@@ -521,40 +538,45 @@ export default function SettingsPage() {
       subtitle={t('settings.modelsSearchProviders')}
     >
       <main className="mx-auto h-full w-full max-w-3xl overflow-y-auto px-6 py-8 space-y-6">
-        <Card className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold">{t('settings.languageSection')}</h2>
-          <Select value={appLanguage} onValueChange={(value) => setAppLanguage(value as AppLanguage)}>
-            <SelectTrigger>
-              <SelectValue placeholder={t('settings.selectLanguage')} />
-            </SelectTrigger>
-            <SelectContent>
-              {APP_LANGUAGE_OPTIONS.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option === 'zh-CN'
-                    ? t('settings.languageSimplifiedChinese')
-                    : t('settings.languageEnglish')}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            {t('settings.languageDescription')}
-          </p>
-        </Card>
+        <SettingsBoundary zone="language">
+          <Card className="p-6 space-y-4" data-testid="settings-language-card">
+            <h2 className="text-sm font-semibold">{t('settings.languageSection')}</h2>
+            <Select value={appLanguage} onValueChange={handleAppLanguageChange}>
+              <SelectTrigger>
+                <SelectValue placeholder={t('settings.selectLanguage')} />
+              </SelectTrigger>
+              <SelectContent>
+                {APP_LANGUAGE_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option === 'zh-CN'
+                      ? t('settings.languageSimplifiedChinese')
+                      : t('settings.languageEnglish')}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t('settings.languageDescription')}
+            </p>
+          </Card>
+        </SettingsBoundary>
 
-        <Card className="p-6 space-y-4" data-testid="settings-default-model-card">
-          <h2 className="text-sm font-semibold">{t('settings.defaultModel')}</h2>
-          <ModelPicker
-            catalog={modelCatalog}
-            value={defaultModelSelection}
-            onChange={setDefaultModelSelection}
-          />
-          <p className="text-xs text-muted-foreground">
-            {t('settings.defaultModelDescription')}
-          </p>
-        </Card>
+        <SettingsBoundary zone="default-model">
+          <Card className="p-6 space-y-4" data-testid="settings-default-model-card">
+            <h2 className="text-sm font-semibold">{t('settings.defaultModel')}</h2>
+            <ModelPicker
+              catalog={modelCatalog}
+              value={defaultModelSelection}
+              onChange={setDefaultModelSelection}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('settings.defaultModelDescription')}
+            </p>
+          </Card>
+        </SettingsBoundary>
 
-        <Card className="p-6 space-y-4">
+        <SettingsBoundary zone="oauth">
+          <Card className="p-6 space-y-4">
           <h2 className="text-sm font-semibold">{t('settings.oauthConnections')}</h2>
           <p className="text-xs text-muted-foreground">
             {t('settings.oauthDescription')}
@@ -668,9 +690,11 @@ export default function SettingsPage() {
               oauthDir: platformStatus?.paths.oauthDir || '.oauth',
             })}
           </div>
-        </Card>
+          </Card>
+        </SettingsBoundary>
 
-        <Card className="p-6 space-y-4">
+        <SettingsBoundary zone="search">
+          <Card className="p-6 space-y-4">
           <h2 className="text-sm font-semibold">{t('settings.webSearch')}</h2>
           <div className="space-y-2">
             <Label className="text-xs">{t('settings.defaultSearchProvider')}</Label>
@@ -767,9 +791,11 @@ export default function SettingsPage() {
                   : t('settings.searchProviderConfigDescriptionNeedsApiKey')}
             </p>
           </div>
-        </Card>
+          </Card>
+        </SettingsBoundary>
 
-        <div className="space-y-4">
+        <SettingsBoundary zone="provider-api-keys">
+          <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">{t('settings.providerApiKeys')}</h2>
             <Button size="sm" variant="outline" onClick={addProviderKey} className="h-7 text-xs">
@@ -831,9 +857,11 @@ export default function SettingsPage() {
               </div>
             </Card>
           ))}
-        </div>
+          </div>
+        </SettingsBoundary>
 
-        <Card className="space-y-4 p-6">
+        <SettingsBoundary zone="comment-agents">
+          <Card className="space-y-4 p-6">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-semibold">Comment Agents</h2>
@@ -937,9 +965,11 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
-        </Card>
+          </Card>
+        </SettingsBoundary>
 
-        <details className="rounded-3xl border border-border/70 bg-muted/15">
+        <SettingsBoundary zone="advanced-tools">
+          <details className="rounded-3xl border border-border/70 bg-muted/15">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-4">
             <div>
               <div className="text-sm font-semibold">{t('settings.advancedTools')}</div>
@@ -1058,7 +1088,8 @@ export default function SettingsPage() {
               </div>
             ) : null}
           </div>
-        </details>
+          </details>
+        </SettingsBoundary>
 
         <div className="flex items-center gap-3">
           <Button onClick={handleSave}>
@@ -1074,6 +1105,20 @@ export default function SettingsPage() {
 
 function providerLabel(providerId: string) {
   return OAUTH_CONNECTIONS.find((provider) => provider.providerId === providerId)?.label || providerId;
+}
+
+function SettingsBoundary({
+  children,
+  zone,
+}: {
+  children: React.ReactNode;
+  zone: string;
+}) {
+  return (
+    <ZoneErrorBoundary level="recoverable" zone={`settings-${zone}`}>
+      {children}
+    </ZoneErrorBoundary>
+  );
 }
 
 function normalizeStoredMap(input: Record<string, string>) {

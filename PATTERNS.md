@@ -68,6 +68,22 @@
 4. 全部通过后再删除旧 route
 5. 跑 `npm run verify:iteration`
 
+## 创建 API route
+
+1. 在 `src/app/api/**/route.ts` 里只保留参数解析和响应适配
+2. `import { defineRoute } from '@/framework/resilience'`
+3. 用 `export const GET = defineRoute(async function GET(...) { ... })` 这种形式导出
+4. 业务异常优先抛 `AppError` 子类；未知异常交给 `defineRoute` 统一收口成 JSON 错误格式
+5. 不要在每个 route 里重复写手工 `try/catch + NextResponse.json({ error })`
+
+## 前端 API 调用
+
+1. 前端非流式请求默认使用 `apiCall` 或 `apiCallOrThrow`
+2. 可恢复 UI 状态用 `apiCall`，由调用方根据 `result.ok` 展示 notice / fallback
+3. 命令式动作或必需数据读取优先用 `apiCallOrThrow`，把统一错误消息留在 resilience client
+4. 不要在 surface 里重复写 `response.ok`、`response.json().catch(...)` 和分散的错误格式分支
+5. 流式 assistant runtime、外部 provider fetch、preview bridge 代理属于少数豁免，保留裸 `fetch`
+
 ## 踩到通用坑
 
 1. 先判断是成形专属还是跨项目通用

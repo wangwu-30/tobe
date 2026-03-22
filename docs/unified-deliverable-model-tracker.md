@@ -2,7 +2,7 @@
 
 更新时间：2026-03-20
 状态：进行中
-对应技能：[`chengxing-autopilot`](../skills/chengxing-autopilot/SKILL.md)
+对应技能：`program-autopilot`
 相关文档：[项目状态](./chengxing-project-status.md) · [产品落地计划](./chengxing-rollout-plan.md) · [v-next 差距评估](./chengxing-v-next-gap-assessment.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
 
 ## 现状

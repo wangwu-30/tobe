@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { prisma } from '@/lib/db/prisma';
+import { safeJsonParse } from '@/framework/resilience';
 import { getPlatformPaths } from '@/lib/platform/paths';
 import {
   findLegacyHtmlPreviewSource,
@@ -133,9 +134,10 @@ async function listVersionMirrorFiles(organizationId: string, versionId: string)
     throw new Error('Version not found.');
   }
 
-  const parsed = JSON.parse(version.content || '{}') as {
-    files?: VersionMirrorFile[];
-  };
+  const parsed = safeJsonParse<{ files?: VersionMirrorFile[] }>(
+    version.content || '{}',
+    {}
+  );
 
   return (parsed.files || []).filter((file) => typeof file.path === 'string');
 }

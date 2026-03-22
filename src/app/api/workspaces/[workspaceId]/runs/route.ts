@@ -4,8 +4,10 @@ import {
   listWorkspaceRuns,
   startWorkspaceCommand,
 } from '@/lib/platform/run-service';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -18,9 +20,9 @@ export async function GET(
       workspaceId,
     })
   );
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -44,4 +46,4 @@ export async function POST(
       { status: 400 }
     );
   }
-}
+});

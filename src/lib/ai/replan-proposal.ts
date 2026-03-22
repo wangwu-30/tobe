@@ -1,5 +1,6 @@
 import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
 import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
+import { safeJsonParse } from '@/framework/resilience';
 import { generatePlanStepsWithAI } from '@/lib/ai/plan-generator';
 import type { Settings } from '@/lib/ai/providers';
 import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
@@ -137,29 +138,25 @@ async function classifyReplanNeed(params: {
 }
 
 function parseDecisionResponse(raw: string): ReplanDecision | null {
-  try {
-    const parsed = JSON.parse(stripJsonFences(raw)) as Record<string, unknown>;
-    if (parsed.decision !== 'continue' && parsed.decision !== 'replan') {
-      return null;
-    }
-
-    return {
-      decision: parsed.decision,
-      goal: typeof parsed.goal === 'string' ? parsed.goal : undefined,
-      deliverableType: normalizeDeliverableType(parsed.deliverableType),
-      constraints:
-        parsed.constraints === null || typeof parsed.constraints === 'string'
-          ? parsed.constraints
-          : undefined,
-      styleGuide:
-        parsed.styleGuide === null || typeof parsed.styleGuide === 'string'
-          ? parsed.styleGuide
-          : undefined,
-      summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
-    };
-  } catch {
+  const parsed = safeJsonParse<Record<string, unknown> | null>(stripJsonFences(raw), null);
+  if (!parsed || (parsed.decision !== 'continue' && parsed.decision !== 'replan')) {
     return null;
   }
+
+  return {
+    decision: parsed.decision,
+    goal: typeof parsed.goal === 'string' ? parsed.goal : undefined,
+    deliverableType: normalizeDeliverableType(parsed.deliverableType),
+    constraints:
+      parsed.constraints === null || typeof parsed.constraints === 'string'
+        ? parsed.constraints
+        : undefined,
+    styleGuide:
+      parsed.styleGuide === null || typeof parsed.styleGuide === 'string'
+        ? parsed.styleGuide
+        : undefined,
+    summary: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+  };
 }
 
 function normalizeDeliverableType(value: unknown): DeliverableType | undefined {

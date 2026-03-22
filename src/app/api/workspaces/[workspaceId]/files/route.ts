@@ -4,8 +4,10 @@ import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { createWorkspaceFile } from '@/objects/file/commands';
 import { listWorkspaceFiles } from '@/objects/file/queries';
 import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -17,9 +19,9 @@ export async function GET(
   });
 
   return NextResponse.json(files);
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
@@ -51,4 +53,4 @@ export async function POST(
 
     throw error;
   }
-}
+});

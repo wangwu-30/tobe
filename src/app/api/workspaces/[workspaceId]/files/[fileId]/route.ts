@@ -6,8 +6,10 @@ import {
   updateWorkspaceFile,
 } from '@/objects/file/commands';
 import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
+import { defineRoute } from '@/framework/resilience';
 
-export async function PATCH(
+
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ fileId: string; workspaceId: string }> }
 ) {
@@ -45,9 +47,9 @@ export async function PATCH(
 
     throw error;
   }
-}
+});
 
-export async function DELETE(
+export const DELETE = defineRoute(async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ fileId: string; workspaceId: string }> }
 ) {
@@ -74,4 +76,4 @@ export async function DELETE(
 
     throw error;
   }
-}
+});

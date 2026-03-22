@@ -3,8 +3,10 @@ import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { createConversationMessage } from '@/objects/conversation/commands';
 import { mapConversationMessage } from '@/objects/conversation/view';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
@@ -20,9 +22,9 @@ export async function GET(
   });
 
   return NextResponse.json(messages.map(mapConversationMessage));
-}
+});
 
-export async function POST(
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ conversationId: string }> }
 ) {
@@ -40,4 +42,4 @@ export async function POST(
   });
 
   return NextResponse.json(message);
-}
+});

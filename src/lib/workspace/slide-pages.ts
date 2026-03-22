@@ -1,5 +1,7 @@
 import type { Value } from 'platejs';
 
+import { safeJsonParse } from '@/framework/resilience';
+
 export type SlidePageNode = {
   children?: Array<Record<string, unknown>>;
   id?: string;
@@ -64,12 +66,8 @@ export function hasOnlySlidePageBlocks(value: Value | null | undefined) {
 }
 
 export function parseSlidePageValue(content: string): Value | null {
-  try {
-    const parsed = JSON.parse(content);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
+  const parsed = safeJsonParse<unknown>(content, null);
+  return Array.isArray(parsed) ? parsed : null;
 }
 
 export function contentHasOnlySlidePageBlocks(content: string) {

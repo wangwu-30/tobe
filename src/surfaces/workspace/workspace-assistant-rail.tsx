@@ -26,6 +26,8 @@ export function WorkspaceAssistantRail({
   conversationTitle,
   currentProjectId,
   currentDraftBranchTitle,
+  draftRevision,
+  versionId,
   workflowStatus,
   documentContent,
   files,
@@ -61,6 +63,8 @@ export function WorkspaceAssistantRail({
   conversationTitle: AssistantPanelProps['conversationTitle'];
   currentProjectId: ContextPanelProps['projectId'];
   currentDraftBranchTitle: StatusPanelProps['currentDraftBranchTitle'];
+  draftRevision: number | null;
+  versionId: string | null;
   workflowStatus: StatusPanelProps['workflowStatus'];
   documentContent: ReviewPanelProps['documentContent'];
   files: ReviewPanelProps['files'];
@@ -106,6 +110,8 @@ export function WorkspaceAssistantRail({
         <ReviewPanelSurface
           allowSourceApply={allowSourceApply}
           className="border-0"
+          currentFileId={activeFileId}
+          draftRevision={draftRevision}
           documentId={workspaceId}
           documentContent={documentContent}
           files={files}
@@ -113,6 +119,7 @@ export function WorkspaceAssistantRail({
           onSourceContentApplied={onSourceContentApplied}
           refreshThreads={refreshThreads}
           threads={reviewThreads}
+          versionId={versionId}
         />
       }
       chat={

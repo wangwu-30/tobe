@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { SearchProviderError } from '@/lib/search/types';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(req: NextRequest) {
+
+export const POST = defineRoute(async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const query = typeof body?.query === 'string' ? body.query.trim() : '';
   const providerId =
@@ -42,4 +44,4 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

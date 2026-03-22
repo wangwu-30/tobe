@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
+import { safeJsonParse } from '@/framework/resilience';
 import {
   createConversationForWorkspace,
   createConversationMessage,
@@ -252,9 +253,5 @@ function safeParseJson<T>(value: FormDataEntryValue | null): T | null {
     return null;
   }
 
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
+  return safeJsonParse<T | null>(value, null);
 }

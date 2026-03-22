@@ -17,14 +17,11 @@ test('web preview bridge supports selection comments and review refocus', async 
   const previewFrame = await startPreviewAndGetFrame(page);
   expect(previewFrame).toBeTruthy();
 
-  await selectPreviewCopy(previewFrame!);
+  await selectPreviewCopy(page);
 
   const selectionCommentButton = page.getByTestId('web-selection-comment-trigger');
   await expect(selectionCommentButton).toBeVisible();
-  await selectionCommentButton.click();
-  await expect(page.getByTestId('web-selection-comment-composer')).toBeVisible();
-  await page.getByPlaceholder('让 AI 调整这里的页面表现……').fill('请把这里改得更醒目。');
-  await page.getByRole('button', { name: '提交评论' }).click();
+  await submitPreviewSelectionComment(page, '请把这里改得更醒目。');
 
   await expect
     .poll(async () => {
@@ -165,14 +162,8 @@ test('web-component @assistant replies use the revision path and refresh preview
   const previewFrame = await startPreviewAndGetFrame(page);
   expect(previewFrame).toBeTruthy();
 
-  await selectPreviewCopy(previewFrame!);
-
-  await page.getByTestId('web-selection-comment-trigger').click();
-  await expect(page.getByTestId('web-selection-comment-composer')).toBeVisible();
-  await page
-    .getByPlaceholder('让 AI 调整这里的页面表现……')
-    .fill('@assistant 请直接改这里的网页实现并刷新预览。');
-  await page.getByRole('button', { name: '提交评论' }).click();
+  await selectPreviewCopy(page);
+  await submitPreviewSelectionComment(page, '@assistant 请直接改这里的网页实现并刷新预览。');
 
   await expect
     .poll(async () => {
@@ -227,10 +218,8 @@ test('web inherited threads become superseded after a new direct comment lands o
   const previewFrame = await startPreviewAndGetFrame(page);
   expect(previewFrame).toBeTruthy();
 
-  await selectPreviewCopy(previewFrame!);
-  await page.getByTestId('web-selection-comment-trigger').click();
-  await page.getByPlaceholder('让 AI 调整这里的页面表现……').fill('请保留这条旧评论作为迁移基线。');
-  await page.getByRole('button', { name: '提交评论' }).click();
+  await selectPreviewCopy(page);
+  await submitPreviewSelectionComment(page, '请保留这条旧评论作为迁移基线。');
 
   await expect
     .poll(async () => {
@@ -289,10 +278,8 @@ test('web inherited threads become superseded after a new direct comment lands o
 
   await page.reload();
   const relocatedPreviewFrame = await waitForPreviewBridgeFrame(page);
-  await selectPreviewCopy(relocatedPreviewFrame!, '#hero-summary');
-  await page.getByTestId('web-selection-comment-trigger').click();
-  await page.getByPlaceholder('让 AI 调整这里的页面表现……').fill('这是新位置上的直接评论。');
-  await page.getByRole('button', { name: '提交评论' }).click();
+  await selectPreviewCopy(page, '#hero-summary');
+  await submitPreviewSelectionComment(page, '这是新位置上的直接评论。');
 
   await expect
     .poll(async () => {
@@ -337,10 +324,8 @@ test('web inherited threads become stale once selector, excerpt, and dom context
   const previewFrame = await startPreviewAndGetFrame(page);
   expect(previewFrame).toBeTruthy();
 
-  await selectPreviewCopy(previewFrame!);
-  await page.getByTestId('web-selection-comment-trigger').click();
-  await page.getByPlaceholder('让 AI 调整这里的页面表现……').fill('这条评论应该在目标彻底漂移后失效。');
-  await page.getByRole('button', { name: '提交评论' }).click();
+  await selectPreviewCopy(page);
+  await submitPreviewSelectionComment(page, '这条评论应该在目标彻底漂移后失效。');
 
   await expect
     .poll(async () => {
@@ -434,8 +419,14 @@ async function waitForPreviewBridgeFrame(page: Page) {
 }
 
 async function startPreviewAndGetFrame(page: Page) {
-  await page.getByRole('button', { name: /启动预览|Start Preview/ }).click();
-  await page.reload();
+  const startPreviewButton = page
+    .getByRole('button', { name: /启动预览|Start Preview/ })
+    .first();
+  if (await startPreviewButton.isVisible().catch(() => false)) {
+    await startPreviewButton.click();
+    await page.reload();
+  }
+
   await expect
     .poll(async () => {
       try {
@@ -448,15 +439,29 @@ async function startPreviewAndGetFrame(page: Page) {
   return waitForPreviewBridgeFrame(page);
 }
 
-async function selectPreviewCopy(
-  frame: NonNullable<Awaited<ReturnType<typeof waitForPreviewBridgeFrame>>>,
-  selector = '#hero-copy'
-) {
+async function selectPreviewCopy(page: Page, selector = '#hero-copy') {
   await expect
-    .poll(() =>
-      frame.evaluate((targetSelector) => Boolean(document.querySelector(targetSelector)), selector)
-    )
+    .poll(async () => {
+      const frame = await waitForPreviewBridgeFrame(page);
+      if (!frame) {
+        return false;
+      }
+
+      try {
+        return await frame.evaluate(
+          (targetSelector) => Boolean(document.querySelector(targetSelector)),
+          selector
+        );
+      } catch {
+        return false;
+      }
+    }, { timeout: 20_000 })
     .toBe(true);
+
+  const frame = await waitForPreviewBridgeFrame(page);
+  if (!frame) {
+    throw new Error('Preview bridge frame is unavailable.');
+  }
 
   await frame.evaluate((targetSelector) => {
     const target = document.querySelector(targetSelector);
@@ -471,6 +476,17 @@ async function selectPreviewCopy(
     selection?.addRange(range);
     document.dispatchEvent(new Event('selectionchange'));
   }, selector);
+}
+
+async function submitPreviewSelectionComment(page: Page, content: string) {
+  const selectionCommentButton = page.getByTestId('web-selection-comment-trigger');
+  const composer = page.getByTestId('web-selection-comment-composer');
+
+  await expect(selectionCommentButton).toBeVisible();
+  await selectionCommentButton.click();
+  await expect(composer).toBeVisible();
+  await composer.locator('textarea').fill(content);
+  await composer.getByRole('button', { name: /评论|Comment/ }).click();
 }
 
 async function createWebPreviewWorkspace(baseURL: string) {

@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { apiRequest, primeClientState, readSeedState } from './helpers';
+import {
+  apiRequest,
+  primeClientState,
+  readSeedState,
+  waitForWorkspaceRoute,
+} from './helpers';
 
 test('status and context surfaces show draft, active, and archived workflows', async ({
   page,
@@ -223,22 +228,12 @@ test('finalized deliverables can start the next deliverable in the same project 
     await clarifyAfterNextDeliverable.getByRole('button', { name: /选择|Select/ }).click();
   }
 
-  await expect
-    .poll(() => {
-      const currentUrl = new URL(page.url());
-      return currentUrl.pathname.split('/').pop() || '';
-    })
-    .not.toBe(workspace.id);
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get('conversationId') || '')
-    .not.toBe(workspace.conversationId);
-
-  const nextUrl = new URL(page.url());
-  const nextWorkspaceId = nextUrl.pathname.split('/').pop() || '';
-  const nextConversationId = nextUrl.searchParams.get('conversationId') || '';
-
-  expect(nextWorkspaceId).toBeTruthy();
-  expect(nextConversationId).toBeTruthy();
+  const nextRoute = await waitForWorkspaceRoute(page, {
+    excludeConversationId: workspace.conversationId,
+    excludeWorkspaceId: workspace.id,
+  });
+  const nextWorkspaceId = nextRoute.workspaceId;
+  const nextConversationId = nextRoute.conversationId;
 
   const nextView = await getWorkspaceView(baseURL, nextWorkspaceId, nextConversationId);
 
@@ -325,22 +320,12 @@ test('workspace header shows the project path and keeps sibling creation in the 
     await clarifyAfterNextDeliverable.getByRole('button', { name: /选择|Select/ }).click();
   }
 
-  await expect
-    .poll(() => {
-      const currentUrl = new URL(page.url());
-      return currentUrl.pathname.split('/').pop() || '';
-    })
-    .not.toBe(currentWorkspace.id);
-  await expect
-    .poll(() => new URL(page.url()).searchParams.get('conversationId') || '')
-    .not.toBe(currentWorkspace.conversationId);
-
-  const nextUrl = new URL(page.url());
-  const nextWorkspaceId = nextUrl.pathname.split('/').pop() || '';
-  const nextConversationId = nextUrl.searchParams.get('conversationId') || '';
-
-  expect(nextWorkspaceId).toBeTruthy();
-  expect(nextConversationId).toBeTruthy();
+  const nextRoute = await waitForWorkspaceRoute(page, {
+    excludeConversationId: currentWorkspace.conversationId,
+    excludeWorkspaceId: currentWorkspace.id,
+  });
+  const nextWorkspaceId = nextRoute.workspaceId;
+  const nextConversationId = nextRoute.conversationId;
 
   const nextView = await getWorkspaceView(baseURL, nextWorkspaceId, nextConversationId);
 

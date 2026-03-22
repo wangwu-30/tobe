@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getWorkspaceRun } from '@/lib/platform/run-service';
+import { defineRoute } from '@/framework/resilience';
 
-export async function GET(
+
+export const GET = defineRoute(async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ runId: string; workspaceId: string }> }
 ) {
@@ -20,4 +22,4 @@ export async function GET(
   }
 
   return NextResponse.json(run);
-}
+});

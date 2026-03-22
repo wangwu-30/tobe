@@ -21,8 +21,10 @@ import { mapCommentThread } from '@/objects/comment/view';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { SearchProviderError } from '@/lib/search/types';
+import { defineRoute } from '@/framework/resilience';
 
-export async function POST(
+
+export const POST = defineRoute(async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
@@ -188,9 +190,9 @@ export async function POST(
   });
 
   return NextResponse.json(mapCommentThread(updatedThread));
-}
+});
 
-export async function PATCH(
+export const PATCH = defineRoute(async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ threadId: string }> }
 ) {
@@ -280,4 +282,4 @@ export async function PATCH(
   });
 
   return NextResponse.json(mapCommentThread(updatedThread));
-}
+});

@@ -9,6 +9,7 @@ import {
   type SearchQuery,
   type SearchResult,
 } from '@/lib/search/types';
+import { safeJsonParse } from '@/framework/resilience';
 
 type BraveWebSearchApiResponse = {
   mixed?: {
@@ -147,11 +148,7 @@ async function parseResponseBody(response: Response) {
   }
 
   const text = await response.text();
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
+  return safeJsonParse<unknown>(text, text);
 }
 
 function getErrorMessage(payload: unknown, status: number) {
