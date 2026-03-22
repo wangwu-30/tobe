@@ -22,7 +22,9 @@ import {
 import { AppShell } from '@/components/layout/app-shell';
 import { formatStableDateTime } from '@/lib/time';
 import {
+  BROWSER_OPERATOR_SEARCH_PROVIDER_ID,
   BRAVE_SEARCH_PROVIDER_ID,
+  DEFAULT_BROWSER_OPERATOR_SEARCH_ENDPOINT,
   DEFAULT_BRAVE_SEARCH_ENDPOINT,
   VOLCENGINE_WEB_SEARCH_PROVIDER_ID,
   type SearchProviderInfo,
@@ -67,9 +69,14 @@ type OAuthStatus = {
 
 const DEFAULT_SEARCH_PROVIDER = BRAVE_SEARCH_PROVIDER_ID;
 const SEARCH_PROVIDER_IDS = new Set([
+  BROWSER_OPERATOR_SEARCH_PROVIDER_ID,
   BRAVE_SEARCH_PROVIDER_ID,
   VOLCENGINE_WEB_SEARCH_PROVIDER_ID,
 ]);
+const DEFAULT_SEARCH_PROVIDER_ENDPOINTS: Record<string, string> = {
+  [BROWSER_OPERATOR_SEARCH_PROVIDER_ID]: DEFAULT_BROWSER_OPERATOR_SEARCH_ENDPOINT,
+  [BRAVE_SEARCH_PROVIDER_ID]: DEFAULT_BRAVE_SEARCH_ENDPOINT,
+};
 const OAUTH_CONNECTIONS = [
   {
     providerId: 'openai-codex',
@@ -313,8 +320,15 @@ export default function SettingsPage() {
   const selectedSearchProviderApiKey = searchProviderApiKeys[searchProviderId] || '';
   const selectedSearchProviderEndpoint =
     searchProviderEndpoints[searchProviderId] ||
-    (searchProviderId === BRAVE_SEARCH_PROVIDER_ID ? DEFAULT_BRAVE_SEARCH_ENDPOINT : '');
-  const isSearchApiConfigured = Boolean(selectedSearchProviderApiKey.trim());
+    selectedSearchProvider?.defaultEndpoint ||
+    DEFAULT_SEARCH_PROVIDER_ENDPOINTS[searchProviderId] ||
+    '';
+  const selectedSearchProviderRequiresApiKey =
+    selectedSearchProvider?.requiresApiKey ?? true;
+  const selectedSearchProviderMode = selectedSearchProvider?.mode || 'api';
+  const isSearchProviderConfigured = selectedSearchProviderRequiresApiKey
+    ? Boolean(selectedSearchProviderApiKey.trim())
+    : Boolean(selectedSearchProviderEndpoint.trim());
 
   const handleSave = () => {
     const modelProviderApiKeys = providerKeyRows.reduce<Record<string, string>>((acc, row) => {
@@ -740,31 +754,35 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="shrink-0 rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                {isSearchApiConfigured
-                  ? t('settings.searchProviderModeApi')
-                  : t('settings.searchProviderModeNeedsApiKey')}
+                {selectedSearchProviderMode === 'browser'
+                  ? t('settings.searchProviderModeBrowser')
+                  : isSearchProviderConfigured
+                    ? t('settings.searchProviderModeApi')
+                    : t('settings.searchProviderModeNeedsApiKey')}
               </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="text-xs">
-                  {t('settings.searchProviderApiKey', {
-                    provider: selectedSearchProvider?.label || searchProviderId,
-                  })}
-                </Label>
-                <Input
-                  type="password"
-                  value={selectedSearchProviderApiKey}
-                  onChange={(event) =>
-                    setSearchProviderApiKeys((current) => ({
-                      ...current,
-                      [searchProviderId]: event.target.value,
-                    }))
-                  }
-                  placeholder={t('settings.apiKeyPlaceholder')}
-                />
-              </div>
+              {selectedSearchProviderRequiresApiKey ? (
+                <div className="space-y-2">
+                  <Label className="text-xs">
+                    {t('settings.searchProviderApiKey', {
+                      provider: selectedSearchProvider?.label || searchProviderId,
+                    })}
+                  </Label>
+                  <Input
+                    type="password"
+                    value={selectedSearchProviderApiKey}
+                    onChange={(event) =>
+                      setSearchProviderApiKeys((current) => ({
+                        ...current,
+                        [searchProviderId]: event.target.value,
+                      }))
+                    }
+                    placeholder={t('settings.apiKeyPlaceholder')}
+                  />
+                </div>
+              ) : null}
 
               <div className="space-y-2">
                 <Label className="text-xs">{t('settings.searchEndpoint')}</Label>
@@ -782,13 +800,15 @@ export default function SettingsPage() {
             </div>
 
             <p className="text-xs leading-5 text-muted-foreground">
-              {searchProviderId === BRAVE_SEARCH_PROVIDER_ID
-                ? isSearchApiConfigured
-                  ? t('settings.searchProviderConfigDescriptionBraveApi')
-                  : t('settings.searchProviderConfigDescriptionNeedsApiKey')
-                : isSearchApiConfigured
-                  ? t('settings.searchProviderConfigDescription')
-                  : t('settings.searchProviderConfigDescriptionNeedsApiKey')}
+              {selectedSearchProviderMode === 'browser'
+                ? t('settings.searchProviderConfigDescriptionBrowser')
+                : searchProviderId === BRAVE_SEARCH_PROVIDER_ID
+                  ? isSearchProviderConfigured
+                    ? t('settings.searchProviderConfigDescriptionBraveApi')
+                    : t('settings.searchProviderConfigDescriptionNeedsApiKey')
+                  : isSearchProviderConfigured
+                    ? t('settings.searchProviderConfigDescription')
+                    : t('settings.searchProviderConfigDescriptionNeedsApiKey')}
             </p>
           </div>
           </Card>

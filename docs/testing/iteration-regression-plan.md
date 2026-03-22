@@ -1,6 +1,6 @@
 # 严格迭代回归门禁
 
-更新时间：2026-03-20
+更新时间：2026-03-22
 
 ## 何时必须执行
 
@@ -12,9 +12,10 @@
 
 - 日常迭代门禁：`npm run verify:iteration`
 - 浏览器依赖初始化：`npm run test:e2e:install`
+- 额外能力门禁：browser operator / blackbox acceptance（仅在显式运行或里程碑前执行）
 - 发布 / 打包门禁：`npm run desktop:smoke:packaged`
 
-`desktop:smoke:packaged` 不属于每次迭代的必跑项，只在打包验收或发布前执行。
+`desktop:smoke:packaged` 不属于每次迭代的必跑项，只在打包验收或发布前执行。browser operator / blackbox acceptance 也不属于日常 `verify:iteration`，而是后续额外能力和额外门禁。
 
 ## 固定执行顺序
 
@@ -73,12 +74,12 @@
   - 跨段线程只在首个 block 显示入口，不会在后续 block 重复显示
 - 对话切换与续写
   - 从消息另开对话时，当前 `versionId` 不丢
-  - `Version` 历史里的可见里程碑卡可以直接进入对应只读版本视图，不必先回到顶部下拉框切换
-  - 从 `Version` 历史里的里程碑 / 回退点继续时，会先创建安全回退点，再把 live draft 切到新的正式 head；URL 退出只读 `versionId` 视图，History 会标出当前草稿基线，Chat 头部显示新的基线来源
-  - `Version` 比较支持“可见里程碑 vs 可见里程碑”与“可见里程碑 vs 当前草稿”两类双边组合，不再只验证“里程碑 vs 当前草稿”
-  - `Version` 历史里的里程碑区按 lineage 分层显示；继续从旧里程碑长出新分支后，祖先节点仍保持根层，旧叶子会显示 `Branch Head`，当前 live draft 对应的分支仍显示“当前草稿基线”
+  - `Version Tree / 版本树` 里的可见里程碑卡可以直接进入对应只读版本视图，不必先回到顶部下拉框切换
+  - 从 `Version Tree / 版本树` 里的里程碑 / 回退点继续时，会先创建安全回退点，再把 live draft 切到新的正式 head；URL 退出只读 `versionId` 视图，Version Tree 会标出当前草稿基线，Chat 头部显示新的基线来源
+  - `Version Tree` 比较支持“可见里程碑 vs 可见里程碑”与“可见里程碑 vs 当前草稿”两类双边组合，不再只验证“里程碑 vs 当前草稿”
+  - `Version Tree / 版本树` 里的里程碑区按 lineage 分层显示；继续从旧里程碑长出新分支后，祖先节点仍保持根层，旧叶子会显示 `Branch Head`，当前 live draft 对应的分支仍显示“当前草稿基线”
   - 当当前草稿已经站在另一条分支上时，历史里的其他 `Branch Head` 卡片可以直接把 live draft 切到那条分支；切换后新的当前草稿基线和 Chat 基线同步更新
-  - `Version` 历史顶部会显示独立 branch overview，把每条可见分支摘要成卡片；从这里也可以直接把 live draft 切到另一条 branch head，并看到新的当前草稿分支标识
+  - `Version Tree / 版本树` 顶部会显示独立 branch overview，把每条可见分支摘要成卡片；从这里也可以直接把 live draft 切到另一条 branch head，并看到新的当前草稿分支标识
   - branch overview 允许把里程碑列表临时聚焦到单条分支的 lineage；聚焦时不会混入其他可见分支节点，并且能显式返回全部分支历史
   - `Status` 面板会同步显示当前 live draft 的分支基线标题；从旧里程碑继续或切到另一条 branch head 后，这里的标题也会立即更新
   - 从旧里程碑继续后，`Review` 里只继承该祖先链上仍可重定位的未解决评论；兄弟分支的评论不会泄漏到当前新分支
@@ -89,6 +90,7 @@
   - Chat 与 Comment 的深度研究都只在主交互面显示摘要 / 计划 / 进度，完整报告通过支持资料文件打开
   - 深度研究需要覆盖一个明确业务场景：生成“成形类产品”的市场分析报告，至少包含市场需求与竞品情况
   - 深度研究 provider 不可用时，Chat 和 Comment 都要给出明确阻断文案，并暴露直接跳到设置的恢复入口
+  - 当当前搜索 provider 选为 `Browser Operator Search` 且 endpoint 指向可访问搜索页时，`/api/search/query` 可以通过 browser operator 打开页面、等待结果并提取可见 result card；这条闭环不要求额外 API key
   - 研究报告入口必须能直接打开对应支持资料文件
   - 研究报告文件必须出现在支持资料树的 `研究` 目录下，而不是漂在根层
 - Workflow / Status
@@ -107,7 +109,7 @@
   - 完成态且存在 active workflow 时，`Status` 面板会显示“沿用这套方法继续开工”，并在当前项目里带着该 workflow 创建下一个交付物
   - `Status` 面板在准备阶段只显示摘要与当前 workflow / 下一步动作，不重复展示“生成第一稿”的第二张同主题卡，也不再承担类型管理
   - 首次打开 `Status / Review / Chat / Context` 时，会出现一次性 contextual guide
-  - 首次进入 `Context` 时，workflow 区域会显示一次性 guide；打开只读 `Version` 时，会显示对应的版本 guide
+  - 首次进入 `Context` 时，workflow 区域会显示一次性 guide；打开只读版本视图时，会显示对应的版本 guide
 
 ## 隔离与产物
 

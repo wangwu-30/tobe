@@ -104,85 +104,164 @@ async function createBranchVersionScenario(): Promise<BranchVersionScenario> {
   };
 }
 
-async function openVersionHistory(page: Page) {
-  const historyDialog = page.getByRole('dialog', { name: /历史|History/ });
-  const historyButton = page.getByTestId('version-history-button');
+async function openVersionTree(page: Page) {
+  const versionTreeDialog = page.getByRole('dialog', { name: /版本树|Version Tree/ });
+  const versionTreeButton = page.getByTestId('version-tree-button');
 
-  if (await historyDialog.isVisible().catch(() => false)) {
-    return historyDialog;
+  if (await versionTreeDialog.isVisible().catch(() => false)) {
+    return versionTreeDialog;
   }
 
   await dismissVisibleFirstUseGuidance(page);
-  await expect(historyButton).toBeVisible();
-  await expect(historyButton).toBeEnabled();
+  await expect(versionTreeButton).toBeVisible();
+  await expect(versionTreeButton).toBeEnabled();
   await expect(async () => {
-    if (!(await historyDialog.isVisible().catch(() => false))) {
+    if (!(await versionTreeDialog.isVisible().catch(() => false))) {
       await dismissVisibleFirstUseGuidance(page);
-      await historyButton.click();
+      await versionTreeButton.click();
     }
-    await expect(historyDialog).toBeVisible();
+    await expect(versionTreeDialog).toBeVisible();
   }).toPass({ timeout: 5000 });
-  await expect(historyDialog.locator('[data-testid^="version-history-card-"]').first()).toBeVisible();
+  await expect(
+    versionTreeDialog.locator('[data-testid^="version-history-card-"]').first()
+  ).toBeVisible();
 
-  return historyDialog;
+  return versionTreeDialog;
 }
 
-async function openReadOnlyVersionFromHistory(page: Page, versionId: string) {
+async function openReadOnlyVersionFromTree(page: Page, versionId: string) {
   await expect(async () => {
-    const historyDialog = await openVersionHistory(page);
-    const historyCard = historyDialog.getByTestId(`version-history-card-${versionId}`);
-    await expect(historyCard).toBeVisible();
-    await historyCard.click();
+    const versionTreeDialog = await openVersionTree(page);
+    const versionCard = versionTreeDialog.getByTestId(`version-history-card-${versionId}`);
+    await expect(versionCard).toBeVisible();
+    await versionCard.click();
     await expect(page).toHaveURL(new RegExp(`versionId=${versionId}`));
-  }).toPass({ timeout: 7000 });
+  }).toPass({ timeout: 15000 });
 }
 
-async function continueFromHistory(page: Page, versionId: string, initialConversationId: string) {
+async function waitForConversationChange(
+  page: Page,
+  initialConversationId: string,
+  options?: {
+    expectedVersionId?: string | null;
+    timeout?: number;
+  }
+) {
+  await page.waitForFunction(
+    (payload) => {
+      const params = new URLSearchParams(window.location.search);
+      const conversationId = params.get('conversationId');
+      const versionId = params.get('versionId');
+
+      if (!conversationId || conversationId === payload.initialConversationId) {
+        return false;
+      }
+
+      if (payload.expectVersionIdMode === 'null') {
+        return !versionId;
+      }
+
+      if (payload.expectVersionIdMode === 'exact') {
+        return versionId === payload.expectedVersionId;
+      }
+
+      return true;
+    },
+    {
+      expectVersionIdMode:
+        options?.expectedVersionId === undefined
+          ? 'any'
+          : options.expectedVersionId === null
+            ? 'null'
+            : 'exact',
+      expectedVersionId: options?.expectedVersionId ?? null,
+      initialConversationId,
+    },
+    { timeout: options?.timeout ?? 30000 }
+  );
+}
+
+async function expectWorkspaceSurfaceText(
+  page: Page,
+  text: string,
+  options?: {
+    hiddenText?: string;
+    timeout?: number;
+  }
+) {
+  const surface = page.locator('[data-workspace-outline-surface="true"]');
+
   await expect(async () => {
-    if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
-      const historyDialog = await openVersionHistory(page);
-      const continueButton = historyDialog.getByTestId(`version-continue-${versionId}`);
-      await expect(continueButton).toBeVisible();
-      await continueButton.click();
+    await dismissVisibleFirstUseGuidance(page);
+    await expect(surface).toBeVisible();
+    await expect(surface.getByText(text)).toBeVisible();
+    if (options?.hiddenText) {
+      await expect(surface.getByText(options.hiddenText)).toHaveCount(0);
     }
-
-    await expect.poll(() => {
-      return new URL(page.url()).searchParams.get('conversationId');
-    }).not.toBe(initialConversationId);
-    await expect.poll(() => {
-      return new URL(page.url()).searchParams.get('versionId');
-    }).toBeNull();
-  }).toPass({ timeout: 7000 });
+  }).toPass({ timeout: options?.timeout ?? 30000 });
 }
 
-async function switchToBranchFromHistory(
+async function expectWorkspaceSurfaceHeading(
+  page: Page,
+  heading: string,
+  options?: {
+    timeout?: number;
+  }
+) {
+  const surface = page.locator('[data-workspace-outline-surface="true"]');
+
+  await expect(async () => {
+    await dismissVisibleFirstUseGuidance(page);
+    await expect(surface).toBeVisible();
+    await expect(surface.getByRole('heading', { name: heading })).toBeVisible();
+  }).toPass({ timeout: options?.timeout ?? 30000 });
+}
+
+async function continueFromVersionTree(
+  page: Page,
+  versionId: string,
+  initialConversationId: string
+) {
+  if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+    const versionTreeDialog = await openVersionTree(page);
+    const continueButton = versionTreeDialog.getByTestId(`version-continue-${versionId}`);
+    await expect(continueButton).toBeVisible();
+    await expect(continueButton).toBeEnabled();
+    await continueButton.click();
+  }
+
+  await waitForConversationChange(page, initialConversationId, {
+    expectedVersionId: null,
+  });
+}
+
+async function switchToBranchFromVersionTree(
   page: Page,
   branchHeadVersionId: string,
   initialConversationId: string
 ) {
-  await expect(async () => {
-    if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
-      const historyDialog = await openVersionHistory(page);
-      const overviewSwitch = historyDialog.getByTestId(
-        `version-branch-overview-switch-${branchHeadVersionId}`
+  if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+    const versionTreeDialog = await openVersionTree(page);
+    const overviewSwitch = versionTreeDialog.getByTestId(
+      `version-branch-overview-switch-${branchHeadVersionId}`
+    );
+
+    if (await overviewSwitch.isVisible().catch(() => false)) {
+      await expect(overviewSwitch).toBeEnabled();
+      await overviewSwitch.click();
+    } else {
+      const switchButton = versionTreeDialog.getByTestId(
+        `version-switch-branch-${branchHeadVersionId}`
       );
-
-      if (await overviewSwitch.isVisible().catch(() => false)) {
-        await overviewSwitch.click();
-      } else {
-        const switchButton = historyDialog.getByTestId(`version-switch-branch-${branchHeadVersionId}`);
-        await expect(switchButton).toBeVisible();
-        await switchButton.click();
-      }
+      await expect(switchButton).toBeVisible();
+      await expect(switchButton).toBeEnabled();
+      await switchButton.click();
     }
+  }
 
-    await expect.poll(() => {
-      return new URL(page.url()).searchParams.get('conversationId');
-    }).not.toBe(initialConversationId);
-    await expect.poll(() => {
-      return new URL(page.url()).searchParams.get('versionId');
-    }).toBeNull();
-  }).toPass({ timeout: 7000 });
+  await waitForConversationChange(page, initialConversationId, {
+    expectedVersionId: null,
+  });
 }
 
 async function dismissVisibleFirstUseGuidance(page: Page) {
@@ -383,16 +462,15 @@ test('opening a new chat from a message preserves the selected version surface',
     .getByTestId(`chat-new-conversation-message-${workspace.branchMessageId}`)
     .click();
 
+  await waitForConversationChange(page, initialConversationId, {
+    expectedVersionId: workspace.versionId,
+  });
+  await dismissVisibleFirstUseGuidance(page);
   await expect(page).toHaveURL(new RegExp(`versionId=${workspace.versionId}`));
-  await expect.poll(() => {
-    return new URL(page.url()).searchParams.get('conversationId');
-  }).not.toBe(initialConversationId);
-  await expect(
-    page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
-  ).toBeVisible();
+  await expectWorkspaceSurfaceText(page, BRANCH_VERSION_SURFACE_TEXT);
 });
 
-test('version history cards can open a milestone as the current read-only surface', async ({
+test('version tree cards can open a milestone as the current read-only surface', async ({
   page,
 }) => {
   const workspace = await createBranchVersionScenario();
@@ -404,16 +482,13 @@ test('version history cards can open a milestone as the current read-only surfac
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)
   ).toBeVisible();
 
-  await openReadOnlyVersionFromHistory(page, workspace.versionId);
-  await expect(
-    page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
-  ).toBeVisible();
-  await expect(
-    page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)
-  ).toHaveCount(0);
+  await openReadOnlyVersionFromTree(page, workspace.versionId);
+  await expectWorkspaceSurfaceText(page, BRANCH_VERSION_SURFACE_TEXT, {
+    hiddenText: BRANCH_V2_SURFACE_TEXT,
+  });
 });
 
-test('continuing from version history promotes that point into the live draft and exposes the new draft base', async ({
+test('continuing from the version tree promotes that point into the live draft and exposes the new draft base', async ({
   page,
 }) => {
   const workspace = await createBranchVersionScenario();
@@ -426,7 +501,7 @@ test('continuing from version history promotes that point into the live draft an
 
   await dismissVisibleFirstUseGuidance(page);
 
-  await continueFromHistory(page, workspace.versionId, initialConversationId);
+  await continueFromVersionTree(page, workspace.versionId, initialConversationId);
 
   await page.getByTestId('assistant-tab-chat').click();
   await dismissVisibleFirstUseGuidance(page);
@@ -438,8 +513,8 @@ test('continuing from version history promotes that point into the live draft an
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toBeVisible();
 
-  const refreshedHistoryDialog = await openVersionHistory(page);
-  await expect(refreshedHistoryDialog.getByText(/当前草稿基线|Current Draft Base/).first()).toBeVisible();
+  const refreshedVersionTree = await openVersionTree(page);
+  await expect(refreshedVersionTree.getByText(/当前草稿基线|Current Draft Base/).first()).toBeVisible();
   await expect(page.getByTestId(`version-history-card-${workspace.versionId}`)).toHaveAttribute(
     'data-lineage-depth',
     '0'
@@ -458,7 +533,7 @@ test('continuing from version history promotes that point into the live draft an
   ).toHaveAttribute('data-lineage-depth', '1');
 });
 
-test('switching to another visible branch head from history moves the live draft onto that branch', async ({
+test('switching to another visible branch head from the version tree moves the live draft onto that branch', async ({
   page,
 }) => {
   const workspace = await createBranchVersionScenario();
@@ -471,7 +546,7 @@ test('switching to another visible branch head from history moves the live draft
 
   await dismissVisibleFirstUseGuidance(page);
 
-  await continueFromHistory(page, workspace.versionId, initialConversationId);
+  await continueFromVersionTree(page, workspace.versionId, initialConversationId);
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toBeVisible();
@@ -480,7 +555,7 @@ test('switching to another visible branch head from history moves the live draft
   expect(continuedConversationId).not.toBeNull();
 
   const switchedBranchId = workspace.secondVersionId!;
-  await switchToBranchFromHistory(page, switchedBranchId, continuedConversationId!);
+  await switchToBranchFromVersionTree(page, switchedBranchId, continuedConversationId!);
 
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)
@@ -489,9 +564,9 @@ test('switching to another visible branch head from history moves the live draft
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toHaveCount(0);
 
-  const refreshedHistoryDialog = await openVersionHistory(page);
-  await expect(refreshedHistoryDialog.getByTestId(`version-draft-base-${switchedBranchId}`)).toBeVisible();
-  await expect(refreshedHistoryDialog.getByTestId(`version-switch-branch-${switchedBranchId}`)).toHaveCount(0);
+  const refreshedVersionTree = await openVersionTree(page);
+  await expect(refreshedVersionTree.getByTestId(`version-draft-base-${switchedBranchId}`)).toBeVisible();
+  await expect(refreshedVersionTree.getByTestId(`version-switch-branch-${switchedBranchId}`)).toHaveCount(0);
   await page.keyboard.press('Escape');
 
   await page.getByTestId('assistant-tab-chat').click();
@@ -514,7 +589,7 @@ test('branch overview groups visible heads and can switch the live draft to anot
 
   await dismissVisibleFirstUseGuidance(page);
 
-  await continueFromHistory(page, workspace.versionId, initialConversationId);
+  await continueFromVersionTree(page, workspace.versionId, initialConversationId);
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toBeVisible();
@@ -522,34 +597,34 @@ test('branch overview groups visible heads and can switch the live draft to anot
   const continuedConversationId = new URL(page.url()).searchParams.get('conversationId');
   expect(continuedConversationId).not.toBeNull();
 
-  const branchHistoryDialog = await openVersionHistory(page);
+  const branchVersionTree = await openVersionTree(page);
   await expect(
-    branchHistoryDialog.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
+    branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
   ).toBeVisible();
   await expect.poll(async () => {
-    return await branchHistoryDialog
+    return await branchVersionTree
       .locator('[data-testid^="version-branch-overview-card-"]')
       .count();
   }).toBeGreaterThanOrEqual(2);
   await expect(
-    branchHistoryDialog.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
+    branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
   ).toContainText('版本里程碑 V1');
   await expect(
-    branchHistoryDialog.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
+    branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
   ).toContainText('版本里程碑 V2');
 
-  await switchToBranchFromHistory(page, workspace.secondVersionId!, continuedConversationId!);
+  await switchToBranchFromVersionTree(page, workspace.secondVersionId!, continuedConversationId!);
 
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)
   ).toBeVisible();
 
-  const refreshedHistoryDialog = await openVersionHistory(page);
+  const refreshedVersionTree = await openVersionTree(page);
   await expect(
-    refreshedHistoryDialog.getByTestId(`version-branch-overview-current-${workspace.secondVersionId!}`)
+    refreshedVersionTree.getByTestId(`version-branch-overview-current-${workspace.secondVersionId!}`)
   ).toBeVisible();
   await expect(
-    refreshedHistoryDialog.getByTestId(`version-branch-overview-switch-${workspace.secondVersionId!}`)
+    refreshedVersionTree.getByTestId(`version-branch-overview-switch-${workspace.secondVersionId!}`)
   ).toHaveCount(0);
   await page.keyboard.press('Escape');
 
@@ -571,44 +646,44 @@ test('branch overview can focus the milestone list on a single branch lineage', 
 
   await dismissVisibleFirstUseGuidance(page);
 
-  await continueFromHistory(page, workspace.versionId, initialConversationId);
+  await continueFromVersionTree(page, workspace.versionId, initialConversationId);
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toBeVisible();
 
-  const branchHistoryDialog = await openVersionHistory(page);
-  await branchHistoryDialog
+  const branchVersionTree = await openVersionTree(page);
+  await branchVersionTree
     .getByTestId(`version-branch-overview-focus-${workspace.secondVersionId!}`)
     .click();
 
-  await expect(branchHistoryDialog.getByTestId('version-branch-focus-banner')).toContainText(
+  await expect(branchVersionTree.getByTestId('version-branch-focus-banner')).toContainText(
     '版本里程碑 V2'
   );
-  await expect(branchHistoryDialog.getByTestId('version-branch-workspace')).toBeVisible();
-  await expect(branchHistoryDialog.getByTestId('version-branch-workspace-stats')).toContainText(
+  await expect(branchVersionTree.getByTestId('version-branch-workspace')).toBeVisible();
+  await expect(branchVersionTree.getByTestId('version-branch-workspace-stats')).toContainText(
     /1|Temporary|临时/
   );
   await expect(
-    branchHistoryDialog.getByTestId(`version-history-card-${workspace.versionId}`)
+    branchVersionTree.getByTestId(`version-history-card-${workspace.versionId}`)
   ).toBeVisible();
   await expect(
-    branchHistoryDialog.getByTestId(`version-history-card-${workspace.secondVersionId!}`)
+    branchVersionTree.getByTestId(`version-history-card-${workspace.secondVersionId!}`)
   ).toBeVisible();
   await expect(
-    branchHistoryDialog.getByTestId(`version-branch-workspace-section-${workspace.secondVersionId!}`)
+    branchVersionTree.getByTestId(`version-branch-workspace-section-${workspace.secondVersionId!}`)
   ).toContainText(/继续前安全回退点|Safety Checkpoint before Continue/);
   await expect(
-    branchHistoryDialog.getByTestId(`version-branch-workspace-section-${workspace.versionId}`)
+    branchVersionTree.getByTestId(`version-branch-workspace-section-${workspace.versionId}`)
   ).not.toContainText(/继续前安全回退点|Safety Checkpoint before Continue/);
   await expect(
-    branchHistoryDialog
+    branchVersionTree
       .locator('[data-testid^="version-history-card-"]')
       .filter({ hasText: '从 版本里程碑 V1 继续' })
   ).toHaveCount(0);
 
-  await branchHistoryDialog.getByTestId('version-branch-focus-clear').click();
+  await branchVersionTree.getByTestId('version-branch-focus-clear').click();
   await expect(
-    branchHistoryDialog
+    branchVersionTree
       .locator('[data-testid^="version-history-card-"]')
       .filter({ hasText: '从 版本里程碑 V1 继续' })
       .first()
@@ -627,7 +702,7 @@ test('continuing from an older milestone only inherits actionable review from th
 
   await dismissVisibleFirstUseGuidance(page);
 
-  await continueFromHistory(page, workspace.versionId, workspace.conversationId);
+  await continueFromVersionTree(page, workspace.versionId, workspace.conversationId);
 
   await page.getByRole('tab', { name: /评审|Review/ }).click();
   await dismissVisibleFirstUseGuidance(page);
@@ -676,6 +751,47 @@ test('version compare supports visible milestone against visible milestone, not 
   ).toBeVisible();
 });
 
+test('branch compare stays on the selected lineage by default and only expands cross-branch explicitly', async ({
+  page,
+}) => {
+  const workspace = await createBranchVersionScenario();
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
+  );
+
+  await dismissVisibleFirstUseGuidance(page);
+  await continueFromVersionTree(page, workspace.versionId, workspace.conversationId);
+
+  const versionTreeDialog = await openVersionTree(page);
+  await versionTreeDialog
+    .getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
+    .getByRole('button', { name: /比较|Compare/ })
+    .click();
+
+  const compareDialog = page.getByRole('dialog', { name: /比较版本|Compare versions/ });
+  await expect(compareDialog.getByText(/默认先留在分支|Stay on branch/)).toBeVisible();
+  await expect(compareDialog.getByTestId('version-compare-left-select')).toContainText(
+    '里程碑 · 版本里程碑 V2'
+  );
+  await expect(compareDialog.getByTestId('version-compare-right-select')).toContainText(
+    '里程碑 · 版本里程碑 V1'
+  );
+
+  await compareDialog.getByTestId('version-compare-right-select').click();
+  await expect(page.getByRole('option', { name: '当前草稿' })).toHaveCount(0);
+  await expect(page.getByRole('option', { name: '里程碑 · 版本里程碑 V1' })).toBeVisible();
+  await expect(page.getByRole('option', { name: '里程碑 · 版本里程碑 V2' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await compareDialog.getByTestId('version-compare-scope-toggle').click();
+  await expect(compareDialog.getByText('把任意可见版本与另一个可见版本或当前草稿做比较。')).toBeVisible();
+  await compareDialog.getByTestId('version-compare-right-select').click();
+  await expect(page.getByRole('option', { name: '当前草稿' })).toBeVisible();
+  await page.keyboard.press('Escape');
+});
+
 test('switching conversations from the chat header preserves the selected support file', async ({
   page,
 }) => {
@@ -687,11 +803,7 @@ test('switching conversations from the chat header preserves the selected suppor
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&fileId=${workspace.supportFileId}`
   );
 
-  await expect(
-    page.locator('[data-workspace-outline-surface="true"]').getByRole('heading', {
-      name: '支持资料续写对话文件',
-    })
-  ).toBeVisible();
+  await expectWorkspaceSurfaceHeading(page, '支持资料续写对话文件');
   await page.getByRole('tab', { name: /对话|Chat/ }).click();
 
   await page.getByTestId('chat-conversation-select').click();
@@ -705,9 +817,5 @@ test('switching conversations from the chat header preserves the selected suppor
     new RegExp(`conversationId=${workspace.branchConversationId}`)
   );
   await expect(page).toHaveURL(new RegExp(`fileId=${workspace.supportFileId}`));
-  await expect(
-    page.locator('[data-workspace-outline-surface="true"]').getByRole('heading', {
-      name: '支持资料续写对话文件',
-    })
-  ).toBeVisible();
+  await expectWorkspaceSurfaceHeading(page, '支持资料续写对话文件');
 });

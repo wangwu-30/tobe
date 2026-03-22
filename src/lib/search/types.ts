@@ -1,8 +1,11 @@
 export const BRAVE_SEARCH_PROVIDER_ID = 'brave-search';
 export const DEFAULT_SEARCH_PROVIDER_ID = BRAVE_SEARCH_PROVIDER_ID;
+export const BROWSER_OPERATOR_SEARCH_PROVIDER_ID = 'browser-operator-search';
 export const VOLCENGINE_WEB_SEARCH_PROVIDER_ID = 'volcengine-web-search';
 export const DEFAULT_BRAVE_SEARCH_ENDPOINT =
   'https://api.search.brave.com/res/v1/web/search';
+export const DEFAULT_BROWSER_OPERATOR_SEARCH_ENDPOINT =
+  'https://html.duckduckgo.com/html/';
 export const DEFAULT_VOLCENGINE_RESPONSES_ENDPOINT =
   'https://ark.cn-beijing.volces.com/api/v3/responses';
 export const DEFAULT_VOLCENGINE_WEB_SEARCH_MODEL = 'doubao-seed-1-6-250615';
@@ -41,10 +44,13 @@ export type SearchResult = {
 };
 
 export type SearchProviderInfo = {
+  defaultEndpoint?: string | null;
   id: string;
   label: string;
   description: string;
   configured: boolean;
+  mode: 'api' | 'browser';
+  requiresApiKey: boolean;
   selected: boolean;
 };
 

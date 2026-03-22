@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowUpRight, GitCompareArrows, History, RotateCcw } from 'lucide-react';
+import { ArrowUpRight, GitBranch, GitCompareArrows, RotateCcw } from 'lucide-react';
 import { plateToMarkdown } from '@/lib/ai/serializer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { useT } from '@/components/providers/language-provider';
 import { apiCall, safeJsonParse } from '@/framework/resilience';
 
@@ -52,13 +59,14 @@ export function DeliverableVersionControls({
 }) {
   const t = useT();
   const [compareOpen, setCompareOpen] = React.useState(false);
-  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [versionTreeOpen, setVersionTreeOpen] = React.useState(false);
   const [allVersions, setAllVersions] = React.useState<WorkspaceVersionData[]>([]);
   const [compareLeftId, setCompareLeftId] = React.useState<string>('draft');
   const [compareRightId, setCompareRightId] = React.useState<string>('draft');
-  const [historyFocusedBranchHeadId, setHistoryFocusedBranchHeadId] = React.useState<string | null>(
-    null
-  );
+  const [compareBranchHeadId, setCompareBranchHeadId] = React.useState<string | null>(null);
+  const [compareCrossBranchMode, setCompareCrossBranchMode] = React.useState(false);
+  const [versionTreeFocusedBranchHeadId, setVersionTreeFocusedBranchHeadId] =
+    React.useState<string | null>(null);
   const [isContinuingId, setIsContinuingId] = React.useState<string | null>(null);
   const [isRestoringId, setIsRestoringId] = React.useState<string | null>(null);
   const [isSwitchingId, setIsSwitchingId] = React.useState<string | null>(null);
@@ -86,12 +94,12 @@ export function DeliverableVersionControls({
   }, [allVersions.length, versions]);
 
   React.useEffect(() => {
-    if (!compareOpen && !historyOpen) {
+    if (!compareOpen && !versionTreeOpen) {
       return;
     }
 
     void loadVersions();
-  }, [compareOpen, historyOpen, loadVersions]);
+  }, [compareOpen, loadVersions, versionTreeOpen]);
 
   const visibleVersions = React.useMemo(
     () => allVersions.filter((version) => version.visible),
@@ -141,9 +149,36 @@ export function DeliverableVersionControls({
   );
   const focusedBranch = React.useMemo(
     () =>
-      visibleBranchOverview.find((branch) => branch.head.id === historyFocusedBranchHeadId) || null,
-    [historyFocusedBranchHeadId, visibleBranchOverview]
+      visibleBranchOverview.find((branch) => branch.head.id === versionTreeFocusedBranchHeadId) ||
+      null,
+    [versionTreeFocusedBranchHeadId, visibleBranchOverview]
   );
+  const compareBranch = React.useMemo(
+    () =>
+      visibleBranchOverview.find((branch) => branch.head.id === compareBranchHeadId) || null,
+    [compareBranchHeadId, visibleBranchOverview]
+  );
+  const compareBranchIds = React.useMemo(
+    () => new Set(compareBranch?.path.map((version) => version.id) || []),
+    [compareBranch]
+  );
+  const compareScopedToBranch = Boolean(compareBranch && !compareCrossBranchMode);
+  const compareSelectableVersions = React.useMemo(() => {
+    if (!compareScopedToBranch) {
+      return visibleVersions;
+    }
+
+    return visibleVersions.filter((version) => compareBranchIds.has(version.id));
+  }, [compareBranchIds, compareScopedToBranch, visibleVersions]);
+  const compareDraftAllowed = React.useMemo(() => {
+    if (!compareScopedToBranch) {
+      return true;
+    }
+
+    return Boolean(
+      currentDraftBaseVersionId && compareBranchIds.has(currentDraftBaseVersionId)
+    );
+  }, [compareBranchIds, compareScopedToBranch, currentDraftBaseVersionId]);
   const focusedBranchWorkspace = React.useMemo(() => {
     if (!focusedBranch) {
       return null;
@@ -167,34 +202,85 @@ export function DeliverableVersionControls({
   }, [focusedBranch, visibleVersionTree]);
 
   React.useEffect(() => {
-    if (!compareOpen || visibleVersions.length === 0) {
+    if (!compareOpen) {
       return;
     }
 
-    if (compareLeftId === 'draft') {
-      setCompareLeftId(visibleVersions[0].id);
+    if (!compareBranchHeadId || compareBranch) {
+      return;
     }
 
-    if (compareRightId === compareLeftId && visibleVersions[1]) {
-      setCompareRightId(visibleVersions[1].id);
-    }
-  }, [compareLeftId, compareOpen, compareRightId, visibleVersions]);
+    setCompareBranchHeadId(null);
+    setCompareCrossBranchMode(false);
+  }, [compareBranch, compareBranchHeadId, compareOpen]);
 
   React.useEffect(() => {
-    if (historyOpen) {
+    if (!compareOpen) {
       return;
     }
 
-    setHistoryFocusedBranchHeadId(null);
-  }, [historyOpen]);
+    if (compareSelectableVersions.length === 0 && !compareDraftAllowed) {
+      return;
+    }
+
+    const leftSelectable = isCompareSelectionAllowed({
+      allowDraft: compareDraftAllowed,
+      selectableVersions: compareSelectableVersions,
+      value: compareLeftId,
+    });
+
+    if (!leftSelectable) {
+      const fallbackLeftId = getFirstCompareSelection({
+        allowDraft: compareDraftAllowed,
+        selectableVersions: compareSelectableVersions,
+      });
+      setCompareLeftId(fallbackLeftId);
+      return;
+    }
+
+    const rightSelectable = isCompareSelectionAllowed({
+      allowDraft: compareDraftAllowed,
+      selectableVersions: compareSelectableVersions,
+      value: compareRightId,
+    });
+
+    if (!rightSelectable || compareRightId === compareLeftId) {
+      setCompareRightId(
+        resolveDefaultCompareAnchor({
+          allowDraft: compareDraftAllowed,
+          branch: compareScopedToBranch ? compareBranch : null,
+          currentDraftBaseVersionId: currentDraftBaseVersionId || null,
+          selectableVersions: compareSelectableVersions,
+          selectedVersionId: compareLeftId,
+        })
+      );
+    }
+  }, [
+    compareBranch,
+    compareDraftAllowed,
+    compareLeftId,
+    compareOpen,
+    compareRightId,
+    compareScopedToBranch,
+    compareSelectableVersions,
+    currentDraftBaseVersionId,
+  ]);
 
   React.useEffect(() => {
-    if (!historyFocusedBranchHeadId || focusedBranch) {
+    if (versionTreeOpen) {
       return;
     }
 
-    setHistoryFocusedBranchHeadId(null);
-  }, [focusedBranch, historyFocusedBranchHeadId]);
+    setVersionTreeFocusedBranchHeadId(null);
+  }, [versionTreeOpen]);
+
+  React.useEffect(() => {
+    if (!versionTreeFocusedBranchHeadId || focusedBranch) {
+      return;
+    }
+
+    setVersionTreeFocusedBranchHeadId(null);
+  }, [focusedBranch, versionTreeFocusedBranchHeadId]);
 
   const compareLeftVersion =
     visibleVersions.find((version) => version.id === compareLeftId) || null;
@@ -246,7 +332,7 @@ export function DeliverableVersionControls({
 
       setIsContinuingId(version.id);
       try {
-        setHistoryOpen(false);
+        setVersionTreeOpen(false);
         await onContinueFromVersion(version);
       } finally {
         setIsContinuingId(null);
@@ -263,7 +349,7 @@ export function DeliverableVersionControls({
 
       setIsSwitchingId(version.id);
       try {
-        setHistoryOpen(false);
+        setVersionTreeOpen(false);
         await onSwitchToVersionBranch(version);
       } finally {
         setIsSwitchingId(null);
@@ -272,27 +358,55 @@ export function DeliverableVersionControls({
     [onSwitchToVersionBranch]
   );
   const openCompareFromVersion = React.useCallback(
-    (versionId: string) => {
+    (
+      versionId: string,
+      options?: {
+        branchHeadId?: string | null;
+      }
+    ) => {
+      const scopedBranch =
+        options?.branchHeadId
+          ? visibleBranchOverview.find((branch) => branch.head.id === options.branchHeadId) || null
+          : null;
+      const scopedVersions =
+        scopedBranch?.path.filter((version) => visibleVersionIds.has(version.id)) || visibleVersions;
+      const allowDraft = Boolean(
+        scopedBranch
+          ? currentDraftBaseVersionId &&
+              scopedBranch.path.some((version) => version.id === currentDraftBaseVersionId)
+          : true
+      );
+
+      setCompareBranchHeadId(options?.branchHeadId || null);
+      setCompareCrossBranchMode(false);
       setCompareLeftId(versionId);
       setCompareRightId(
-        currentDraftBaseVersionId && currentDraftBaseVersionId !== versionId
-          ? currentDraftBaseVersionId
-          : 'draft'
+        resolveDefaultCompareAnchor({
+          allowDraft,
+          branch: scopedBranch,
+          currentDraftBaseVersionId: currentDraftBaseVersionId || null,
+          selectableVersions: scopedVersions,
+          selectedVersionId: versionId,
+        })
       );
       setCompareOpen(true);
-      setHistoryOpen(false);
+      setVersionTreeOpen(false);
     },
-    [currentDraftBaseVersionId]
+    [currentDraftBaseVersionId, visibleBranchOverview, visibleVersionIds, visibleVersions]
   );
   const openReadOnlyVersion = React.useCallback(
     (versionId: string) => {
       onSelectVersion(versionId);
-      setHistoryOpen(false);
+      setVersionTreeOpen(false);
     },
     [onSelectVersion]
   );
   const renderMilestoneActions = React.useCallback(
-    (version: WorkspaceVersionData, branchHead: boolean) => (
+    (
+      version: WorkspaceVersionData,
+      branchHead: boolean,
+      compareScopeBranchHeadId?: string | null
+    ) => (
       <>
         {onContinueFromVersion ? (
           <Button
@@ -329,7 +443,11 @@ export function DeliverableVersionControls({
           size="sm"
           variant="ghost"
           className="h-8"
-          onClick={() => openCompareFromVersion(version.id)}
+          onClick={() =>
+            openCompareFromVersion(version.id, {
+              branchHeadId: compareScopeBranchHeadId || null,
+            })
+          }
         >
           {t('version.compare')}
         </Button>
@@ -439,7 +557,11 @@ export function DeliverableVersionControls({
           size="sm"
           variant="outline"
           className="h-8"
-          onClick={() => setCompareOpen(true)}
+          onClick={() => {
+            setCompareBranchHeadId(null);
+            setCompareCrossBranchMode(false);
+            setCompareOpen(true);
+          }}
           disabled={visibleVersions.length === 0}
         >
           <GitCompareArrows className="mr-1 h-3.5 w-3.5" />
@@ -449,10 +571,12 @@ export function DeliverableVersionControls({
           size="sm"
           variant="outline"
           className="h-8 gap-2 rounded-full px-3"
-          onClick={() => setHistoryOpen(true)}
-          data-testid="version-history-button"
+          onClick={() => setVersionTreeOpen(true)}
+          data-testid="version-tree-button"
         >
-          <History className="h-3.5 w-3.5" />
+          <GitBranch className="h-3.5 w-3.5" />
+          <span className="text-xs font-medium">{t('version.tree')}</span>
+          <HeaderDivider />
           <HeaderStat label={t('version.milestone')} value={String(visibleVersions.length)} />
           <HeaderDivider />
           <HeaderStat
@@ -487,8 +611,10 @@ export function DeliverableVersionControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="draft">{t('version.currentDraft')}</SelectItem>
-                  {visibleVersions.map((version) => (
+                  {compareDraftAllowed ? (
+                    <SelectItem value="draft">{t('version.currentDraft')}</SelectItem>
+                  ) : null}
+                  {compareSelectableVersions.map((version) => (
                     <SelectItem key={version.id} value={version.id}>
                       {formatVersionOptionLabel(version, t)}
                     </SelectItem>
@@ -504,8 +630,10 @@ export function DeliverableVersionControls({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="draft">{t('version.currentDraft')}</SelectItem>
-                  {visibleVersions.map((version) => (
+                  {compareDraftAllowed ? (
+                    <SelectItem value="draft">{t('version.currentDraft')}</SelectItem>
+                  ) : null}
+                  {compareSelectableVersions.map((version) => (
                     <SelectItem key={version.id} value={version.id}>
                       {formatVersionOptionLabel(version, t)}
                     </SelectItem>
@@ -513,8 +641,27 @@ export function DeliverableVersionControls({
                 </SelectContent>
               </Select>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {t('version.compareDescription')}
+            <div className="flex flex-col items-end gap-2 text-right">
+              <div className="text-xs text-muted-foreground">
+                {compareScopedToBranch
+                  ? t('version.branchCompareDescription', {
+                      title: compareBranch?.head.title || '',
+                    })
+                  : t('version.compareDescription')}
+              </div>
+              {compareBranch ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-2 text-xs"
+                  data-testid="version-compare-scope-toggle"
+                  onClick={() => setCompareCrossBranchMode((current) => !current)}
+                >
+                  {compareScopedToBranch
+                    ? t('version.compareAcrossBranches')
+                    : t('version.compareWithinBranch')}
+                </Button>
+              ) : null}
             </div>
           </div>
 
@@ -555,20 +702,41 @@ export function DeliverableVersionControls({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-        <DialogContent className="sm:max-w-[760px]">
-          <DialogHeader>
-            <DialogTitle>{t('version.history')}</DialogTitle>
-          </DialogHeader>
+      <Sheet open={versionTreeOpen} onOpenChange={setVersionTreeOpen}>
+        <SheetContent side="right" className="w-full p-0 sm:max-w-[980px]">
+          <SheetHeader className="gap-3 border-b px-6 py-5 text-left">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="text-[10px]">
+                {t('version.tree')}
+              </Badge>
+              <div
+                className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
+                data-testid="version-tree-header-stats"
+              >
+                <HeaderStat label={t('version.milestone')} value={String(visibleVersions.length)} />
+                <HeaderDivider />
+                <HeaderStat
+                  label={t('version.pinnedBadge')}
+                  value={`${pinnedRecoveryPoints.length}/3`}
+                />
+                <HeaderDivider />
+                <HeaderStat
+                  label={t('version.temporaryBadge')}
+                  value={String(temporaryRecoveryPoints.length)}
+                  emphasized={temporaryRecoveryPoints.length > 0}
+                />
+              </div>
+            </div>
+            <SheetTitle>{t('version.tree')}</SheetTitle>
+            <SheetDescription className="text-xs leading-5">
+              {t('version.treeDescription')}
+            </SheetDescription>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t('version.restoreDescription')}
+            </p>
+          </SheetHeader>
 
-          <p className="text-xs leading-5 text-muted-foreground">
-            {t('version.historyDescription')}
-          </p>
-          <p className="text-xs leading-5 text-muted-foreground">
-            {t('version.restoreDescription')}
-          </p>
-
-          <ScrollArea className="max-h-[520px] pr-3">
+          <ScrollArea className="min-h-0 flex-1 px-6 py-5">
             <div className="space-y-5">
               {visibleBranchOverview.length > 0 ? (
                 <section className="space-y-3">
@@ -604,16 +772,16 @@ export function DeliverableVersionControls({
                             <Button
                               size="sm"
                               variant={
-                                historyFocusedBranchHeadId === branch.head.id
+                                versionTreeFocusedBranchHeadId === branch.head.id
                                   ? 'secondary'
                                   : 'ghost'
                               }
                               className="h-8"
                               data-testid={`version-branch-overview-focus-${branch.head.id}`}
-                              onClick={() => setHistoryFocusedBranchHeadId(branch.head.id)}
-                              disabled={historyFocusedBranchHeadId === branch.head.id}
+                              onClick={() => setVersionTreeFocusedBranchHeadId(branch.head.id)}
+                              disabled={versionTreeFocusedBranchHeadId === branch.head.id}
                             >
-                              {historyFocusedBranchHeadId === branch.head.id
+                              {versionTreeFocusedBranchHeadId === branch.head.id
                                 ? t('version.viewingBranch')
                                 : t('version.viewBranch')}
                             </Button>
@@ -621,7 +789,11 @@ export function DeliverableVersionControls({
                               size="sm"
                               variant="ghost"
                               className="h-8"
-                              onClick={() => openCompareFromVersion(branch.head.id)}
+                              onClick={() =>
+                                openCompareFromVersion(branch.head.id, {
+                                  branchHeadId: branch.head.id,
+                                })
+                              }
                             >
                               {t('version.compare')}
                             </Button>
@@ -709,7 +881,7 @@ export function DeliverableVersionControls({
                       variant="outline"
                       className="h-8 shrink-0"
                       data-testid="version-branch-focus-clear"
-                      onClick={() => setHistoryFocusedBranchHeadId(null)}
+                      onClick={() => setVersionTreeFocusedBranchHeadId(null)}
                     >
                       {t('version.showAllBranches')}
                     </Button>
@@ -736,7 +908,8 @@ export function DeliverableVersionControls({
                       <HistoryCard
                         actions={renderMilestoneActions(
                           section.node.version,
-                          section.node.branchHead
+                          section.node.branchHead,
+                          focusedBranch.head.id
                         )}
                         badge={t('version.milestone')}
                         branchHead={section.node.branchHead}
@@ -842,7 +1015,7 @@ export function DeliverableVersionControls({
 
                   <section className="space-y-2">
                     <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
-                      {t('version.pinnedRecoveryPoints')}
+                      {t('version.globalPinnedRecoveryPoints')}
                     </div>
                     {pinnedRecoveryPoints.length === 0 ? (
                       <EmptyHistoryCard text={t('version.noPinnedRecoveryPoints')} />
@@ -876,7 +1049,7 @@ export function DeliverableVersionControls({
 
                   <section className="space-y-2">
                     <div className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">
-                      {t('version.temporaryRecoveryPoint')}
+                      {t('version.globalTemporaryRecoveryPoint')}
                     </div>
                     {temporaryRecoveryPoints.length === 0 ? (
                       <EmptyHistoryCard text={t('version.noTemporaryRecoveryPoint')} />
@@ -930,8 +1103,8 @@ export function DeliverableVersionControls({
               ) : null}
             </div>
           </ScrollArea>
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }
@@ -1329,6 +1502,88 @@ type VisibleBranchWorkspace = {
   sections: BranchWorkspaceSection[];
   temporaryRecoveryCount: number;
 };
+
+function isCompareSelectionAllowed(params: {
+  allowDraft: boolean;
+  selectableVersions: DeliverableVersionData[];
+  value: string;
+}) {
+  if (params.value === 'draft') {
+    return params.allowDraft;
+  }
+
+  return params.selectableVersions.some((version) => version.id === params.value);
+}
+
+function getFirstCompareSelection(params: {
+  allowDraft: boolean;
+  selectableVersions: DeliverableVersionData[];
+}) {
+  if (params.selectableVersions[0]) {
+    return params.selectableVersions[0].id;
+  }
+
+  return params.allowDraft ? 'draft' : '';
+}
+
+function resolveDefaultCompareAnchor(params: {
+  allowDraft: boolean;
+  branch: VisibleVersionBranch | null;
+  currentDraftBaseVersionId: string | null;
+  selectableVersions: DeliverableVersionData[];
+  selectedVersionId: string;
+}) {
+  if (params.selectedVersionId === 'draft') {
+    if (
+      params.currentDraftBaseVersionId &&
+      params.selectableVersions.some((version) => version.id === params.currentDraftBaseVersionId)
+    ) {
+      return params.currentDraftBaseVersionId;
+    }
+
+    return params.selectableVersions[0]?.id || 'draft';
+  }
+
+  if (params.branch) {
+    if (params.allowDraft && params.currentDraftBaseVersionId === params.selectedVersionId) {
+      return 'draft';
+    }
+
+    const selectedIndex = params.branch.path.findIndex(
+      (version) => version.id === params.selectedVersionId
+    );
+    if (selectedIndex > 0) {
+      const parentVersionId = params.branch.path[selectedIndex - 1]?.id;
+      if (
+        parentVersionId &&
+        params.selectableVersions.some((version) => version.id === parentVersionId)
+      ) {
+        return parentVersionId;
+      }
+    }
+  }
+
+  if (
+    params.currentDraftBaseVersionId &&
+    params.currentDraftBaseVersionId !== params.selectedVersionId &&
+    params.selectableVersions.some((version) => version.id === params.currentDraftBaseVersionId)
+  ) {
+    return params.currentDraftBaseVersionId;
+  }
+
+  const fallback = params.selectableVersions.find(
+    (version) => version.id !== params.selectedVersionId
+  );
+  if (fallback) {
+    return fallback.id;
+  }
+
+  if (params.allowDraft) {
+    return 'draft';
+  }
+
+  return params.selectedVersionId;
+}
 
 function buildVisibleVersionTree(params: {
   currentDraftBaseVersionId: string | null;

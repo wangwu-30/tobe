@@ -1,6 +1,8 @@
 import { safeJsonParse } from '@/framework/resilience';
 import {
+  BROWSER_OPERATOR_SEARCH_PROVIDER_ID,
   BRAVE_SEARCH_PROVIDER_ID,
+  DEFAULT_BROWSER_OPERATOR_SEARCH_ENDPOINT,
   DEFAULT_BRAVE_SEARCH_ENDPOINT,
   DEFAULT_SEARCH_PROVIDER_ID,
   DEFAULT_VOLCENGINE_RESPONSES_ENDPOINT,
@@ -108,6 +110,10 @@ export function resolveSearchProviderApiKey(settings: SearchSettings, providerId
     return explicitKey;
   }
 
+  if (providerId === BROWSER_OPERATOR_SEARCH_PROVIDER_ID) {
+    return undefined;
+  }
+
   if (providerId === BRAVE_SEARCH_PROVIDER_ID) {
     return process.env.BRAVE_SEARCH_API_KEY || process.env.SEARCH_API_KEY;
   }
@@ -145,6 +151,10 @@ export function resolveSearchProviderEndpoint(settings: SearchSettings, provider
   const explicitEndpoint = settings.providerEndpoints[providerId];
   if (explicitEndpoint) {
     return explicitEndpoint;
+  }
+
+  if (providerId === BROWSER_OPERATOR_SEARCH_PROVIDER_ID) {
+    return process.env.BROWSER_OPERATOR_SEARCH_ENDPOINT || DEFAULT_BROWSER_OPERATOR_SEARCH_ENDPOINT;
   }
 
   if (providerId === BRAVE_SEARCH_PROVIDER_ID) {

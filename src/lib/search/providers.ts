@@ -12,6 +12,7 @@ import {
   type SearchProviderRuntimeConfig,
 } from '@/lib/search/types';
 import {
+  BROWSER_OPERATOR_SEARCH_PROVIDER_ID,
   BRAVE_SEARCH_PROVIDER_ID,
   VOLCENGINE_WEB_SEARCH_PROVIDER_ID,
 } from '@/lib/search/types';
@@ -46,6 +47,13 @@ async function createSearchProvider(
   if (providerId === BRAVE_SEARCH_PROVIDER_ID) {
     const { BraveSearchProvider } = await import('@/lib/search/providers/brave-search');
     return new BraveSearchProvider(config);
+  }
+
+  if (providerId === BROWSER_OPERATOR_SEARCH_PROVIDER_ID) {
+    const { BrowserOperatorSearchProvider } = await import(
+      '@/lib/search/providers/browser-operator-search'
+    );
+    return new BrowserOperatorSearchProvider(config);
   }
 
   if (providerId === VOLCENGINE_WEB_SEARCH_PROVIDER_ID) {

@@ -252,6 +252,24 @@
 - 为什么：如果 focus 模式只裁掉别的里程碑，却继续把 recovery point 留在全局 pinned / temporary 分区里，用户仍然无法回答“这个回退点属于哪条分支”，树状版本管理就会继续停在半成品状态。
 - 默认做法：分支视图默认做成 branch workspace；里程碑、恢复点和分支摘要围绕同一条 lineage 组织，只有回到全局历史视图时才展示跨分支的汇总分区。
 
+### 40. URL 已经切到目标态，不代表 workspace surface 已经收敛
+
+- 结论：像 `conversationId / versionId / fileId` 这类工作区路由切换，Playwright 不能只断言 URL；还必须继续断言目标 surface 自己的正文或标题已经收敛。
+- 为什么：在 Next.js 冷编译和多路数据请求并发时，URL 往往会先更新，但中心 surface 的内容要晚一拍才稳定；如果测试只看路由，会把正常中的短暂中间态误报成回归。
+- 默认做法：涉及 workspace 路由保持时，统一采用“先等 URL / query param 收敛，再等目标 surface 文本或 heading 收敛”的双阶段断言。
+
+### 41. branch compare 应该先留在当前 lineage，再显式放开跨分支
+
+- 结论：从某条 branch workspace 触发 compare 时，默认比较范围应停留在当前 lineage；跨 branch compare 应该是用户主动打开的第二层能力。
+- 为什么：如果 compare 一上来就混入其他分支和当前草稿，branch workspace 的语义会立刻被冲淡，用户也更难判断“我现在到底在比较这条分支内部，还是整个可见版本集合”。
+- 默认做法：branch compare 默认预填当前 branch 的 head 与祖先锚点，并显式提供跨 branch toggle；全局 compare 继续保留在 history 顶层入口，不和 branch compare 混成一条主路径。
+
+### 42. 当 branch workspace 已经承担主语义时，就该升格为正式 Version Tree 表面
+
+- 结论：一旦 branch workspace 已经承载分支摘要、lineage compare、只读版本浏览和 global recovery tray，就不要继续把它塞在“历史 dialog”语义里；直接升格为正式 `Version Tree / 版本树` 表面。
+- 为什么：如果产品主名称还停留在 history，用户会把已经是一等结构的版本树误解成辅助抽屉，后续每增加一个树语义都会显得像补丁，而不是系统边界已经改变。
+- 默认做法：保持同一套版本数据 contract，但把入口、标题、说明和空间预算整体切到 `Version Tree / 版本树`；`history` 只保留为事实时间语义，不再承担产品主表面名称。
+
 ## 产品踩坑记录
 
 ### 1. 兼容语义进入主表面，会把过渡态永久化
@@ -742,6 +760,18 @@
 - 结论：像“继续下一份交付物”这种会同时新建 workspace 和 conversation 的动作，E2E 不能只轮询 pathname 变了或 id 不等于旧值。
 - 为什么：路由切换早期会出现中间态；如果过早读取 URL，就会把真实成功的项目继承流程误判成“project 关联丢失”。
 - 默认做法：为这类用例提供统一 helper，等待 `/workspace/:workspaceId?conversationId=:conversationId` 两个事实同时稳定后，再断言项目继承和后续 UI。
+
+### 78. 浏览器驱动搜索应落在现有 `SearchProvider` seam，而不是再开第二条研究控制栈
+
+- 结论：当 browser operator 成为运行时搜索能力的第一位消费者时，最稳的做法是把它实现成 `SearchProvider.mode='browser'` 的 provider，而不是在 chat / research 层另起一套路由、设置项和返回格式。
+- 为什么：如果浏览器搜索绕开现有搜索 provider contract，provider 选择、endpoint 配置、结果标准化和后续 blackbox 复用都会再次分叉；同一个 repo 很快就会同时背 `API 搜索` 和 `browser 搜索` 两条平行入口。
+- 默认做法：浏览器搜索统一进入现有 `SearchProvider.search()` / `/api/search/query` seam；provider catalog 明确区分 `api | browser` mode，只有 API provider 需要 key，browser provider 只要求 endpoint 与 adapter。
+
+### 79. 浏览器提取的第一条门禁，先用确定性本地搜索面，再兼容通用结果 DOM
+
+- 结论：browser operator 的第一条回归不要直接绑真实外部搜索站点；应先用本地稳定搜索面关住闭环，同时让 adapter 兼容通用 result-card DOM 结构。
+- 为什么：真实搜索站点会漂移、限流，也会把门禁质量绑到外部页面；如果第一条回归就依赖它，browser operator 能力还没成熟，测试就会先变成噪音源。
+- 默认做法：先提供带稳定 data attribute 的本地 `/debug/...` 搜索面做确定性验收，再让 adapter 额外支持常见 `.result / .result__a / .result__snippet / .result__url` 这类通用结构。
 
 ## 技术踩坑记录
 

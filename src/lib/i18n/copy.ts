@@ -547,9 +547,12 @@ const COPY = {
       'These settings apply to manual search in chat and to agent-driven fresh-information lookup.',
     'settings.searchProviderConfigDescriptionBraveApi':
       'Requests go directly to Brave Search API. No local browser fallback is available.',
+    'settings.searchProviderConfigDescriptionBrowser':
+      'Browser Operator launches a local browser, opens the configured search page, and extracts visible result cards. Override the endpoint only when pointing to a compatible HTML search surface.',
     'settings.searchProviderConfigDescriptionNeedsApiKey':
       'This provider needs an API key here or from environment variables.',
     'settings.searchProviderModeApi': 'API mode',
+    'settings.searchProviderModeBrowser': 'Browser mode',
     'settings.searchProviderModeNeedsApiKey': 'API key required',
     'settings.searchProvidersLoadFailed': 'Could not load the search provider list.',
     'settings.selectLanguage': 'Select a language',
@@ -687,6 +690,10 @@ const COPY = {
     'version.compare': 'Compare',
     'version.compareDescription':
       'Compare any visible version against another visible version or the current draft.',
+    'version.branchCompareDescription':
+      'Stay on branch {title} by default. Expand to every visible branch only when you explicitly need a cross-branch compare.',
+    'version.compareAcrossBranches': 'Compare Across Branches',
+    'version.compareWithinBranch': 'Only This Branch',
     'version.compareVersions': 'Compare versions',
     'version.basedOn': 'Based on {title}',
     'version.branches': 'Branches',
@@ -716,8 +723,8 @@ const COPY = {
     'version.createVersion': 'Save Milestone',
     'version.currentDraft': 'Current Draft',
     'version.defaultTitle': 'Deliverable Version',
-    'version.history': 'History',
-    'version.historyDescription':
+    'version.tree': 'Version Tree',
+    'version.treeDescription':
       'Milestones are the saved versions worth comparing. Recovery points are quick fallback states from recent AI passes, with 3 pin slots plus 1 latest temporary slot.',
     'version.lockVersion': 'Lock Version',
     'version.milestone': 'Milestone',
@@ -730,6 +737,7 @@ const COPY = {
     'version.pinLimitReached': 'Pin slots full',
     'version.pinnedBadge': 'Pinned',
     'version.pinnedRecoveryPoints': 'Pinned Recovery Points',
+    'version.globalPinnedRecoveryPoints': 'Global Pinned Recovery Points',
     'version.pendingStagedChanges': 'Advanced: staged changes',
     'version.recoveryPoint': 'Recovery Point',
     'version.showAllBranches': 'Show All Branches',
@@ -740,6 +748,7 @@ const COPY = {
     'version.restoredAt': 'Saved {time}',
     'version.temporaryBadge': 'Temporary',
     'version.temporaryRecoveryPoint': 'Temporary Recovery Point',
+    'version.globalTemporaryRecoveryPoint': 'Global Temporary Recovery Point',
     'version.unpin': 'Unpin',
     'version.unlockForEditing': 'Unlock for editing',
     'version.viewBranch': 'View Branch',
@@ -748,7 +757,7 @@ const COPY = {
       'The live draft exists, but preview is still blocked. Restore a recent recovery point or make the entrypoint previewable.',
     'workflow.blockedTitle': 'Preview is blocked',
     'workflow.finalizedDescription':
-      'A milestone is saved for the current draft. Continue revising from the live draft, or restore an older milestone from history if needed.',
+      'A milestone is saved for the current draft. Continue revising from the live draft, or restore an older milestone from the Version Tree if needed.',
     'workflow.finalizedTitle': 'Milestone saved',
     'workflow.implementingDescription':
       'AI is writing directly into the live draft now. Each pass creates one temporary recovery point, and you can pin up to 3 of them.',
@@ -795,7 +804,7 @@ const COPY = {
     'workspace.pinRecoveryPrompt':
       'Created temporary recovery point "{title}". Pin it to keep it beyond the temporary slot?',
     'workspace.pinRecoveryPromptFull':
-      'Created temporary recovery point "{title}". Pin slots are full, so unpin one from history first if you want to keep it.',
+      'Created temporary recovery point "{title}". Pin slots are full, so unpin one from the Version Tree first if you want to keep it.',
     'workspace.pinnedRecoveryPoint': 'Pinned recovery point "{title}".',
     'workspace.unpinnedRecoveryPoint': 'Unpinned recovery point "{title}".',
     'workspace.visibleVersionFailed': 'Could not save the milestone.',
@@ -1238,7 +1247,7 @@ const COPY = {
     'plan.currentPhase': '当前阶段',
     'plan.currentBranch': '当前分支',
     'plan.currentBranchDescription':
-      '当前 live draft 就是从这条 branch head 往前推进的；需要比较或切分支时，回到 Version 历史处理。',
+      '当前 live draft 就是从这条 branch head 往前推进的；需要比较或切分支时，回到 Version Tree 处理。',
     'plan.discard': '丢弃',
     'plan.firstPassAction': '生成第一稿',
     'plan.firstPassDescription':
@@ -1319,9 +1328,12 @@ const COPY = {
     'settings.searchProviderConfigDescription': '这些配置会同时用于聊天里的手动搜索和 agent 发起的最新信息检索。',
     'settings.searchProviderConfigDescriptionBraveApi':
       '请求会直接走 Brave Search API，当前没有本地浏览器兜底。',
+    'settings.searchProviderConfigDescriptionBrowser':
+      'Browser Operator 会启动本地浏览器，打开配置好的搜索页并提取可见结果卡片。只有在要指向兼容的 HTML 搜索页时才需要覆盖 endpoint。',
     'settings.searchProviderConfigDescriptionNeedsApiKey':
       '这个 provider 需要在这里或环境变量里提供 API key。',
     'settings.searchProviderModeApi': 'API 模式',
+    'settings.searchProviderModeBrowser': '浏览器模式',
     'settings.searchProviderModeNeedsApiKey': '需要 API key',
     'settings.searchProvidersLoadFailed': '加载搜索 Provider 列表失败。',
     'settings.selectLanguage': '选择语言',
@@ -1446,6 +1458,10 @@ const COPY = {
     'status.temporaryRecoveryPoint': '临时回退点',
     'version.compare': '比较',
     'version.compareDescription': '把任意可见版本与另一个可见版本或当前草稿做比较。',
+    'version.branchCompareDescription':
+      '默认先留在分支 {title} 里比较；只有明确需要时，再展开成跨分支比较。',
+    'version.compareAcrossBranches': '跨分支比较',
+    'version.compareWithinBranch': '只看这条分支',
     'version.compareVersions': '比较版本',
     'version.basedOn': '基于 {title}',
     'version.branches': '分支',
@@ -1475,8 +1491,8 @@ const COPY = {
     'version.createVersion': '保存里程碑',
     'version.currentDraft': '当前草稿',
     'version.defaultTitle': '交付物版本',
-    'version.history': '历史',
-    'version.historyDescription':
+    'version.tree': '版本树',
+    'version.treeDescription':
       '里程碑是值得对比和恢复的正式版本。回退点是最近几轮 AI 输出留下的快速回撤位，其中有 3 个 Pin 位，加 1 个最近临时位。',
     'version.lockVersion': '锁定版本',
     'version.milestone': '里程碑',
@@ -1489,6 +1505,7 @@ const COPY = {
     'version.pinLimitReached': 'Pin 位已满',
     'version.pinnedBadge': '已 Pin',
     'version.pinnedRecoveryPoints': '已 Pin 回退点',
+    'version.globalPinnedRecoveryPoints': '全局已 Pin 回退点',
     'version.pendingStagedChanges': '高级：staged changes',
     'version.recoveryPoint': '回退点',
     'version.showAllBranches': '返回全部分支',
@@ -1499,6 +1516,7 @@ const COPY = {
     'version.restoredAt': '保存于 {time}',
     'version.temporaryBadge': '临时',
     'version.temporaryRecoveryPoint': '临时回退点',
+    'version.globalTemporaryRecoveryPoint': '全局临时回退点',
     'version.unpin': '取消 Pin',
     'version.unlockForEditing': '解锁以编辑',
     'version.viewBranch': '查看这条分支',
@@ -1507,7 +1525,7 @@ const COPY = {
       'live draft 已经存在，但预览仍然被阻塞。可以恢复最近的回退点，或把入口文件整理成可预览状态。',
     'workflow.blockedTitle': '预览被阻塞',
     'workflow.finalizedDescription':
-      '当前草稿已经保存为里程碑。你可以继续从 live draft 修改，或在历史里恢复更早的里程碑。',
+      '当前草稿已经保存为里程碑。你可以继续从 live draft 修改，或在版本树里恢复更早的里程碑。',
     'workflow.finalizedTitle': '已保存里程碑',
     'workflow.implementingDescription':
       'AI 正在直接写入 live draft。每次输出都会生成 1 个临时回退点，你最多可以再 Pin 住 3 个。',
@@ -1550,7 +1568,7 @@ const COPY = {
     'workspace.recoveryPointActionFailed': '无法更新这个回退点。',
     'workspace.pinRecoveryPrompt': '已创建临时回退点“{title}”。要把它 Pin 住吗？',
     'workspace.pinRecoveryPromptFull':
-      '已创建临时回退点“{title}”。当前 Pin 位已满，如需长期保留，请先去历史里取消一个 Pin。',
+      '已创建临时回退点“{title}”。当前 Pin 位已满，如需长期保留，请先去版本树里取消一个 Pin。',
     'workspace.pinnedRecoveryPoint': '已将回退点“{title}”设为 Pin。',
     'workspace.unpinnedRecoveryPoint': '已取消回退点“{title}”的 Pin。',
     'workspace.visibleVersionFailed': '保存里程碑失败。',
