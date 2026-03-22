@@ -67,7 +67,7 @@ test('slide and web deliverables stay inside result shells instead of falling ba
   });
   const webWorkspace = await apiRequest<{
     conversation: { id: string };
-    workspace: { id: string };
+    workspace: { id: string; title: string };
   }>(baseURL, '/api/workspaces', {
     body: {
       deliverableType: 'web',
@@ -111,4 +111,20 @@ test('slide and web deliverables stay inside result shells instead of falling ba
   );
   await expect(page.getByTestId('web-deliverable-canvas')).toBeVisible();
   await expect(page.getByTestId('source-deliverable-canvas')).toHaveCount(0);
+  await expect
+    .poll(async () => {
+      try {
+        return await page.locator('iframe').first().getAttribute('src');
+      } catch {
+        return null;
+      }
+    }, {
+      timeout: 20_000,
+    })
+    .toMatch(/preview\/bridge/);
+  await expect(
+    page.frameLocator('iframe').getByRole('heading', {
+      name: webWorkspace.workspace.title,
+    })
+  ).toBeVisible();
 });

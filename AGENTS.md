@@ -22,6 +22,19 @@
 - If a completed feature iteration, UX cleanup, or bug fix reveals a reusable product/technical lesson or a concrete pitfall, update `/Users/wangwu/claude/chat-to-your-mind/docs/chengxing-lessons-learned.md` before closing the task.
 - Treat `/Users/wangwu/claude/chat-to-your-mind/docs/chengxing-lessons-learned.md` as the authoritative ledger for validated best practices and pitfalls; mark not-yet-shipped ideas as `待验证`.
 
+## 沟通合约
+
+- 当用户追问“测试报告的问题是否都修完了”这类 closure 问题时，先区分：
+  - `门禁 / 主链路是否恢复`
+  - `报告里的每一条批注是否都做了独立修复`
+- 不要把上述两件事混成一个模糊的“已完成”。
+- 如果只有 blocker 路径已修并且 `npm run verify:iteration` 已通过，要明确写出这个边界。
+- 如果报告中仍有条目没有在本轮做独立 patch，要明确标成 `未单独 closure`，不能默认暗示“整份报告逐条清零”。
+- 当用户要求对照报告时，默认输出 `问题 -> 修复点 -> 验证结果`，并区分：
+  - `代码已修改并验证`
+  - `被其他修复连带覆盖`
+  - `尚未处理`
+
 ## 项目合约
 
 - 开始任何工作前，先读 `/Users/wangwu/claude/chat-to-your-mind/SYSTEM.md` 理解对象模型

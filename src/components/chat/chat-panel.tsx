@@ -125,6 +125,7 @@ export function ChatPanel({
   );
   const handledQueuedPromptRef = React.useRef<string | null>(null);
   const hasManualModelSelectionRef = React.useRef(false);
+  const lastModelContextRef = React.useRef<string | null>(null);
 
   const visibleMessages = React.useMemo(
     () => messages.filter((message) => !shouldHideChatMessage(message, isLoading)),
@@ -163,6 +164,16 @@ export function ChatPanel({
     );
   }, []);
 
+  const syncSelectedModelToDefault = React.useCallback(() => {
+    setSelectedModelSelection(
+      resolveStoredModelSelection(
+        modelCatalog,
+        getStoredDefaultModelSelection(),
+        modelCatalog?.defaultModelKey || DEFAULT_CHAT_MODEL_KEY
+      )
+    );
+  }, [modelCatalog]);
+
   React.useEffect(() => {
     const syncSelectedModel = () => {
       void loadModelCatalog();
@@ -177,6 +188,17 @@ export function ChatPanel({
       window.removeEventListener(AI_SETTINGS_CHANGED_EVENT, syncSelectedModel);
     };
   }, [loadModelCatalog]);
+
+  React.useEffect(() => {
+    const contextKey = `${workspaceId || 'workspace:none'}:${conversationId || 'conversation:none'}`;
+    if (lastModelContextRef.current === contextKey) {
+      return;
+    }
+
+    lastModelContextRef.current = contextKey;
+    hasManualModelSelectionRef.current = false;
+    syncSelectedModelToDefault();
+  }, [conversationId, syncSelectedModelToDefault, workspaceId]);
 
   React.useEffect(() => {
     onChatErrorChange?.(error, retryLastMessage);

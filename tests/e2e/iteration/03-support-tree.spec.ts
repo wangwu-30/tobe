@@ -43,3 +43,22 @@ test('support material create, rename, delete, and URL sync stay aligned', async
   await expect(page.getByTestId(`support-tree-node-${fileId}`)).toHaveCount(0);
   await expect(page).not.toHaveURL(/fileId=/);
 });
+
+test('workspace sidebar keeps support material visible even if the global sidebar was collapsed', async ({
+  page,
+}) => {
+  const seedState = readSeedState();
+  const workspace = seedState.supportWorkspace;
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem('dao-sidebar-collapsed', 'true');
+    window.localStorage.removeItem('dao-workspace-sidebar-collapsed');
+  });
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
+  );
+
+  await expect(page.getByTestId('support-tree-add-trigger')).toBeVisible();
+  await expect(page.getByTestId('support-tree-empty')).toBeVisible();
+});

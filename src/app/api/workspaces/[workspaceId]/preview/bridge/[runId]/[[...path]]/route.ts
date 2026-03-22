@@ -57,11 +57,16 @@ export const GET = defineRoute(async function GET(
     const contentType = headers.get('content-type') || '';
     if (contentType.includes('text/html')) {
       const html = await upstream.text();
-      return new NextResponse(injectPreviewBridgeIntoHtml(html), {
+      return new NextResponse(
+        injectPreviewBridgeIntoHtml(html, {
+          baseHref: `${req.nextUrl.pathname.replace(/\/?$/, '/')}`,
+        }),
+        {
         headers,
         status: upstream.status,
         statusText: upstream.statusText,
-      });
+        }
+      );
     }
 
     const body = await upstream.arrayBuffer();

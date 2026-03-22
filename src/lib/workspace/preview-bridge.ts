@@ -49,16 +49,26 @@ export function buildPreviewBridgeUrl(params: {
   runId: string;
   workspaceId: string;
 }) {
+  const rootSuffix =
+    params.pathSegments && params.pathSegments.length > 0
+      ? ''
+      : '/';
   const pathSuffix =
     params.pathSegments && params.pathSegments.length > 0
       ? `/${params.pathSegments.map(encodeURIComponent).join('/')}`
       : '';
-  return `/api/workspaces/${encodeURIComponent(params.workspaceId)}/preview/bridge/${encodeURIComponent(params.runId)}${pathSuffix}`;
+  return `/api/workspaces/${encodeURIComponent(params.workspaceId)}/preview/bridge/${encodeURIComponent(params.runId)}${rootSuffix}${pathSuffix}`;
 }
 
-export function injectPreviewBridgeIntoHtml(html: string) {
+export function injectPreviewBridgeIntoHtml(
+  html: string,
+  options?: { baseHref?: string | null }
+) {
   const scriptTag = `<script>${buildPreviewBridgeScript()}</script>`;
-  const normalizedHtml = ensureHtmlShell(html);
+  const normalizedHtml = injectBaseHrefIntoHtml(
+    ensureHtmlShell(html),
+    options?.baseHref || null
+  );
 
   if (normalizedHtml.includes('</body>')) {
     return normalizedHtml.replace('</body>', `${scriptTag}</body>`);
@@ -69,6 +79,24 @@ export function injectPreviewBridgeIntoHtml(html: string) {
   }
 
   return `${normalizedHtml}\n${scriptTag}`;
+}
+
+function injectBaseHrefIntoHtml(html: string, baseHref: string | null) {
+  const normalizedBaseHref = baseHref?.trim();
+  if (!normalizedBaseHref || /<base\b/i.test(html)) {
+    return html;
+  }
+
+  const baseTag = `<base href="${escapeHtmlAttribute(normalizedBaseHref)}" />`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`);
+  }
+
+  if (html.includes('</head>')) {
+    return html.replace('</head>', `${baseTag}</head>`);
+  }
+
+  return html;
 }
 
 function ensureHtmlShell(html: string) {
@@ -85,6 +113,14 @@ function ensureHtmlShell(html: string) {
   </head>
   <body>${html}</body>
 </html>`;
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function buildPreviewBridgeScript() {

@@ -18,6 +18,7 @@
 ## 已确认决策
 
 - browser operator 是共享 infra，不是成形项目定制能力。
+- repo 内任务追踪按 `program-autopilot` 激活的 workstream tracker 进行；核心 contract docs 不再硬编码 `chengxing-refactor-tracker`。
 - core 落在 `tests/infra/browser-operator/`，成形 adapter 落在 `tests/browser-operator/chengxing/`。
 - 这套能力不进入 shipped runtime 的 `src/framework/`；它属于 test/runtime 共用的 browser control infra。
 - `verify:iteration` 继续保持轻量 E2E 门禁，不并入 browser operator 或 blackbox。
@@ -72,3 +73,4 @@
 - 2026-03-22：创建 browser operator infra tracker 与 contract bootstrap；未运行 `npm run verify:iteration`，因为本步只涉及文档边界冻结。
 - 2026-03-22：完成 `B1 Core Runner`；`tests/infra/browser-operator/` 已落地通用 contract、core runner 和 artifact/transcript 产物路径，browser operator 不再只是文档计划；随后 `npm run verify:iteration` 通过（`63 passed`，约 `3.4m`）。
 - 2026-03-22：完成 `B2 Runtime Search Adapter`；`Browser Operator Search` provider 已接入现有 `SearchProvider` / `/api/search/query` 路径，并由 `tests/e2e/iteration/17-browser-operator-search.spec.ts` 覆盖 provider catalog 与浏览器提取闭环；`npm run verify:iteration` 随后通过（`65 passed`，`3.4m`）。
+- 2026-03-22：统一 `SYSTEM / CONVENTIONS / CONSTRAINTS / PATTERNS` 的追踪约定，改为按 `program-autopilot` 激活的 tracker 追踪当前任务，不再把 `chengxing-refactor-tracker` 写成唯一默认入口；未运行 `npm run verify:iteration`，因为本步只涉及文档与 tracker 合约。

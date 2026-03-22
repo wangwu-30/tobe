@@ -75,6 +75,22 @@ Do not answer with abstract textbook definitions alone.
 - If a recommendation is provisional, mark it as provisional.
 - If the current state is already good enough, say that explicitly instead of inventing extra work.
 
+## Closure Reporting Rules
+
+When the user asks whether a report, bug list, or acceptance document has been "fixed", "closed", or "completed":
+
+- First separate `门禁是否通过 / 主链路是否恢复` from `报告里的每一条批注是否都做了独立修复`.
+- Do not collapse these into one yes/no answer.
+- If only the blocker path is fixed and the iteration gate passes, say that explicitly.
+- If some report items were not independently patched in this round, list them as `未单独 closure` instead of implying full closure.
+- Prefer the response shape `已明确修复并验证 / 仍未单独 closure / 验证结果`.
+
+When the user asks for a report crosswalk:
+
+- Map every item as `问题 -> 修复点 -> 验证结果`.
+- Distinguish `代码已修改并验证`, `被其他修复连带覆盖`, and `尚未处理`.
+- Never use a global "都修完了" unless every report item has a concrete closure status.
+
 ## Default Decision Heuristic
 
 - First report the real system boundary.

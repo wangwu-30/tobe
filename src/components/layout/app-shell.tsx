@@ -56,6 +56,7 @@ type WorkspaceActions = {
 };
 
 const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dao-sidebar-collapsed';
+const WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY = 'dao-workspace-sidebar-collapsed';
 
 export function AppShell({
   actions,
@@ -83,19 +84,22 @@ export function AppShell({
 }) {
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
+  const sidebarStorageKey = currentWorkspaceId
+    ? WORKSPACE_SIDEBAR_COLLAPSED_STORAGE_KEY
+    : SIDEBAR_COLLAPSED_STORAGE_KEY;
 
   React.useEffect(() => {
-    const storedState = window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY);
+    const storedState = window.localStorage.getItem(sidebarStorageKey);
     setSidebarCollapsed(storedState === 'true');
-  }, []);
+  }, [sidebarStorageKey]);
 
   const toggleSidebarCollapsed = React.useCallback(() => {
     setSidebarCollapsed((current) => {
       const next = !current;
-      window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(next));
+      window.localStorage.setItem(sidebarStorageKey, String(next));
       return next;
     });
-  }, []);
+  }, [sidebarStorageKey]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -354,62 +358,65 @@ function WorkspaceSidebar({
                       <div
                         key={project.id}
                         className={cn(
-                          'group flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 transition-colors hover:bg-accent',
+                          'group flex min-w-0 items-center gap-1 overflow-hidden rounded-xl pr-1 transition-colors hover:bg-accent',
                           currentWorkspaceId === project.workspaceId &&
                             'bg-background shadow-sm ring-1 ring-border'
                         )}
                       >
-                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                          <div className="shrink-0 rounded-md bg-background/80 p-1.5 ring-1 ring-border/60">
+                        <button
+                          type="button"
+                          className="flex min-w-0 w-full flex-1 items-center gap-2 overflow-hidden px-2 py-1.5 text-left"
+                          onClick={() => openProject(project)}
+                          data-testid={`sidebar-project-open-${project.id}`}
+                        >
+                          <div className="shrink-0 rounded-md bg-foreground/5 p-1.5 ring-1 ring-border/30">
                             <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
                           </div>
                           <div className="min-w-0 flex-1 overflow-hidden">
                             <div className="truncate text-sm font-medium leading-5">
                               {project.title}
                             </div>
-                            {currentWorkspaceId ? (
-                              <button
-                                type="button"
-                                className="mt-1 block truncate text-left text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
-                                onClick={() => openProject(project)}
-                              >
-                                {formatProjectListMeta(project, t)}
-                              </button>
-                            ) : (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                <Button
-                                  type="button"
-                                  size="xs"
-                                  variant="outline"
-                                  className="h-7 gap-1 px-2.5 text-[11px]"
-                                  onClick={() => openProject(project)}
-                                >
-                                  {t('sidebar.continueCurrentDeliverable')}
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="xs"
-                                  variant="ghost"
-                                  className="h-7 gap-1 px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
-                                  onClick={() => openProjectNextDeliverable(project)}
-                                >
-                                  {t('plan.nextDeliverableAction')}
-                                </Button>
-                              </div>
-                            )}
+                            <div className="truncate text-[11px] text-muted-foreground/80">
+                              {currentWorkspaceId
+                                ? formatProjectListMeta(project, t)
+                                : `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`}
+                            </div>
                           </div>
-                        </div>
+                        </button>
 
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                          onClick={(event) =>
-                            void handleDeleteWorkspace(project.id, event)
-                          }
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex shrink-0 items-center gap-1 pl-1">
+                          {!currentWorkspaceId ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 rounded-lg px-2 text-xs"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openProjectNextDeliverable(project);
+                              }}
+                              data-testid={`sidebar-project-create-next-${project.id}`}
+                            >
+                              <Plus className="mr-1 h-3.5 w-3.5" />
+                              {t('sidebar.newSiblingDeliverable')}
+                            </Button>
+                          ) : null}
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className={cn(
+                              'h-7 w-7 text-muted-foreground',
+                              !currentWorkspaceId &&
+                                'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
+                            )}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleDeleteWorkspace(project.id, event);
+                            }}
+                            title={t('sidebar.deleteProject')}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>

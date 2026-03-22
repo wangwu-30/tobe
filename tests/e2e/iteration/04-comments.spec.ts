@@ -1,6 +1,55 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, primeClientState, readSeedState } from './helpers';
 
+test('D0: selecting document text exposes the inline comment trigger and creates an anchored thread', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const anchorText = '先确认目标和范围，再整理信息结构。';
+  const firstMessage = '请把这里改成更清楚的正式稿表达。';
+  const created = await apiRequest<{
+    conversation: { id: string };
+    workspace: { id: string };
+  }>(baseURL, '/api/workspaces', {
+    body: {
+      content: JSON.stringify([{ type: 'p', children: [{ text: anchorText }] }]),
+      deliverableType: 'document',
+      goal: '验证文档划线评论入口稳定可见并能创建锚定评论。',
+      title: `Inline Comment Trigger ${Date.now()}`,
+    },
+    method: 'POST',
+  });
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${created.workspace.id}?conversationId=${created.conversation.id}`
+  );
+
+  const editorRoot = page.locator('[data-slate-editor="true"]');
+  await expect(editorRoot).toBeVisible();
+  await expect(page.getByText(anchorText)).toBeVisible();
+  await editorRoot.selectText();
+
+  const trigger = page.getByTestId('selection-comment-trigger');
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+
+  const composer = page.getByTestId('selection-comment-composer');
+  await expect(composer).toBeVisible();
+  await composer.getByPlaceholder(/告诉 AI|Tell AI/).fill(firstMessage);
+  await composer.getByRole('button', { name: /评论|Comment/ }).click();
+
+  await expect
+    .poll(async () => {
+      const threads = await apiRequest<Array<{ anchorText: string; id: string }>>(
+        baseURL,
+        `/api/threads?workspaceId=${created.workspace.id}&draftOnly=1`
+      );
+      return threads.some((thread) => thread.anchorText === anchorText);
+    })
+    .toBe(true);
+});
+
 test('D1: direct single-block comment can apply back to the source document', async ({ page }, testInfo) => {
   const seedState = readSeedState();
   const workspace = seedState.commentsApplyWorkspace;

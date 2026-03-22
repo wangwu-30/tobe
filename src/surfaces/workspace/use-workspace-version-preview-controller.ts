@@ -52,8 +52,11 @@ type PreviewStartOptions = {
 };
 
 const PREVIEW_RECOVERY_POLL_INTERVAL_MS = 500;
-const PREVIEW_RECOVERY_POLL_TIMEOUT_MS = 5_000;
-const PREVIEW_RECOVERY_START_DELAY_MS = 1_500;
+const PREVIEW_RECOVERY_POLL_TIMEOUT_MS = 12_000;
+// Immediate reload after "Start Preview" should recover the bridge quickly.
+// Keep only a short grace window so the original keepalive request can win
+// without leaving the result surface stuck in a long "starting" placeholder.
+const PREVIEW_RECOVERY_START_DELAY_MS = 250;
 
 export function useWorkspaceVersionPreviewController<
   TTranslate extends (...args: any[]) => string,

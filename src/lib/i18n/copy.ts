@@ -512,7 +512,7 @@ const COPY = {
     'settings.notConnectedYet': 'Not connected yet',
     'settings.oauthConnections': 'OAuth Connections',
     'settings.oauthDescription':
-      'Sign in once in your default browser. Chat, planning, comments, and other model calls will reuse the saved credentials automatically.',
+      'Sign in once in your default browser. Chat, planning, comments, and other model calls will reuse the stored credentials automatically.',
     'settings.oauthDisconnectConfirm': 'Disconnect {provider} from this app?',
     'settings.oauthDisconnectFailed': 'OAuth disconnect failed.',
     'settings.oauthLoginFailed': 'OAuth login failed.',
@@ -1298,7 +1298,7 @@ const COPY = {
     'settings.modelsSearchProviders': '模型、语言、搜索和 provider 接入',
     'settings.notConnectedYet': '尚未连接',
     'settings.oauthConnections': 'OAuth 连接',
-    'settings.oauthDescription': '只需在默认浏览器中登录一次。聊天、计划、评论和其他模型调用都会自动复用已保存的凭证。',
+    'settings.oauthDescription': '只需在默认浏览器中登录一次。聊天、计划、评论和其他模型调用都会自动复用这份凭证。',
     'settings.oauthDisconnectConfirm': '要把 {provider} 从当前应用中断开吗？',
     'settings.oauthDisconnectFailed': 'OAuth 断开失败。',
     'settings.oauthLoginFailed': 'OAuth 登录失败。',

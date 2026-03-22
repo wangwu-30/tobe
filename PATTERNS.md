@@ -1,16 +1,16 @@
 # 成形重构任务模式
 
 更新时间：2026-03-20
-当前工作流：见 [docs/chengxing-refactor-tracker.md](./docs/chengxing-refactor-tracker.md)
+当前工作流：由 `program-autopilot` 激活的 workstream tracker 决定，不再硬编码到单一 tracker
 
 ## 开始当前重构 workstream
 
-1. 先读 [docs/chengxing-refactor-tracker.md](./docs/chengxing-refactor-tracker.md)
-2. 再读 [refactor_plan.md](./refactor_plan.md)
-3. 如已存在，读 [SYSTEM.md](./SYSTEM.md)、[CONVENTIONS.md](./CONVENTIONS.md)、[CONSTRAINTS.md](./CONSTRAINTS.md)、[PATTERNS.md](./PATTERNS.md)
+1. 先确认当前由 `program-autopilot` 激活的 workstream tracker，并先读该 `docs/*tracker.md`
+2. 如该 tracker 标注了前置计划或 contract docs，再读对应文档；不要默认回退到 `chengxing-refactor-tracker`
+3. 再读 [SYSTEM.md](./SYSTEM.md)、[CONVENTIONS.md](./CONVENTIONS.md)、[CONSTRAINTS.md](./CONSTRAINTS.md)、[PATTERNS.md](./PATTERNS.md)
 4. 选一个 bounded slice
 5. 落地代码 / 文档 / 测试
-6. 更新 tracker
+6. 更新当前激活 tracker
 7. 如有产品代码改动，执行 `npm run verify:iteration`
 8. 重新判断下一切片，而不是因为当前切片结束就停止
 

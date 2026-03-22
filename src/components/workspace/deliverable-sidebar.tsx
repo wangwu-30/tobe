@@ -1144,14 +1144,19 @@ export function DeliverableSidebar({
                       <div
                         key={project.id}
                           className={cn(
-                            'group flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 transition-colors hover:bg-accent',
+                            'group flex min-w-0 items-center gap-1 overflow-hidden rounded-xl pr-1 transition-colors hover:bg-accent',
                             currentProjectId === project.id
                               ? 'bg-background shadow-sm ring-1 ring-border'
                               : ''
                           )}
                         >
-                          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                            <div className="rounded-md bg-background/80 p-1.5 ring-1 ring-border/60">
+                          <button
+                            type="button"
+                            className="flex min-w-0 w-full flex-1 items-center gap-2 overflow-hidden px-2 py-1.5 text-left"
+                            onClick={() => openProject(project)}
+                            data-testid={`sidebar-project-open-${project.id}`}
+                          >
+                            <div className="shrink-0 rounded-md bg-foreground/5 p-1.5 ring-1 ring-border/30">
                               <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
                             </div>
                             <div className="min-w-0 flex-1 overflow-hidden">
@@ -1159,69 +1164,59 @@ export function DeliverableSidebar({
                                 {project.title}
                               </div>
                               <div className="truncate text-[11px] text-muted-foreground/80">
-                                {currentProjectId === project.id && currentWorkspaceStatusLabel
+                                {!currentWorkspaceId
+                                  ? `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`
+                                  : currentProjectId === project.id && currentWorkspaceStatusLabel
                                   ? currentWorkspaceStatusLabel
                                   : formatProjectListMeta(project, t)}
                               </div>
-                              {!currentWorkspaceId ? (
-                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                  <Button
-                                    type="button"
-                                    size="xs"
-                                    variant="outline"
-                                    className="h-7 gap-1 px-2.5 text-[11px]"
-                                    data-testid={`sidebar-project-open-${project.id}`}
-                                    onClick={() => openProject(project)}
-                                  >
-                                    {t('sidebar.continueCurrentDeliverable')}
-                                  </Button>
-                                  <Button
-                                    type="button"
-                                    size="xs"
-                                    variant="ghost"
-                                    className="h-7 gap-1 px-2.5 text-[11px] text-muted-foreground hover:text-foreground"
-                                    data-testid={`sidebar-project-create-next-${project.id}`}
-                                    onClick={() => openProjectNextDeliverable(project)}
-                                  >
-                                    {t('plan.nextDeliverableAction')}
-                                  </Button>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="mt-1 block truncate text-left text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
-                                  data-testid={`sidebar-project-open-${project.id}`}
-                                  onClick={() => openProject(project)}
-                                >
-                                  {formatProjectListMeta(project, t)}
-                                </button>
-                              )}
                             </div>
-                          </div>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1 pl-1">
+                            {!currentWorkspaceId ? (
                               <Button
-                                size="icon-xs"
-                                variant="ghost"
-                                className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                                size="sm"
+                                variant="outline"
+                                className="h-8 rounded-lg px-2 text-xs"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openProjectNextDeliverable(project);
+                                }}
+                                data-testid={`sidebar-project-create-next-${project.id}`}
                               >
-                                <MoreHorizontal className="h-3.5 w-3.5" />
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                {t('sidebar.newSiblingDeliverable')}
                               </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onSelect={() => openRenameDialog(project)}>
-                                <Pencil className="h-3.5 w-3.5" />
-                                {t('sidebar.renameProject')}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onClick={() => void handleDelete(project.id)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                                {t('sidebar.deleteProject')}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                            ) : null}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className={cn(
+                                    'h-7 w-7 shrink-0 data-[state=open]:opacity-100',
+                                    !currentWorkspaceId &&
+                                      'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
+                                  )}
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => openRenameDialog(project)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  {t('sidebar.renameProject')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => void handleDelete(project.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  {t('sidebar.deleteProject')}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </div>
                       ))}
                     </div>

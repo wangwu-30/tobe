@@ -71,6 +71,8 @@ export function DeliverableVersionControls({
   const [isRestoringId, setIsRestoringId] = React.useState<string | null>(null);
   const [isSwitchingId, setIsSwitchingId] = React.useState<string | null>(null);
   const [isPinningId, setIsPinningId] = React.useState<string | null>(null);
+  const [optimisticDraftBaseVersionId, setOptimisticDraftBaseVersionId] =
+    React.useState<string | null>(null);
 
   const loadVersions = React.useCallback(async () => {
     const result = await apiCall<DeliverableVersionData[]>(
@@ -94,6 +96,19 @@ export function DeliverableVersionControls({
   }, [allVersions.length, versions]);
 
   React.useEffect(() => {
+    if (
+      optimisticDraftBaseVersionId &&
+      currentDraftBaseVersionId === optimisticDraftBaseVersionId
+    ) {
+      setOptimisticDraftBaseVersionId(null);
+    }
+  }, [currentDraftBaseVersionId, optimisticDraftBaseVersionId]);
+
+  React.useEffect(() => {
+    setOptimisticDraftBaseVersionId(null);
+  }, [workspaceId]);
+
+  React.useEffect(() => {
     if (!compareOpen && !versionTreeOpen) {
       return;
     }
@@ -105,6 +120,7 @@ export function DeliverableVersionControls({
     () => allVersions.filter((version) => version.visible),
     [allVersions]
   );
+  const draftBaseVersionId = optimisticDraftBaseVersionId || currentDraftBaseVersionId || null;
   const visibleVersionIds = React.useMemo(
     () => new Set(visibleVersions.map((version) => version.id)),
     [visibleVersions]
@@ -133,19 +149,19 @@ export function DeliverableVersionControls({
   const visibleVersionTree = React.useMemo(
     () =>
       buildVisibleVersionTree({
-        currentDraftBaseVersionId: currentDraftBaseVersionId || null,
+        currentDraftBaseVersionId: draftBaseVersionId,
         versionsById,
         visibleVersions,
       }),
-    [currentDraftBaseVersionId, versionsById, visibleVersions]
+    [draftBaseVersionId, versionsById, visibleVersions]
   );
   const visibleBranchOverview = React.useMemo(
     () =>
       buildVisibleBranchOverview({
-        currentDraftBaseVersionId: currentDraftBaseVersionId || null,
+        currentDraftBaseVersionId: draftBaseVersionId,
         nodes: visibleVersionTree,
       }),
-    [currentDraftBaseVersionId, visibleVersionTree]
+    [draftBaseVersionId, visibleVersionTree]
   );
   const focusedBranch = React.useMemo(
     () =>
@@ -175,10 +191,8 @@ export function DeliverableVersionControls({
       return true;
     }
 
-    return Boolean(
-      currentDraftBaseVersionId && compareBranchIds.has(currentDraftBaseVersionId)
-    );
-  }, [compareBranchIds, compareScopedToBranch, currentDraftBaseVersionId]);
+    return Boolean(draftBaseVersionId && compareBranchIds.has(draftBaseVersionId));
+  }, [compareBranchIds, compareScopedToBranch, draftBaseVersionId]);
   const focusedBranchWorkspace = React.useMemo(() => {
     if (!focusedBranch) {
       return null;
@@ -349,8 +363,12 @@ export function DeliverableVersionControls({
 
       setIsSwitchingId(version.id);
       try {
+        setOptimisticDraftBaseVersionId(version.id);
         setVersionTreeOpen(false);
         await onSwitchToVersionBranch(version);
+      } catch (error) {
+        setOptimisticDraftBaseVersionId(null);
+        throw error;
       } finally {
         setIsSwitchingId(null);
       }
@@ -372,8 +390,8 @@ export function DeliverableVersionControls({
         scopedBranch?.path.filter((version) => visibleVersionIds.has(version.id)) || visibleVersions;
       const allowDraft = Boolean(
         scopedBranch
-          ? currentDraftBaseVersionId &&
-              scopedBranch.path.some((version) => version.id === currentDraftBaseVersionId)
+          ? draftBaseVersionId &&
+              scopedBranch.path.some((version) => version.id === draftBaseVersionId)
           : true
       );
 
@@ -384,7 +402,7 @@ export function DeliverableVersionControls({
         resolveDefaultCompareAnchor({
           allowDraft,
           branch: scopedBranch,
-          currentDraftBaseVersionId: currentDraftBaseVersionId || null,
+          currentDraftBaseVersionId: draftBaseVersionId,
           selectableVersions: scopedVersions,
           selectedVersionId: versionId,
         })
@@ -392,7 +410,7 @@ export function DeliverableVersionControls({
       setCompareOpen(true);
       setVersionTreeOpen(false);
     },
-    [currentDraftBaseVersionId, visibleBranchOverview, visibleVersionIds, visibleVersions]
+    [draftBaseVersionId, visibleBranchOverview, visibleVersionIds, visibleVersions]
   );
   const openReadOnlyVersion = React.useCallback(
     (versionId: string) => {
@@ -415,17 +433,17 @@ export function DeliverableVersionControls({
             data-testid={`version-continue-${version.id}`}
             onClick={() => void handleContinue(version)}
             disabled={
-              isContinuingId === version.id || currentDraftBaseVersionId === version.id
+              isContinuingId === version.id || draftBaseVersionId === version.id
             }
           >
-            {currentDraftBaseVersionId === version.id
+            {draftBaseVersionId === version.id
               ? t('version.currentDraftBase')
               : isContinuingId === version.id
                 ? t('version.continueStarting')
                 : t('version.continueHere')}
           </Button>
         ) : null}
-        {onSwitchToVersionBranch && branchHead && currentDraftBaseVersionId !== version.id ? (
+        {onSwitchToVersionBranch && branchHead && draftBaseVersionId !== version.id ? (
           <Button
             size="sm"
             variant="outline"
@@ -464,7 +482,7 @@ export function DeliverableVersionControls({
       </>
     ),
     [
-      currentDraftBaseVersionId,
+      draftBaseVersionId,
       handleContinue,
       handleRestore,
       handleSwitchBranch,
@@ -755,7 +773,7 @@ export function DeliverableVersionControls({
                         actions={
                           <>
                             {onSwitchToVersionBranch &&
-                            currentDraftBaseVersionId !== branch.head.id ? (
+                            draftBaseVersionId !== branch.head.id ? (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -764,9 +782,9 @@ export function DeliverableVersionControls({
                                 onClick={() => void handleSwitchBranch(branch.head)}
                                 disabled={isSwitchingId === branch.head.id}
                               >
-                                  {isSwitchingId === branch.head.id
-                                    ? t('version.switchBranchStarting')
-                                    : t('version.switchToBranch')}
+                                {isSwitchingId === branch.head.id
+                                  ? t('version.switchBranchStarting')
+                                  : t('version.switchToBranch')}
                               </Button>
                             ) : null}
                             <Button
@@ -801,7 +819,7 @@ export function DeliverableVersionControls({
                         }
                         cardTestId={`version-branch-overview-card-${branch.head.id}`}
                         current={currentVersionId === branch.head.id}
-                        currentBranch={currentDraftBaseVersionId === branch.head.id}
+                        currentBranch={draftBaseVersionId === branch.head.id}
                         currentBranchLabel={t('version.currentBranch')}
                         currentBranchTestId={`version-branch-overview-current-${branch.head.id}`}
                         currentLabel={t('version.current')}
@@ -923,7 +941,7 @@ export function DeliverableVersionControls({
                         current={currentVersionId === section.node.version.id}
                         currentLabel={t('version.current')}
                         depth={section.node.depth}
-                        draftBase={currentDraftBaseVersionId === section.node.version.id}
+                        draftBase={draftBaseVersionId === section.node.version.id}
                         draftBaseLabel={t('version.currentDraftBase')}
                         draftBaseTestId={`version-draft-base-${section.node.version.id}`}
                         lineage={
@@ -953,7 +971,7 @@ export function DeliverableVersionControls({
                           current={currentVersionId === version.id}
                           currentLabel={t('version.current')}
                           depth={section.node.depth + 1}
-                          draftBase={currentDraftBaseVersionId === version.id}
+                          draftBase={draftBaseVersionId === version.id}
                           draftBaseLabel={t('version.currentDraftBase')}
                           draftBaseTestId={`version-draft-base-${version.id}`}
                           lineage={t('version.basedOn', {
@@ -995,7 +1013,7 @@ export function DeliverableVersionControls({
                           current={currentVersionId === node.version.id}
                           currentLabel={t('version.current')}
                           depth={node.depth}
-                          draftBase={currentDraftBaseVersionId === node.version.id}
+                          draftBase={draftBaseVersionId === node.version.id}
                           draftBaseLabel={t('version.currentDraftBase')}
                           draftBaseTestId={`version-draft-base-${node.version.id}`}
                           lineage={
@@ -1030,7 +1048,7 @@ export function DeliverableVersionControls({
                           current={currentVersionId === version.id}
                           currentLabel={t('version.current')}
                           depth={0}
-                          draftBase={currentDraftBaseVersionId === version.id}
+                          draftBase={draftBaseVersionId === version.id}
                           draftBaseLabel={t('version.currentDraftBase')}
                           draftBaseTestId={`version-draft-base-${version.id}`}
                           lineage={
@@ -1064,7 +1082,7 @@ export function DeliverableVersionControls({
                           current={currentVersionId === version.id}
                           currentLabel={t('version.current')}
                           depth={0}
-                          draftBase={currentDraftBaseVersionId === version.id}
+                          draftBase={draftBaseVersionId === version.id}
                           draftBaseLabel={t('version.currentDraftBase')}
                           draftBaseTestId={`version-draft-base-${version.id}`}
                           lineage={

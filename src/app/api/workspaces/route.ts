@@ -596,29 +596,17 @@ function buildWorkspaceFileSeeds(params: {
     return {
       additional: [
         {
-          content: buildReactWebIndexHtml(),
-          kind: 'code' as const,
-          language: 'html',
-          name: 'index.html',
-        },
-        {
-          content: buildReactWebMainModule(),
-          kind: 'code' as const,
-          language: 'javascript',
-          name: 'main.js',
-        },
-        {
-          content: buildReactWebStyles(),
+          content: buildStaticWebStyles(),
           kind: 'code' as const,
           language: 'css',
           name: 'styles.css',
         },
       ],
       primary: {
-        content: buildReactWebAppModule(params.heading),
+        content: buildStaticWebIndexHtml(params.heading),
         kind: 'code' as const,
-        language: 'javascript',
-        name: 'App.js',
+        language: 'html',
+        name: 'index.html',
       },
     };
   }
@@ -722,82 +710,61 @@ function buildCompanionWebWorkspaceTitle(title: string, language: string | null)
     : `${trimmedTitle} Companion Site`;
 }
 
-function buildReactWebIndexHtml() {
+function buildStaticWebIndexHtml(title: unknown) {
+  const heading = escapeHtmlText(
+    typeof title === 'string' && title.trim().length > 0
+      ? title.trim()
+      : 'New Web Deliverable'
+  );
+
   return [
     '<!doctype html>',
     '<html lang="en">',
     '  <head>',
     '    <meta charset="UTF-8" />',
     '    <meta name="viewport" content="width=device-width, initial-scale=1.0" />',
-    '    <title>Dao Web Deliverable</title>',
-    '    <script type="importmap">',
-    '      {',
-    '        "imports": {',
-    '          "react": "https://esm.sh/react@19?dev",',
-    '          "react-dom/client": "https://esm.sh/react-dom@19/client?dev",',
-    '          "htm": "https://esm.sh/htm@3?dev"',
-    '        }',
-    '      }',
-    '    </script>',
+    `    <title>${heading}</title>`,
     '    <link rel="stylesheet" href="./styles.css" />',
     '  </head>',
     '  <body>',
-    '    <div id="root"></div>',
-    '    <script type="module" src="./main.js"></script>',
+    '    <main class="page-shell">',
+    '      <section class="hero-card">',
+    '        <p class="eyebrow">Web deliverable</p>',
+    `        <h1>${heading}</h1>`,
+    '        <p class="lede">',
+    '          This workspace starts with a previewable page shell that works fully offline.',
+    '          Replace the sections, copy, and styling with the real page during the first',
+    '          author pass.',
+    '        </p>',
+    '        <div class="cta-row">',
+    '          <a class="primary-cta" href="#sections">Review the visible result</a>',
+    '          <a class="secondary-cta" href="#notes">Refine the structure</a>',
+    '        </div>',
+    '      </section>',
+    '      <section id="sections" class="content-grid">',
+    '        <article class="detail-card">',
+    '          <p class="card-label">Section</p>',
+    '          <h2>Hero</h2>',
+    '          <p>Start from the visible result, then rewrite the copy and hierarchy in place.</p>',
+    '        </article>',
+    '        <article class="detail-card">',
+    '          <p class="card-label">Section</p>',
+    '          <h2>Proof</h2>',
+    '          <p>Add highlights, social proof, or supporting facts here once the main story is clear.</p>',
+    '        </article>',
+    '        <article id="notes" class="detail-card">',
+    '          <p class="card-label">Section</p>',
+    '          <h2>Next step</h2>',
+    '          <p>Keep the live page readable first. Only open the implementation view when you truly need to edit the source.</p>',
+    '        </article>',
+    '      </section>',
+    '    </main>',
     '  </body>',
     '</html>',
   ].join('\n');
 }
 
-function buildReactWebMainModule() {
-  return [
-    "import React from 'react';",
-    "import { createRoot } from 'react-dom/client';",
-    "import { App } from './App.js';",
-    '',
-    "const rootElement = document.getElementById('root');",
-    '',
-    'if (!rootElement) {',
-    "  throw new Error('Missing #root element for the React preview.');",
-    '}',
-    '',
-    'createRoot(rootElement).render(',
-    '  React.createElement(React.StrictMode, null, React.createElement(App))',
-    ');',
-  ].join('\n');
-}
-
-function buildReactWebAppModule(title: unknown) {
-  const heading =
-    typeof title === 'string' && title.trim().length > 0
-      ? title.trim()
-      : 'New React Deliverable';
-
-  return [
-    "import React from 'react';",
-    "import htm from 'htm';",
-    '',
-    'const html = htm.bind(React.createElement);',
-    `const heading = ${JSON.stringify(heading)};`,
-    '',
-    'export function App() {',
-    '  return html`',
-    '    <main className="page-shell">',
-    '      <section className="hero-card">',
-    '        <p className="eyebrow">React web deliverable</p>',
-    '        <h1>${heading}</h1>',
-    '        <p className="lede">',
-    '          This workspace starts with a previewable React scaffold. Replace the sections,',
-    '          layout, and styling with the real page during the first author pass.',
-    '        </p>',
-    '      </section>',
-    '    </main>',
-    '  `;',
-    '}',
-  ].join('\n');
-}
-
-function buildReactWebStyles() {
+function buildStaticWebStyles() {
   return [
     ':root {',
     '  color-scheme: light;',
@@ -833,6 +800,78 @@ function buildReactWebStyles() {
     '  box-shadow: 0 24px 80px rgba(60, 44, 12, 0.12);',
     '}',
     '',
+    '.cta-row {',
+    '  display: flex;',
+    '  flex-wrap: wrap;',
+    '  gap: 12px;',
+    '  margin-top: 28px;',
+    '}',
+    '',
+    '.primary-cta,',
+    '.secondary-cta {',
+    '  display: inline-flex;',
+    '  align-items: center;',
+    '  justify-content: center;',
+    '  min-height: 44px;',
+    '  padding: 0 18px;',
+    '  border-radius: 999px;',
+    '  text-decoration: none;',
+    '  font-size: 14px;',
+    '  font-weight: 600;',
+    '  transition: transform 180ms ease, box-shadow 180ms ease;',
+    '}',
+    '',
+    '.primary-cta {',
+    '  color: #fff;',
+    '  background: linear-gradient(135deg, #111827, #8a6a2f);',
+    '  box-shadow: 0 18px 40px rgba(23, 23, 23, 0.18);',
+    '}',
+    '',
+    '.secondary-cta {',
+    '  color: #171717;',
+    '  background: rgba(255, 255, 255, 0.72);',
+    '  border: 1px solid rgba(23, 23, 23, 0.08);',
+    '}',
+    '',
+    '.primary-cta:hover,',
+    '.secondary-cta:hover {',
+    '  transform: translateY(-1px);',
+    '}',
+    '',
+    '.content-grid {',
+    '  width: min(960px, 100%);',
+    '  display: grid;',
+    '  gap: 18px;',
+    '  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));',
+    '  margin-top: 20px;',
+    '}',
+    '',
+    '.detail-card {',
+    '  border-radius: 24px;',
+    '  background: rgba(255, 255, 255, 0.82);',
+    '  border: 1px solid rgba(23, 23, 23, 0.08);',
+    '  padding: 24px;',
+    '  box-shadow: 0 18px 60px rgba(60, 44, 12, 0.08);',
+    '}',
+    '',
+    '.card-label {',
+    '  margin: 0 0 8px;',
+    '  font-size: 11px;',
+    '  letter-spacing: 0.18em;',
+    '  text-transform: uppercase;',
+    '  color: rgba(23, 23, 23, 0.45);',
+    '}',
+    '',
+    '.detail-card h2 {',
+    '  margin: 0;',
+    '  font-size: 20px;',
+    '  line-height: 1.2;',
+    '}',
+    '',
+    '.detail-card p:last-child {',
+    '  margin-bottom: 0;',
+    '}',
+    '',
     '.eyebrow {',
     '  margin: 0 0 12px;',
     '  font-size: 12px;',
@@ -864,6 +903,19 @@ function buildReactWebStyles() {
     '    padding: 28px;',
     '    border-radius: 24px;',
     '  }',
+    '',
+    '  .cta-row {',
+    '    flex-direction: column;',
+    '  }',
     '}',
   ].join('\n');
+}
+
+function escapeHtmlText(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

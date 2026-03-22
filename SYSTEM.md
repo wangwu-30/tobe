@@ -1,7 +1,7 @@
 # 成形系统模型
 
 更新时间：2026-03-21
-当前工作流：见 [docs/chengxing-refactor-tracker.md](./docs/chengxing-refactor-tracker.md)
+当前工作流：由 `program-autopilot` 激活的 workstream tracker 决定，不再硬编码到单一 tracker
 来源计划：见 [refactor_plan.md](./refactor_plan.md)
 
 ## 核心对象
@@ -113,6 +113,6 @@
 
 ## 当前重构约束
 
-- 当前 workstream 的唯一运行中追踪面是 [docs/chengxing-refactor-tracker.md](./docs/chengxing-refactor-tracker.md)。
-- 旧的产品收口计划或维护状态文档，不参与本轮切片选择。
+- 当前 workstream 的唯一运行中追踪面，由 `program-autopilot` 当前激活的 `docs/*tracker.md` 决定；不要默认回退到旧的 `chengxing-refactor-tracker`。
+- 旧的产品收口计划或维护状态文档，不参与当前 skill 激活切片的选择。
 - 对产品代码或行为有实质改动的切片，完成前必须运行 `npm run verify:iteration`。

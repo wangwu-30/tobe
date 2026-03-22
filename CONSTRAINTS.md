@@ -1,7 +1,7 @@
 # 成形重构约束
 
 更新时间：2026-03-20
-当前工作流：见 [docs/chengxing-refactor-tracker.md](./docs/chengxing-refactor-tracker.md)
+当前工作流：由 `program-autopilot` 激活的 workstream tracker 决定，不再硬编码到单一 tracker
 
 ## 绝对禁止
 

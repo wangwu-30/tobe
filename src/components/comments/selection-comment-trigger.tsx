@@ -7,7 +7,6 @@ import { MessageSquarePlus, Search } from 'lucide-react';
 import {
   useEditorPlugin,
   useEditorRef,
-  useEditorSelection,
 } from 'platejs/react';
 
 import { commentPlugin } from '@/components/editor/plugins/comment-kit';
@@ -53,7 +52,6 @@ export function SelectionCommentTrigger({
   threads: CommentThreadData[];
 }) {
   const editor = useEditorRef();
-  const selection = useEditorSelection();
   const t = useT();
   const editorSession = useEditorSession();
   const { setOption } = useEditorPlugin(commentPlugin);
@@ -70,17 +68,21 @@ export function SelectionCommentTrigger({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
 
   const readSelectionState = React.useCallback((): ComposerState | null => {
+    const domSelection = window.getSelection?.();
+
     if (
       !isMounted ||
       composerState ||
-      !selection ||
       !editor.selection ||
-      !editor.api.isExpanded()
+      !editor.api.isExpanded() ||
+      !domSelection ||
+      domSelection.rangeCount === 0 ||
+      domSelection.isCollapsed
     ) {
       return null;
     }
 
-    const selectedText = window.getSelection?.()?.toString().trim();
+    const selectedText = domSelection.toString().trim();
     if (!selectedText) {
       return null;
     }
@@ -96,7 +98,8 @@ export function SelectionCommentTrigger({
           path: [...editor.selection.focus.path],
         },
       });
-      const rect = getSelectionBoundingClientRect(editor);
+      const rect =
+        domSelection.getRangeAt(0).getBoundingClientRect() || getSelectionBoundingClientRect(editor);
       if (!rect || rect.width === 0 || rect.height === 0) {
         return null;
       }
@@ -116,7 +119,7 @@ export function SelectionCommentTrigger({
     } catch {
       return null;
     }
-  }, [composerState, editor, isMounted, selection]);
+  }, [composerState, editor, isMounted]);
 
   const clearDraftSelection = React.useCallback(() => {
     editor.tf.unsetNodes(getDraftCommentKey(), {
@@ -390,7 +393,7 @@ export function SelectionCommentTrigger({
 
   React.useEffect(() => {
     updateSelectionState();
-  }, [selection, threads, updateSelectionState]);
+  }, [threads, updateSelectionState]);
 
   React.useEffect(() => {
     const handleOpenComposer = () => {
@@ -471,6 +474,7 @@ export function SelectionCommentTrigger({
       {composerState ? (
         <div
           ref={composerRef}
+          data-testid="selection-comment-composer"
           className="pointer-events-auto w-[340px] rounded-2xl border border-border/70 bg-background/95 p-3 shadow-2xl backdrop-blur supports-[backdrop-filter]:bg-background/90"
         >
           <div className="mb-2 flex items-center justify-between gap-3">
@@ -563,6 +567,7 @@ export function SelectionCommentTrigger({
         </div>
       ) : (
         <Button
+          data-testid="selection-comment-trigger"
           size="sm"
           variant="outline"
           className={cn(
