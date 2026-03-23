@@ -8,6 +8,7 @@ const PENDING_CONVERSATION_ID = 'pending-conversation';
 
 type LocalMessageContext = {
   conversationId?: string | null;
+  focusNodeId?: string | null;
   workspaceId?: string | null;
 };
 
@@ -19,6 +20,10 @@ function resolveConversationId(conversationId?: string | null) {
 
 function resolveWorkspaceId(workspaceId?: string | null) {
   return workspaceId || '';
+}
+
+function resolveFocusNodeId(params: LocalMessageContext) {
+  return params.focusNodeId || params.workspaceId || null;
 }
 
 function createLocalMessageDraft(params: LocalMessageContext & {
@@ -38,8 +43,9 @@ function createLocalMessageDraft(params: LocalMessageContext & {
     role: params.role,
     content: params.content,
     attachments: params.attachments,
-    workspaceId: params.workspaceId || null,
-    wikiId: params.workspaceId || null,
+    workspaceId: resolveFocusNodeId(params),
+    focusNodeId: resolveFocusNodeId(params),
+    wikiId: resolveFocusNodeId(params),
     model: params.model,
     createdByUserId: null,
     originDeviceId: null,
@@ -61,7 +67,7 @@ export function createLocalAttachmentDrafts(params: LocalMessageContext & {
       organizationId: LOCAL_ORGANIZATION_ID,
       conversationId: resolveConversationId(params.conversationId),
       messageId: '',
-      workspaceId: resolveWorkspaceId(params.workspaceId),
+      workspaceId: resolveWorkspaceId(params.focusNodeId || params.workspaceId),
       workspaceFileId: '',
       filePath: attachment.file.name,
       kind: attachment.kind,
@@ -97,6 +103,7 @@ export function createLocalUserMessageDraft(params: LocalMessageContext & {
     model: null,
     nextTempId: params.nextTempId,
     role: 'user',
+    focusNodeId: params.focusNodeId,
     workspaceId: params.workspaceId,
   });
 }
@@ -112,6 +119,7 @@ export function createLocalAssistantMessageDraft(params: LocalMessageContext & {
     model: params.model,
     nextTempId: params.nextTempId,
     role: 'assistant',
+    focusNodeId: params.focusNodeId,
     workspaceId: params.workspaceId,
   });
 }

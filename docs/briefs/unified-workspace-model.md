@@ -68,18 +68,39 @@ Project A 的 AI 可见范围：
 
 类比：Unix 的 mount / Git 的 submodule。挂载是单向的、只读的。
 
+### Workspace Identity 决策
+
+终态路由：**一个 Project = 一个 workspace，Node 只是 focus 参数。**
+
+```
+当前：/workspace/{documentId}               每个 Deliverable 一个独立入口
+终态：/workspace/{projectId}?node={nodeId}   切 Node 只换 query param
+```
+
+### Project Chat 的 Focus 语义
+
+项目级 Chat 需要追踪"用户正在看哪个 Node"，但不能污染 Session 本身：
+
+| 对象 | 绑定 | 可变性 |
+|------|------|--------|
+| Session.projectId | 所属 Project | 创建后不可变 |
+| Message.focusNodeId | 发消息时的活跃 Node | 每条消息独立记录 |
+| 运行时 focusNodeId | 当前画布展示的 Node | 仅运行时，不持久化 |
+
+每条历史消息都能回溯到当时的 Node 上下文，不会混乱。
+
 ### AI 焦点控制 (Focus Set)
 
 一个 Project 可能有 30+ Nodes，不可能全部塞进 context window。焦点分层：
 
-| 层级 | 始终在 context | 内容 |
-|------|---------------|------|
-| Layer 0 | ✅ | Playbook + Project-level Notes |
-| Layer 1 | ✅ | 当前打开的 Node（完整内容） |
-| Layer 2 | 摘要 | 其他 Nodes（仅标题 + 前 N 行） |
-| Layer 3 | 按需 | 挂载的外部 Project / Library 引用 |
+| 层级 | 始终在 context | 内容 | Budget |
+|------|---------------|------|--------|
+| Layer 0 | Yes | Playbook + Project-level Notes | ~1k tokens |
+| Layer 1 | Yes | 当前 focusNode 完整内容 | max 8k tokens |
+| Layer 2 | 摘要 | Top-5 最近更新的 sibling（标题 + 前 200 字符） | ~2k tokens |
+| Layer 3 | 按需 | 挂载的外部 Project（仅标题列表，内容通过 tool 拉取） | ~0.5k tokens |
 
-用户在 Sidebar 点击不同 Node 时，Layer 1 自动切换。
+用户在 Sidebar 点击不同 Node 时，Layer 1 自动切换。Layer 2 按 updatedAt 排序取 top-5。
 
 ### Node 索引：当 Node 数量 > 50 时如何找到东西
 
@@ -106,12 +127,12 @@ Project A 的 AI 可见范围：
 
 | 维度 | 当前 | 目标 | Gap |
 |------|------|------|-----|
-| 内容建模 | Project → Deliverable (2级) | Project → Node Tree (N级) | 需重构数据模型，Deliverable → Node |
-| AI 上下文 | 绑定单个 Deliverable | 绑定 Project，可挂载外部 | Conversation 提升到 Project 级 |
-| 知识库 | 不存在 | Library（全局） | 全新模块 |
-| 浏览器 | 不存在 | Browser 类型 Node | 全新 RenderAdapter |
+| 内容建模 | Project → Deliverable (2级) | Project → Node Tree (N级) | Node Facade + 路由重构（树字段已存在） |
+| AI 上下文 | 绑定单个 Deliverable | 绑定 Project，可挂载外部 | Session 提升到 Project 级 + Focus 语义 |
+| 知识库 | 无专属 UI | 普通长期 Project（不是独立概念） | 无额外建模，靠 mount 实现跨项目引用 |
+| 浏览器 | 不存在 | Browser 类型 Node | 全新 RenderAdapter（后续 Phase） |
 | Sidebar | 暴露实现细节 | 纯净节点树 | UI 重构（已开始） |
-| 发布 | 不存在 | Node 可 export/deploy | 全新流程 |
+| 发布 | 不存在 | Node 可 export/deploy | 全新流程（后续 Phase） |
 
 ---
 
@@ -123,11 +144,12 @@ Project A 的 AI 可见范围：
 - [ ] 首页中央区域改为项目卡片列表（有项目时隐藏 Hero）
 - [ ] `npm run verify:iteration` 通过
 
-### Phase 1：Deliverable → Node 重命名 + 树结构
-- 数据层：Deliverable 表增加 `parent_id`, `sort_order` 字段，支持嵌套
-- UI 层：Sidebar 渲染为可折叠树（DnD 排序）
-- AI 层：Conversation 从 Workspace 级提升到 Project 级
-- 不改底层存储，只加字段
+### Phase 1：Node Facade + 路由重构 + AI 提权
+- 数据层：Document 已有 `parentDocumentId`, `treeSortOrder`，无需新增字段。只需给 Session 加 `projectId`，ChatMessage 加 `focusNodeId`
+- Node Facade：`src/lib/workspace/node.ts` 作为新边界，新步骤挂在其上
+- 路由：`/workspace/{projectId}?node={nodeId}`
+- UI 层：Sidebar 渲染为可折叠树，切 Node 只换 query param
+- AI 层：Conversation 提升到 Project 级，严格的 Focus Set budget
 
 ### Phase 2：Node 索引 + 跨项目挂载
 - Node 元数据加 tags 字段

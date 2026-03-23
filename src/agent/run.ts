@@ -15,6 +15,7 @@ type AgentRunRequest = {
   attachments?: AgentRunAttachmentInput[];
   baseVersionId?: string | null;
   conversationId?: string | null;
+  focusNodeId?: string | null;
   message: string;
   model?: string | null;
   researchMode?: ResearchMode;
@@ -27,6 +28,7 @@ export async function requestAgentRun({
   attachments,
   baseVersionId,
   conversationId,
+  focusNodeId,
   message,
   model,
   researchMode = 'light',
@@ -38,9 +40,9 @@ export async function requestAgentRun({
   formData.set('baseVersionId', baseVersionId || '');
   formData.set('conversationId', conversationId || '');
   formData.set('sessionId', conversationId || '');
+  formData.set('focusNodeId', focusNodeId || workspaceId || '');
   formData.set('researchMode', researchMode);
-  formData.set('workspaceId', workspaceId || '');
-  formData.set('wikiId', workspaceId || '');
+  formData.set('workspaceId', workspaceId || focusNodeId || '');
   formData.set('message', message);
   formData.set('model', model || '');
   formData.set(

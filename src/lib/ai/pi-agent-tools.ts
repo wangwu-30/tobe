@@ -18,6 +18,10 @@ import {
 } from '@/lib/platform/run-service';
 import { recordSyncEvent } from '@/lib/platform/sync';
 import {
+  getProjectNodeCatalog,
+  readNodeContent,
+} from '@/lib/workspace/node';
+import {
   normalizeStoredDeliverableType,
   parseStoredDeliverableType,
 } from '@/lib/workspace/deliverable-types';
@@ -47,6 +51,7 @@ import {
   listNotes,
   splitNotesByKind,
 } from '@/objects/note';
+import { canAccessProjectFromProject } from '@/objects/project-mount';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 import type { SearchProvider } from '@/lib/search/types';
 import type {
@@ -165,23 +170,218 @@ export function createWorkspaceAgentTools({
       workspaceId,
     });
 
-  const assertProjectTargetWorkspace = async (targetWorkspaceId: string) => {
+  const assertAccessibleProject = async (targetProjectId: string) => {
     const projectContext = await loadCurrentProjectContext();
     if (!projectContext) {
       throw new Error('No current project context.');
     }
 
-    const targetDeliverable = projectContext.deliverables.find(
-      (deliverable) => deliverable.id === targetWorkspaceId
+    const hasAccess = await canAccessProjectFromProject({
+      organizationId,
+      sourceProjectId: projectContext.id,
+      targetProjectId,
+    });
+
+    if (!hasAccess) {
+      throw new Error('The requested project is not mounted into the current project.');
+    }
+
+    return projectContext;
+  };
+
+  const formatProjectNodeCatalog = (params: {
+    currentNodeId?: string | null;
+    nodes: Array<{
+      id: string;
+      isCurrent: boolean;
+      renderAs: string;
+      status: string;
+      title: string;
+    }>;
+    projectId: string;
+    projectTitle: string;
+  }) => [
+    `Project: ${params.projectTitle} (${params.nodes.length} node${params.nodes.length === 1 ? '' : 's'}) [projectId: ${params.projectId}]`,
+    'Project nodes:',
+    ...params.nodes.map((node) => {
+      const currentPrefix =
+        node.id === params.currentNodeId || node.isCurrent ? '[current] ' : '';
+      return `- ${currentPrefix}${node.title} [workspaceId: ${node.id}] (shape: ${node.renderAs}, status: ${node.status})`;
+    }),
+  ].join('\n');
+
+  const assertAccessibleNodeTarget = async (params: {
+    projectId: string;
+    targetNodeId: string;
+  }) => {
+    const projectContext =
+      params.projectId === (await loadCurrentProjectContext())?.id
+        ? await loadCurrentProjectContext()
+        : await assertAccessibleProject(params.projectId);
+
+    if (!projectContext) {
+      throw new Error('No current project context.');
+    }
+
+    if (params.projectId === projectContext.id) {
+      const targetDeliverable = projectContext.deliverables.find(
+        (deliverable) => deliverable.id === params.targetNodeId
+      );
+
+      if (!targetDeliverable) {
+        throw new Error('The requested node is not in the current project.');
+      }
+
+      return {
+        projectContext,
+        targetProjectId: projectContext.id,
+      };
+    }
+
+    const catalog = await getProjectNodeCatalog({
+      organizationId,
+      projectId: params.projectId,
+    });
+
+    if (!catalog) {
+      throw new Error('The requested mounted project was not found.');
+    }
+
+    const targetDeliverable = catalog.nodes.find(
+      (deliverable) => deliverable.id === params.targetNodeId
     );
 
     if (!targetDeliverable) {
-      throw new Error('The requested deliverable is not in the current project.');
+      throw new Error('The requested node is not in the mounted project.');
     }
 
     return {
       projectContext,
-      targetDeliverable,
+      targetProjectId: catalog.id,
+    };
+  };
+
+  const executeListProjectNodes = async (input?: { projectId?: string }) => {
+    const projectContext = await loadCurrentProjectContext();
+    if (!projectContext) {
+      return {
+        content: [{ type: 'text' as const, text: 'No current project context.' }],
+        details: null,
+      };
+    }
+
+    const requestedProjectId = input?.projectId?.trim() || projectContext.id;
+    if (requestedProjectId === projectContext.id) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: formatProjectNodeCatalog({
+              currentNodeId: projectContext.currentWorkspaceId,
+              nodes: projectContext.deliverables,
+              projectId: projectContext.id,
+              projectTitle: projectContext.title,
+            }),
+          },
+        ],
+        details: projectContext,
+      };
+    }
+
+    await assertAccessibleProject(requestedProjectId);
+    const catalog = await getProjectNodeCatalog({
+      organizationId,
+      projectId: requestedProjectId,
+    });
+    const mountedProjectSummary = projectContext.mountedProjects.find(
+      (project) => project.id === requestedProjectId
+    );
+    if (!catalog) {
+      throw new Error('The requested mounted project was not found.');
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: formatProjectNodeCatalog({
+            nodes: catalog.nodes,
+            projectId: catalog.id,
+            projectTitle: mountedProjectSummary?.title || catalog.title,
+          }),
+        },
+      ],
+      details: {
+        projectId: catalog.id,
+        projectTitle: mountedProjectSummary?.title || catalog.title,
+        nodes: catalog.nodes,
+      },
+    };
+  };
+
+  const executeReadNodeContent = async (input: {
+    fileId?: string;
+    nodeId?: string;
+    path?: string;
+    projectId?: string;
+    targetWorkspaceId?: string;
+  }) => {
+    const targetNodeId = input.nodeId || input.targetWorkspaceId || '';
+    if (!targetNodeId) {
+      throw new Error('A target node id is required.');
+    }
+
+    const projectContext = await loadCurrentProjectContext();
+    if (!projectContext) {
+      throw new Error('No current project context.');
+    }
+
+    const targetProjectId = input.projectId?.trim() || projectContext.id;
+    const accessibleTarget = await assertAccessibleNodeTarget({
+      projectId: targetProjectId,
+      targetNodeId,
+    });
+    const nodeContent = await readNodeContent({
+      fileId: input.fileId,
+      organizationId,
+      path: input.path,
+      projectId: accessibleTarget.targetProjectId,
+      targetNodeId,
+    });
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: [
+            `Project ID: ${accessibleTarget.targetProjectId}`,
+            `Node: ${nodeContent.node.title}`,
+            `Node ID: ${nodeContent.node.id}`,
+            `Result shape: ${nodeContent.node.renderAs}`,
+            `Status: ${nodeContent.node.status}`,
+            '',
+            'Files:',
+            nodeContent.files
+              .filter((file) => file.nodeType === 'file')
+              .map(
+                (file) =>
+                  `- ${file.path} (${file.kind}${file.isPrimary ? ', primary' : ''})`
+              )
+              .join('\n'),
+            '',
+            `# ${nodeContent.file.path}`,
+            '',
+            nodeContent.file.content,
+          ].join('\n'),
+        },
+      ],
+      details: {
+        file: nodeContent.file,
+        files: nodeContent.files,
+        targetProjectId: accessibleTarget.targetProjectId,
+        targetDeliverable: nodeContent.node,
+        targetNode: nodeContent.node,
+      },
     };
   };
 
@@ -735,14 +935,14 @@ export function createWorkspaceAgentTools({
         const summary = [
           `Conversation: ${conversation?.title || conversationId}`,
           wiki
-            ? `Deliverable Workspace: ${wiki.title} (${wiki.status}, v${wiki.currentVersion})`
-            : 'Deliverable Workspace: none',
+            ? `Current Node Workspace: ${wiki.title} (${wiki.status}, v${wiki.currentVersion})`
+            : 'Current Node Workspace: none',
           '',
-          'Current project deliverables:',
+          'Current project nodes:',
           projectContext ? formatProjectAiContext(projectContext, { includeWorkspaceIds: true }) : 'No current project context.',
           '',
-          'Current deliverable content:',
-          wiki ? serializeWikiContent(wiki.content) : 'No deliverable yet.',
+          'Current node content:',
+          wiki ? serializeWikiContent(wiki.content) : 'No current node yet.',
           '',
           'Workspace brief:',
           workspacePlan
@@ -772,7 +972,7 @@ export function createWorkspaceAgentTools({
             ? wiki.files
                 .map(
                   (file) =>
-                    `- [${file.type}] ${file.path} (${file.kind}${file.isPrimary ? ', primary deliverable' : ''})`
+                    `- [${file.type}] ${file.path} (${file.kind}${file.isPrimary ? ', primary content file' : ''})`
                 )
                 .join('\n')
             : 'No files yet.',
@@ -804,19 +1004,19 @@ export function createWorkspaceAgentTools({
           'Open review threads:',
           wiki
             ? summarizeThreads(wiki.threads.filter((thread) => thread.status === 'open'))
-            : 'No deliverable yet.',
+            : 'No current node yet.',
           '',
           'Pending verification review threads:',
           wiki
             ? summarizeThreads(
                 wiki.threads.filter((thread) => thread.status === 'applied')
               )
-            : 'No deliverable yet.',
+            : 'No current node yet.',
           '',
           'Resolved review threads:',
           wiki
             ? summarizeThreads(wiki.threads.filter((thread) => thread.status === 'resolved'))
-            : 'No deliverable yet.',
+            : 'No current node yet.',
           '',
           'Knowledge items:',
           knowledgeNotes.length > 0
@@ -863,92 +1063,41 @@ export function createWorkspaceAgentTools({
       },
     },
     {
-      name: 'list_project_deliverables',
-      label: 'List Project Deliverables',
+      name: 'list_project_nodes',
+      label: 'List Project Nodes',
       description:
-        'List the current deliverable and sibling deliverables in the same project, including workspace ids for follow-up reads.',
-      parameters: Type.Object({}),
-      async execute() {
-        const projectContext = await loadCurrentProjectContext();
-        const summary = projectContext
-          ? formatProjectAiContext(projectContext, { includeWorkspaceIds: true })
-          : 'No current project context.';
-
-        return {
-          content: [{ type: 'text', text: summary }],
-          details: projectContext,
-        };
+        'List nodes in the current project, or in a mounted project when `projectId` is provided, including workspace ids for follow-up reads.',
+      parameters: Type.Object({
+        projectId: Type.Optional(Type.String({ minLength: 1 })),
+      }),
+      async execute(_toolCallId, params) {
+        return executeListProjectNodes(
+          params as {
+            projectId?: string;
+          }
+        );
       },
     },
     {
-      name: 'read_project_deliverable_file',
-      label: 'Read Project Deliverable File',
+      name: 'read_node_content',
+      label: 'Read Node Content',
       description:
-        'Read the primary file or a specific file from another deliverable in the same project.',
+        'Read the primary file or a specific file from another node in the current project, or from a mounted project when `projectId` is provided.',
       parameters: Type.Object({
         fileId: Type.Optional(Type.String({ minLength: 1 })),
+        nodeId: Type.String({ minLength: 1 }),
         path: Type.Optional(Type.String({ minLength: 1 })),
-        targetWorkspaceId: Type.String({ minLength: 1 }),
+        projectId: Type.Optional(Type.String({ minLength: 1 })),
       }),
       async execute(_toolCallId, params) {
-        const input = params as {
-          fileId?: string;
-          path?: string;
-          targetWorkspaceId: string;
-        };
-        const { targetDeliverable } = await assertProjectTargetWorkspace(
-          input.targetWorkspaceId
+        return executeReadNodeContent(
+          params as {
+            fileId?: string;
+            nodeId: string;
+            path?: string;
+            projectId?: string;
+          }
         );
-        const files = await listWorkspaceFiles({
-          organizationId,
-          workspaceId: input.targetWorkspaceId,
-        });
-
-        const targetFile =
-          (input.fileId
-            ? files.find((file) => file.id === input.fileId)
-            : input.path
-              ? files.find((file) => file.path === input.path)
-              : null) ||
-          files.find((file) => file.nodeType === 'file' && file.isPrimary) ||
-          files.find((file) => file.nodeType === 'file') ||
-          null;
-
-        if (!targetFile) {
-          throw new Error('No readable file found in the requested deliverable.');
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: [
-                `Deliverable: ${targetDeliverable.title}`,
-                `Workspace ID: ${targetDeliverable.id}`,
-                `Result shape: ${targetDeliverable.renderAs}`,
-                `Status: ${targetDeliverable.status}`,
-                '',
-                'Files:',
-                files
-                  .filter((file) => file.nodeType === 'file')
-                  .map(
-                    (file) =>
-                      `- ${file.path} (${file.kind}${file.isPrimary ? ', primary' : ''})`
-                  )
-                  .join('\n'),
-                '',
-                `# ${targetFile.path}`,
-                '',
-                targetFile.content,
-              ].join('\n'),
-            },
-          ],
-          details: {
-            file: targetFile,
-            files,
-            targetDeliverable,
-          },
-        };
       },
     },
     {

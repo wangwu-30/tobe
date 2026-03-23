@@ -34,6 +34,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -47,10 +48,12 @@ import {
   SidebarInfo,
   SidebarSection,
 } from '@/components/layout/sidebar-primitives';
+import { SidebarSearch } from '@/components/layout/sidebar-search';
 import { useT } from '@/components/providers/language-provider';
 import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { cn } from '@/lib/utils';
 import { getWorkspaceFileDisplayName } from '@/lib/workspace/file-presentation';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import {
   DeliverableTypeBadge,
   DeliverableTypeIcon,
@@ -60,8 +63,13 @@ import {
   formatProjectListMeta,
   listProjectFolderPath,
 } from '@/lib/workspace/project-summary';
+import {
+  createWorkspaceProjectMount,
+  listWorkspaceProjectMounts,
+} from '@/lib/workspace/project-client';
 import type { ProjectDeliverableItem } from '@/types';
 import type { ProjectFolderItem } from '@/types';
+import type { ProjectMountData } from '@/types';
 import type { ProjectSummaryData } from '@/types';
 import type { WorkspaceFileData } from '@/types';
 import type { WorkspaceVersionFileData } from '@/types';
@@ -125,6 +133,7 @@ export function DeliverableSidebar({
   onRenameWorkspace,
   onOpenSupportFile,
   onOpenWorkspace,
+  onProjectsChange,
   outlineItems,
   projectFolders = [],
   projectDeliverables = [],
@@ -177,6 +186,7 @@ export function DeliverableSidebar({
   onRenameWorkspace?: (workspaceId: string, title: string) => Promise<void> | void;
   onOpenSupportFile?: (fileId: string) => void;
   onOpenWorkspace?: (workspaceId: string) => void;
+  onProjectsChange?: (projects: ProjectSummaryData[]) => void;
   outlineItems: DeliverableOutlineItem[];
   projectFolders?: ProjectFolderItem[];
   projectDeliverables?: ProjectDeliverableItem[];
@@ -186,11 +196,18 @@ export function DeliverableSidebar({
   const pathname = useAppPathname();
   const router = useAppRouter();
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoadingMounts, setIsLoadingMounts] = React.useState(false);
   const [projects, setProjects] = React.useState<ProjectSummaryData[]>([]);
+  const [projectMounts, setProjectMounts] = React.useState<ProjectMountData[]>([]);
   const [renameWorkspaceId, setRenameWorkspaceId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
   const [renameError, setRenameError] = React.useState<string | null>(null);
   const [isRenamingWorkspace, setIsRenamingWorkspace] = React.useState(false);
+  const [mountError, setMountError] = React.useState<string | null>(null);
+  const [isMountDialogOpen, setIsMountDialogOpen] = React.useState(false);
+  const [selectedMountTargetProjectId, setSelectedMountTargetProjectId] = React.useState('');
+  const [mountDialogError, setMountDialogError] = React.useState<string | null>(null);
+  const [isCreatingMount, setIsCreatingMount] = React.useState(false);
   const [projectTreeError, setProjectTreeError] = React.useState<string | null>(null);
   const [dragNode, setDragNode] = React.useState<ProjectTreeMoveNode | null>(null);
   const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
@@ -237,6 +254,25 @@ export function DeliverableSidebar({
     () => projects.find((project) => project.id === currentProjectId) || null,
     [currentProjectId, projects]
   );
+  const mountedProjectItems = React.useMemo(
+    () =>
+      projectMounts.map((mount) => {
+        const targetProject = projects.find((project) => project.id === mount.targetProjectId) || null;
+        return {
+          mount,
+          targetProject,
+          title:
+            mount.targetProjectTitle?.trim() || targetProject?.title?.trim() || mount.targetProjectId,
+        };
+      }),
+    [projectMounts, projects]
+  );
+  const availableMountProjects = React.useMemo(() => {
+    const mountedProjectIds = new Set(projectMounts.map((mount) => mount.targetProjectId));
+    return projects.filter(
+      (project) => project.id !== currentProjectId && !mountedProjectIds.has(project.id)
+    );
+  }, [currentProjectId, projectMounts, projects]);
   const currentProjectContextTitle = React.useMemo(() => {
     const explicitTitle = currentProjectTitle?.trim() || null;
     if (explicitTitle) {
@@ -300,15 +336,62 @@ export function DeliverableSidebar({
       }
 
       const data = await res.json();
-      setProjects(data.items || []);
+      const nextProjects = data.items || [];
+      setProjects(nextProjects);
+      onProjectsChange?.(nextProjects);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [onProjectsChange]);
 
   React.useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  const loadMounts = React.useCallback(async () => {
+    if (!currentProjectId) {
+      setProjectMounts([]);
+      setMountError(null);
+      setIsLoadingMounts(false);
+      return;
+    }
+
+    setIsLoadingMounts(true);
+    setMountError(null);
+
+    try {
+      const mounts = await listWorkspaceProjectMounts({
+        errorMessage: t('sidebar.loadLinkedProjectsFailed'),
+        projectId: currentProjectId,
+      });
+      setProjectMounts(mounts);
+    } catch (error) {
+      setMountError(
+        error instanceof Error ? error.message : t('sidebar.loadLinkedProjectsFailed')
+      );
+    } finally {
+      setIsLoadingMounts(false);
+    }
+  }, [currentProjectId, t]);
+
+  React.useEffect(() => {
+    void loadMounts();
+  }, [loadMounts]);
+
+  React.useEffect(() => {
+    if (!isMountDialogOpen) {
+      return;
+    }
+
+    if (
+      selectedMountTargetProjectId &&
+      availableMountProjects.some((project) => project.id === selectedMountTargetProjectId)
+    ) {
+      return;
+    }
+
+    setSelectedMountTargetProjectId(availableMountProjects[0]?.id || '');
+  }, [availableMountProjects, isMountDialogOpen, selectedMountTargetProjectId]);
 
   const handleDelete = React.useCallback(
     async (projectId: string) => {
@@ -335,13 +418,18 @@ export function DeliverableSidebar({
   const openProject = React.useCallback(
     (project: ProjectSummaryData) => {
       onNavigate?.();
-      if (onOpenWorkspace) {
+      if (onOpenWorkspace && project.id === currentProjectId) {
         onOpenWorkspace(project.workspaceId);
         return;
       }
-      router.push(`/workspace/${project.workspaceId}`);
+      router.push(
+        buildWorkspaceRoute({
+          nodeId: project.workspaceId,
+          projectId: project.id,
+        })
+      );
     },
-    [onNavigate, onOpenWorkspace, router]
+    [currentProjectId, onNavigate, onOpenWorkspace, router]
   );
   const openProjectNextDeliverable = React.useCallback(
     (project: ProjectSummaryData) => {
@@ -362,16 +450,27 @@ export function DeliverableSidebar({
         return;
       }
       if (currentWorkspaceId) {
-        router.push(`/workspace/${currentWorkspaceId}?fileId=${fileId}`);
+        router.push(
+          buildWorkspaceRoute({
+            fileId,
+            nodeId: currentWorkspaceId,
+            projectId: currentProjectId || currentWorkspaceId,
+          })
+        );
       }
     },
-    [currentWorkspaceId, onNavigate, onOpenSupportFile, router]
+    [currentProjectId, currentWorkspaceId, onNavigate, onOpenSupportFile, router]
   );
   const openRenameDialog = React.useCallback((project: ProjectSummaryData) => {
     setRenameWorkspaceId(project.id);
     setRenameValue(project.title);
     setRenameError(null);
   }, []);
+  const openMountDialog = React.useCallback(() => {
+    setIsMountDialogOpen(true);
+    setSelectedMountTargetProjectId(availableMountProjects[0]?.id || '');
+    setMountDialogError(null);
+  }, [availableMountProjects]);
   const openRenameSupportDialog = React.useCallback((file: SidebarSupportFile) => {
     setRenameSupportFileId(file.id);
     setRenameSupportValue(getWorkspaceFileDisplayName(file));
@@ -388,6 +487,18 @@ export function DeliverableSidebar({
       setRenameError(null);
     },
     [isRenamingWorkspace]
+  );
+  const closeMountDialog = React.useCallback(
+    (open: boolean) => {
+      if (open || isCreatingMount) {
+        return;
+      }
+
+      setIsMountDialogOpen(false);
+      setSelectedMountTargetProjectId('');
+      setMountDialogError(null);
+    },
+    [isCreatingMount]
   );
   const closeRenameSupportDialog = React.useCallback(
     (open: boolean) => {
@@ -458,6 +569,43 @@ export function DeliverableSidebar({
       }
     },
     [loadProjects, onRenameWorkspace, projects, renameValue, renameWorkspaceId, t]
+  );
+  const handleCreateMount = React.useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!currentProjectId) {
+        return;
+      }
+
+      const targetProjectId = selectedMountTargetProjectId.trim();
+      if (!targetProjectId) {
+        setMountDialogError(t('sidebar.addLinkedProjectRequired'));
+        return;
+      }
+
+      setIsCreatingMount(true);
+      setMountDialogError(null);
+
+      try {
+        await createWorkspaceProjectMount({
+          errorMessage: t('sidebar.addLinkedProjectFailed'),
+          projectId: currentProjectId,
+          targetProjectId,
+        });
+        await loadMounts();
+        setIsMountDialogOpen(false);
+        setSelectedMountTargetProjectId('');
+        setMountDialogError(null);
+      } catch (error) {
+        setMountDialogError(
+          error instanceof Error ? error.message : t('sidebar.addLinkedProjectFailed')
+        );
+      } finally {
+        setIsCreatingMount(false);
+      }
+    },
+    [currentProjectId, loadMounts, selectedMountTargetProjectId, t]
   );
   const openRenameDeliverableDialog = React.useCallback(
     (deliverable: ProjectDeliverableItem) => {
@@ -1227,8 +1375,22 @@ export function DeliverableSidebar({
                   )}
                 </SidebarSection>
 
+                {currentWorkspaceId && currentProjectId ? (
+                  <SidebarSection
+                    testId="sidebar-node-search-section"
+                    title={t('sidebar.searchProjectNodes')}
+                  >
+                    <SidebarSearch
+                      currentNodeId={currentWorkspaceId}
+                      onNavigate={onNavigate}
+                      projectId={currentProjectId}
+                    />
+                  </SidebarSection>
+                ) : null}
+
                 {currentWorkspaceId ? (
                   <SidebarSection
+                    testId="sidebar-project-tree-section"
                     title={t('sidebar.projectTree')}
                     action={
                       onCreateDeliverable || onCreateProjectFolder ? (
@@ -1381,7 +1543,80 @@ export function DeliverableSidebar({
                   </SidebarSection>
                 ) : null}
 
-                <SidebarSection title={t('sidebar.deliverableOutline')}>
+                {currentWorkspaceId && currentProjectId ? (
+                  <SidebarSection
+                    testId="sidebar-linked-projects-section"
+                    title={t('sidebar.linkedProjects')}
+                    action={
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        onClick={openMountDialog}
+                        data-testid="sidebar-linked-project-dialog-trigger"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </Button>
+                    }
+                  >
+                    {mountError ? (
+                      <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                        {mountError}
+                      </div>
+                    ) : null}
+                    {isLoadingMounts ? (
+                      <SidebarInfo text={t('sidebar.loadingLinkedProjects')} />
+                    ) : mountedProjectItems.length === 0 ? (
+                      <div data-testid="sidebar-linked-projects-empty">
+                        <SidebarInfo text={t('sidebar.noLinkedProjectsYet')} />
+                      </div>
+                    ) : (
+                      <div className="space-y-2" data-testid="sidebar-linked-projects-list">
+                        {mountedProjectItems.map(({ mount, targetProject, title }) => (
+                          <div
+                            key={mount.id}
+                            className="rounded-2xl border border-border/70 bg-background/80 px-3 py-2.5"
+                            data-testid={`sidebar-linked-project-${mount.targetProjectId}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <div className="truncate text-sm font-medium">{title}</div>
+                                  <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.12em]">
+                                    {t('sidebar.linkedProjectBadge')}
+                                  </Badge>
+                                </div>
+                                <div className="mt-1 truncate text-xs text-muted-foreground">
+                                  {targetProject
+                                    ? formatProjectListMeta(targetProject, t)
+                                    : t('sidebar.linkedProjectReferenceOnly')}
+                                </div>
+                              </div>
+                              {targetProject ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 rounded-lg px-2 text-xs"
+                                  onClick={() => openProject(targetProject)}
+                                  data-testid={`sidebar-linked-project-open-${mount.targetProjectId}`}
+                                >
+                                  {t('sidebar.openLinkedProject')}
+                                </Button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SidebarSection>
+                ) : null}
+
+                <SidebarSection
+                  testId="sidebar-outline-section"
+                  title={t('sidebar.deliverableOutline')}
+                >
                   {outlineItems.length === 0 ? (
                     <SidebarInfo text={t('sidebar.outlineEmpty')} />
                   ) : (
@@ -1542,6 +1777,81 @@ export function DeliverableSidebar({
           </div>
         </div>
       </aside>
+
+      <Dialog open={isMountDialogOpen} onOpenChange={closeMountDialog}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>{t('sidebar.addLinkedProject')}</DialogTitle>
+            <DialogDescription>
+              {t('sidebar.addLinkedProjectDescription')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form className="space-y-4" onSubmit={(event) => void handleCreateMount(event)}>
+            <div className="space-y-2">
+              <Label htmlFor="linked-project-target">{t('sidebar.addLinkedProjectSelect')}</Label>
+              <Select
+                value={selectedMountTargetProjectId || undefined}
+                onValueChange={(value) => {
+                  setSelectedMountTargetProjectId(value);
+                  if (mountDialogError) {
+                    setMountDialogError(null);
+                  }
+                }}
+                disabled={isCreatingMount || availableMountProjects.length === 0}
+              >
+                <SelectTrigger
+                  id="linked-project-target"
+                  className="w-full"
+                  data-testid="sidebar-linked-project-select"
+                >
+                  <SelectValue placeholder={t('sidebar.addLinkedProjectPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableMountProjects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {availableMountProjects.length === 0 ? (
+              <div
+                className="rounded-2xl border border-dashed border-border/70 px-3 py-3 text-sm text-muted-foreground"
+                data-testid="sidebar-linked-project-no-options"
+              >
+                {t('sidebar.noLinkableProjects')}
+              </div>
+            ) : null}
+
+            {mountDialogError ? (
+              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {mountDialogError}
+              </div>
+            ) : null}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => closeMountDialog(false)}
+                disabled={isCreatingMount}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                disabled={isCreatingMount || availableMountProjects.length === 0}
+                data-testid="sidebar-linked-project-submit"
+              >
+                {isCreatingMount ? t('common.saving') : t('sidebar.addLinkedProjectSave')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(renameWorkspaceId)} onOpenChange={closeRenameDialog}>
         <DialogContent className="sm:max-w-[420px]">
@@ -2177,6 +2487,14 @@ function ProjectTreeNodeRow({
             variant="ghost"
             className="h-7 shrink-0 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
             data-testid={`sidebar-project-tree-create-next-${node.id}`}
+            draggable={false}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+            }}
+            onDragStart={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
             onClick={(event) => {
               event.stopPropagation();
               void onCreateSiblingDeliverable?.(node.id);

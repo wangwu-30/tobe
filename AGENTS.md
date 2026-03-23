@@ -4,12 +4,14 @@
 
 - `dao-change-briefs`: Standardize architecture, product, design, and implementation decision writeups. Use for tradeoff explanations, change proposals, future decision reports, and “what do you mean by X” clarification. Responses should be organized as `现状 / 目标 / 差距 / 执行计划 / 验收标准`. (file: `/Users/wangwu/claude/chat-to-your-mind/skills/dao-change-briefs/SKILL.md`)
 - `dao-design-principles`: Apply Dao Ke Dao product and UI design principles when working on navigation, information architecture, layout density, interaction feedback, or frontend cleanup. (file: `/Users/wangwu/claude/chat-to-your-mind/skills/dao-design-principles/SKILL.md`)
+- `product-acceptance`: Execute full-spectrum product acceptance: preflight checks (server/db/browser), black-box browser audit page-by-page, and structured issue reporting with severity levels. Use when asked to "验收", "全面检查", "产品质量审计", or before milestone delivery. (file: `/Users/wangwu/claude/chat-to-your-mind/skills/product-acceptance/SKILL.md`)
 - `program-autopilot`: Drive long-running repo execution as a program instead of isolated patches. Use when asked to continue autonomously, keep iterating across bounded slices, finish remaining repo goals, or run an explicitly activated workstream until its active goals are truly done. (file: `/Users/wangwu/.codex/skills/program-autopilot/SKILL.md`)
 
 ### How to use skills
 
 - If a request is about architecture direction, tradeoff explanation, change proposals, decision summaries, or future implementation/design decisions, use `dao-change-briefs`.
 - If a request is about product design, UI cleanup, navigation, layout consistency, interaction behavior, or simplifying a page while preserving capability, use `dao-design-principles`.
+- If a request is about product acceptance, full QA audit, "验收", black-box testing, or milestone delivery readiness check, use `product-acceptance`.
 - If a request is about continuing execution autonomously, finishing remaining project plan items, or iterating in this repo until all current scoped goals are closed, use `program-autopilot`.
 - Read only the skill file and the specific reference files it points to when needed.
 

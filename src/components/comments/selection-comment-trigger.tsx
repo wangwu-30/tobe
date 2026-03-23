@@ -66,6 +66,8 @@ export function SelectionCommentTrigger({
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const composerRef = React.useRef<HTMLDivElement>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
+  const selectionUpdateFrameRef = React.useRef<number | null>(null);
+  const selectionUpdateTimeoutRef = React.useRef<number | null>(null);
 
   const readSelectionState = React.useCallback((): ComposerState | null => {
     const domSelection = window.getSelection?.();
@@ -372,8 +374,19 @@ export function SelectionCommentTrigger({
     }
 
     const scheduleUpdate = () => {
-      window.requestAnimationFrame(() => {
+      if (selectionUpdateFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionUpdateFrameRef.current);
+      }
+      if (selectionUpdateTimeoutRef.current !== null) {
+        window.clearTimeout(selectionUpdateTimeoutRef.current);
+      }
+
+      selectionUpdateFrameRef.current = window.requestAnimationFrame(() => {
         updateSelectionState();
+        // Plate selection can lag one frame behind the native DOM selection.
+        selectionUpdateTimeoutRef.current = window.setTimeout(() => {
+          updateSelectionState();
+        }, 80);
       });
     };
 
@@ -384,6 +397,12 @@ export function SelectionCommentTrigger({
     window.addEventListener('resize', scheduleUpdate);
 
     return () => {
+      if (selectionUpdateFrameRef.current !== null) {
+        window.cancelAnimationFrame(selectionUpdateFrameRef.current);
+      }
+      if (selectionUpdateTimeoutRef.current !== null) {
+        window.clearTimeout(selectionUpdateTimeoutRef.current);
+      }
       document.removeEventListener('selectionchange', scheduleUpdate);
       window.removeEventListener('pointerup', scheduleUpdate);
       window.removeEventListener('keyup', scheduleUpdate);

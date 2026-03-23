@@ -312,11 +312,29 @@ async function resolveCommentRunConversationId(params: {
   preferredFileId: string | null;
   workspaceId: string;
 }) {
+  const workspace = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: params.workspaceId,
+      organizationId: params.actor.organizationId,
+    },
+    select: {
+      id: true,
+      projectId: true,
+    },
+  });
+  const projectId = workspace?.projectId || workspace?.id || params.workspaceId;
   const existingConversation = await prisma.session.findFirst({
     where: {
       deletedAt: null,
       organizationId: params.actor.organizationId,
-      wikiId: params.workspaceId,
+      OR: [
+        { projectId },
+        {
+          projectId: null,
+          wikiId: params.workspaceId,
+        },
+      ],
     },
     orderBy: { updatedAt: 'desc' },
     select: { id: true },

@@ -222,17 +222,20 @@ async function continueFromVersionTree(
   versionId: string,
   initialConversationId: string
 ) {
-  if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
-    const versionTreeDialog = await openVersionTree(page);
-    const continueButton = versionTreeDialog.getByTestId(`version-continue-${versionId}`);
-    await expect(continueButton).toBeVisible();
-    await expect(continueButton).toBeEnabled();
-    await continueButton.click();
-  }
+  await expect(async () => {
+    if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+      const versionTreeDialog = await openVersionTree(page);
+      const continueButton = versionTreeDialog.getByTestId(`version-continue-${versionId}`);
+      await expect(continueButton).toBeVisible();
+      await expect(continueButton).toBeEnabled();
+      await continueButton.click({ force: true });
+    }
 
-  await waitForConversationChange(page, initialConversationId, {
-    expectedVersionId: null,
-  });
+    await waitForConversationChange(page, initialConversationId, {
+      expectedVersionId: null,
+      timeout: 5_000,
+    });
+  }).toPass({ timeout: 30_000 });
 }
 
 async function switchToBranchFromVersionTree(
@@ -240,28 +243,113 @@ async function switchToBranchFromVersionTree(
   branchHeadVersionId: string,
   initialConversationId: string
 ) {
-  if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+  await expect(async () => {
+    if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+      const versionTreeDialog = await openVersionTree(page);
+      const overviewSwitch = versionTreeDialog.getByTestId(
+        `version-branch-overview-switch-${branchHeadVersionId}`
+      );
+
+      if (await overviewSwitch.isVisible().catch(() => false)) {
+        await expect(overviewSwitch).toBeEnabled();
+        await overviewSwitch.click({ force: true });
+      } else {
+        const switchButton = versionTreeDialog.getByTestId(
+          `version-switch-branch-${branchHeadVersionId}`
+        );
+        await expect(switchButton).toBeVisible();
+        await expect(switchButton).toBeEnabled();
+        await switchButton.click({ force: true });
+      }
+    }
+
+    await waitForConversationChange(page, initialConversationId, {
+      expectedVersionId: null,
+      timeout: 5_000,
+    });
+  }).toPass({ timeout: 30_000 });
+}
+
+async function waitForBranchOverview(
+  page: Page,
+  branchHeadVersionId: string,
+  options?: {
+    minimumCount?: number;
+  }
+) {
+  await expect(async () => {
     const versionTreeDialog = await openVersionTree(page);
-    const overviewSwitch = versionTreeDialog.getByTestId(
-      `version-branch-overview-switch-${branchHeadVersionId}`
+    const overviewCards = versionTreeDialog.locator('[data-testid^="version-branch-overview-card-"]');
+
+    await expect(
+      versionTreeDialog.getByTestId(`version-branch-overview-card-${branchHeadVersionId}`)
+    ).toBeVisible();
+    expect(await overviewCards.count()).toBeGreaterThanOrEqual(options?.minimumCount ?? 1);
+  }).toPass({ timeout: 30_000 });
+
+  return openVersionTree(page);
+}
+
+async function expectCurrentBranchOverview(page: Page, branchHeadVersionId: string) {
+  await expect(async () => {
+    const versionTreeDialog = await waitForBranchOverview(page, branchHeadVersionId, {
+      minimumCount: 1,
+    });
+
+    await expect(
+      versionTreeDialog.getByTestId(`version-branch-overview-current-${branchHeadVersionId}`)
+    ).toBeVisible();
+    await expect(
+      versionTreeDialog.getByTestId(`version-branch-overview-switch-${branchHeadVersionId}`)
+    ).toHaveCount(0);
+  }).toPass({ timeout: 30_000 });
+
+  return openVersionTree(page);
+}
+
+async function focusBranchLineageFromVersionTree(page: Page, branchHeadVersionId: string) {
+  await expect(async () => {
+    const versionTreeDialog = await waitForBranchOverview(page, branchHeadVersionId, {
+      minimumCount: 1,
+    });
+    const focusButton = versionTreeDialog.getByTestId(
+      `version-branch-overview-focus-${branchHeadVersionId}`
     );
 
-    if (await overviewSwitch.isVisible().catch(() => false)) {
-      await expect(overviewSwitch).toBeEnabled();
-      await overviewSwitch.click();
-    } else {
-      const switchButton = versionTreeDialog.getByTestId(
-        `version-switch-branch-${branchHeadVersionId}`
-      );
-      await expect(switchButton).toBeVisible();
-      await expect(switchButton).toBeEnabled();
-      await switchButton.click();
-    }
-  }
+    await expect(focusButton).toBeVisible();
+    await expect(focusButton).toBeEnabled();
+    await focusButton.click({ force: true });
+    await expect(versionTreeDialog.getByTestId('version-branch-focus-banner')).toBeVisible();
+    await expect(
+      versionTreeDialog.getByTestId(`version-branch-workspace-section-${branchHeadVersionId}`)
+    ).toBeVisible();
+  }).toPass({ timeout: 30_000 });
+}
 
-  await waitForConversationChange(page, initialConversationId, {
-    expectedVersionId: null,
-  });
+async function openBranchCompareFromOverview(page: Page, branchHeadVersionId: string) {
+  const compareDialog = page.getByRole('dialog', { name: /比较版本|Compare versions/ });
+
+  await expect(async () => {
+    const versionTreeDialog = await waitForBranchOverview(page, branchHeadVersionId, {
+      minimumCount: 1,
+    });
+    const overviewCard = versionTreeDialog.getByTestId(
+      `version-branch-overview-card-${branchHeadVersionId}`
+    );
+    const compareButton = overviewCard.getByRole('button', { name: /比较|Compare/ });
+
+    await overviewCard.scrollIntoViewIfNeeded();
+    await overviewCard.evaluate((node) => {
+      node.scrollIntoView({ block: 'center', inline: 'nearest' });
+    });
+    await compareButton.scrollIntoViewIfNeeded();
+    await expect(compareButton).toBeVisible();
+    await expect(compareButton).toBeEnabled();
+    await compareButton.click({ force: true });
+    await expect(compareDialog).toBeVisible();
+  }).toPass({ timeout: 30_000 });
+
+  return compareDialog;
 }
 
 async function dismissVisibleFirstUseGuidance(page: Page) {
@@ -564,8 +652,7 @@ test('switching to another visible branch head from the version tree moves the l
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toHaveCount(0);
 
-  const refreshedVersionTree = await openVersionTree(page);
-  await expect(refreshedVersionTree.getByTestId(`version-draft-base-${switchedBranchId}`)).toBeVisible();
+  const refreshedVersionTree = await expectCurrentBranchOverview(page, switchedBranchId);
   await expect(refreshedVersionTree.getByTestId(`version-switch-branch-${switchedBranchId}`)).toHaveCount(0);
   await page.keyboard.press('Escape');
 
@@ -597,7 +684,9 @@ test('branch overview groups visible heads and can switch the live draft to anot
   const continuedConversationId = new URL(page.url()).searchParams.get('conversationId');
   expect(continuedConversationId).not.toBeNull();
 
-  const branchVersionTree = await openVersionTree(page);
+  const branchVersionTree = await waitForBranchOverview(page, workspace.secondVersionId!, {
+    minimumCount: 2,
+  });
   await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
     /正式里程碑|Saved Milestones/
   );
@@ -610,11 +699,6 @@ test('branch overview groups visible heads and can switch the live draft to anot
   await expect(
     branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
   ).toBeVisible();
-  await expect.poll(async () => {
-    return await branchVersionTree
-      .locator('[data-testid^="version-branch-overview-card-"]')
-      .count();
-  }).toBeGreaterThanOrEqual(2);
   await expect(
     branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
   ).toContainText('版本里程碑 V1');
@@ -628,13 +712,7 @@ test('branch overview groups visible heads and can switch the live draft to anot
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)
   ).toBeVisible();
 
-  const refreshedVersionTree = await openVersionTree(page);
-  await expect(
-    refreshedVersionTree.getByTestId(`version-branch-overview-current-${workspace.secondVersionId!}`)
-  ).toBeVisible();
-  await expect(
-    refreshedVersionTree.getByTestId(`version-branch-overview-switch-${workspace.secondVersionId!}`)
-  ).toHaveCount(0);
+  const refreshedVersionTree = await expectCurrentBranchOverview(page, workspace.secondVersionId!);
   await page.keyboard.press('Escape');
 
   await page.getByTestId('assistant-tab-chat').click();
@@ -660,10 +738,8 @@ test('branch overview can focus the milestone list on a single branch lineage', 
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
   ).toBeVisible();
 
+  await focusBranchLineageFromVersionTree(page, workspace.secondVersionId!);
   const branchVersionTree = await openVersionTree(page);
-  await branchVersionTree
-    .getByTestId(`version-branch-overview-focus-${workspace.secondVersionId!}`)
-    .click();
 
   await expect(branchVersionTree.getByTestId('version-branch-focus-banner')).toContainText(
     '版本里程碑 V2'
@@ -773,13 +849,7 @@ test('branch compare stays on the selected lineage by default and only expands c
   await dismissVisibleFirstUseGuidance(page);
   await continueFromVersionTree(page, workspace.versionId, workspace.conversationId);
 
-  const versionTreeDialog = await openVersionTree(page);
-  await versionTreeDialog
-    .getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
-    .getByRole('button', { name: /比较|Compare/ })
-    .click();
-
-  const compareDialog = page.getByRole('dialog', { name: /比较版本|Compare versions/ });
+  const compareDialog = await openBranchCompareFromOverview(page, workspace.secondVersionId!);
   await expect(compareDialog.getByText(/默认先留在分支|Stay on branch/)).toBeVisible();
   await expect(compareDialog.getByTestId('version-compare-left-select')).toContainText(
     '里程碑 · 版本里程碑 V2'

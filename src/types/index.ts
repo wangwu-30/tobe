@@ -467,6 +467,7 @@ export type ConversationMessageData = {
   content: string;
   attachments: ChatAttachmentData[];
   workspaceId: string | null;
+  focusNodeId?: string | null;
   wikiId?: string | null;
   model: string | null;
   citations?: SearchCitation[];
@@ -481,6 +482,7 @@ export type ConversationData = {
   id: string;
   organizationId: string;
   workspaceId: string | null;
+  projectId?: string | null;
   wikiId?: string | null;
   parentConversationId: string | null;
   forkedFromMessageId: string | null;
@@ -691,6 +693,31 @@ export type ProjectFolderItem = {
   projectId: string;
   parentFolderId: string | null;
   sortOrder: number;
+  title: string;
+  updatedAt: Date | string;
+};
+
+export type ProjectMountData = {
+  id: string;
+  organizationId: string;
+  sourceProjectId: string;
+  sourceProjectTitle: string | null;
+  targetProjectId: string;
+  targetProjectTitle: string | null;
+  createdAt: Date | string;
+};
+
+export type ProjectNodeSearchResultData = {
+  deliverableType: DeliverableType;
+  id: string;
+  isCurrent: boolean;
+  matchPreview: string;
+  matchedIn: 'content' | 'title';
+  previewText: string;
+  primaryFilePath: string | null;
+  projectId: string;
+  renderAs: RenderAs;
+  status: string;
   title: string;
   updatedAt: Date | string;
 };

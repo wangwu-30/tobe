@@ -1,7 +1,7 @@
 # Browser Operator Infra Contract
 
-更新时间：2026-03-22
-状态：已冻结边界，B2 runtime search adapter 已落地
+更新时间：2026-03-23
+状态：已冻结边界，B3 blackbox consumer 已覆盖 A1-A3 与 B2-B4
 对应技能：`program-autopilot`
 
 ## 现状
@@ -9,7 +9,7 @@
 - 成形当前的日常门禁仍是 `npm run verify:iteration`，核心覆盖 `static + Playwright E2E`；这条线继续保持轻量，不承担重型黑盒或浏览器代理能力。
 - 共享 `browser operator` infra 已经具备 core runner，并且第一个运行时消费者已经落地：`Browser Operator Search` 现在可以通过现有 `SearchProvider` / `/api/search/query` 路径真实打开搜索页、浏览并抽取可见结果卡片。
 - 已有 blackbox 计划文档更多描述的是成形场景矩阵，但浏览器控制本身不该由 blackbox 反向定义；黑盒只是未来消费者之一。
-- 版本树 workstream 已收口；当前 B2 runtime 搜索 adapter 已完成，后续下一刀直接进入 blackbox consumer。
+- 版本树 workstream 已收口；当前 runtime 搜索 adapter 已完成，blackbox consumer 也已覆盖 A1-A3 与 B2-B4，并持续输出聚合报告。
 
 ## 目标
 
@@ -21,7 +21,7 @@
 
 ## 差距
 
-- 共享接口、目录边界和运行边界现在都已冻结，runtime 搜索 adapter 也已落地；当前剩余差距主要是黑盒 inspector 还没有接到同一套 core。
+- 共享接口、目录边界和运行边界现在都已冻结，runtime 搜索 adapter 也已落地；黑盒 inspector 也已通过 `tests/blackbox/chengxing/` 接上同一套 core，当前已覆盖 A1-A3 与 B2-B4。
 - 运行时搜索虽然已进入现有 `SearchProvider` seam，但后续 blackbox consumer 仍需要复用同一套 `observation / action / artifact` contract，不能再长第二套浏览器控制栈。
 - browser operator 当前第一条回归闭环使用本地 debug 搜索面；后续走向更广泛网页时，还需要继续在 adapter 层补更丰富的 target / evaluator 组合，而不是把成形语义倒灌回 core。
 
@@ -69,6 +69,10 @@
 
 4. `B3 Blackbox Consumer`
    - blackbox inspector 复用同一套 core，只补成形场景矩阵和报告面。
+   - 当前已落地 `tests/blackbox/chengxing/` consumer scaffold、独立 `playwright.ai-inspector.config.ts` / `npm run test:ai-inspector` 入口，以及 A1-A3 与 B2-B4 场景的 JSON + Markdown 聚合报告。
+   - `npm run test:ai-inspector` 会逐场景重置 `.tmp/blackbox-acceptance/app-data/`，保证黑盒矩阵不共享历史状态；seed 的 project root 统一从当前 `DAO_APP_DATA_ROOT` 推导。
+   - `DAO_E2E` workspace assistant fallback 在写完草稿后需要覆盖至少一个 workspace polling 窗口；editor programmatic load/reset 不得继续喂给 autosave，以免客户端把服务端草稿回写覆盖。
+   - 后续继续补 B1、C1-G1 场景与更丰富的报告面，不单独再起第二套浏览器控制栈。
 
 ## 验收标准
 

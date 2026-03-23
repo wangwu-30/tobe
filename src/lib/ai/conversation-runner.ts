@@ -4,6 +4,7 @@ import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
 import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
 import { safeJsonParse } from '@/framework/resilience';
+import { resolvePiProviderApiKey } from '@/framework/agent/run';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
 import {
@@ -11,9 +12,16 @@ import {
   createConversationMessage,
   updateAssistantRun,
 } from '@/objects/conversation/commands';
+import {
+  ensureWorkspaceFiles,
+  updateWorkspaceFile,
+} from '@/objects/file/commands';
 import type { ResearchMode } from '@/types';
 
 type AnyPiModel = PiModel<Api>;
+
+const E2E_FALLBACK_START_DELAY_MS = 1_500;
+const E2E_FALLBACK_POST_WRITE_SETTLE_MS = 3_500;
 
 export type AgentConversationMessage =
   | {
@@ -308,6 +316,15 @@ export async function initializeWorkspaceAssistantRun(params: {
 export async function streamWorkspaceAssistantRun(
   params: WorkspaceAssistantRunStreamParams
 ) {
+  const providerApiKey = await resolvePiProviderApiKey({
+    provider: params.model.provider,
+    settings: params.settings,
+  });
+
+  if (process.env.DAO_E2E === '1' && !providerApiKey) {
+    return streamE2EWorkspaceAssistantRun(params);
+  }
+
   const workspaceAgent = createWorkspaceAgentTools({
     actorUserId: params.actor.userId,
     conversationId: params.conversationId,
@@ -352,6 +369,7 @@ export async function streamWorkspaceAssistantRun(
         await createConversationMessage(params.actor, {
           content: persistedText,
           conversationId: params.conversationId,
+          focusNodeId: params.workspaceId,
           model: `agent:${params.modelKey}`,
           role: 'assistant',
           workspaceId: params.workspaceId,
@@ -382,6 +400,162 @@ export async function streamWorkspaceAssistantRun(
   response.headers.set('x-dao-workspace-id', params.workspaceId);
 
   return response;
+}
+
+async function streamE2EWorkspaceAssistantRun(
+  params: WorkspaceAssistantRunStreamParams
+) {
+  const encoder = new TextEncoder();
+
+  const response = new Response(
+    new ReadableStream({
+      async start(controller) {
+        try {
+          await updateAssistantRun(params.actor, {
+            runId: params.assistantRunId,
+            status: 'running',
+          });
+
+          await new Promise((resolve) => setTimeout(resolve, E2E_FALLBACK_START_DELAY_MS));
+
+          const persistedText = await applyE2EWorkspaceAssistantFallback(params);
+
+          // Keep the run open long enough for the workspace polling loop to
+          // observe the persisted draft change before the simulated run settles.
+          await new Promise((resolve) =>
+            setTimeout(resolve, E2E_FALLBACK_POST_WRITE_SETTLE_MS)
+          );
+
+          controller.enqueue(encoder.encode(persistedText));
+
+          if (params.persistAssistantText) {
+            await params.persistAssistantText(persistedText);
+          } else {
+            await createConversationMessage(params.actor, {
+              content: persistedText,
+              conversationId: params.conversationId,
+              focusNodeId: params.workspaceId,
+              model: 'agent:e2e-fallback',
+              role: 'assistant',
+              workspaceId: params.workspaceId,
+            });
+          }
+
+          await updateAssistantRun(params.actor, {
+            finishedAt: new Date(),
+            runId: params.assistantRunId,
+            status: 'completed',
+            summary: persistedText,
+          });
+
+          await params.onAfterFinish?.(persistedText);
+          controller.close();
+        } catch (error) {
+          const errorSummary = params.errorSummary || 'AI run failed.';
+          await updateAssistantRun(params.actor, {
+            finishedAt: new Date(),
+            runId: params.assistantRunId,
+            status: 'failed',
+            summary: error instanceof Error ? error.message : errorSummary,
+          });
+          controller.error(error);
+        }
+      },
+    }),
+    {
+      headers: {
+        'Cache-Control': 'no-store',
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
+    }
+  );
+
+  response.headers.set('x-dao-conversation-id', params.conversationId);
+  response.headers.set('x-dao-workspace-id', params.workspaceId);
+
+  return response;
+}
+
+async function applyE2EWorkspaceAssistantFallback(
+  params: WorkspaceAssistantRunStreamParams
+) {
+  const latestUserMessage = await prisma.chatMessage.findFirst({
+    where: {
+      deletedAt: null,
+      organizationId: params.actor.organizationId,
+      role: 'user',
+      sessionId: params.conversationId,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      content: true,
+    },
+  });
+
+  const files = await ensureWorkspaceFiles(
+    params.actor.organizationId,
+    params.workspaceId
+  );
+  const targetFile =
+    files.find((file) => file.isPrimary) ||
+    files.find((file) => file.type === 'file') ||
+    null;
+  const marker = extractE2EMarker(latestUserMessage?.content || '');
+  const nextText = buildE2EFallbackDraftText({
+    currentContent: targetFile?.content || '',
+    marker,
+  });
+
+  if (targetFile) {
+    await updateWorkspaceFile(params.actor, {
+      content: nextText,
+      fileId: targetFile.id,
+      workspaceId: params.workspaceId,
+    });
+  }
+
+  return marker
+    ? `已按请求更新当前草稿，并保留 ${marker}。`
+    : '已按请求更新当前草稿，并补上更清楚的执行说明。';
+}
+
+function extractE2EMarker(content: string) {
+  const match = content.match(/\bB\d-MARK-[A-Z0-9-]+\b/i);
+  return match?.[0]?.toUpperCase() || null;
+}
+
+function buildE2EFallbackDraftText(params: {
+  currentContent: string;
+  marker: string | null;
+}) {
+  const nextParagraph = params.marker
+    ? `当前内容已经更新为更适合正式稿的表达，并明确强调执行节奏。${params.marker}`
+    : '当前内容已经更新为更适合正式稿的表达，并明确强调执行节奏。';
+  const parsed = safeJsonParse<Array<Record<string, unknown>> | null>(
+    params.currentContent,
+    null
+  );
+
+  if (Array.isArray(parsed)) {
+    const nextBlocks = parsed.map((block) => ({
+      ...block,
+    }));
+    const paragraphIndex = nextBlocks.findIndex((block) => block.type === 'p');
+    const nextParagraphBlock = {
+      children: [{ text: nextParagraph }],
+      type: 'p',
+    };
+
+    if (paragraphIndex >= 0) {
+      nextBlocks[paragraphIndex] = nextParagraphBlock;
+    } else {
+      nextBlocks.push(nextParagraphBlock);
+    }
+
+    return JSON.stringify(nextBlocks);
+  }
+
+  return `${params.currentContent.trim()}\n${nextParagraph}`.trim();
 }
 
 function readImageBlockFromStoredContent(content: string, mimeType: string | null) {

@@ -63,6 +63,21 @@ const MIGRATION_PROBES = {
     inspector.hasColumn('WorkflowPlaybook', 'archivedAt'),
   '20260318170000_add_workflow_playbook_extension_hints': async (inspector) =>
     inspector.hasColumn('WorkflowPlaybook', 'extensionHints'),
+  '20260323015000_add_project_scoped_conversation_fields': async (inspector) =>
+    (
+      await Promise.all([
+        inspector.hasColumn('Session', 'projectId'),
+        inspector.hasColumn('ChatMessage', 'focusNodeId'),
+      ])
+    ).every(Boolean),
+  '20260323043000_add_project_mounts': async (inspector) =>
+    (
+      await Promise.all([
+        inspector.hasTable('ProjectMount'),
+        inspector.hasColumn('ProjectMount', 'sourceProjectId'),
+        inspector.hasColumn('ProjectMount', 'targetProjectId'),
+      ])
+    ).every(Boolean),
 };
 
 function quoteSqliteIdentifier(value) {

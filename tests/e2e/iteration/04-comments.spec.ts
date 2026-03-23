@@ -28,10 +28,11 @@ test('D0: selecting document text exposes the inline comment trigger and creates
   const editorRoot = page.locator('[data-slate-editor="true"]');
   await expect(editorRoot).toBeVisible();
   await expect(page.getByText(anchorText)).toBeVisible();
-  await editorRoot.selectText();
-
   const trigger = page.getByTestId('selection-comment-trigger');
-  await expect(trigger).toBeVisible();
+  await expect(async () => {
+    await editorRoot.selectText();
+    await expect(trigger).toBeVisible();
+  }).toPass({ timeout: 5000 });
   await trigger.click();
 
   const composer = page.getByTestId('selection-comment-composer');

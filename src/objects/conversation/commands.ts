@@ -20,6 +20,20 @@ type ConversationActorContext = {
   userId: string;
 };
 
+function resolveProjectScopedConversationId(workspace: {
+  id: string;
+  projectId?: string | null;
+}) {
+  return workspace.projectId || workspace.id;
+}
+
+function resolveMessageFocusNodeId(input: {
+  focusNodeId?: string | null;
+  workspaceId?: string | null;
+}) {
+  return input.focusNodeId || input.workspaceId || null;
+}
+
 export async function createConversationForWorkspace(
   actor: ConversationActorContext,
   input: {
@@ -47,11 +61,12 @@ export async function createConversationForWorkspace(
   const files = await ensureWorkspaceFiles(actor.organizationId, workspace.id);
   const primaryFile = resolvePrimaryFile(files);
   const sourceType = input.sourceType || 'chat';
+  const projectId = resolveProjectScopedConversationId(workspace);
 
   const conversation = await prisma.session.create({
     data: {
       organizationId: actor.organizationId,
-      wikiId: workspace.id,
+      projectId,
       title: input.title?.trim() || workspace.title,
       parentSessionId: input.parentConversationId || null,
       forkedFromMessageId: input.forkedFromMessageId || null,
@@ -73,6 +88,7 @@ export async function createConversationForWorkspace(
       op: 'create',
       title: conversation.title,
       workspaceId: workspace.id,
+      projectId,
       parentConversationId: input.parentConversationId || null,
       baseVersionId: input.baseVersionId || null,
       sourceType,
@@ -125,18 +141,21 @@ export async function createConversationMessage(
     activeFileId?: string | null;
     content: string;
     conversationId: string;
+    focusNodeId?: string | null;
     model?: string | null;
     role: string;
     workspaceId?: string | null;
   }
 ): Promise<ConversationMessageData> {
+  const focusNodeId = resolveMessageFocusNodeId(input);
   const message = await prisma.chatMessage.create({
     data: {
       organizationId: actor.organizationId,
       sessionId: input.conversationId,
       role: input.role,
       content: input.content,
-      documentId: input.workspaceId || null,
+      documentId: null,
+      focusNodeId,
       model: input.model || null,
       createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
@@ -165,7 +184,8 @@ export async function createConversationMessage(
       op: 'create',
       conversationId: input.conversationId,
       role: input.role,
-      workspaceId: input.workspaceId || null,
+      workspaceId: focusNodeId,
+      focusNodeId,
     },
     revision: message.revision,
   });
@@ -260,7 +280,7 @@ export async function branchConversation(
     },
   });
 
-  if (!conversation || !conversation.wikiId) {
+  if (!conversation) {
     throw new Error('Conversation not found.');
   }
 
@@ -280,10 +300,16 @@ export async function branchConversation(
 
   const forkMessage = messages[forkIndex];
   const inheritedMessages = messages.slice(0, forkIndex + 1);
+  const projectId = conversation.projectId || conversation.wikiId || null;
+  const focusNodeId =
+    forkMessage.focusNodeId || forkMessage.documentId || conversation.wikiId || null;
+  if (!projectId || !focusNodeId) {
+    throw new Error('Conversation is missing project focus.');
+  }
   const baseVersion = await findNearestVersionBeforeMessage({
     messageCreatedAt: forkMessage.createdAt,
     organizationId: actor.organizationId,
-    workspaceId: conversation.wikiId,
+    workspaceId: focusNodeId,
   });
 
   const fallbackTitle = truncateConversationTitle(
@@ -296,7 +322,7 @@ export async function branchConversation(
     const nextConversation = await tx.session.create({
       data: {
         organizationId: actor.organizationId,
-        wikiId: conversation.wikiId,
+        projectId,
         title,
         parentSessionId: conversation.id,
         forkedFromMessageId: forkMessage.id,
@@ -315,7 +341,8 @@ export async function branchConversation(
           sessionId: nextConversation.id,
           role: message.role,
           content: message.content,
-          documentId: message.documentId,
+          documentId: null,
+          focusNodeId: message.focusNodeId || message.documentId || null,
           model: message.model,
           createdByUserId: message.createdByUserId,
           originDeviceId: message.originDeviceId,
@@ -338,7 +365,8 @@ export async function branchConversation(
       parentConversationId: conversation.id,
       forkedFromMessageId: forkMessage.id,
       baseVersionId: baseVersion?.id || conversation.baseVersionId || null,
-      workspaceId: conversation.wikiId,
+      workspaceId: focusNodeId,
+      projectId,
     },
     revision: branchedConversation.revision,
   });

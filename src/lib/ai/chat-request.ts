@@ -26,6 +26,7 @@ export type ChatRequestPayload = {
   attachments: IncomingAttachment[];
   baseVersionId?: string | null;
   conversationId?: string | null;
+  focusNodeId?: string | null;
   message: string;
   model?: string | null;
   researchMode?: ResearchMode;
@@ -53,6 +54,7 @@ export async function parseChatRequest(req: NextRequest): Promise<ChatRequestPay
       sizeBytes?: number | null;
       source?: 'upload' | 'clipboard';
     }>>(formData.get('attachmentsMeta')) || [];
+    const focusNodeId = asNullableString(formData.get('focusNodeId'));
 
     return {
       activeFileId: asNullableString(formData.get('activeFileId')),
@@ -63,25 +65,30 @@ export async function parseChatRequest(req: NextRequest): Promise<ChatRequestPay
       conversationId:
         asNullableString(formData.get('conversationId')) ||
         asNullableString(formData.get('sessionId')),
+      focusNodeId,
       message: asString(formData.get('message')),
       model: asNullableString(formData.get('model')),
       researchMode: asResearchMode(formData.get('researchMode')),
       workspaceId:
+        focusNodeId ||
         asNullableString(formData.get('workspaceId')) ||
         asNullableString(formData.get('wikiId')),
     };
   }
 
   const body = await req.json();
+  const focusNodeId =
+    typeof body.focusNodeId === 'string' ? body.focusNodeId : null;
   return {
     activeFileId: body.activeFileId || null,
     attachments: [],
     baseVersionId: body.baseVersionId || null,
     conversationId: body.conversationId || body.sessionId || null,
+    focusNodeId,
     message: typeof body.message === 'string' ? body.message : '',
     model: typeof body.model === 'string' ? body.model : null,
     researchMode: body.researchMode === 'deep' ? 'deep' : 'light',
-    workspaceId: body.workspaceId || body.wikiId || null,
+    workspaceId: focusNodeId || body.workspaceId || body.wikiId,
   };
 }
 
@@ -136,18 +143,28 @@ export async function ensureChatConversation(params: {
   }
 
   if (!workspaceId) {
-    workspaceId = conversation.wikiId;
+    const latestMessage = await prisma.chatMessage.findFirst({
+      where: {
+        deletedAt: null,
+        organizationId: params.actor.organizationId,
+        sessionId: conversation.id,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        documentId: true,
+        focusNodeId: true,
+      },
+    });
+    workspaceId =
+      latestMessage?.focusNodeId ||
+      latestMessage?.documentId ||
+      conversation.wikiId ||
+      conversation.projectId ||
+      null;
   }
 
   if (!workspaceId) {
     throw new Error('Conversation is not attached to a workspace.');
-  }
-
-  if (!conversation.wikiId) {
-    conversation = await prisma.session.update({
-      where: { id: conversation.id },
-      data: { wikiId: workspaceId },
-    });
   }
 
   return {
@@ -163,12 +180,14 @@ export async function createChatUserMessage(params: {
   attachments: IncomingAttachment[];
   content: string;
   conversationId: string;
+  focusNodeId?: string | null;
   workspaceId: string;
 }) {
   const userMessage = await createConversationMessage(params.actor, {
     activeFileId: params.activeFileId,
     content: params.content,
     conversationId: params.conversationId,
+    focusNodeId: params.focusNodeId || params.workspaceId,
     role: 'user',
     workspaceId: params.workspaceId,
   });

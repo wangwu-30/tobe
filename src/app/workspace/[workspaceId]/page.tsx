@@ -15,13 +15,17 @@ import {
   useAppRouter,
   useAppSearchParams,
 } from '@/lib/app-router';
-import { WORKSPACE_AUTO_START_FIRST_PASS_PARAM } from '@/lib/workspace/create-request';
 import { isPlateBackedWorkspaceFile } from '@/lib/workspace/file-presentation';
 import {
   detectWorkspacePreviewCapability,
   resolveWebPreviewAnchorFile,
 } from '@/lib/workspace/preview';
 import { listProjectFolderPath } from '@/lib/workspace/project-summary';
+import {
+  buildWorkspaceRoute,
+  WORKSPACE_AUTO_START_FIRST_PASS_PARAM,
+  WORKSPACE_NODE_SEARCH_PARAM,
+} from '@/lib/workspace/route';
 import type {
   ChatMessageData,
   CommentThreadData,
@@ -63,14 +67,14 @@ export default function WorkspacePage() {
   const params = useAppParams<{ workspaceId: string }>();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
-  const workspaceId = params.workspaceId as string;
+  const routeProjectId = params.workspaceId as string;
+  const requestedNodeId = searchParams.get(WORKSPACE_NODE_SEARCH_PARAM);
+  const workspaceId = requestedNodeId || routeProjectId;
   const requestedConversationId = searchParams.get('conversationId');
   const requestedFileId = searchParams.get('fileId');
   const requestedVersionId = searchParams.get('versionId');
-  const searchParamsKey = searchParams.toString();
   const shouldAutoStartFirstPass =
     searchParams.get(WORKSPACE_AUTO_START_FIRST_PASS_PARAM) === '1';
-  const workspacePath = React.useMemo(() => `/workspace/${workspaceId}`, [workspaceId]);
 
   const [workspaceView, setWorkspaceView] = React.useState<WorkspaceViewData | null>(null);
   const [initialMessages, setInitialMessages] = React.useState<ChatMessageData[]>([]);
@@ -95,6 +99,7 @@ export default function WorkspacePage() {
 
   const currentWorkspace = workspaceView?.workspace || null;
   const currentProject = workspaceView?.currentProject || null;
+  const currentConversation = workspaceView?.currentConversation || null;
   const {
     createNextDeliverableWithWorkflow,
     goalDialog,
@@ -102,6 +107,7 @@ export default function WorkspacePage() {
     openWorkspaceCreateEntry,
   } = useWorkspaceGoalDialogController({
     activeWorkflowPlaybookId: workspaceView?.workspacePlan?.activeWorkflowPlaybookId || null,
+    currentConversationId: workspaceView?.currentConversation?.id || requestedConversationId || null,
     currentProject,
     currentWorkspace,
     workspaceId,
@@ -114,7 +120,6 @@ export default function WorkspacePage() {
     () => workspaceView?.projectDeliverables || EMPTY_PROJECT_DELIVERABLES,
     [workspaceView?.projectDeliverables]
   );
-  const currentConversation = workspaceView?.currentConversation || null;
   const currentFile = workspaceView?.currentFile || null;
   const currentVersion = workspaceView?.selectedVersion || null;
   const currentDraftBaseVersionId = React.useMemo(
@@ -352,12 +357,23 @@ export default function WorkspacePage() {
     !isVersionView && projectDeliverableSwitchOptions.length > 1;
   const canOpenOutline = outlineItems.some((item) => item.id.startsWith('heading-'));
   const { openOutline } = useWorkspaceOutlineNavigation({ outlineItems });
+  const openWorkspaceRoute = React.useCallback(
+    (nextWorkspaceId: string) => {
+      router.push(
+        buildWorkspaceRoute({
+          nodeId: nextWorkspaceId,
+          projectId: currentProjectId || routeProjectId,
+        })
+      );
+    },
+    [currentProjectId, routeProjectId, router]
+  );
   const workspaceTitleNode = (
     <WorkspaceRouteTitle
       currentTitle={currentWorkspace?.title || null}
       currentDeliverableType={deliverableType}
       enabled={canSwitchProjectDeliverable}
-      onSelectDeliverable={(deliverableId) => router.push(`/workspace/${deliverableId}`)}
+      onSelectDeliverable={openWorkspaceRoute}
       options={projectDeliverableSwitchOptions}
       projectContextLabel={
         showProjectContextInHeader ? currentProjectPathLabel || currentProjectTitle : null
@@ -381,12 +397,14 @@ export default function WorkspacePage() {
     currentVersionId,
     deliverableType,
     isAssistantBusy,
+    projectId: currentProjectId || routeProjectId,
     previewEnabled: previewCapability.canPreview,
     pushRoute: router.push,
     replaceRoute: router.replace,
     requestedConversationId,
     requestedFileId,
     requestedVersionId,
+    routeProjectId,
     setEditorContent,
     setFileContent,
     setInitialMessages,
@@ -421,6 +439,43 @@ export default function WorkspacePage() {
   });
 
   React.useEffect(() => {
+    if (!currentWorkspace?.id || !currentProjectId) {
+      return;
+    }
+
+    const canonicalHref = buildWorkspaceRoute({
+      autoStartFirstPass: shouldAutoStartFirstPass,
+      conversationId: requestedConversationId,
+      fileId: requestedFileId,
+      nodeId: currentWorkspace.id,
+      projectId: currentProjectId,
+      versionId: requestedVersionId,
+    });
+    const currentHref = buildWorkspaceRoute({
+      autoStartFirstPass: shouldAutoStartFirstPass,
+      conversationId: requestedConversationId,
+      fileId: requestedFileId,
+      nodeId: requestedNodeId,
+      projectId: routeProjectId,
+      versionId: requestedVersionId,
+    });
+
+    if (canonicalHref !== currentHref) {
+      router.replace(canonicalHref);
+    }
+  }, [
+    currentProjectId,
+    currentWorkspace?.id,
+    requestedConversationId,
+    requestedFileId,
+    requestedNodeId,
+    requestedVersionId,
+    routeProjectId,
+    router,
+    shouldAutoStartFirstPass,
+  ]);
+
+  React.useEffect(() => {
     if (
       !shouldAutoStartFirstPass ||
       currentVersion ||
@@ -439,25 +494,32 @@ export default function WorkspacePage() {
     autoStartedFirstPassRef.current = autoStartKey;
     handleGenerateFirstPass();
 
-    const nextSearchParams = new URLSearchParams(searchParamsKey);
-    nextSearchParams.delete(WORKSPACE_AUTO_START_FIRST_PASS_PARAM);
     router.replace(
-      nextSearchParams.size > 0
-        ? `${workspacePath}?${nextSearchParams.toString()}`
-        : workspacePath
+      buildWorkspaceRoute({
+        conversationId: requestedConversationId,
+        fileId: requestedFileId,
+        nodeId: currentWorkspace?.id || requestedNodeId || workspaceId,
+        projectId: currentProjectId || routeProjectId,
+        versionId: requestedVersionId,
+      })
     );
   }, [
+    currentProjectId,
     currentConversationId,
+    currentWorkspace?.id,
     currentVersion,
     handleGenerateFirstPass,
     isAssistantBusy,
     queuedPrompt,
     router,
-    searchParamsKey,
+    requestedConversationId,
+    requestedFileId,
+    requestedNodeId,
+    requestedVersionId,
+    routeProjectId,
     shouldAutoStartFirstPass,
     workflowStatus?.primaryAction,
     workspaceId,
-    workspacePath,
   ]);
 
   const { saveCurrentFileContent } = useWorkspaceFileSaveController({
@@ -532,7 +594,7 @@ export default function WorkspacePage() {
     currentWorkspace,
     loadWorkspace,
     onNavigateHome: () => router.push('/'),
-    onOpenWorkspaceRoute: (nextWorkspaceId) => router.push(`/workspace/${nextWorkspaceId}`),
+    onOpenWorkspaceRoute: openWorkspaceRoute,
     openWorkspaceCreateEntry,
     projectDeliverables,
     projectFolders,
@@ -680,7 +742,7 @@ export default function WorkspacePage() {
       onRenameSupportFile={renameSupportFile}
       onNavigate={onNavigate}
       onOpenOutline={openOutline}
-      onOpenWorkspaceRoute={(nextWorkspaceId) => router.push(`/workspace/${nextWorkspaceId}`)}
+      onOpenWorkspaceRoute={openWorkspaceRoute}
       onRenameWorkspace={renameProject}
       onRenameDeliverable={renameDeliverable}
       onDeleteDeliverable={deleteDeliverable}

@@ -1,7 +1,7 @@
 # 成形黑盒验收计划
 
-> 日期：2026-03-22
-> 定位：迭代回归门禁的扩展层，所有改造完成后纳入 `verify:iteration`
+> 日期：2026-03-23
+> 定位：迭代回归门禁的扩展层；当前通过显式命令运行，所有改造完成后纳入 `verify:iteration`
 > 关联：[迭代回归门禁](./iteration-regression-plan.md)
 
 ---
@@ -23,6 +23,7 @@
 - 截图和报告产物写入：`.tmp/blackbox-acceptance/artifacts/`
 - 不复用 `iteration-regression` 的数据库或产物目录
 - 不允许污染仓库根目录
+- Layer 2 当前 runner 按场景重置 app-data / db；A1-A3 这类首次使用场景不能共享同一次命令里的历史状态
 
 ## Layer 1：场景化视觉回归 + 可访问性
 
@@ -107,7 +108,7 @@
 
 ### 设计
 
-AI 扮演用户按自然语言场景操作产品，执行后给出体验评分。每次运行前清空数据库，从空白状态开始。
+AI 扮演用户按自然语言场景操作产品，执行后给出体验评分。当前 `npm run test:ai-inspector` 会串行执行已落地场景，并在每个场景前重置隔离数据库，保证场景不共享历史状态；当前已落地 A1-A3 与 B2-B4，且 seed 的 project root 会从当前 `DAO_APP_DATA_ROOT` 派生。
 
 ### 场景列表
 
@@ -169,15 +170,18 @@ tests/
 │   ├── scenarios.config.ts      # 检查点定义
 │   ├── domains/                 # 每域一个文件
 │   └── baselines/               # 基准截图
-├── ai-inspector/
-│   ├── scenarios/               # 自然语言场景
-│   ├── runner.ts                # LLM + Playwright 执行
-│   ├── scorer.ts                # 评分
-│   └── report.ts                # HTML 报告
+├── blackbox/
+│   └── chengxing/
+│       ├── ai-inspector.spec.ts # 当前已落地：A1-A3 + B2-B4 黑盒场景
+│       ├── runner.ts            # browser operator consumer runner
+│       ├── scenarios.ts         # 场景矩阵
+│       ├── report.ts            # JSON / Markdown 聚合报告
+│       └── types.ts             # 场景与评分类型
+├── infra/
+│   └── browser-operator/        # 共享 core runner / driver / artifact contract
 ```
 
 新增脚本：
 - `npm run test:visual`
-- `npm run test:ai-inspector`
-- `npm run test:blackbox`（跑两者）
-
+- `npm run test:ai-inspector`（当前已落地；串行执行 A1-A3 与 B2-B4，并在每个场景前重置 app-data-root）
+- `npm run test:blackbox`（待 Layer 1 落地后补齐）

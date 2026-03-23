@@ -31,6 +31,10 @@ import { apiFetch } from '@/framework/resilience';
 
 const emptyValue: Value = [{ type: 'p', children: [{ text: '' }] }];
 
+function serializeEditorValue(value: Value | null | undefined) {
+  return JSON.stringify(value || emptyValue);
+}
+
 export function EditorWrapper({
   commentSidebarOpen = true,
   documentId,
@@ -91,6 +95,7 @@ export function EditorWrapper({
   const isReadOnly = readOnlyOverride ?? isLocked;
   const [threads, setThreads] = React.useState<CommentThreadData[]>([]);
   const editorSurfaceRef = React.useRef<HTMLDivElement | null>(null);
+  const lastLoadedContentRef = React.useRef(serializeEditorValue(initialContent));
   const editorPlaceholder = placeholder || t('workspace.documentPlaceholder');
   const resolvedEmptyTitle = emptyTitle || t('workspace.noDocumentYet');
   const resolvedEmptyDescription =
@@ -124,6 +129,10 @@ export function EditorWrapper({
     },
     [initialContent]
   );
+
+  React.useEffect(() => {
+    lastLoadedContentRef.current = serializeEditorValue(initialContent);
+  }, [initialContent]);
 
   const loadThreads = React.useCallback(async () => {
     if (!documentId) {
@@ -305,8 +314,13 @@ export function EditorWrapper({
               <Plate
                 editor={editor}
                 onChange={({ value }) => {
-                  if (!isReadOnly) {
-                    onContentChange(JSON.stringify(value));
+                  if (isReadOnly) {
+                    return;
+                  }
+
+                  const serialized = serializeEditorValue(value);
+                  if (serialized !== lastLoadedContentRef.current) {
+                    onContentChange(serialized);
                   }
                 }}
               >

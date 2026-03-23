@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma';
+import { listWorkspaceFocusedConversationIds } from '@/objects/conversation/queries';
 import { ensureWorkspaceFiles } from '@/objects/file/commands';
 import {
   getParentWorkspacePath,
@@ -152,11 +153,20 @@ export async function replaceWorkspaceDraftWithVersionFiles(
     });
 
     if (resolvedActiveFileId) {
+      const focusedConversationIds = await listWorkspaceFocusedConversationIds(
+        {
+          organizationId: actor.organizationId,
+          workspaceId: input.workspaceId,
+        },
+        tx
+      );
       await tx.session.updateMany({
         where: {
           deletedAt: null,
+          id: {
+            in: focusedConversationIds,
+          },
           organizationId: actor.organizationId,
-          wikiId: input.workspaceId,
           OR: [
             { activeFileId: null },
             { activeFileId: { in: deletedFileIds } },

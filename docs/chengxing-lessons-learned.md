@@ -1,6 +1,6 @@
 # 成形经验教训台账
 
-更新时间：2026-03-22
+更新时间：2026-03-23
 状态：持续维护中
 相关文档：[项目状态](./chengxing-project-status.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
 
@@ -208,7 +208,7 @@
 
 - 结论：如果希望 AI 在当前交付物里自然引用同项目的其他交付物，项目级上下文不能只给“有哪些兄弟交付物”，还要同时覆盖当前交付物、项目级和用户级 reusable notes，并提供显式的跨交付物读取工具。
 - 为什么：项目级摘要解决的是“AI 知道还有哪些兄弟交付物”；deliverable / project / user note 解决的是“AI 知道这个项目整体怎么说、怎么做，以及当前用户的长期偏好”；而一旦任务变成“参考首页风格”“沿用 FAQ 里的表述”，AI 还需要一个无歧义的下一步，先列出同项目交付物，再读取目标文件，否则它只能靠猜测或把整个项目内容默认塞进上下文。
-- 默认做法：chat system prompt 与 `get_workspace_context` 默认注入 `deliverable + project + user` scope Note 派生的 `Knowledge / Memory` 分区，以及同项目交付物摘要；当需要跨交付物复用时，统一走 `list_project_deliverables -> read_project_deliverable_file` 这条显式工具链，而不是隐式扩大默认 prompt。
+- 默认做法：chat system prompt 与 `get_workspace_context` 默认注入 `deliverable + project + user` scope Note 派生的 `Knowledge / Memory` 分区，以及同项目交付物摘要；当需要跨交付物复用时，统一走 `list_project_nodes -> read_node_content` 这条显式工具链，而不是隐式扩大默认 prompt。
 
 ### 33. 交互式 web 预览只要跨源，就必须先做同源 bridge，再谈评论闭环
 
@@ -833,6 +833,18 @@
 - 为什么：用户真正需要的是“我现在在哪个交付物”和“我能立刻切到哪个交付物”；如果只给一串相似截断标题，就算 technically 可切换，认知上也等于不可用。
 - 默认做法：标题栏把当前交付物类型 badge 和快速切换触发器放在第一扫描线，项目树和切换菜单里的每个交付物都带稳定类型图标/标签，而不是只显示被截断的标题。
 
+### 90. 对象模型切换后的用户文案，要先做一刀纯表面收口，不要和内部命名重构绑死
+
+- 结论：当产品心智从 `deliverable` 切到 `project + node / content` 时，应该先把用户可见 copy 全部收口，再单独处理内部 key、类型名和兼容层的历史命名。
+- 为什么：用户感知到的是首页、工作区、上下文面板和按钮上的词；如果把表面文案修正和 schema / API / 变量重命名绑在一刀里，本来可以快速清零的心智噪音会被大范围内部改名拖成高风险重构。
+- 默认做法：先限定在 `src/lib/i18n/copy.ts` 和可见断言上完成术语替换，明确“不动内部契约”；等 UI 语言和全量门禁稳定后，再把内部历史命名清理作为独立切片处理。
+
+### 91. 首页一旦已有项目，中央区就该切成项目卡片墙，不要继续让空态 Hero 占主画面
+
+- 结论：Home 里只要已经存在项目，中央区域就应该优先展示项目卡片、最近活跃内容和继续动作；空态 Hero 只留给第一次进入系统或还没有项目的时候。
+- 为什么：已有项目用户的首要任务是“回到哪个项目、接着做什么”；如果中央区还在重复空态宣言，真正的项目入口就会被迫退到侧栏，首页会失去 project-scoped workspace 的主导航意义。
+- 默认做法：Hero 收成单行说明，项目卡片成为主画面；每张卡片至少同时给出项目名、最近活跃内容、相对时间和继续动作，并统一走 canonical route。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来
@@ -872,6 +884,163 @@
 - 为什么：浏览器取消、agent abort 和 controller close 会在不同 tick 发生；如果每条路径都自己判断一遍 `isClosed`，仍然会留下“controller 已关闭但 heartbeat 还在 enqueue”的竞态，最终把 dev server 日志打爆。
 - 默认做法：维护单一 settled 标记和统一 cleanup 函数，所有 heartbeat、delta enqueue、error、cancel 都只走 `settleStream()`；回归里至少盯一次是否还出现 `Controller is already closed` 这类 teardown 竞态。
 
+### 8. 大范围对象模型迁移，先抽中性 facade，再切路由和会话语义
+
+- 结论：从 `deliverable/document` 迁到 `project + node` 这类对象模型重构时，第一刀不要直接改路由、会话和 prompt；先抽一个中性 façade，把现有读取链路全部收口过去。
+- 为什么：如果项目级 context、tool 读取和对象查询还散落在旧术语实现里，后续再加 `projectId / focusNodeId` 会被多点耦合拖慢，还会让历史命名继续回流到新公共契约。
+- 默认做法：先建类似 `src/lib/workspace/node.ts` 的新边界，让旧 tool 只保留临时 alias 角色并标明删除时点；后续 schema、route、runtime 和 UI 都只继续挂新 façade。
+
+### 9. 会话身份重构时，先双写新字段，再切读路径，不要一刀清空 legacy
+
+- 结论：从 `wikiId / documentId` 迁到 `projectId / focusNodeId` 这类会话身份重构，第一刀应该先把新字段双写到 schema、create path 和 view/type 映射里，再切查询和路由。
+- 为什么：如果 UI、branching、conversation recovery 和旧 API 还在读 legacy 字段时就直接把它们置空，回归面会一次性炸到工作区、预览和对话恢复整条链路，定位成本远高于收益。
+- 默认做法：先完成 migration、dual-write、类型透出和全量门禁；确认新字段在所有入口都稳定落账后，再把 read path 切到新字段权威，并显式保留只读兼容窗口。
+
+### 10. 项目级会话读路径翻转时，不能只把 where 从 wikiId 改成 projectId
+
+- 结论：把 conversation tree / current conversation 切到 project scope 时，查询条件必须同时覆盖 `projectId` 新会话和“`projectId` 为空但 `wikiId` 属于同项目”的 legacy 会话。
+- 为什么：历史会话不会自动带上 `projectId`；如果只把查询从 `wikiId = currentNode` 粗暴替换成 `projectId = currentProject`，旧项目会话会瞬间从树里消失，看起来像数据丢失，实际只是读路径没兼容。
+- 默认做法：先解析当前 scope 对应的整组 project node ids，再用 `projectId = currentProject OR (projectId IS NULL AND wikiId IN nodeIds)` 收口读取；等 legacy backfill 或兼容窗口结束后，再删除第二支。
+
+### 11. 稳定 path identity 和 query-driven focus 一旦拆开，所有入口和测试都必须共用同一套路由语义
+
+- 结论：当工作区路由从 `/workspace/{nodeId}` 切到 `/workspace/{projectId}?node={nodeId}` 后，path 只代表 Project identity，当前 Node focus 只能从 query 读取；任何入口继续手拼旧路径，都会把旧心智偷偷带回来。
+- 为什么：页面层虽然可以做 canonicalization 兜底，但用户会看到 URL 闪跳，E2E 也会继续把 pathname 当成当前内容 id，导致“切换成功但断言失败”的假红。
+- 默认做法：前端入口统一走 `buildWorkspaceRoute(...)`，E2E helper 同时返回 `projectId` 和 `workspaceId/nodeId`，不要再把 pathname 直接当 active content identity。
+
+### 12. draggable 的树节点里只要放二级操作按钮，就必须显式退出拖拽语义
+
+- 结论：项目树这类可拖拽容器里，如果同一行还有“继续下一份”“更多操作”之类的二级按钮，按钮本身必须显式 `draggable={false}`，并拦住 `pointerdown / dragstart`。
+- 为什么：父级 row 的 drag 语义会吞掉子按钮 click，用户看到的是按钮可见但弹窗不出来；E2E 里则会表现成“点击成功但页面没有任何后续状态变化”的假死。
+- 默认做法：所有嵌在 draggable row 里的次级按钮默认关闭 drag，并在组件层做事件隔离，不把这件事留给测试层 `force click` 或重试兜底。
+
+### 13. runtime prompt 迁移到新对象模型时，tool registry 和 prompt 术语必须同一刀收口
+
+- 结论：当系统从 `deliverable` 迁到 `project + node` 这类新对象模型时，不能只改 tool 实现或只改 prompt 文案；tool registry、system prompt、debug context 和回归断言必须在同一切片一起切过去。
+- 为什么：如果 prompt 还在提旧工具名，agent 会继续强化过时心智；如果只换了 prompt、tool registry 还暴露旧名字，运行时又会出现“文案说一套、工具叫另一套”的自相矛盾。
+- 默认做法：对象模型迁移时，把运行时 prompt 文案、tool 注册名、workspace context 输出和测试断言视为同一个 contract surface；旧名字只允许作为带删除时点的临时 alias 存在。
+
+### 14. 项目级聊天只要允许切换当前内容，就必须把 focusNodeId 记在每条消息上
+
+- 结论：项目级 conversation 里，`Session.projectId` 只能表达容器归属；真正决定一条消息针对哪个内容单元的，必须是消息级别的 `focusNodeId`。
+- 为什么：用户在同一个项目里切换 node 后继续聊天是常态；如果只依赖 session 或当前路由恢复焦点，历史消息一旦回放、分支或跨 node 引用，就无法判断当时到底针对哪个 node 发出的指令。
+- 默认做法：所有新的 chat message 创建路径默认写入当前 `focusNodeId`；legacy `documentId/workspaceId` 只保留兼容镜像，不再作为权威焦点来源。
+
+### 15. 项目级 AI 默认上下文必须把“当前 node 深注入”和“sibling 摘要”拆成两层预算
+
+- 结论：Project 级 chat 不能把整个项目的 node 列表和正文一起塞进默认 prompt；默认上下文必须只深注入当前 focus node，再给少量 sibling 摘要，其余内容按需读取。
+- 为什么：一旦 sibling 数量增长，直接把全量 node 标题或正文塞进 prompt 会迅速失控；但如果只保留标题，agent 又不知道当前 node 正文与最近 sibling 的差异，跨 node 复用会退化成瞎猜。
+- 默认做法：默认 prompt 固定成“当前 node 正文 + top-k 最近 sibling 摘要 + omitted count 提示”；需要复用其他 node 正文时，统一转到显式读取工具，不再隐式扩大默认上下文窗口。
+
+### 16. 跨项目 mount 的默认上下文只能给标题索引，正文必须继续走同一套 node 读取工具
+
+- 结论：Project 间 mount 打通后，默认 prompt 里只应暴露 mounted project 的 node 标题索引；一旦需要正文，必须继续走同一个 `read_node_content` 边界，而不是为 mount 长出第二套“跨项目读取”工具。
+- 为什么：如果 Layer 3 默认把 mounted project 正文也塞进来，context budget 会立刻被外部项目拖爆；如果再额外做一套 mount 专用读取工具，runtime prompt、tool registry 和权限语义又会重新分叉。
+- 默认做法：Layer 3 只保留 `projectId + node title/nodeId` 级别索引，mounted project 正文统一要求显式传 `projectId + nodeId` 调 `read_node_content`；UI 和 agent prompt 只围绕这一条读取路径扩展。
+
+### 17. 跨项目能力第一次落 UI 时，入口必须挂在当前项目语境里，并继续走 canonical route
+
+- 结论：像 mount 这种跨项目能力，第一版可用 UI 不应只停在 backend route，也不该躲到 AI/debug 面板里；它必须挂在当前项目的主工作区表面，并且跨项目打开仍然要带完整 `projectId + nodeId`。
+- 为什么：如果用户只能通过 API 或隐式 runtime 才知道 mount 存在，能力等于不可用；如果跨项目点击还复用“同项目切 node”的路由 helper，就会把目标 node 错推到当前 project path 下，表面上跳转成功，实际 identity 已经错了。
+- 默认做法：第一版 UI 至少包含“当前项目已挂载列表 + 显式新增入口 + 直接打开目标项目”三个动作；所有跨项目跳转统一回到 `buildWorkspaceRoute({ projectId, nodeId })`，不要复用只适合同项目 focus 切换的 shortcut。
+
+### 18. 当前项目内的 Node 搜索，应该是局部 workspace 能力，不要做成全局命令面板
+
+- 结论：Project 级 workspace 里的 Node 搜索，入口应挂在当前项目的 sidebar / workspace shell 里，并默认只搜索当前项目；不要第一版就做成跨项目的全局 command palette。
+- 为什么：全局 palette 会把“一个 Project = 一个 workspace”的边界重新打散，用户会把它理解成 IDE 式命令跳转，而不是当前项目里的内容定位；同时也会模糊 canonical route 的 `projectId + nodeId` 语义。
+- 默认做法：搜索入口放在当前项目目录附近，结果点击统一走 `buildWorkspaceRoute({ projectId, nodeId })`；默认只搜当前 project，需要外部内容时再显式进入关联项目或 mounted project 读取链路。
+
+### 19. 带状态的 overlay 回归里，Playwright 应该等稳定表面再点动作，并用用户可见标记收敛
+
+- 结论：像版本树这种会在打开时同步刷新摘要卡、分支动作和当前状态徽标的 overlay，Playwright 不该直接“打开后立刻点按钮”；必须先等 overlay 自己稳定，再触发动作，并用用户可见结果收敛。
+- 为什么：branch overview / compare / switch 这类卡片在全量套件里经常会经历二次渲染；如果测试在第一帧就抓按钮或继续盯内部临时标记，最终会出现“单跑绿、全跑红”的抖动，噪音会盖住真正的产品回归。
+- 默认做法：对这类状态化 overlay，先用 `expect(...).toPass()` 等核心卡片和最小数量稳定出现，再用 `force click` 触发动作，最后优先断言 `Current Branch`、对话切换、compare dialog 这类用户可见结果，不要把 `version-draft-base-*` 之类内部中间标记当主验收。
+
+### 20. 编辑器内联选区型 UI，不能假设 DOM selection 和 editor selection 会同帧同步
+
+- 结论：像文档划线评论这种依赖文本选区的 inline trigger，不能只在第一次 `selectionchange` 或下一帧里读一次 editor selection；必须容忍 DOM selection 和编辑器内部 selection 错一拍。
+- 为什么：浏览器原生 selection 往往先落地，富文本编辑器的 `editor.selection` 会在后一个 tick 才同步；如果 UI 只信单次读取，就会出现用户已经选中文本，但评论入口完全不出现的假死。
+- 默认做法：选区型 affordance 先读 DOM selection，再安排一次短延迟重读作为兜底；清理逻辑里同步撤销前一个 `requestAnimationFrame` 和 timeout，避免旧选区回写覆盖新状态。
+
+### 21. 滚动容器里的操作按钮，只“可见”还不够，触发前要把可点击区域滚进视口中心
+
+- 结论：像版本树 branch overview 这种在滚动容器里的卡片操作，E2E 不能把 locator `visible` 当成“已经可点击”；按钮可能 still render 出来了，但实际仍在滚动口外。
+- 为什么：Playwright 会对超出 actionable viewport 的元素直接报 `Element is outside of the viewport`；这类问题通常不是产品逻辑错，而是测试和真实用户一样，需要先把卡片滚到稳定可操作位置。
+- 默认做法：对滚动容器里的次级动作，先对 row/card 做 `scrollIntoView({ block: 'center' })`，再对目标按钮补一次 `scrollIntoViewIfNeeded()` 后点击，不要只盯按钮本身的 `visible` 状态。
+
+### 22. 会话身份切到 project 级后，消息焦点写入和 active file 生命周期也必须一起脱离 `wikiId`
+
+- 结论：只把 `Session.projectId` / `ChatMessage.focusNodeId` 加进 schema 还不够；只要项目级会话已经共享到多个 Node，`activeFileId` 的维护逻辑也必须同步脱离 `wikiId` 粗匹配。
+- 为什么：如果 message create path 已经写 `focusNodeId`，但文件新增、删除或 draft 替换还继续按 `wikiId` 更新 session，就会出现“焦点语义是 project 级，active file 生命周期还是 node 级”的双轨状态，删文件或换文件时尤其容易误伤 shared conversation。
+- 默认做法：项目级会话迁移时，把 `focusNodeId` 权威写入、`activeFileId` 更新 seam 和 raw-field 回归断言视为同一刀 contract；一旦 session identity 提升到 project，文件生命周期更新就不再允许只按 `wikiId` 选会话。
+
+### 23. Project-scoped conversation 下删除单个 Node，必须按 node-bound artifact 删，而不是按 session 粗删
+
+- 结论：当一个 project-scoped conversation 已经被多个 Node 共享时，删除其中一个 Node 不能继续沿用“删 workspace = 删它的 session”这套旧逻辑。
+- 为什么：共享会话下，`sessionId` 已经代表整个项目会话容器；如果删单个 Node 时仍按 `sessionId` 级联删消息、runs 或附件，会把同项目其他 Node 还在使用的 conversation 一起抹掉。真正应该跟着 Node 删的是 `documentId=workspaceId` 的 node-bound artifacts，以及极少数 legacy workspace-scoped session。
+- 默认做法：workspace delete 先判断项目里是否还有其他 Node；若有，则保留 `projectId` 绑定的 shared conversation，只删 node-scoped session 和 `documentId` 命中的 artifact，并让 conversation workspace recovery 回退到同项目仍存在的 Node。
+
+### 24. 首次使用黑盒场景的目标句必须显式给出结果形态，不能用抽象占位文案
+
+- 结论：像 A1 这种要验证“首页直接进 workspace”的 blackbox 场景，目标句必须直接说清输出形态，例如“写一份报告 / 页面 / brief”；不要用“黑盒项目 123”这类抽象占位词。
+- 为什么：成形会先判断最合适的结果形态。若场景目标本身是模糊占位文案，系统会正确进入 intent/clarify 分支，黑盒 runner 看到的就不是“创建直达 workspace”，而是“等待结果形态判断”，最后把错误场景当成产品回归。
+- 默认做法：首次使用类 blackbox scenario 一律使用带明确产出词的真实目标句，并让场景命名与目标语义一一对应；若要测 clarify flow，就单开 A3 之类的歧义场景，不与直达创建场景混用。
+
+### 25. 首次使用黑盒矩阵必须按场景重置 app-data，不能整次命令只清一次
+
+- 结论：A1-A3 这类都要求“从空白状态首次进入”的黑盒场景，runner 不能只在命令开始前清一次数据库；必须在每个场景前单独重置隔离 app-data。
+- 为什么：如果 A1 先创建了项目，后面的 A2/A3 就不再是首次使用路径，首页空态、目标输入和追问分支都会被历史数据污染，最后把场景自身失真误判成产品回归。
+- 默认做法：黑盒 runner 统一保留共享 artifact 根目录，但在每个场景前重置 `.tmp/blackbox-acceptance/app-data/` 和对应 db；首次使用矩阵一律不共享状态。
+
+### 26. 黑盒 evaluator 应该盯稳定产品信号，不要把瞬时加载文案当主验收
+
+- 结论：像 web 首次创建这类黑盒场景，evaluator 不该把“AI 正在启动第一版 live draft”之类瞬时文案当核心断言；应改看稳定结果面，如 route、canvas、preview bridge iframe。
+- 为什么：加载提示文本最容易因为 copy 调整、异步时序或重试窗口变化而抖动，但用户真正关心的是“有没有进入 workspace”“预览有没有起来”。盯错信号会让黑盒场景红在文案抖动，而不是红在产品结果面。
+- 默认做法：场景验收优先使用 URL、稳定 `data-testid`、核心 iframe/canvas 和持久状态胶囊这类 durable signal；临时 loading copy 只作为辅助日志，不做主门禁。
+
+### 27. `toPass + force click` 包裹 dialog 触发器时，容易把自己打开的弹窗点关
+
+- 结论：对会打开 Radix dialog / overlay 的按钮，Playwright 不要用 `expect(...).toPass()` 反复 `force click` 作为等待手段；这会制造假阴性。
+- 为什么：第一次点击已经把 dialog 打开后，重试里的第二次 `force click` 会继续打到被覆盖的底层按钮，既可能触发 outside interaction，也可能把本来已开的弹窗状态打乱。最后失败看起来像“弹窗没起来”，实际是测试自己把它点关了。
+- 默认做法：这类交互先等触发按钮可见，再单次点击，然后用 dialog 的可见文本或表单字段显式等待；不要把“重试点击”当 overlay 稳定化手段。
+
+### 28. 黑盒 seed 的项目根目录必须从当前 `DAO_APP_DATA_ROOT` 推导
+
+- 结论：blackbox seed 不能复用 iteration helper 里的固定 projects 根目录；项目根目录必须从本次运行的 `DAO_APP_DATA_ROOT` 动态推导。
+- 为什么：如果 blackbox seed 还把 `Document.projectRootPath` 写到 `.tmp/iteration-regression/projects`，场景虽然跑在 `.tmp/blackbox-acceptance/`，真实工作区文件却会落到另一套根目录，后续草稿读取、mirror、project tree 和 artifact 判断都会被跨根目录污染。
+- 默认做法：blackbox runner / seed 一律从 active `DAO_APP_DATA_ROOT` 派生 `projects/` 根目录；验收 consumer 禁止直接复用 iteration root helper。
+
+### 29. `DAO_E2E` 草稿 fallback 要覆盖至少一个 workspace polling 窗口
+
+- 结论：E2E/blackbox 模式下，assistant fallback 在把草稿写入数据库后不能立刻结束；至少要多保留一个 workspace polling 窗口。
+- 为什么：workspace surface 不是逐 token 订阅数据库，而是按节奏轮询 runs / workspace state。若 fallback 写完就立刻结束，前端可能完全错过这次更新，最后表现成“AI 明明成功了，但草稿没变”，把时序问题误判成产品回归。
+- 默认做法：`DAO_E2E` fallback 在开始前保留短启动延迟，写完草稿后再额外等待一个 polling window，再结束 run；黑盒验收优先保证状态可观测，而不是追求最短 mock 时长。
+
+### 30. 程序化 editor load/reset 不能回灌 autosave
+
+- 结论：编辑器收到服务端内容、切换文件或 reset 初始值时，不能把这类 programmatic load 当成用户输入继续喂给 autosave。
+- 为什么：如果 mount/reset 也触发 autosave，请求会把刚从服务端拿到的新草稿再按旧内容 PATCH 回去，形成“服务端已更新，客户端又回滚”的竞态；黑盒里会表现成 AI 改稿成功后正文又跳回旧版本。
+- 默认做法：editor wrapper 持有最近一次程序化加载的序列化内容，只在用户真实编辑后、且内容与最近 loaded snapshot 不同时才触发 autosave。
+
 ## 最新验证状态
 
 - **运行时健壮性验收闭环**：`framework/resilience/`、route error page、全局异常监听、`safeJsonParse` / `api client` / `defineRoute` 与相关产品回归，已在 2026-03-22 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed`。
+- **统一工作空间 Step 0.1**：`src/lib/workspace/node.ts` seam、项目级 AI context 和同项目正文读取已在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed (3.3m)`。
+- **统一工作空间 Step 0.2A**：conversation schema/migration 与 create path 已开始双写 `projectId / focusNodeId`，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed (3.8m)`。
+- **统一工作空间 Step 0.2B**：conversation 查询与 workspace recovery 已切到 `projectId` 主路径并兼容 legacy `wikiId` 会话，已在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed (3.0m)`。
+- **统一工作空间 Step 3.1**：workspace page、route controller 和测试 helper 已统一到 `/workspace/{projectId}?node={nodeId}`，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed (3.3m)`。
+- **统一工作空间 Step 3.2**：侧栏 query-route fallback、`目录 / 大纲` 命名和 project tree sibling create 交互已收口，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `70 passed (4.1m)`。
+- **统一工作空间 Step 4.1**：同项目新建 Node 已复用 project-scoped conversation，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `70 passed (3.2m)`。
+- **统一工作空间 Step 4.3-4.5**：`list_project_nodes / read_node_content`、runtime prompt 术语与 `focusNodeId` 消息落账已端到端收口，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `71 passed (3.2m)`。
+- **统一工作空间 Step 4.2**：当前 node 正文深注入、top-5 sibling 摘要与 omitted sibling 门禁已落地，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `72 passed (3.2m)`。
+- **统一工作空间 Step 5.1**：`ProjectMount` 数据模型、mounted project title 注入和带 `projectId` 的跨项目 `read_node_content` 已在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `73 passed (3.2m)`。
+- **统一工作空间 Step 5.2**：工作区侧栏 `关联项目 / Linked Projects` section、显式新增入口和跨项目 canonical route 打开能力已在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `74 passed (3.3m)`。
+- **统一工作空间 Step 6**：Sidebar `项目内定位 / Find in Project`、`/api/search/nodes`、Node Facade 搜索能力与旧 deliverable tool alias 删除已在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `75 passed (3.4m)`。
+- **统一工作空间 Step 1**：首页、工作区、上下文面板和辅助入口的用户可见 deliverable 文案已收口为 `content / item / 当前内容 / 项目内容` 等统一工作空间语言，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `75 passed (3.6m)`。
+- **统一工作空间 Step 2**：首页中央区域已切到项目卡片墙，card click 与“继续下一项内容”都统一走 canonical route，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `75 passed (3.4m)`。
+- **统一工作空间门禁稳定性补丁**：版本树 branch overview compare 点击前的可操作滚动定位，以及文档划线评论 inline trigger 的延迟选区重读都已收口，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `75 passed (3.4m)`。
+- **统一工作空间 Step 0 legacy create/write cleanup**：项目级消息已切到 `focusNodeId` 权威写入，`activeFileId` 生命周期更新也已脱离 `wikiId` 粗匹配，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `75 passed (3.4m)`。
+- **统一工作空间 Step 0 workspace delete seam cleanup**：删除 sibling Node 时已不再误删 project-scoped shared conversation，conversation workspace recovery 也会回退到同项目仍存在的 Node，并在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `76 passed (3.4m)`。
+- **Browser Operator B3.1**：`tests/blackbox/chengxing/`、`playwright.ai-inspector.config.ts` 与 `npm run test:ai-inspector` 已在 2026-03-23 跑通首条 A1 首次使用黑盒场景，聚合 `report.json` / `report.md` 输出平均分 `4.6`；随后完整 `npm run verify:iteration` 结果见最新记录。
+- **Browser Operator B3.2**：`tests/blackbox/chengxing/` 已扩到 A1-A3，`npm run test:ai-inspector` 当前会逐场景重置隔离 app-data，聚合平均分 `4.6`；随后完整 `npm run verify:iteration` 已在 2026-03-23 通过，结果为 `76 passed (3.9m)`。
+- **Browser Operator B3.3**：`tests/blackbox/chengxing/` 已扩到 A1-A3 与 B2-B4；blackbox seed 统一从当前 `DAO_APP_DATA_ROOT` 推导项目根目录，`DAO_E2E` fallback 与 editor autosave 竞态也已收口；随后完整 `npm run verify:iteration` 已在 2026-03-23 通过，结果为 `76 passed (3.9m)`。

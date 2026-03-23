@@ -108,14 +108,6 @@ export function DeliverableVersionControls({
     setOptimisticDraftBaseVersionId(null);
   }, [workspaceId]);
 
-  React.useEffect(() => {
-    if (!compareOpen && !versionTreeOpen) {
-      return;
-    }
-
-    void loadVersions();
-  }, [compareOpen, loadVersions, versionTreeOpen]);
-
   const visibleVersions = React.useMemo(
     () => allVersions.filter((version) => version.visible),
     [allVersions]
@@ -346,8 +338,8 @@ export function DeliverableVersionControls({
 
       setIsContinuingId(version.id);
       try {
-        setVersionTreeOpen(false);
         await onContinueFromVersion(version);
+        setVersionTreeOpen(false);
       } finally {
         setIsContinuingId(null);
       }
@@ -364,8 +356,8 @@ export function DeliverableVersionControls({
       setIsSwitchingId(version.id);
       try {
         setOptimisticDraftBaseVersionId(version.id);
-        setVersionTreeOpen(false);
         await onSwitchToVersionBranch(version);
+        setVersionTreeOpen(false);
       } catch (error) {
         setOptimisticDraftBaseVersionId(null);
         throw error;
@@ -724,7 +716,10 @@ export function DeliverableVersionControls({
       </Dialog>
 
       <Sheet open={versionTreeOpen} onOpenChange={setVersionTreeOpen}>
-        <SheetContent side="right" className="w-full p-0 sm:max-w-[980px]">
+        <SheetContent
+          side="right"
+          className="w-full p-0 transition-none data-[state=open]:animate-none data-[state=closed]:animate-none sm:max-w-[980px]"
+        >
           <SheetHeader className="gap-3 border-b px-6 py-5 text-left">
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="secondary" className="text-[10px]">
@@ -806,7 +801,6 @@ export function DeliverableVersionControls({
                               className="h-8"
                               data-testid={`version-branch-overview-focus-${branch.head.id}`}
                               onClick={() => setVersionTreeFocusedBranchHeadId(branch.head.id)}
-                              disabled={versionTreeFocusedBranchHeadId === branch.head.id}
                             >
                               {versionTreeFocusedBranchHeadId === branch.head.id
                                 ? t('version.viewingBranch')

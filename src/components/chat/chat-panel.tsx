@@ -104,7 +104,13 @@ export function ChatPanel({
     startResearch,
     retryLastMessage,
     stopGeneration,
-  } = useChat({ conversationId, workspaceId, activeFileId, baseVersionId });
+  } = useChat({
+    activeFileId,
+    baseVersionId,
+    conversationId,
+    focusNodeId: workspaceId,
+    workspaceId,
+  });
   const [modelCatalog, setModelCatalog] = React.useState<ModelCatalogData | null>(null);
   const [selectedModelSelection, setSelectedModelSelection] =
     React.useState<ModelSelectionData | null>(() =>

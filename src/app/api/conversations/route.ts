@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { createConversationForWorkspace } from '@/objects/conversation/commands';
-import { listConversations } from '@/objects/conversation/queries';
+import {
+  listConversations,
+  resolveConversationProjectScope,
+} from '@/objects/conversation/queries';
 import {
   getConversationWorkspace,
 } from '@/lib/workspace/service';
@@ -12,7 +15,10 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { searchParams } = new URL(req.url);
   const conversationId = searchParams.get('id');
-  const wikiId = searchParams.get('wikiId') || searchParams.get('workspaceId');
+  const scopeId =
+    searchParams.get('projectId') ||
+    searchParams.get('wikiId') ||
+    searchParams.get('workspaceId');
 
   if (conversationId) {
     const workspace = await getConversationWorkspace({
@@ -27,9 +33,15 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
     return NextResponse.json(workspace);
   }
 
+  const projectScope = await resolveConversationProjectScope({
+    organizationId: actor.organizationId,
+    scopeId,
+  });
   const conversations = await listConversations({
     organizationId: actor.organizationId,
-    workspaceId: wikiId,
+    projectId: projectScope.projectId,
+    projectNodeIds: projectScope.nodeIds,
+    workspaceId: scopeId,
   });
 
   return NextResponse.json({ items: conversations });
@@ -38,9 +50,9 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
 export const POST = defineRoute(async function POST(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const body = await req.json();
-  const wikiId = body.wikiId || body.workspaceId;
+  const focusNodeId = body.focusNodeId || body.workspaceId || body.wikiId;
 
-  if (!wikiId) {
+  if (!focusNodeId) {
     return NextResponse.json({ error: 'Missing workspaceId' }, { status: 400 });
   }
 
@@ -50,7 +62,7 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
     forkedFromMessageId: body.forkedFromMessageId,
     parentConversationId: body.parentConversationId,
     title: body.title,
-    workspaceId: wikiId,
+    workspaceId: focusNodeId,
   });
 
   return NextResponse.json(conversation);

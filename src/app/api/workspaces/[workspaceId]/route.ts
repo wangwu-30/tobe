@@ -138,9 +138,17 @@ export const DELETE = defineRoute(async function DELETE(
       where: {
         deletedAt: null,
         organizationId: actor.organizationId,
-        OR: [{ id: existing.sessionId }, { wikiId: workspaceId }],
+        OR: [{ id: existing.sessionId }, { wikiId: workspaceId }, { projectId }],
       },
-      select: { id: true },
+      select: {
+        activeFile: {
+          select: {
+            documentId: true,
+          },
+        },
+        id: true,
+        projectId: true,
+      },
     });
     const threadIds = (
       await tx.commentThread.findMany({
@@ -152,23 +160,35 @@ export const DELETE = defineRoute(async function DELETE(
         select: { id: true },
       })
     ).map((thread) => thread.id);
-    const sessionIds = sessions.map((session) => session.id);
+    const sessionIdsToDelete = sessions
+      .filter((session) => !remainingProjectDocument || session.projectId !== projectId)
+      .map((session) => session.id);
+    const sharedSessionIdsToResetActiveFile = remainingProjectDocument
+      ? sessions
+          .filter(
+            (session) =>
+              session.projectId === projectId &&
+              session.activeFile?.documentId === workspaceId
+          )
+          .map((session) => session.id)
+      : [];
 
-    await Promise.all([
-      tx.document.update({
-        where: { id: workspaceId },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
+    await tx.document.update({
+      where: { id: workspaceId },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
         },
-      }),
-      tx.session.updateMany({
+      },
+    });
+
+    if (sessionIdsToDelete.length > 0) {
+      await tx.session.updateMany({
         where: {
           deletedAt: null,
           id: {
-            in: sessionIds,
+            in: sessionIdsToDelete,
           },
           organizationId: actor.organizationId,
         },
@@ -178,14 +198,53 @@ export const DELETE = defineRoute(async function DELETE(
             increment: 1,
           },
         },
-      }),
-      tx.chatMessage.updateMany({
+      });
+    }
+
+    if (sharedSessionIdsToResetActiveFile.length > 0) {
+      await tx.session.updateMany({
+        where: {
+          deletedAt: null,
+          id: {
+            in: sharedSessionIdsToResetActiveFile,
+          },
+          organizationId: actor.organizationId,
+        },
+        data: {
+          activeFileId: null,
+          revision: {
+            increment: 1,
+          },
+        },
+      });
+    }
+
+    if (remainingProjectDocument) {
+      if (sessionIdsToDelete.length > 0) {
+        await tx.chatMessage.updateMany({
+          where: {
+            deletedAt: null,
+            organizationId: actor.organizationId,
+            sessionId: { in: sessionIdsToDelete },
+          },
+          data: {
+            deletedAt,
+            revision: {
+              increment: 1,
+            },
+          },
+        });
+      }
+    } else {
+      await tx.chatMessage.updateMany({
         where: {
           deletedAt: null,
           organizationId: actor.organizationId,
           OR: [
             { documentId: workspaceId },
-            { sessionId: { in: sessionIds } },
+            ...(sessionIdsToDelete.length > 0
+              ? [{ sessionId: { in: sessionIdsToDelete } }]
+              : []),
           ],
         },
         data: {
@@ -194,47 +253,50 @@ export const DELETE = defineRoute(async function DELETE(
             increment: 1,
           },
         },
-      }),
-      tx.workspaceFile.updateMany({
-        where: {
-          deletedAt: null,
-          organizationId: actor.organizationId,
-          documentId: workspaceId,
+      });
+    }
+
+    await tx.workspaceFile.updateMany({
+      where: {
+        deletedAt: null,
+        organizationId: actor.organizationId,
+        documentId: workspaceId,
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
         },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
+      },
+    });
+    await tx.version.updateMany({
+      where: {
+        deletedAt: null,
+        documentId: workspaceId,
+        organizationId: actor.organizationId,
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
         },
-      }),
-      tx.version.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
+      },
+    });
+    await tx.commentThread.updateMany({
+      where: {
+        deletedAt: null,
+        documentId: workspaceId,
+        organizationId: actor.organizationId,
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
         },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.commentThread.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.commentMessage.updateMany({
+      },
+    });
+    if (threadIds.length > 0) {
+      await tx.commentMessage.updateMany({
         where: {
           deletedAt: null,
           organizationId: actor.organizationId,
@@ -248,15 +310,103 @@ export const DELETE = defineRoute(async function DELETE(
             increment: 1,
           },
         },
-      }),
-      tx.assistantRun.updateMany({
+      });
+    }
+    await tx.assistantRun.updateMany({
+      where: {
+        deletedAt: null,
+        organizationId: actor.organizationId,
+        OR: [
+          { documentId: workspaceId },
+          ...(sessionIdsToDelete.length > 0
+            ? [{ sessionId: { in: sessionIdsToDelete } }]
+            : []),
+        ],
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+    await tx.chatAttachment.updateMany({
+      where: {
+        deletedAt: null,
+        organizationId: actor.organizationId,
+        OR: [
+          { documentId: workspaceId },
+          ...(sessionIdsToDelete.length > 0
+            ? [{ sessionId: { in: sessionIdsToDelete } }]
+            : []),
+        ],
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+    await tx.workspacePlan.updateMany({
+      where: {
+        deletedAt: null,
+        documentId: workspaceId,
+        organizationId: actor.organizationId,
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+    await tx.stagedChangeSet.updateMany({
+      where: {
+        deletedAt: null,
+        documentId: workspaceId,
+        organizationId: actor.organizationId,
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+    await tx.note.updateMany({
+      where: {
+        deletedAt: null,
+        organizationId: actor.organizationId,
+        scope: 'deliverable',
+        scopeId: workspaceId,
+      },
+      data: {
+        deletedAt,
+        revision: {
+          increment: 1,
+        },
+      },
+    });
+    await tx.wikiEditLock.deleteMany({
+      where: {
+        documentId: workspaceId,
+        organizationId: actor.organizationId,
+      },
+    });
+    await tx.workspaceRun.deleteMany({
+      where: {
+        documentId: workspaceId,
+        organizationId: actor.organizationId,
+      },
+    });
+
+    if (!remainingProjectDocument) {
+      await tx.projectFolder.updateMany({
         where: {
           deletedAt: null,
           organizationId: actor.organizationId,
-          OR: [
-            { documentId: workspaceId },
-            { sessionId: { in: sessionIds } },
-          ],
+          projectId,
         },
         data: {
           deletedAt,
@@ -264,93 +414,8 @@ export const DELETE = defineRoute(async function DELETE(
             increment: 1,
           },
         },
-      }),
-      tx.chatAttachment.updateMany({
-        where: {
-          deletedAt: null,
-          organizationId: actor.organizationId,
-          OR: [
-            { documentId: workspaceId },
-            { sessionId: { in: sessionIds } },
-          ],
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.workspacePlan.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.stagedChangeSet.updateMany({
-        where: {
-          deletedAt: null,
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.note.updateMany({
-        where: {
-          deletedAt: null,
-          organizationId: actor.organizationId,
-          scope: 'deliverable',
-          scopeId: workspaceId,
-        },
-        data: {
-          deletedAt,
-          revision: {
-            increment: 1,
-          },
-        },
-      }),
-      tx.wikiEditLock.deleteMany({
-        where: {
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
-        },
-      }),
-      tx.workspaceRun.deleteMany({
-        where: {
-          documentId: workspaceId,
-          organizationId: actor.organizationId,
-        },
-      }),
-      ...(remainingProjectDocument
-        ? []
-        : [
-            tx.projectFolder.updateMany({
-              where: {
-                deletedAt: null,
-                organizationId: actor.organizationId,
-                projectId,
-              },
-              data: {
-                deletedAt,
-                revision: {
-                  increment: 1,
-                },
-              },
-            }),
-          ]),
-    ]);
+      });
+    }
   });
 
   await Promise.all([

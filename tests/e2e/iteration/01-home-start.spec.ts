@@ -115,7 +115,7 @@ test('home create flow asks for goal detail before accepting an extremely vague 
   );
 });
 
-test('home project list summarizes deliverables and opens the latest deliverable', async ({
+test('home project cards summarize the latest node and open the canonical project route', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -160,29 +160,38 @@ test('home project list summarizes deliverables and opens the latest deliverable
     page.goto('/'),
   ]);
 
-  const continueCurrentButton = page.getByTestId(
-    `sidebar-project-open-${firstWorkspace.workspace.id}`
+  const projectCard = page.getByTestId(`home-project-card-${firstWorkspace.workspace.id}`);
+  await expect(page.getByTestId('home-project-wall')).toBeVisible({ timeout: 10000 });
+  await expect(projectCard).toBeVisible();
+  await expect(projectCard).toContainText(projectTitle);
+  await expect(projectCard).toContainText(/2 项内容|2 items/);
+  await expect(projectCard).toContainText(
+    /最近活跃内容|Latest active content/
   );
-  const continueNextButton = page.getByTestId(
-    `sidebar-project-create-next-${firstWorkspace.workspace.id}`
+  await expect(projectCard).toContainText(latestDeliverableTitle);
+  await expect(projectCard).toContainText(
+    /继续当前内容|Continue Current Item/
   );
-  await expect(continueCurrentButton).toBeVisible({ timeout: 10000 });
-  await expect(continueCurrentButton).toContainText(
-    /继续当前交付物|Continue Current Deliverable/
-  );
-  await expect(continueNextButton).toContainText(
-    /继续下一份交付物|Continue to Next Deliverable/
-  );
-  const projectRow = continueCurrentButton.locator('..').locator('..');
-  await expect(projectRow).toContainText(/2 份交付物|2 deliverables/);
-  await expect(projectRow).toContainText(
-    new RegExp(`最近：${latestDeliverableTitle}|Latest: ${latestDeliverableTitle}`)
+  await expect(projectCard).toContainText(
+    /继续下一项内容|Continue to Next Item/
   );
 
-  await Promise.all([
-    page.waitForURL(new RegExp(`/workspace/${latestWorkspace.workspace.id}`)),
-    continueCurrentButton.click(),
-  ]);
+  await page.getByTestId(`home-project-open-${firstWorkspace.workspace.id}`).click();
+  await expect
+    .poll(() => {
+      const currentUrl = new URL(page.url());
+      return {
+        nodeId:
+          currentUrl.searchParams.get('node') ||
+          currentUrl.pathname.split('/').pop() ||
+          '',
+        projectId: currentUrl.pathname.split('/').pop() || '',
+      };
+    })
+    .toEqual({
+      nodeId: latestWorkspace.workspace.id,
+      projectId: firstWorkspace.workspace.id,
+    });
 });
 
 test('home project cards can continue the next deliverable inside the same project', async ({
@@ -229,19 +238,17 @@ test('home project cards can continue the next deliverable inside the same proje
     page.goto('/'),
   ]);
 
-  await page
-    .getByTestId(`sidebar-project-create-next-${firstWorkspace.workspace.id}`)
-    .click();
+  await page.getByTestId(`home-project-next-${firstWorkspace.workspace.id}`).click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(projectTitle);
   await expect(dialog).toContainText(/沿着|continues inside/i);
   await expect(
-    dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ })
+    dialog.getByRole('button', { name: /创建内容|Create Content/ })
   ).toBeVisible();
 
   await dialog.getByLabel(/目标|Goal/).fill('沿着当前项目继续下一份摘要交付物。');
-  await dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ }).click();
+  await dialog.getByRole('button', { name: /创建内容|Create Content/ }).click();
   const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
     await clarifyAfterNextDeliverable

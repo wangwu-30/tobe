@@ -13,6 +13,7 @@ import {
   readWorkspaceRuns,
   readWorkspaceView,
 } from '@/lib/workspace/read-client';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import type {
   ChatMessageData,
   CommentThreadData,
@@ -24,6 +25,7 @@ import type {
 type WorkspaceRouteLocation = {
   conversationId?: string | null;
   fileId?: string | null;
+  projectId?: string | null;
   versionId?: string | null;
   workspaceId?: string | null;
 };
@@ -58,12 +60,14 @@ export function useWorkspaceRouteController({
   currentVersionId,
   deliverableType,
   isAssistantBusy,
+  projectId,
   previewEnabled,
   pushRoute,
   replaceRoute,
   requestedConversationId,
   requestedFileId,
   requestedVersionId,
+  routeProjectId,
   setEditorContent,
   setFileContent,
   setInitialMessages,
@@ -84,12 +88,14 @@ export function useWorkspaceRouteController({
   currentVersionId: string | null;
   deliverableType: DeliverableType;
   isAssistantBusy: boolean;
+  projectId: string | null;
   previewEnabled: boolean;
   pushRoute: (href: string) => void;
   replaceRoute: (href: string) => void;
   requestedConversationId: string | null;
   requestedFileId: string | null;
   requestedVersionId: string | null;
+  routeProjectId: string;
   setEditorContent: React.Dispatch<React.SetStateAction<Value | null>>;
   setFileContent: React.Dispatch<React.SetStateAction<string>>;
   setInitialMessages: React.Dispatch<React.SetStateAction<ChatMessageData[]>>;
@@ -360,29 +366,25 @@ export function useWorkspaceRouteController({
 
   const syncLocation = React.useCallback(
     (next: WorkspaceRouteLocation) => {
-      const resolvedWorkspaceId = next.workspaceId || workspaceId;
-      const params = new URLSearchParams();
+      const resolvedWorkspaceId =
+        next.workspaceId !== undefined ? next.workspaceId || null : workspaceId;
+      const resolvedProjectId =
+        next.projectId || projectId || routeProjectId || resolvedWorkspaceId || workspaceId;
       const conversationId =
         next.conversationId !== undefined ? next.conversationId : currentConversationId;
       const fileId = next.fileId !== undefined ? next.fileId : currentFileId;
       const versionId =
         next.versionId !== undefined ? next.versionId : currentVersionId;
 
-      if (conversationId) {
-        params.set('conversationId', conversationId);
-      }
-      if (fileId) {
-        params.set('fileId', fileId);
-      }
-      if (versionId) {
-        params.set('versionId', versionId);
-      }
+      const href = buildWorkspaceRoute({
+        conversationId,
+        fileId,
+        nodeId: resolvedWorkspaceId,
+        projectId: resolvedProjectId,
+        versionId,
+      });
 
-      const href = `/workspace/${resolvedWorkspaceId}${
-        params.size > 0 ? `?${params.toString()}` : ''
-      }`;
-
-      if (resolvedWorkspaceId !== workspaceId) {
+      if (resolvedProjectId !== routeProjectId) {
         pushRoute(href);
       } else {
         replaceRoute(href);
@@ -392,8 +394,10 @@ export function useWorkspaceRouteController({
       currentConversationId,
       currentFileId,
       currentVersionId,
+      projectId,
       pushRoute,
       replaceRoute,
+      routeProjectId,
       workspaceId,
     ]
   );

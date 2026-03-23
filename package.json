@@ -14,6 +14,7 @@
     "prepare": "husky",
     "test:e2e:install": "PLAYWRIGHT_BROWSERS_PATH=.tmp/playwright-browsers npx playwright install chromium",
     "test:e2e:iteration": "npx playwright test --config=playwright.config.ts",
+    "test:ai-inspector": "node scripts/test-ai-inspector.mjs",
     "verify:iteration:static": "node scripts/verify-iteration-static.mjs",
     "verify:iteration": "node scripts/verify-iteration.mjs",
     "desktop:dev": "electron-forge start",

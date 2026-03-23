@@ -162,6 +162,7 @@ export const POST = defineRoute(async function POST(
     await createConversationMessage(actor, {
       content: persistedSummary,
       conversationId: proposalRun.sessionId,
+      focusNodeId: workspaceId,
       model: `agent:${modelKey}`,
       role: 'assistant',
       workspaceId,

@@ -377,6 +377,7 @@ export function useWorkspaceSidebarActions<TTranslate extends (...args: any[]) =
   const createProjectDeliverable = React.useCallback(
     (projectFolderId: string | null) => {
       openWorkspaceCreateEntry({
+        conversationId: null,
         projectFolderId,
         projectId: currentWorkspace?.projectId || currentWorkspace?.id || null,
         projectTitle:

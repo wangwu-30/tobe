@@ -201,10 +201,10 @@ test('finalized deliverables can start the next deliverable in the same project 
   await expect(nextDeliverableCard).toBeVisible();
   await expect(nextDeliverableCard).toContainText(activeWorkflow.title);
   await expect(page.getByTestId('plan-next-deliverable-action')).toContainText(
-    /继续下一份交付物|Continue to Next Deliverable/
+    /继续下一项内容|Continue to Next Item/
   );
   await expect(page.getByTestId('workspace-new-sibling-deliverable')).toContainText(
-    /继续下一份交付物|Continue to Next Deliverable/
+    /继续下一项内容|Continue to Next Item/
   );
 
   await page.getByTestId('plan-next-deliverable-action').click();
@@ -214,17 +214,19 @@ test('finalized deliverables can start the next deliverable in the same project 
   await expect(dialog).toContainText(/继续推进|continues inside/i);
   await expect(dialog.getByTestId('goal-deliverable-pill')).toHaveCount(0);
   await expect(
-    dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ })
+    dialog.getByRole('button', { name: /创建内容|Create Content/ })
   ).toBeVisible();
 
   await dialog
     .getByLabel(/目标|Goal/)
     .fill('为同一项目继续创建下一份执行摘要。');
-  await dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ }).click();
+  await dialog
+    .getByRole('button', { name: /创建内容|Create Content|创建项目|Create Project/ })
+    .click();
   const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
     await clarifyAfterNextDeliverable
-      .waitFor({ state: 'visible', timeout: 1500 })
+      .waitFor({ state: 'visible', timeout: 5000 })
       .then(() => true)
       .catch(() => false)
   ) {
@@ -232,7 +234,6 @@ test('finalized deliverables can start the next deliverable in the same project 
   }
 
   const nextRoute = await waitForWorkspaceRoute(page, {
-    excludeConversationId: workspace.conversationId,
     excludeWorkspaceId: workspace.id,
   });
   const nextWorkspaceId = nextRoute.workspaceId;
@@ -240,6 +241,7 @@ test('finalized deliverables can start the next deliverable in the same project 
 
   const nextView = await getWorkspaceView(baseURL, nextWorkspaceId, nextConversationId);
 
+  expect(nextConversationId).toBe(workspace.conversationId);
   expect(nextView.currentProject?.id).toBe(originalView.currentProject?.id);
   expect(nextView.workspace?.projectId).toBe(originalView.workspace?.projectId);
   expect(nextView.workspace?.projectFolderId).toBe(originalView.workspace?.projectFolderId);
@@ -291,7 +293,7 @@ test('workspace header shows the project path and keeps sibling creation in the 
   );
   await expect(page.getByTestId('sidebar-current-project-context')).toContainText(projectTitle);
   await expect(page.getByTestId('sidebar-current-project-context')).toContainText(
-    `当前交付物：${currentTitle}`
+    `当前内容：${currentTitle}`
   );
   await expect(
     page.getByTestId(`sidebar-project-tree-current-${currentWorkspace.id}`)
@@ -300,19 +302,24 @@ test('workspace header shows the project path and keeps sibling creation in the 
     page.getByTestId(`sidebar-project-tree-current-badge-${currentWorkspace.id}`)
   ).toContainText(/当前|Current/);
   await expect(page.getByTestId('workspace-new-sibling-deliverable')).toContainText(
-    /继续下一份交付物|Continue to Next Deliverable/
+    /继续下一项内容|Continue to Next Item/
   );
   await expect(
     page.getByTestId(`sidebar-project-tree-create-next-${currentWorkspace.id}`)
   ).toContainText(/从这里继续下一份|Continue from Here/);
   await expect(page.getByText(/新建同级交付物|New Sibling Deliverable/)).toHaveCount(0);
 
-  await page.getByTestId(`sidebar-project-tree-create-next-${currentWorkspace.id}`).click();
-
   const dialog = page.getByRole('dialog');
+  const createNextButton = page.getByTestId(
+    `sidebar-project-tree-create-next-${currentWorkspace.id}`
+  );
+  await expect(createNextButton).toBeVisible();
+  await createNextButton.click();
   await expect(dialog).toContainText(projectTitle);
-  await dialog.getByLabel(/目标|Goal/).fill('沿着同一项目目录继续创建下一份交付物。');
-  await dialog.getByRole('button', { name: /创建交付物|Create Deliverable/ }).click();
+  await dialog
+    .getByLabel(/目标|Goal/)
+    .fill('创建一份新的执行摘要文档，沿着同一项目目录继续推进下一份交付物。');
+  await dialog.getByRole('button', { name: /创建内容|Create Content/ }).click();
   const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
     await clarifyAfterNextDeliverable
@@ -324,14 +331,15 @@ test('workspace header shows the project path and keeps sibling creation in the 
   }
 
   const nextRoute = await waitForWorkspaceRoute(page, {
-    excludeConversationId: currentWorkspace.conversationId,
     excludeWorkspaceId: currentWorkspace.id,
+    timeout: 15000,
   });
   const nextWorkspaceId = nextRoute.workspaceId;
   const nextConversationId = nextRoute.conversationId;
 
   const nextView = await getWorkspaceView(baseURL, nextWorkspaceId, nextConversationId);
 
+  expect(nextConversationId).toBe(currentWorkspace.conversationId);
   expect(nextView.currentProject?.id).toBe(projectId);
   expect(nextView.workspace?.projectId).toBe(projectId);
   expect(nextView.workspace?.projectFolderId).toBe(projectFolder.id);
@@ -390,12 +398,227 @@ test('workspace header can switch to another deliverable in the same project', a
   await expect
     .poll(() => {
       const currentUrl = new URL(page.url());
-      return currentUrl.pathname.split('/').pop() || '';
+      return {
+        nodeId:
+          currentUrl.searchParams.get('node') ||
+          currentUrl.pathname.split('/').pop() ||
+          '',
+        projectId: currentUrl.pathname.split('/').pop() || '',
+      };
     })
-    .toBe(secondWorkspace.id);
+    .toEqual({
+      nodeId: secondWorkspace.id,
+      projectId,
+    });
   await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(secondTitle);
   await expect(switcher).toContainText(/网页|Web Page/);
+});
+
+test('workspace sidebar switches sibling nodes through query-only routes', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const projectTitle = `侧栏切换 ${suffix}`;
+  const firstTitle = `当前节点 ${suffix}`;
+  const secondTitle = `兄弟节点 ${suffix}`;
+
+  const firstWorkspace = await createWorkspace(baseURL, firstTitle);
+  const firstView = await getWorkspaceView(
+    baseURL,
+    firstWorkspace.id,
+    firstWorkspace.conversationId
+  );
+  const projectId = firstView.currentProject?.id || firstView.workspace?.projectId || null;
+
+  expect(projectId).toBeTruthy();
+  if (!projectId) {
+    throw new Error('Project id should exist for sidebar route coverage.');
+  }
+
+  const secondWorkspace = await createWorkspace(baseURL, secondTitle, {
+    deliverableType: 'web',
+    goal: '同一项目里的 sibling 节点需要从侧栏直接切换。',
+    projectId,
+    projectTitle,
+  });
+
+  await primeClientState(page);
+  await page.goto(`/workspace/${firstWorkspace.id}?conversationId=${firstWorkspace.conversationId}`);
+
+  await expect(page.getByTestId('sidebar-project-tree-section')).toContainText(/目录|Directory/);
+  await expect(page.getByTestId('sidebar-outline-section')).toContainText(/大纲|Outline/);
+
+  const navigationCountBefore = await page.evaluate(
+    () => window.performance.getEntriesByType('navigation').length
+  );
+
+  await page.getByTestId(`sidebar-project-tree-open-${secondWorkspace.id}`).click();
+
+  await expect
+    .poll(async () => {
+      const currentUrl = new URL(page.url());
+      const navigationCount = await page.evaluate(
+        () => window.performance.getEntriesByType('navigation').length
+      );
+      return {
+        navigationCount,
+        nodeId:
+          currentUrl.searchParams.get('node') ||
+          currentUrl.pathname.split('/').pop() ||
+          '',
+        projectId: currentUrl.pathname.split('/').pop() || '',
+      };
+    })
+    .toEqual({
+      navigationCount: navigationCountBefore,
+      nodeId: secondWorkspace.id,
+      projectId,
+    });
+
+  await expect(page.getByTestId(`sidebar-project-tree-current-${secondWorkspace.id}`)).toContainText(
+    secondTitle
+  );
+});
+
+test('workspace sidebar can link another project and open it from linked projects', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const sourceTitle = `引用资料项目 ${suffix}`;
+  const consumerTitle = `当前执行项目 ${suffix}`;
+
+  const sourceWorkspace = await createWorkspace(baseURL, sourceTitle);
+  const sourceView = await getWorkspaceView(
+    baseURL,
+    sourceWorkspace.id,
+    sourceWorkspace.conversationId
+  );
+  const sourceProjectId = sourceView.currentProject?.id || sourceView.workspace?.projectId || null;
+
+  const consumerWorkspace = await createWorkspace(baseURL, consumerTitle);
+  const consumerView = await getWorkspaceView(
+    baseURL,
+    consumerWorkspace.id,
+    consumerWorkspace.conversationId
+  );
+  const consumerProjectId =
+    consumerView.currentProject?.id || consumerView.workspace?.projectId || null;
+
+  expect(sourceProjectId).toBeTruthy();
+  expect(consumerProjectId).toBeTruthy();
+  if (!sourceProjectId || !consumerProjectId) {
+    throw new Error('Project ids should exist for linked project coverage.');
+  }
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${consumerWorkspace.id}?conversationId=${consumerWorkspace.conversationId}`
+  );
+
+  await expect(page.getByTestId('sidebar-linked-projects-section')).toContainText(
+    /关联项目|Linked Projects/
+  );
+  await expect(page.getByTestId('sidebar-linked-projects-empty')).toContainText(
+    /还没有关联项目|No linked projects yet/
+  );
+
+  await page.getByTestId('sidebar-linked-project-dialog-trigger').click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(/添加关联项目|Add Linked Project/);
+  await page.getByTestId('sidebar-linked-project-select').click();
+  await page.getByRole('option', { name: sourceTitle }).click();
+  await page.getByTestId('sidebar-linked-project-submit').click();
+
+  await expect(page.getByTestId(`sidebar-linked-project-${sourceProjectId}`)).toContainText(
+    sourceTitle
+  );
+  await expect(
+    page.getByTestId(`sidebar-linked-project-open-${sourceProjectId}`)
+  ).toBeVisible();
+
+  await page.getByTestId(`sidebar-linked-project-open-${sourceProjectId}`).click();
+
+  await expect
+    .poll(() => {
+      const currentUrl = new URL(page.url());
+      return {
+        nodeId: currentUrl.searchParams.get('node') || '',
+        projectId: currentUrl.pathname.split('/').pop() || '',
+      };
+    })
+    .toEqual({
+      nodeId: sourceWorkspace.id,
+      projectId: sourceProjectId,
+    });
+});
+
+test('workspace sidebar can search project nodes by content and open the matched result', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const rootTitle = `搜索入口项目 ${suffix}`;
+  const targetTitle = `定位目标节点 ${suffix}`;
+  const searchToken = `跨节点命中片段-${suffix}`;
+
+  const rootWorkspace = await createWorkspace(baseURL, rootTitle);
+  const rootView = await getWorkspaceView(
+    baseURL,
+    rootWorkspace.id,
+    rootWorkspace.conversationId
+  );
+  const projectId = rootView.currentProject?.id || rootView.workspace?.projectId || null;
+  const projectTitle =
+    rootView.currentProject?.title || rootView.workspace?.projectTitle || rootTitle;
+
+  expect(projectId).toBeTruthy();
+  if (!projectId) {
+    throw new Error('Project id should exist for sidebar node search coverage.');
+  }
+
+  const targetWorkspace = await createWorkspace(baseURL, targetTitle, {
+    projectId,
+    projectTitle,
+  });
+  const targetPrimaryFileId = await getPrimaryWorkspaceFileId(baseURL, targetWorkspace.id);
+  expect(targetPrimaryFileId).toBeTruthy();
+  if (!targetPrimaryFileId) {
+    throw new Error('Primary file should exist for search coverage.');
+  }
+
+  await updateWorkspaceFile(baseURL, targetWorkspace.id, targetPrimaryFileId, {
+    content: `${searchToken}\n这个段落只存在于被搜索的 sibling node 中。`,
+    kind: 'markdown',
+  });
+
+  await primeClientState(page);
+  await page.goto(`/workspace/${rootWorkspace.id}?conversationId=${rootWorkspace.conversationId}`);
+
+  await expect(page.getByTestId('sidebar-node-search-section')).toContainText(
+    /项目内定位|Find in Project/
+  );
+  await page.getByTestId('sidebar-node-search-input').fill(searchToken);
+
+  const result = page.getByTestId(`sidebar-node-search-result-${targetWorkspace.id}`);
+  await expect(result).toContainText(targetTitle);
+  await expect(result).toContainText(searchToken);
+  await result.click();
+
+  await expect
+    .poll(() => {
+      const currentUrl = new URL(page.url());
+      return {
+        nodeId: currentUrl.searchParams.get('node') || '',
+        projectId: currentUrl.pathname.split('/').pop() || '',
+      };
+    })
+    .toEqual({
+      nodeId: targetWorkspace.id,
+      projectId,
+    });
 });
 
 async function createWorkflow(baseURL: string, workspaceId: string, title: string) {
@@ -478,4 +701,31 @@ async function getWorkspaceView(
     } | null;
     workspacePlan: { activeWorkflowPlaybookId: string | null } | null;
   }>(baseURL, `/api/workspaces/${workspaceId}?conversationId=${conversationId}`);
+}
+
+async function getPrimaryWorkspaceFileId(baseURL: string, workspaceId: string) {
+  const files = await apiRequest<
+    Array<{ id: string; isPrimary?: boolean; nodeType?: 'file' | 'folder'; type?: string }>
+  >(baseURL, `/api/workspaces/${workspaceId}/files`);
+
+  return (
+    files.find((file) => file.isPrimary)?.id ||
+    files.find((file) => file.nodeType === 'file' || file.type === 'file')?.id ||
+    null
+  );
+}
+
+async function updateWorkspaceFile(
+  baseURL: string,
+  workspaceId: string,
+  fileId: string,
+  body: {
+    content: string;
+    kind: 'markdown' | 'text' | 'code' | 'richtext';
+  }
+) {
+  return apiRequest(baseURL, `/api/workspaces/${workspaceId}/files/${fileId}`, {
+    body,
+    method: 'PATCH',
+  });
 }

@@ -31,6 +31,7 @@ export function mapConversation(
     organizationId: string;
     originDeviceId: string | null;
     parentSessionId: string | null;
+    projectId?: string | null;
     revision: number;
     sourceType: string;
     title: string;
@@ -42,7 +43,8 @@ export function mapConversation(
   return {
     id: session.id,
     organizationId: session.organizationId,
-    workspaceId: session.wikiId,
+    workspaceId: session.wikiId || session.projectId || null,
+    projectId: session.projectId || session.wikiId || null,
     wikiId: session.wikiId,
     parentConversationId: session.parentSessionId,
     forkedFromMessageId: session.forkedFromMessageId,
@@ -91,6 +93,7 @@ export function mapConversationMessage(message: {
   createdByUserId: string | null;
   deletedAt: Date | null;
   documentId: string | null;
+  focusNodeId?: string | null;
   id: string;
   model: string | null;
   organizationId: string;
@@ -106,8 +109,9 @@ export function mapConversationMessage(message: {
     role: message.role,
     content: message.content,
     attachments: (message.attachments || []).map(mapChatAttachment),
-    workspaceId: message.documentId,
-    wikiId: message.documentId,
+    workspaceId: message.focusNodeId || message.documentId || null,
+    focusNodeId: message.focusNodeId || message.documentId || null,
+    wikiId: message.documentId || message.focusNodeId || null,
     model: message.model,
     createdByUserId: message.createdByUserId,
     originDeviceId: message.originDeviceId,
@@ -272,6 +276,7 @@ export function mapConversationWithRelations(
     organizationId: string;
     originDeviceId: string | null;
     parentSessionId: string | null;
+    projectId?: string | null;
     revision: number;
     sourceType: string;
     title: string;

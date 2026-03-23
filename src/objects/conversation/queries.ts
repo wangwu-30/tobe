@@ -1,3 +1,4 @@
+import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import {
   buildConversationTree,
@@ -12,15 +13,171 @@ import type {
   ConversationWithRelations,
 } from '@/types';
 
+type ConversationProjectScope = {
+  projectId: string | null;
+  nodeIds: string[];
+};
+
+export async function listWorkspaceFocusedConversationIds(
+  params: {
+    organizationId: string;
+    workspaceId: string;
+  },
+  db: Prisma.TransactionClient | typeof prisma = prisma
+) {
+  const workspace = await db.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: params.workspaceId,
+      organizationId: params.organizationId,
+    },
+    select: {
+      id: true,
+      projectId: true,
+      sessionId: true,
+    },
+  });
+
+  if (!workspace) {
+    return [];
+  }
+
+  const projectId = workspace.projectId || workspace.id;
+  const conversations = await db.session.findMany({
+    where: {
+      deletedAt: null,
+      organizationId: params.organizationId,
+      OR: [
+        { id: workspace.sessionId },
+        { wikiId: workspace.id },
+        { projectId },
+      ],
+    },
+    select: {
+      activeFile: {
+        select: {
+          documentId: true,
+        },
+      },
+      id: true,
+      messages: {
+        where: {
+          deletedAt: null,
+          organizationId: params.organizationId,
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          documentId: true,
+          focusNodeId: true,
+        },
+        take: 1,
+      },
+      wikiId: true,
+    },
+  });
+
+  const conversationIds = new Set<string>();
+  for (const conversation of conversations) {
+    const latestFocusNodeId =
+      conversation.messages[0]?.focusNodeId ||
+      conversation.messages[0]?.documentId ||
+      conversation.activeFile?.documentId ||
+      conversation.wikiId ||
+      null;
+
+    if (
+      conversation.id === workspace.sessionId ||
+      conversation.wikiId === workspace.id ||
+      latestFocusNodeId === workspace.id
+    ) {
+      conversationIds.add(conversation.id);
+    }
+  }
+
+  return [...conversationIds];
+}
+
+function buildConversationScopeWhere(params: {
+  projectId?: string | null;
+  projectNodeIds?: string[];
+  workspaceId?: string | null;
+}) {
+  if (params.projectId) {
+    const legacyNodeIds = params.projectNodeIds?.filter(Boolean) || [];
+    return legacyNodeIds.length > 0
+      ? {
+          OR: [
+            { projectId: params.projectId },
+            {
+              projectId: null,
+              wikiId: { in: legacyNodeIds },
+            },
+          ],
+        }
+      : { projectId: params.projectId };
+  }
+
+  if (params.workspaceId) {
+    return { wikiId: params.workspaceId };
+  }
+
+  return {};
+}
+
+export async function resolveConversationProjectScope(params: {
+  organizationId: string;
+  scopeId?: string | null;
+}): Promise<ConversationProjectScope> {
+  const scopeId = params.scopeId?.trim();
+  if (!scopeId) {
+    return { projectId: null, nodeIds: [] };
+  }
+
+  const directWorkspace = await prisma.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: scopeId,
+      organizationId: params.organizationId,
+    },
+    select: {
+      id: true,
+      projectId: true,
+    },
+  });
+
+  const projectId = directWorkspace?.projectId || directWorkspace?.id || scopeId;
+  const projectDocuments = await prisma.document.findMany({
+    where: {
+      deletedAt: null,
+      organizationId: params.organizationId,
+      OR: [{ id: projectId }, { projectId }],
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  return {
+    projectId,
+    nodeIds: projectDocuments.map((document) => document.id),
+  };
+}
+
 export async function listConversations(params: {
   organizationId: string;
+  projectId?: string | null;
+  projectNodeIds?: string[];
   workspaceId?: string | null;
 }) {
   const conversations = await prisma.session.findMany({
     where: {
       deletedAt: null,
       organizationId: params.organizationId,
-      ...(params.workspaceId ? { wikiId: params.workspaceId } : {}),
+      ...buildConversationScopeWhere({
+        projectId: params.projectId,
+        projectNodeIds: params.projectNodeIds,
+        workspaceId: params.workspaceId,
+      }),
     },
     include: {
       messages: {
@@ -40,13 +197,19 @@ export async function listConversations(params: {
 
 export async function listConversationBranches(params: {
   organizationId: string;
+  projectId?: string | null;
+  projectNodeIds?: string[];
   workspaceId: string;
 }) {
   const conversations = await prisma.session.findMany({
     where: {
       deletedAt: null,
       organizationId: params.organizationId,
-      wikiId: params.workspaceId,
+      ...buildConversationScopeWhere({
+        projectId: params.projectId,
+        projectNodeIds: params.projectNodeIds,
+        workspaceId: params.workspaceId,
+      }),
     },
     include: {
       messages: {
@@ -90,6 +253,8 @@ export async function getWorkspaceConversationState(params: {
   conversationId?: string | null;
   organizationId: string;
   pendingChangeSetsByConversation: Map<string, number>;
+  projectId?: string | null;
+  projectNodeIds?: string[];
   workspace: Parameters<typeof mapConversationWithRelations>[1];
   workspaceId: string;
 }): Promise<{
@@ -104,7 +269,11 @@ export async function getWorkspaceConversationState(params: {
       where: {
         deletedAt: null,
         organizationId: params.organizationId,
-        wikiId: params.workspaceId,
+        ...buildConversationScopeWhere({
+          projectId: params.projectId,
+          projectNodeIds: params.projectNodeIds,
+          workspaceId: params.workspaceId,
+        }),
       },
       include: {
         messages: {
@@ -129,7 +298,11 @@ export async function getWorkspaceConversationState(params: {
             deletedAt: null,
             id: params.conversationId,
             organizationId: params.organizationId,
-            wikiId: params.workspaceId,
+            ...buildConversationScopeWhere({
+              projectId: params.projectId,
+              projectNodeIds: params.projectNodeIds,
+              workspaceId: params.workspaceId,
+            }),
           },
           include: fullConversationInclude,
         })
@@ -142,7 +315,11 @@ export async function getWorkspaceConversationState(params: {
       where: {
         deletedAt: null,
         organizationId: params.organizationId,
-        wikiId: params.workspaceId,
+        ...buildConversationScopeWhere({
+          projectId: params.projectId,
+          projectNodeIds: params.projectNodeIds,
+          workspaceId: params.workspaceId,
+        }),
       },
       include: fullConversationInclude,
       orderBy: { updatedAt: 'desc' },

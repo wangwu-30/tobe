@@ -31,14 +31,16 @@ export const POST = defineRoute(async function POST(
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { conversationId } = await params;
   const body = await req.json();
+  const focusNodeId = body.focusNodeId || body.workspaceId || body.wikiId || null;
 
   const message = await createConversationMessage(actor, {
     activeFileId: body.activeFileId,
     content: body.content,
     conversationId,
+    focusNodeId,
     model: body.model,
     role: body.role,
-    workspaceId: body.wikiId || body.workspaceId,
+    workspaceId: body.workspaceId || body.wikiId || focusNodeId,
   });
 
   return NextResponse.json(message);

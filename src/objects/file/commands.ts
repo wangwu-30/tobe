@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
 import { recordSyncEvent } from '@/lib/platform/sync';
+import { listWorkspaceFocusedConversationIds } from '@/objects/conversation/queries';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 
 import {
@@ -78,10 +79,15 @@ export async function ensureWorkspaceFiles(
 
   await prisma.session.updateMany({
     where: {
-      deletedAt: null,
-      organizationId,
-      wikiId: workspace.id,
       activeFileId: null,
+      deletedAt: null,
+      id: {
+        in: await listWorkspaceFocusedConversationIds({
+          organizationId,
+          workspaceId: workspace.id,
+        }),
+      },
+      organizationId,
     },
     data: {
       activeFileId: file.id,
@@ -541,8 +547,8 @@ export async function deleteWorkspaceFile(
     }),
   ]);
 
-  if (existing.isPrimary) {
-    const replacement = await prisma.workspaceFile.findFirst({
+  const replacement = existing.isPrimary
+    ? await prisma.workspaceFile.findFirst({
       where: {
         deletedAt: null,
         documentId: input.workspaceId,
@@ -551,31 +557,31 @@ export async function deleteWorkspaceFile(
         type: 'file',
       },
       orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-    });
+    })
+    : null;
 
-    if (replacement) {
-      await prisma.$transaction([
-        prisma.workspaceFile.update({
-          where: { id: replacement.id },
-          data: {
-            isPrimary: true,
-            revision: {
-              increment: 1,
-            },
+  if (replacement) {
+    await prisma.$transaction([
+      prisma.workspaceFile.update({
+        where: { id: replacement.id },
+        data: {
+          isPrimary: true,
+          revision: {
+            increment: 1,
           },
-        }),
-        prisma.document.update({
-          where: { id: input.workspaceId },
-          data: {
-            content: replacement.content,
-            originDeviceId: actor.deviceId,
-            revision: {
-              increment: 1,
-            },
+        },
+      }),
+      prisma.document.update({
+        where: { id: input.workspaceId },
+        data: {
+          content: replacement.content,
+          originDeviceId: actor.deviceId,
+          revision: {
+            increment: 1,
           },
-        }),
-      ]);
-    }
+        },
+      }),
+    ]);
   }
 
   await prisma.session.updateMany({
@@ -584,11 +590,16 @@ export async function deleteWorkspaceFile(
         in: descendants.map((file) => file.id),
       },
       deletedAt: null,
+      id: {
+        in: await listWorkspaceFocusedConversationIds({
+          organizationId: actor.organizationId,
+          workspaceId: input.workspaceId,
+        }),
+      },
       organizationId: actor.organizationId,
-      wikiId: input.workspaceId,
     },
     data: {
-      activeFileId: null,
+      activeFileId: replacement?.id || null,
       revision: {
         increment: 1,
       },

@@ -26,11 +26,13 @@ const STREAM_TOTAL_TIMEOUT_MS = 180000;
 
 export function useChat({
   conversationId,
+  focusNodeId,
   workspaceId,
   activeFileId,
   baseVersionId,
 }: {
   conversationId?: string | null;
+  focusNodeId?: string | null;
   workspaceId?: string | null;
   activeFileId?: string | null;
   baseVersionId?: string | null;
@@ -45,6 +47,7 @@ export function useChat({
   const tempIdRef = useRef(0);
   const lastAttemptRef = useRef<{
     content: string;
+    focusNodeId: string | null;
     options?: {
       attachments?: ChatComposerAttachment[];
       hiddenFromTimeline?: boolean;
@@ -81,9 +84,10 @@ export function useChat({
     [t]
   );
 
-  const sendMessage = useCallback(
+  const sendMessageAtFocus = useCallback(
     async (
       content: string,
+      activeNodeId: string | null,
       options?: {
         attachments?: ChatComposerAttachment[];
         hiddenFromTimeline?: boolean;
@@ -102,6 +106,7 @@ export function useChat({
       setStatusMessage(t('chat.connecting'));
       lastAttemptRef.current = {
         content,
+        focusNodeId: activeNodeId,
         options: {
           ...options,
         },
@@ -110,16 +115,18 @@ export function useChat({
       const localAttachments = createLocalAttachmentDrafts({
         attachments: options?.attachments,
         conversationId,
+        focusNodeId: activeNodeId,
         nextTempId,
-        workspaceId,
+        workspaceId: activeNodeId,
       });
 
       const userMessage: ChatMessageData = createLocalUserMessageDraft({
         attachments: localAttachments,
         content,
         conversationId,
+        focusNodeId: activeNodeId,
         nextTempId,
-        workspaceId,
+        workspaceId: activeNodeId,
       });
       if (!options?.hiddenFromTimeline && !options?.suppressUserEcho) {
         setMessages((prev) => [...prev, userMessage]);
@@ -127,9 +134,10 @@ export function useChat({
 
       const assistantMessage: ChatMessageData = createLocalAssistantMessageDraft({
         conversationId,
+        focusNodeId: activeNodeId,
         model: options?.model || null,
         nextTempId,
-        workspaceId,
+        workspaceId: activeNodeId,
       });
       const assistantId = assistantMessage.id;
       setMessages((prev) => [...prev, assistantMessage]);
@@ -144,11 +152,12 @@ export function useChat({
           attachments: options?.attachments,
           baseVersionId,
           conversationId,
+          focusNodeId: activeNodeId,
           message: content,
           model: options?.model || '',
           researchMode: options?.researchMode || 'light',
           signal: streamController.signal,
-          workspaceId,
+          workspaceId: activeNodeId,
         });
 
         setStatusMessage(
@@ -164,7 +173,7 @@ export function useChat({
           };
           options?.onWorkspaceChange?.({
             conversationId: payload.conversationId || conversationId || null,
-            workspaceId: payload.workspaceId || workspaceId || null,
+            workspaceId: payload.workspaceId || activeNodeId || null,
           });
           setMessages((prev) => prev.filter((message) => message.id !== assistantId));
           setStatusMessage(null);
@@ -187,7 +196,7 @@ export function useChat({
           streamController,
           workspaceChangeFallback: {
             conversationId,
-            workspaceId,
+            workspaceId: activeNodeId,
           },
         });
         options?.onWorkspaceChange?.(workspaceChange);
@@ -241,6 +250,30 @@ export function useChat({
       language,
       nextTempId,
       t,
+    ]
+  );
+
+  const sendMessage = useCallback(
+    async (
+      content: string,
+      options?: {
+        attachments?: ChatComposerAttachment[];
+        hiddenFromTimeline?: boolean;
+        model?: string;
+        onComplete?: () => void | Promise<void>;
+        onWorkspaceChange?: (workspace: {
+          conversationId: string | null;
+          workspaceId: string | null;
+        }) => void;
+        researchMode?: ResearchMode;
+        suppressUserEcho?: boolean;
+      }
+    ) => {
+      await sendMessageAtFocus(content, focusNodeId || workspaceId || null, options);
+    },
+    [
+      focusNodeId,
+      sendMessageAtFocus,
       workspaceId,
     ]
   );
@@ -341,6 +374,7 @@ export function useChat({
         conversationId,
         model: null,
         nextTempId,
+        focusNodeId: focusNodeId || workspaceId || null,
         workspaceId,
       });
       const assistantId = assistantMessage.id;
@@ -422,6 +456,7 @@ export function useChat({
     [
       conversationId,
       createStreamController,
+      focusNodeId,
       language,
       nextTempId,
       t,
@@ -439,11 +474,11 @@ export function useChat({
     }
 
     const nextAttempt = lastAttemptRef.current;
-    void sendMessage(nextAttempt.content, {
+    void sendMessageAtFocus(nextAttempt.content, nextAttempt.focusNodeId, {
       ...nextAttempt.options,
       suppressUserEcho: true,
     });
-  }, [isLoading, sendMessage]);
+  }, [isLoading, sendMessageAtFocus]);
 
   return {
     messages,

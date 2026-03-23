@@ -257,6 +257,7 @@ async function executeLightChatRunRequest(
     attachments: context.payload.attachments,
     content: context.payload.message,
     conversationId: conversation.id,
+    focusNodeId: context.payload.focusNodeId,
     workspaceId,
   });
 
@@ -365,6 +366,7 @@ async function executeDeepResearchPlanRequest(
     attachments: context.payload.attachments,
     content: context.payload.message,
     conversationId: conversation.id,
+    focusNodeId: context.payload.focusNodeId,
     workspaceId,
   });
 

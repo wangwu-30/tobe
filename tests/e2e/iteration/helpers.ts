@@ -160,8 +160,9 @@ export function createDocumentSelectionAnchor(params: {
 }
 
 export function extractWorkspaceIdFromLocation(urlPath: string) {
-  const match = urlPath.match(/\/workspace\/([^/?]+)/);
-  return match?.[1] || null;
+  const url = new URL(urlPath, 'http://127.0.0.1');
+  const pathMatch = url.pathname.match(/\/workspace\/([^/?]+)/);
+  return url.searchParams.get('node') || pathMatch?.[1] || null;
 }
 
 export async function primeClientState(
@@ -215,15 +216,19 @@ export async function waitForWorkspaceRoute(
 ) {
   await page.waitForFunction(
     (payload) => {
-      const match = window.location.pathname.match(/^\/workspace\/([^/]+)$/);
-      const conversationId =
-        new URLSearchParams(window.location.search).get('conversationId') || '';
+      const url = new URL(window.location.href);
+      const match = url.pathname.match(/^\/workspace\/([^/]+)$/);
+      const conversationId = url.searchParams.get('conversationId') || '';
+      const workspaceId = url.searchParams.get('node') || match?.[1] || '';
+      const currentTreeNode = workspaceId
+        ? document.querySelector(`[data-testid="sidebar-project-tree-current-${workspaceId}"]`)
+        : null;
 
-      if (!match || !conversationId) {
+      if (!match || !conversationId || !workspaceId) {
         return false;
       }
 
-      if (payload.excludeWorkspaceId && match[1] === payload.excludeWorkspaceId) {
+      if (payload.excludeWorkspaceId && workspaceId === payload.excludeWorkspaceId) {
         return false;
       }
 
@@ -231,7 +236,7 @@ export async function waitForWorkspaceRoute(
         return false;
       }
 
-      return true;
+      return Boolean(currentTreeNode);
     },
     {
       excludeConversationId: options?.excludeConversationId || '',
@@ -242,16 +247,18 @@ export async function waitForWorkspaceRoute(
 
   const currentUrl = new URL(page.url());
   const match = currentUrl.pathname.match(/^\/workspace\/([^/]+)$/);
-  const workspaceId = match?.[1] || '';
+  const projectId = match?.[1] || '';
+  const workspaceId = currentUrl.searchParams.get('node') || projectId;
   const conversationId = currentUrl.searchParams.get('conversationId') || '';
 
-  if (!workspaceId || !conversationId) {
+  if (!projectId || !workspaceId || !conversationId) {
     throw new Error(`Expected workspace route, received ${page.url()}`);
   }
 
   return {
     conversationId,
     pathname: currentUrl.pathname,
+    projectId,
     workspaceId,
   };
 }

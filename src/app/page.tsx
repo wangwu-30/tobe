@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
+import { ProjectCard } from '@/components/layout/project-card';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
 import { useAppRouter, useAppSearchParams } from '@/lib/app-router';
 import {
@@ -23,11 +24,15 @@ import {
 import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { useT } from '@/components/providers/language-provider';
 import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
+
+import type { ProjectSummaryData } from '@/types';
 
 export default function HomePage() {
   const t = useT();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
+  const [homeProjects, setHomeProjects] = React.useState<ProjectSummaryData[] | null>(null);
   const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = React.useState<string | null>(null);
@@ -50,6 +55,7 @@ export default function HomePage() {
       setCreateWorkspaceRecoveryActive(true);
       setCreateWorkspaceRecoveryValues(recovery.values);
       setWorkspaceCreateContext({
+        conversationId: recovery.context?.conversationId || null,
         projectFolderId: recovery.context?.projectFolderId || null,
         projectId: recovery.context?.projectId || null,
         projectTitle: recovery.context?.projectTitle || null,
@@ -76,6 +82,7 @@ export default function HomePage() {
     setPendingCreateEntry(
       projectId
         ? {
+            conversationId: null,
             projectFolderId: null,
             projectId,
             projectTitle: projectTitle?.trim() || null,
@@ -147,6 +154,7 @@ export default function HomePage() {
         buildCreatedWorkspaceLocation({
           autoStartFirstPass: true,
           conversationId: workspace.conversation.id,
+          projectId: workspace.workspace.projectId || workspace.workspace.id,
           workspaceId: workspace.workspace.id,
         })
       );
@@ -196,6 +204,31 @@ export default function HomePage() {
     setGoalDialogOpen(open);
   }, [createWorkspaceRecoveryActive]);
 
+  const openProject = React.useCallback(
+    (project: ProjectSummaryData) => {
+      router.push(
+        buildWorkspaceRoute({
+          nodeId: project.workspaceId,
+          projectId: project.id,
+        })
+      );
+    },
+    [router]
+  );
+
+  const openProjectNextDeliverable = React.useCallback(
+    (project: ProjectSummaryData) => {
+      const params = new URLSearchParams({
+        newDeliverableProjectId: project.id,
+        newDeliverableProjectTitle: project.title,
+      });
+      router.push(`/?${params.toString()}`);
+    },
+    [router]
+  );
+
+  const showsProjectWall = Boolean(homeProjects && homeProjects.length > 0);
+
   return (
     <AppShell
       renderSidebar={({ collapsed, onNavigate }) => (
@@ -204,60 +237,100 @@ export default function HomePage() {
           currentWorkspaceId={null}
           onCreateWorkspace={openWorkspaceCreateEntry}
           onNavigate={onNavigate}
+          onProjectsChange={setHomeProjects}
           outlineItems={[]}
         />
       )}
       title={t('home.title')}
       subtitle={t('home.subtitle')}
     >
-      <main className="flex h-full items-center justify-center px-6 py-10">
-        <div className="w-full max-w-3xl">
-          <div className="rounded-[28px] border border-border/70 bg-muted/20 p-8 shadow-sm sm:p-12">
-            <div className="max-w-2xl">
+      <main className="h-full overflow-y-auto px-6 py-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+          <div
+            className={
+              showsProjectWall
+                ? 'rounded-[28px] border border-border/70 bg-muted/20 p-6 shadow-sm sm:p-8'
+                : 'rounded-[28px] border border-border/70 bg-muted/20 p-8 shadow-sm sm:p-12'
+            }
+          >
+            <div className={showsProjectWall ? 'max-w-5xl' : 'max-w-2xl'}>
               <div className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
                 {t('home.badge')}
               </div>
-              <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-5xl">
-                {t('home.heroTitle')}
-              </h1>
-              <p className="mt-4 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base">
-                {t('home.heroDescription')}
-              </p>
+              <div
+                className={
+                  showsProjectWall
+                    ? 'mt-4 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between'
+                    : undefined
+                }
+              >
+                <div className="min-w-0">
+                  <h1
+                    className={
+                      showsProjectWall
+                        ? 'text-2xl font-semibold tracking-tight sm:text-3xl'
+                        : 'mt-4 text-3xl font-semibold tracking-tight sm:text-5xl'
+                    }
+                  >
+                    {t('home.heroTitle')}
+                  </h1>
+                  <p
+                    className={
+                      showsProjectWall
+                        ? 'mt-3 max-w-3xl text-sm leading-7 text-muted-foreground'
+                        : 'mt-4 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base'
+                    }
+                  >
+                    {t('home.heroDescription')}
+                  </p>
+                </div>
 
-              <div className="mt-8 flex flex-wrap items-center gap-3">
-                <Button
-                  className="gap-2 rounded-xl px-5"
-                  onClick={() => openWorkspaceCreateEntry()}
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {t('home.startWithGoal')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="gap-2 rounded-xl"
-                  onClick={() => router.push('/settings')}
-                >
-                  {t('home.configureModels')}
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    className="gap-2 rounded-xl px-5"
+                    onClick={() => openWorkspaceCreateEntry()}
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {t('home.startWithGoal')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="gap-2 rounded-xl"
+                    onClick={() => router.push('/settings')}
+                  >
+                    {t('home.configureModels')}
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-            {[
-              t('home.card1'),
-              t('home.card2'),
-              t('home.card3'),
-            ].map(copy => (
-              <div
-                key={copy}
-                className="rounded-2xl border border-border/60 bg-background/60 px-4 py-4 leading-6"
-              >
-                {copy}
+          {showsProjectWall ? (
+            <section className="space-y-4" data-testid="home-project-wall">
+              <div className="grid gap-4 xl:grid-cols-3">
+                {homeProjects?.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    onContinueCurrent={openProject}
+                    onContinueNext={openProjectNextDeliverable}
+                    project={project}
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            </section>
+          ) : (
+            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
+              {[t('home.card1'), t('home.card2'), t('home.card3')].map((copy) => (
+                <div
+                  key={copy}
+                  className="rounded-2xl border border-border/60 bg-background/60 px-4 py-4 leading-6"
+                >
+                  {copy}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
 

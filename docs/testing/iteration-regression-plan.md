@@ -104,7 +104,7 @@
   - 项目级 AI 上下文需要覆盖一个明确场景：在当前交付物上构建 chat prompt / `get_workspace_context` 时，能够带出同项目其他交付物的标题、类型、状态摘要，以及 `deliverable + project + user` scope `Note` 派生的 `Knowledge / Memory`；当 AI 需要参考兄弟交付物时，必须能先列出同项目交付物，再显式读取目标文件内容
   - 如果同项目里存在无 plan 的历史实现说明类交付物，即使其 primary file `kind=code`，项目级 AI context 也不能仅凭 file kind 把它误标成 `web`；只有明确的网页线索才能进入网页语义
   - `workspace view`、项目级 AI context 和共享 helper 对外 deliverable 语义只应暴露 canonical `document | web`；legacy `slides` 只通过统一 slide 结果面兼容，不能重新回流到公共类型契约或项目摘要里
-  - plan generator、`get_workspace_context`、`list_project_deliverables` 和 `read_project_deliverable_file` 这类 AI-facing 摘要应统一使用 `result shape / shape` 语义；stored legacy deliverable 值必须先 canonicalize，再进入 prompt 或工具输出
+  - plan generator、`get_workspace_context`、`list_project_nodes` 和 `read_node_content` 这类 AI-facing 摘要应统一使用 `result shape / shape` 语义；stored legacy deliverable 值必须先 canonicalize，再进入 prompt 或工具输出
   - `get_workspace_context` 的 debug / inspection `details.workspacePlan` 也必须只暴露 canonical `deliverableType`，并把 legacy `slides / code` 限制在显式 `storedDeliverableType` 字段里
   - `Status` 面板显示当前绑定的 active workflow
   - 工作区顶栏会显示当前交付物的项目路径；从顶栏“新建同级交付物”进入 goal composer 后，新交付物仍落在同一 `projectId / projectFolderId`

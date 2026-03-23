@@ -9,9 +9,11 @@
 ### 组织层
 
 - **Project** `{ id, name }`
-  项目容器。一个项目下可包含多个交付物。
+  项目容器。统一工作空间 workstream 下，一个项目会收口为一个 workspace，可包含多个 Node/交付内容。
 - **Folder** `{ id, projectId, parentId?, name, sortOrder }`
   项目内的分组节点。
+- **ProjectMount** `{ id, sourceProjectId, targetProjectId }`
+  Project 间的只读挂载声明。用于让当前 Project 的 AI 在默认上下文里看到外部 Project 的标题索引，并按需读取其 Node 内容。
 
 ### 内容层
 

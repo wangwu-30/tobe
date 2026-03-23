@@ -27,11 +27,13 @@ type OpenProjectDeliverableComposerParams = {
 
 export function useWorkspaceGoalDialogController({
   activeWorkflowPlaybookId,
+  currentConversationId,
   currentProject,
   currentWorkspace,
   workspaceId,
 }: {
   activeWorkflowPlaybookId: string | null;
+  currentConversationId: string | null;
   currentProject: WorkspaceViewData['currentProject'] | null;
   currentWorkspace: WorkspaceViewData['workspace'] | null;
   workspaceId: string;
@@ -62,6 +64,7 @@ export function useWorkspaceGoalDialogController({
     setCreateWorkspaceRecoveryActive(true);
     setCreateWorkspaceRecoveryValues(recovery.values);
     setWorkspaceCreateContext({
+      conversationId: recovery.context?.conversationId || null,
       projectFolderId: recovery.context?.projectFolderId || null,
       projectId: recovery.context?.projectId || null,
       projectTitle: recovery.context?.projectTitle || null,
@@ -95,7 +98,15 @@ export function useWorkspaceGoalDialogController({
 
   const openWorkspaceCreateEntry = React.useCallback(
     (context: WorkspaceCreateContext | null) => {
-      setWorkspaceCreateContext(context);
+      setWorkspaceCreateContext(
+        context
+          ? {
+              ...context,
+              conversationId:
+                context.projectId || context.projectFolderId ? currentConversationId : null,
+            }
+          : null
+      );
 
       if (createWorkspaceRecoveryActive) {
         setGoalDialogOpen(true);
@@ -112,6 +123,7 @@ export function useWorkspaceGoalDialogController({
   const openProjectDeliverableComposer = React.useCallback(
     (params: OpenProjectDeliverableComposerParams) => {
       setWorkspaceCreateContext({
+        conversationId: currentConversationId,
         projectFolderId: params.projectFolderId,
         projectId:
           currentProject?.id ||
@@ -140,6 +152,7 @@ export function useWorkspaceGoalDialogController({
       createWorkspaceRecoveryActive,
       currentProject?.id,
       currentProject?.title,
+      currentConversationId,
       currentWorkspace?.id,
       currentWorkspace?.projectId,
       currentWorkspace?.projectTitle,
@@ -181,6 +194,7 @@ export function useWorkspaceGoalDialogController({
           buildCreatedWorkspaceLocation({
             autoStartFirstPass: true,
             conversationId: result.conversation.id,
+            projectId: result.workspace.projectId || result.workspace.id,
             workspaceId: result.workspace.id,
           })
         );

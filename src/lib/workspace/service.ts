@@ -156,7 +156,7 @@ export async function createWorkspaceWithConversation(
       where: { id: conversation.id },
       data: {
         activeFileId: primaryFile.id,
-        wikiId: workspace.id,
+        projectId: workspace.projectId || workspace.id,
       },
     });
 
@@ -203,6 +203,7 @@ export async function createWorkspaceWithConversation(
         op: 'create',
         title: result.conversation.title,
         workspaceId: result.workspace.id,
+        projectId: result.workspace.projectId || result.workspace.id,
       },
       revision: result.conversation.revision,
     }),
@@ -833,6 +834,8 @@ export async function getWorkspaceView(params: {
     conversationId: params.conversationId,
     organizationId: params.organizationId,
     pendingChangeSetsByConversation,
+    projectId: resolveWorkspaceProjectId(workspace),
+    projectNodeIds: projectDocuments.map((document) => document.id),
     workspace,
     workspaceId: workspace.id,
   });
@@ -919,20 +922,65 @@ export async function getConversationWorkspace(params: {
     include: {
       messages: {
         where: { deletedAt: null },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
       },
+      project: true,
       wiki: true,
     },
   });
 
-  if (!conversation || !conversation.wiki) {
+  if (!conversation) {
+    return null;
+  }
+
+  const latestMessage = conversation.messages[0] || null;
+  const workspaceCandidates = [
+    latestMessage?.focusNodeId,
+    latestMessage?.documentId,
+    conversation.wiki?.id,
+    conversation.project?.id,
+    conversation.projectId,
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  const uniqueWorkspaceCandidates = [...new Set(workspaceCandidates)];
+  const existingCandidateDocuments =
+    uniqueWorkspaceCandidates.length > 0
+      ? await prisma.document.findMany({
+          where: {
+            deletedAt: null,
+            id: { in: uniqueWorkspaceCandidates },
+            organizationId: params.organizationId,
+          },
+          select: { id: true },
+        })
+      : [];
+  const existingCandidateIds = new Set(
+    existingCandidateDocuments.map((document) => document.id)
+  );
+  let resolvedWorkspaceId =
+    uniqueWorkspaceCandidates.find((candidate) => existingCandidateIds.has(candidate)) || null;
+
+  if (!resolvedWorkspaceId && conversation.projectId) {
+    const fallbackProjectDocument = await prisma.document.findFirst({
+      where: {
+        deletedAt: null,
+        organizationId: params.organizationId,
+        OR: [{ id: conversation.projectId }, { projectId: conversation.projectId }],
+      },
+      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { id: true },
+    });
+    resolvedWorkspaceId = fallbackProjectDocument?.id || null;
+  }
+
+  if (!resolvedWorkspaceId) {
     return null;
   }
 
   const view = await getWorkspaceView({
     conversationId: conversation.id,
     organizationId: params.organizationId,
-    workspaceId: conversation.wiki.id,
+    workspaceId: resolvedWorkspaceId,
   });
 
   return {

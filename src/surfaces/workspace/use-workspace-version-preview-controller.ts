@@ -243,6 +243,7 @@ export function useWorkspaceVersionPreviewController<
         syncLocation({
           conversationId: nextState.conversation.id,
           fileId: nextView?.currentFile?.id || null,
+          workspaceId,
           versionId: null,
         });
         setWorkspaceNotice({
@@ -290,6 +291,7 @@ export function useWorkspaceVersionPreviewController<
         syncLocation({
           conversationId: nextState.conversation.id,
           fileId: nextView?.currentFile?.id || null,
+          workspaceId,
           versionId: null,
         });
         setWorkspaceNotice({

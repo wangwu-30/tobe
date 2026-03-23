@@ -1,200 +1,111 @@
-import { prisma } from '@/lib/db/prisma';
 import {
-  getCanonicalDeliverableType,
-  parseStoredDeliverableType,
-} from '@/lib/workspace/deliverable-types';
-import { deriveRenderAs } from '@/lib/workspace/render-as';
-import { inferDeliverableType } from '@/lib/workspace/planning';
-import type { DeliverableType, RenderAs } from '@/types';
+  buildNodePreviewText,
+  listMountedProjects,
+  listProjectNodes,
+  readNodeContent,
+  resolveProjectNodeScope,
+  serializeNodeContentForAi,
+  type MountedProjectSummary,
+  type ProjectNodeSummary,
+} from '@/lib/workspace/node';
 
-type ProjectContextFileRecord = {
-  content: string;
-  id: string;
-  isPrimary: boolean;
-  kind: string;
-  name: string;
-  path: string;
-  role: string;
-  type: string;
-};
+export type ProjectDeliverableContextItem = ProjectNodeSummary;
+export type ProjectMountedContextItem = MountedProjectSummary;
 
-type ProjectContextPlanRecord = {
-  deliverableType: string;
-  goal: string;
-} | null;
-
-type ProjectContextWorkspaceRecord = {
-  currentVersion: number;
-  files: ProjectContextFileRecord[];
-  id: string;
-  projectId: string | null;
-  projectTitle: string | null;
-  status: string;
-  title: string;
-  treeSortOrder: number;
-  updatedAt: Date;
-  workspacePlan: ProjectContextPlanRecord;
-};
-
-export type ProjectDeliverableContextItem = {
-  deliverableType: DeliverableType;
-  id: string;
-  isCurrent: boolean;
-  renderAs: RenderAs;
-  status: string;
-  title: string;
-  updatedAt: Date;
-};
+const DEFAULT_CURRENT_NODE_CONTENT_MAX_CHARS = 32000;
+const DEFAULT_MOUNTED_PROJECT_LIMIT = 3;
+const DEFAULT_SIBLING_SUMMARY_LIMIT = 5;
 
 export type ProjectAiContextData = {
+  currentNode: ProjectDeliverableContextItem | null;
+  currentNodeContent: string | null;
+  currentNodeContentTruncated: boolean;
+  currentNodePrimaryFilePath: string | null;
   currentWorkspaceId: string;
   deliverableCount: number;
   deliverables: ProjectDeliverableContextItem[];
   id: string;
+  mountedProjects: ProjectMountedContextItem[];
+  omittedSiblingCount: number;
+  omittedMountedProjectCount: number;
+  siblingSummaries: ProjectDeliverableContextItem[];
   title: string;
 };
-
-function resolveProjectId(workspace: {
-  id: string;
-  projectId: string | null;
-}) {
-  return workspace.projectId || workspace.id;
-}
-
-function resolveProjectTitle(workspace: {
-  projectTitle: string | null;
-  title: string;
-}) {
-  return workspace.projectTitle?.trim() || workspace.title;
-}
-
-function resolveDeliverablePresentation(workspace: ProjectContextWorkspaceRecord): {
-  deliverableType: DeliverableType;
-  renderAs: RenderAs;
-} {
-  const primaryFile =
-    workspace.files.find((file) => file.isPrimary && file.type === 'file') ||
-    workspace.files.find((file) => file.type === 'file') ||
-    null;
-
-  const deliverableType = getCanonicalDeliverableType(
-    inferDeliverableType({
-      explicitType: workspace.workspacePlan?.deliverableType || null,
-      fileKind: primaryFile?.kind || null,
-      files: workspace.files.map((file) => ({ kind: file.kind, path: file.path })),
-      goal: workspace.workspacePlan?.goal || workspace.title,
-      title: primaryFile?.name || workspace.title,
-    })
-  );
-  const storedDeliverableType = parseStoredDeliverableType(
-    workspace.workspacePlan?.deliverableType || null
-  );
-
-  return {
-    deliverableType,
-    renderAs: deriveRenderAs({
-      content: primaryFile?.content || '',
-      deliverableType,
-      storedDeliverableType,
-    }),
-  };
-}
 
 export async function loadProjectAiContextData(params: {
   organizationId: string;
   workspaceId: string;
+}, options?: {
+  includeCurrentNodeContent?: boolean;
+  siblingLimit?: number;
 }): Promise<ProjectAiContextData | null> {
-  const workspace = await prisma.document.findFirst({
-    where: {
-      deletedAt: null,
-      id: params.workspaceId,
-      organizationId: params.organizationId,
-    },
-    select: {
-      id: true,
-      projectId: true,
-      projectTitle: true,
-      title: true,
-    },
-  });
-
-  if (!workspace) {
+  const scope = await resolveProjectNodeScope(params);
+  if (!scope) {
     return null;
   }
 
-  const projectId = resolveProjectId(workspace);
-  const projectDocuments = await prisma.document.findMany({
-    where: {
-      deletedAt: null,
+  const siblingLimit = options?.siblingLimit ?? DEFAULT_SIBLING_SUMMARY_LIMIT;
+  const [deliverables, mountedProjectSummaries] = await Promise.all([
+    listProjectNodes({
+      currentNodeId: params.workspaceId,
       organizationId: params.organizationId,
-      OR: [
-        { id: projectId },
-        { projectId },
-      ],
-    },
-    select: {
-      currentVersion: true,
-      files: {
-        where: {
-          deletedAt: null,
-          role: 'deliverable',
-        },
-        orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-        select: {
-          content: true,
-          id: true,
-          isPrimary: true,
-          kind: true,
-          name: true,
-          path: true,
-          role: true,
-          type: true,
-        },
-      },
-      id: true,
-      projectId: true,
-      projectTitle: true,
-      status: true,
-      title: true,
-      treeSortOrder: true,
-      updatedAt: true,
-      workspacePlan: {
-        select: {
-          deliverableType: true,
-          goal: true,
-        },
-      },
-    },
-    orderBy: [{ treeSortOrder: 'asc' }, { updatedAt: 'desc' }],
-  });
+      projectId: scope.projectId,
+    }),
+    listMountedProjects({
+      organizationId: params.organizationId,
+      projectId: scope.projectId,
+    }),
+  ]);
+  const currentNode =
+    deliverables.find((deliverable) => deliverable.id === params.workspaceId) ||
+    deliverables.find((deliverable) => deliverable.isCurrent) ||
+    null;
+  const siblingSummaries = deliverables
+    .filter((deliverable) => !deliverable.isCurrent)
+    .slice(0, siblingLimit);
+  const mountedProjects = mountedProjectSummaries.slice(0, DEFAULT_MOUNTED_PROJECT_LIMIT);
 
-  const deliverables = projectDocuments
-    .map((projectWorkspace) => {
-      const presentation = resolveDeliverablePresentation(projectWorkspace);
+  let currentNodeContent: string | null = null;
+  let currentNodePrimaryFilePath = currentNode?.primaryFilePath || null;
+  let currentNodeContentTruncated = false;
 
-      return {
-        ...presentation,
-        id: projectWorkspace.id,
-        isCurrent: projectWorkspace.id === params.workspaceId,
-        status: projectWorkspace.status,
-        title: projectWorkspace.title,
-        updatedAt: projectWorkspace.updatedAt,
-      };
-    })
-    .sort((left, right) => {
-      if (left.isCurrent !== right.isCurrent) {
-        return left.isCurrent ? -1 : 1;
-      }
-
-      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+  if (options?.includeCurrentNodeContent && currentNode) {
+    const nodeContent = await readNodeContent({
+      organizationId: params.organizationId,
+      projectId: scope.projectId,
+      targetNodeId: currentNode.id,
     });
+    const normalizedContent = serializeNodeContentForAi(nodeContent.file.content);
+    currentNodePrimaryFilePath = nodeContent.file.path;
+    currentNodeContent =
+      normalizedContent.length > DEFAULT_CURRENT_NODE_CONTENT_MAX_CHARS
+        ? `${normalizedContent.slice(0, DEFAULT_CURRENT_NODE_CONTENT_MAX_CHARS - 3)}...`
+        : normalizedContent;
+    currentNodeContentTruncated =
+      normalizedContent.length > DEFAULT_CURRENT_NODE_CONTENT_MAX_CHARS;
+  }
 
   return {
+    currentNode,
+    currentNodeContent,
+    currentNodeContentTruncated,
+    currentNodePrimaryFilePath,
     currentWorkspaceId: params.workspaceId,
     deliverableCount: deliverables.length,
     deliverables,
-    id: projectId,
-    title: resolveProjectTitle(workspace),
+    id: scope.projectId,
+    mountedProjects,
+    omittedSiblingCount: Math.max(
+      deliverables.filter((deliverable) => !deliverable.isCurrent).length -
+        siblingSummaries.length,
+      0
+    ),
+    omittedMountedProjectCount: Math.max(
+      mountedProjectSummaries.length - mountedProjects.length,
+      0
+    ),
+    siblingSummaries,
+    title: scope.projectTitle,
   };
 }
 
@@ -205,16 +116,101 @@ export function formatProjectAiContext(
   }
 ) {
   const lines = [
-    `Project: ${context.title} (${context.deliverableCount} deliverable${context.deliverableCount === 1 ? '' : 's'})`,
-    'Project deliverables:',
-    ...context.deliverables.map((deliverable) => {
-      const currentPrefix = deliverable.isCurrent ? '[current] ' : '';
-      const workspaceSuffix = options?.includeWorkspaceIds
-        ? ` [workspaceId: ${deliverable.id}]`
-        : '';
-      return `- ${currentPrefix}${deliverable.title}${workspaceSuffix} (shape: ${deliverable.renderAs}, status: ${deliverable.status})`;
-    }),
+    `Project: ${context.title} (${context.deliverableCount} node${context.deliverableCount === 1 ? '' : 's'})`,
   ];
+
+  if (options?.includeWorkspaceIds) {
+    lines.push(
+      'Project nodes:',
+      ...context.deliverables.map((deliverable) => {
+        const currentPrefix = deliverable.isCurrent ? '[current] ' : '';
+        const workspaceSuffix = ` [workspaceId: ${deliverable.id}]`;
+        return `- ${currentPrefix}${deliverable.title}${workspaceSuffix} (shape: ${deliverable.renderAs}, status: ${deliverable.status})`;
+      })
+    );
+
+    if (context.mountedProjects.length > 0) {
+      lines.push(
+        'Mounted project node titles:',
+        ...context.mountedProjects.map((project) => {
+          const titles =
+            project.nodes.length > 0
+              ? project.nodes
+                  .map((node) => `${node.title} [nodeId: ${node.id}]`)
+                  .join(' | ')
+              : 'No mounted nodes.';
+          const omittedSuffix =
+            project.omittedNodeCount > 0
+              ? ` | ... ${project.omittedNodeCount} more title${project.omittedNodeCount === 1 ? '' : 's'} omitted`
+              : '';
+          return `- ${project.title} [projectId: ${project.id}] :: ${titles}${omittedSuffix}`;
+        })
+      );
+    } else {
+      lines.push('Mounted project node titles: none.');
+    }
+
+    return lines.join('\n');
+  }
+
+  lines.push('Current node:');
+  if (context.currentNode) {
+    lines.push(
+      `- [current] ${context.currentNode.title} (shape: ${context.currentNode.renderAs}, status: ${context.currentNode.status})`
+    );
+  } else {
+    lines.push('- No current node.');
+  }
+
+  lines.push(
+    `Current node content${context.currentNodePrimaryFilePath ? ` [${context.currentNodePrimaryFilePath}]` : ''}${context.currentNodeContentTruncated ? ' [truncated to default budget]' : ''}:`
+  );
+  lines.push(context.currentNodeContent || 'No readable current node content.');
+
+  if (context.siblingSummaries.length > 0) {
+    lines.push(
+      `Sibling node summaries (top ${context.siblingSummaries.length} recent):`,
+      ...context.siblingSummaries.map((deliverable) => {
+        const preview = deliverable.previewText || 'No preview available.';
+        return `- ${deliverable.title} (shape: ${deliverable.renderAs}, status: ${deliverable.status}) :: ${buildNodePreviewText(preview)}`;
+      })
+    );
+  } else {
+    lines.push('Sibling node summaries: none.');
+  }
+
+  if (context.omittedSiblingCount > 0) {
+    lines.push(
+      `- ... ${context.omittedSiblingCount} more node${context.omittedSiblingCount === 1 ? '' : 's'} omitted from default context.`
+    );
+  }
+
+  if (context.mountedProjects.length > 0) {
+    lines.push(
+      'Mounted project node titles:',
+      ...context.mountedProjects.map((project) => {
+        const titles =
+          project.nodes.length > 0
+            ? project.nodes
+                .map((node) => `${node.title} [nodeId: ${node.id}]`)
+                .join(' | ')
+            : 'No mounted nodes.';
+        const omittedSuffix =
+          project.omittedNodeCount > 0
+            ? ` | ... ${project.omittedNodeCount} more title${project.omittedNodeCount === 1 ? '' : 's'} omitted`
+            : '';
+        return `- ${project.title} [projectId: ${project.id}] :: ${titles}${omittedSuffix}`;
+      })
+    );
+  } else {
+    lines.push('Mounted project node titles: none.');
+  }
+
+  if (context.omittedMountedProjectCount > 0) {
+    lines.push(
+      `- ... ${context.omittedMountedProjectCount} more mounted project${context.omittedMountedProjectCount === 1 ? '' : 's'} omitted from default context.`
+    );
+  }
 
   return lines.join('\n');
 }

@@ -31,6 +31,7 @@ model Organization {
   assistantRuns    AssistantRun[]
   workspacePlans   WorkspacePlan[]
   projectFolders   ProjectFolder[]
+  projectMounts    ProjectMount[]
   mutationRequests MutationRequest[]
   stagedChangeSets StagedChangeSet[]
   chatAttachments  ChatAttachment[]
@@ -91,6 +92,7 @@ model Session {
   organizationId  String        @default("local-org")
   title           String        @default("New Conversation")
   wikiId          String?
+  projectId       String?
   parentSessionId String?
   forkedFromMessageId String?
   baseVersionId   String?
@@ -104,6 +106,7 @@ model Session {
   updatedAt       DateTime      @updatedAt
   organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   wiki            Document?     @relation("WikiConversations", fields: [wikiId], references: [id], onDelete: SetNull)
+  project         Document?     @relation("ProjectScopedConversations", fields: [projectId], references: [id], onDelete: SetNull)
   parentSession   Session?      @relation("ConversationBranches", fields: [parentSessionId], references: [id], onDelete: SetNull)
   childSessions   Session[]     @relation("ConversationBranches")
   forkedFromMessage ChatMessage? @relation("ConversationForkMessage", fields: [forkedFromMessageId], references: [id], onDelete: SetNull)
@@ -117,6 +120,7 @@ model Session {
 
   @@index([organizationId, updatedAt])
   @@index([wikiId, updatedAt])
+  @@index([projectId, updatedAt])
   @@index([parentSessionId, updatedAt])
 }
 
@@ -127,6 +131,7 @@ model ChatMessage {
   role            String
   content         String
   documentId      String?
+  focusNodeId     String?
   model           String?
   createdByUserId String?
   originDeviceId  String?
@@ -136,6 +141,7 @@ model ChatMessage {
   organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   session         Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   document        Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  focusNode       Document?     @relation("ConversationMessageFocusNode", fields: [focusNodeId], references: [id], onDelete: SetNull)
   forkedConversations Session[] @relation("ConversationForkMessage")
   sourceSnapshots Version[]     @relation("SnapshotSourceMessage")
   requestedRuns   AssistantRun[] @relation("ConversationRequestRuns")
@@ -143,6 +149,7 @@ model ChatMessage {
 
   @@index([organizationId, createdAt])
   @@index([sessionId, createdAt])
+  @@index([focusNodeId, createdAt])
 }
 
 model Document {
@@ -171,7 +178,11 @@ model Document {
   session         Session         @relation("PrimaryConversationDocuments", fields: [sessionId], references: [id], onDelete: Cascade)
   draftBaseVersion Version?       @relation("DocumentDraftBaseVersion", fields: [draftBaseVersionId], references: [id], onDelete: SetNull)
   conversations   Session[]       @relation("WikiConversations")
+  projectConversations Session[]  @relation("ProjectScopedConversations")
+  sourceProjectMounts ProjectMount[] @relation("ProjectMountSource")
+  targetProjectMounts ProjectMount[] @relation("ProjectMountTarget")
   chatMessages    ChatMessage[]
+  focusedMessages ChatMessage[]   @relation("ConversationMessageFocusNode")
   files           WorkspaceFile[]
   versions        Version[]
   threads         CommentThread[]
@@ -205,6 +216,21 @@ model ProjectFolder {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, projectId, updatedAt])
+}
+
+model ProjectMount {
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  sourceProjectId String
+  targetProjectId String
+  createdAt       DateTime     @default(now())
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceProject   Document     @relation("ProjectMountSource", fields: [sourceProjectId], references: [id], onDelete: Cascade)
+  targetProject   Document     @relation("ProjectMountTarget", fields: [targetProjectId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceProjectId, targetProjectId])
+  @@index([organizationId, sourceProjectId])
+  @@index([organizationId, targetProjectId])
 }
 
 model Version {

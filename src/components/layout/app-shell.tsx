@@ -28,6 +28,7 @@ import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { formatStableDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import { formatProjectListMeta } from '@/lib/workspace/project-summary';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { apiFetch } from '@/framework/resilience';
 
 import type {
@@ -238,7 +239,12 @@ function WorkspaceSidebar({
         sidebarActions.onOpenWorkspace(project.workspaceId);
         return;
       }
-      router.push(`/workspace/${project.workspaceId}`);
+      router.push(
+        buildWorkspaceRoute({
+          nodeId: project.workspaceId,
+          projectId: project.id,
+        })
+      );
     },
     [onNavigate, router, sidebarActions]
   );

@@ -7,15 +7,16 @@ import {
   type WorkspaceCreateIntentChoice,
 } from '@/lib/workspace/create-intent';
 import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { apiCallOrThrow, safeJsonParse } from '@/framework/resilience';
 
 
 export const WORKSPACE_CREATE_IDEMPOTENCY_HEADER = 'x-dao-idempotency-key';
-export const WORKSPACE_AUTO_START_FIRST_PASS_PARAM = 'autoStartFirstPass';
 
 const WORKSPACE_CREATE_RECOVERY_STORAGE_KEY = 'dao-workspace-create-recovery';
 
 export type WorkspaceCreateContext = {
+  conversationId: string | null;
   projectFolderId: string | null;
   projectId: string | null;
   projectTitle: string | null;
@@ -41,7 +42,7 @@ export type WorkspaceCreateRecovery = {
 
 export type WorkspaceCreateResult = {
   conversation: { id: string };
-  workspace: { id: string };
+  workspace: { id: string; projectId?: string | null };
 };
 
 export class WorkspaceCreateActionError extends Error {}
@@ -55,6 +56,7 @@ function buildWorkspaceCreateBody(params: {
     ...(params.context
       ? {
           projectFolderId: params.context.projectFolderId,
+          conversationId: params.context.conversationId,
           projectId: params.context.projectId,
           projectTitle: params.context.projectTitle,
         }
@@ -96,8 +98,11 @@ export function loadWorkspaceCreateRecovery() {
     }
 
     if (
-      parsed.context &&
-      ((parsed.context.projectFolderId !== undefined &&
+        parsed.context &&
+      ((parsed.context.conversationId !== undefined &&
+        parsed.context.conversationId !== null &&
+        typeof parsed.context.conversationId !== 'string') ||
+        (parsed.context.projectFolderId !== undefined &&
         parsed.context.projectFolderId !== null &&
         typeof parsed.context.projectFolderId !== 'string') ||
         (parsed.context.projectId !== undefined &&
@@ -157,6 +162,7 @@ export function buildWorkspaceCreateRecovery(params: {
     context: params.context
       ? {
           projectFolderId: params.context.projectFolderId,
+          conversationId: params.context.conversationId,
           projectId: params.context.projectId,
           projectTitle: params.context.projectTitle,
         }
@@ -169,17 +175,15 @@ export function buildWorkspaceCreateRecovery(params: {
 export function buildCreatedWorkspaceLocation(params: {
   autoStartFirstPass?: boolean;
   conversationId: string;
+  projectId?: string | null;
   workspaceId: string;
 }) {
-  const searchParams = new URLSearchParams({
+  return buildWorkspaceRoute({
+    autoStartFirstPass: params.autoStartFirstPass,
     conversationId: params.conversationId,
+    nodeId: params.workspaceId,
+    projectId: params.projectId || params.workspaceId,
   });
-
-  if (params.autoStartFirstPass) {
-    searchParams.set(WORKSPACE_AUTO_START_FIRST_PASS_PARAM, '1');
-  }
-
-  return `/workspace/${params.workspaceId}?${searchParams.toString()}`;
 }
 
 export async function submitWorkspaceCreateRequest(params: {

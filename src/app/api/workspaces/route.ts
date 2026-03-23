@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { getSettingsFromHeaders } from '@/lib/ai/providers';
 import { translate } from '@/lib/i18n/copy';
@@ -78,6 +79,10 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
     typeof body.projectParentPath === 'string' && body.projectParentPath.trim()
       ? body.projectParentPath.trim()
       : null;
+  const conversationId =
+    typeof body.conversationId === 'string' && body.conversationId.trim()
+      ? body.conversationId.trim()
+      : null;
   const projectId =
     typeof body.projectId === 'string' && body.projectId.trim()
       ? body.projectId.trim()
@@ -107,6 +112,7 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
     createMode,
     deliverableType,
     goal: body.goal || null,
+    conversationId,
     projectFolderId,
     projectParentPath,
     projectId,
@@ -121,10 +127,11 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
     const workspace = await withIdempotency({
       action: async () => {
         const createdItems =
-          createMode === 'both'
+              createMode === 'both'
             ? await createWorkspacePairForRequest(actor, {
                 constraints: mergedConstraints,
                 conversationTitle: body.conversationTitle,
+                conversationId,
                 goal: body.goal,
                 initialContent: typeof body.content === 'string' ? body.content : null,
                 initialPlanNote: translate(language, 'plan.generatingDescription'),
@@ -141,6 +148,7 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
                 await createWorkspaceForRequest(actor, {
                   constraints: mergedConstraints,
                   conversationTitle: body.conversationTitle,
+                  conversationId,
                   deliverableType,
                   goal: body.goal,
                   initialContent: typeof body.content === 'string' ? body.content : null,
@@ -217,6 +225,7 @@ async function createWorkspaceForRequest(
   input: {
     constraints?: string | null;
     conversationTitle?: unknown;
+    conversationId?: string | null;
     deliverableType: DeliverableType;
     goal?: unknown;
     initialContent?: string | null;
@@ -238,6 +247,7 @@ async function createWorkspaceForRequest(
   const planGoal = goal || title || 'Create a new deliverable';
   const projectParentPath = input.projectParentPath?.trim() || null;
   const requestedProjectId = input.projectId?.trim() || null;
+  const requestedConversationId = input.conversationId?.trim() || null;
   const requestedProjectFolderId = input.projectFolderId?.trim() || null;
   const requestedProjectTitle = input.projectTitle?.trim() || null;
   const requestedWorkflowPlaybookId = input.workflowPlaybookId?.trim() || null;
@@ -321,22 +331,39 @@ async function createWorkspaceForRequest(
   });
 
   return prisma.$transaction(async (tx) => {
+    const reusableConversation =
+      requestedProjectId && requestedConversationId
+        ? await findReusableProjectConversation({
+            conversationId: requestedConversationId,
+            organizationId: actor.organizationId,
+            projectId: requestedProjectId,
+            tx,
+          })
+        : null;
+
+    if (requestedConversationId && requestedProjectId && !reusableConversation) {
+      throw new WorkspaceCreateValidationError('Conversation not found for project.');
+    }
+
     const createWorkspacePlanRecord = tx.workspacePlan.create as unknown as (
       args: object
     ) => Promise<unknown>;
-    const conversation = await tx.session.create({
-      data: {
-        organizationId: actor.organizationId,
-        title:
-          typeof input.conversationTitle === 'string' &&
-          input.conversationTitle.trim().length > 0
-            ? input.conversationTitle.trim()
-            : title,
-        createdByUserId: actor.userId,
-        originDeviceId: actor.deviceId,
-        sourceType: 'chat',
-      },
-    });
+    const conversation =
+      reusableConversation ||
+      (await tx.session.create({
+        data: {
+          organizationId: actor.organizationId,
+          projectId: requestedProjectId,
+          title:
+            typeof input.conversationTitle === 'string' &&
+            input.conversationTitle.trim().length > 0
+              ? input.conversationTitle.trim()
+              : title,
+          createdByUserId: actor.userId,
+          originDeviceId: actor.deviceId,
+          sourceType: 'chat',
+        },
+      }));
 
     const nextTreeSortOrder = requestedProjectId
       ? await getNextProjectTreeSortOrder(
@@ -438,7 +465,7 @@ async function createWorkspaceForRequest(
       where: { id: conversation.id },
       data: {
         activeFileId: primaryFile.id,
-        wikiId: workspace.id,
+        projectId: workspace.projectId || workspace.id,
       },
     });
 
@@ -479,6 +506,7 @@ async function createWorkspacePairForRequest(
   input: {
     constraints?: string | null;
     conversationTitle?: unknown;
+    conversationId?: string | null;
     goal?: unknown;
     initialContent?: string | null;
     initialPlanNote?: string | null;
@@ -500,6 +528,7 @@ async function createWorkspacePairForRequest(
   const webWorkspace = await createWorkspaceForRequest(actor, {
     ...input,
     conversationTitle: null,
+    conversationId: documentWorkspace.conversation.id,
     deliverableType: 'web',
     projectId: documentWorkspace.workspace.projectId || documentWorkspace.workspace.id,
     projectParentPath: null,
@@ -514,6 +543,39 @@ async function createWorkspacePairForRequest(
   });
 
   return [documentWorkspace, webWorkspace];
+}
+
+async function findReusableProjectConversation(params: {
+  conversationId: string;
+  organizationId: string;
+  projectId: string;
+  tx: Prisma.TransactionClient | typeof prisma;
+}) {
+  const projectNodeIds = await params.tx.document.findMany({
+    where: {
+      deletedAt: null,
+      organizationId: params.organizationId,
+      OR: [{ id: params.projectId }, { projectId: params.projectId }],
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  return params.tx.session.findFirst({
+    where: {
+      deletedAt: null,
+      id: params.conversationId,
+      organizationId: params.organizationId,
+      OR: [
+        { projectId: params.projectId },
+        {
+          projectId: null,
+          wikiId: { in: projectNodeIds.map((node) => node.id) },
+        },
+      ],
+    },
+  });
 }
 
 async function finalizeWorkspaceCreation(
@@ -543,6 +605,7 @@ async function finalizeWorkspaceCreation(
         op: 'create',
         title: created.conversation.title,
         workspaceId: created.workspace.id,
+        projectId: created.workspace.projectId || created.workspace.id,
       },
       revision: created.conversation.revision,
     }),
