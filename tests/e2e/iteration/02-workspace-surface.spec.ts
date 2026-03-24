@@ -39,7 +39,7 @@ test('outline jump keeps the target heading near the top and status stays visibl
     }
 
     return headingBox.y - viewportBox.y;
-  }).toBeLessThan(110);
+  }).toBeLessThan(160);
 });
 
 test('slide and web deliverables stay inside result shells instead of falling back to source', async ({

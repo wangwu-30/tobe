@@ -90,10 +90,12 @@ export function DeliverableVersionControls({
   }, [loadVersions]);
 
   React.useEffect(() => {
-    if (versions.length > 0 || allVersions.length === 0) {
-      setAllVersions(versions);
+    if (versions.length === 0) {
+      return;
     }
-  }, [allVersions.length, versions]);
+
+    setAllVersions((current) => mergeWorkspaceVersions(current, versions));
+  }, [versions]);
 
   React.useEffect(() => {
     if (
@@ -339,12 +341,13 @@ export function DeliverableVersionControls({
       setIsContinuingId(version.id);
       try {
         await onContinueFromVersion(version);
+        await loadVersions();
         setVersionTreeOpen(false);
       } finally {
         setIsContinuingId(null);
       }
     },
-    [onContinueFromVersion]
+    [loadVersions, onContinueFromVersion]
   );
 
   const handleSwitchBranch = React.useCallback(
@@ -357,6 +360,7 @@ export function DeliverableVersionControls({
       try {
         setOptimisticDraftBaseVersionId(version.id);
         await onSwitchToVersionBranch(version);
+        await loadVersions();
         setVersionTreeOpen(false);
       } catch (error) {
         setOptimisticDraftBaseVersionId(null);
@@ -365,7 +369,7 @@ export function DeliverableVersionControls({
         setIsSwitchingId(null);
       }
     },
-    [onSwitchToVersionBranch]
+    [loadVersions, onSwitchToVersionBranch]
   );
   const openCompareFromVersion = React.useCallback(
     (
@@ -1666,6 +1670,27 @@ function buildVisibleVersionTree(params: {
   }
 
   return ordered;
+}
+
+function mergeWorkspaceVersions(
+  current: WorkspaceVersionData[],
+  incoming: DeliverableVersionData[]
+): WorkspaceVersionData[] {
+  if (current.length === 0) {
+    return incoming;
+  }
+
+  const mergedById = new Map(current.map((version) => [version.id, version]));
+  let changed = false;
+
+  for (const version of incoming) {
+    if (mergedById.get(version.id) !== version) {
+      mergedById.set(version.id, version);
+      changed = true;
+    }
+  }
+
+  return changed ? Array.from(mergedById.values()) : current;
 }
 
 function buildVisibleBranchOverview(params: {

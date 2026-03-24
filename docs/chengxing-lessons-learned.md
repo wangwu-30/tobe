@@ -1022,6 +1022,18 @@
 - 为什么：如果 mount/reset 也触发 autosave，请求会把刚从服务端拿到的新草稿再按旧内容 PATCH 回去，形成“服务端已更新，客户端又回滚”的竞态；黑盒里会表现成 AI 改稿成功后正文又跳回旧版本。
 - 默认做法：editor wrapper 持有最近一次程序化加载的序列化内容，只在用户真实编辑后、且内容与最近 loaded snapshot 不同时才触发 autosave。
 
+### 31. `scope=all` 的客户端集合不能被当前路由的子集 props 回写覆盖
+
+- 结论：像版本树这类需要展示整个 workspace/project 可见集合的客户端状态，一旦已经通过 `scope=all` 拉全量数据，就不能再被当前 route view 下的 `versions/files` 子集 props 直接整包覆盖。
+- 为什么：route 级 props 往往只代表“当前 node / 当前会话 / 当前 branch 看得到的那一段”；如果把它们回写成权威集合，其他 branch head、sibling node 或 mounted item 会在 UI 上凭空消失，造成“总览视图丢分支/丢节点”的假回归。
+- 默认做法：全量集合 state 只做按 id merge 或显式 refresh；像 continue/switch-branch 这类会改变局部视图窗口的动作，结束后主动补一次 `scope=all` reload，而不是依赖 route props 反向覆盖本地缓存。
+
+### 32. project canonical route 切换期间，不要暴露会开启本地 overlay 的工作区动作
+
+- 结论：当页面还在把 `/workspace/{nodeId}` 校正到 `/workspace/{projectId}?node={nodeId}` 这种 canonical route 时，像“继续下一份内容”这类会打开本地 dialog/sheet 的动作不能先暴露给用户。
+- 为什么：segment 级 `router.replace` 会导致页面 remount；如果用户恰好在校正窗口里点击了 create/comment 之类的本地 overlay 动作，overlay 会在旧页面上短暂打开后立刻被 remount 冲掉，表现成“按钮偶发无响应 / dialog 自己消失”。
+- 默认做法：需要本地 UI state 承接的动作只在 route canonical 稳定后显示；同时相关 callback 的依赖项要包含最新的 `conversationId` 等 runtime identity，避免 remount 后继续使用旧闭包。
+
 ## 最新验证状态
 
 - **运行时健壮性验收闭环**：`framework/resilience/`、route error page、全局异常监听、`safeJsonParse` / `api client` / `defineRoute` 与相关产品回归，已在 2026-03-22 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed`。
@@ -1049,4 +1061,5 @@
 - **Gate D Canvas Step 1**：集成 tldraw 项目画布骨架，含自定义 NodeCard 形状、debounced 坐标持久化（`Document.canvasMetaJson`）、View 下拉菜单的 `总览/编辑` 切换（`surfaceMode` 状态）、双击 node 跳转编辑面、node-catalog API；已在 2026-03-24 通过完整 `npm run verify:iteration` 验证，结果为 `76 passed (3.7m)`。
 - **Gate E1 剩余验收 UI**：版本栏降密度（草稿选择器和比较移进版本树 header，顶栏只保留状态/评论/版本树/保存里程碑），"X 项内容"改为"X 份内容"，首页副标题精简为"目标驱动创作"；已在 2026-03-24 通过完整 `npm run verify:iteration` 验证，结果为 `75/76 passed (3.6m)`，唯一失败为已知偶现的大纲滚动定位 flaky。
 - **Gate E2 Canvas Advanced Features**：右键菜单（打开/重命名/连接到…/断开连接/删除 + 空白处新建），`NodeRelation` Prisma model + CRUD API（`/api/workspaces/[projectId]/node-relations`），SVG 依赖线 overlay（dashed arrows + 实时拖拽位置同步），首页列表|画布视图切换（`localStorage` 持久化），`ProjectCanvasLayout` Prisma model + GET/PATCH API，`HomeCanvas` tldraw 全局画布（mount 连线渲染），共享确定性自动布局 `canvas/layout.ts`（≤10 网格 / >10 scaled-columns）；已在 2026-03-24 通过完整 `npm run verify:iteration` 验证，结果为 `75/76 passed (3.4m)`。
+- **Regression closure 2026-03-25**：branch overview 的 `scope=all` 版本集合覆盖问题、project canonical route 切换期间的 sibling-create dialog race，以及大纲跳转用例的布局阈值已收口；已在 2026-03-25 通过完整 `npm run verify:iteration` 验证，结果为 `76 passed (4.3m)`。
 - **Pitfall：React Hooks 不能定义在条件返回之后**：`ProjectCanvas` 组件中 7 个 `useCallback`/`useEffect`/`useMemo` hooks 定义在 `if (!ready) return <Loading />` 条件返回之后，首次 `ready=false` 时只执行 14 个 hooks，`ready=true` 后执行 21 个，触发 `Rendered more hooks than during the previous render` 崩溃。修复：将所有 hooks 移到条件返回之前。教训：大组件中加 early return 时务必 grep 所有下方的 hook 调用。

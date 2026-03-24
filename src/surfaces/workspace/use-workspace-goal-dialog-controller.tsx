@@ -117,7 +117,7 @@ export function useWorkspaceGoalDialogController({
       setGoalDialogSeedValues(null);
       setGoalDialogOpen(true);
     },
-    [createWorkspaceRecoveryActive]
+    [createWorkspaceRecoveryActive, currentConversationId]
   );
 
   const openProjectDeliverableComposer = React.useCallback(

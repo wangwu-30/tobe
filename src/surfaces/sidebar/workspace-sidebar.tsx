@@ -61,7 +61,7 @@ export function WorkspaceSidebar({
     projectFolderId?: string | null;
   }) => Promise<void> | void;
   onCreateProjectFolder: (parentFolderId: string | null) => Promise<void> | void;
-  onCreateSiblingDeliverable: (workspaceId: string) => Promise<void> | void;
+  onCreateSiblingDeliverable?: (workspaceId: string) => Promise<void> | void;
   onCreateSupportFile: (parentId: string | null) => Promise<void> | void;
   onCreateSupportFolder: (parentId: string | null) => Promise<void> | void;
   onCreateWorkspace: () => void;
@@ -123,8 +123,10 @@ export function WorkspaceSidebar({
       onCreateProjectFolder={
         isVersionView ? undefined : (parentFolderId) => void onCreateProjectFolder(parentFolderId || null)
       }
-      onCreateSiblingDeliverable={(targetWorkspaceId) =>
-        void onCreateSiblingDeliverable(targetWorkspaceId)
+      onCreateSiblingDeliverable={
+        onCreateSiblingDeliverable
+          ? (targetWorkspaceId) => void onCreateSiblingDeliverable(targetWorkspaceId)
+          : undefined
       }
       onDeleteWorkspace={(projectId) => void onDeleteWorkspace(projectId)}
       onCreateSupportFile={

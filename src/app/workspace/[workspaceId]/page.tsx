@@ -280,20 +280,20 @@ export default function WorkspacePage() {
     () => resolveWebPreviewAnchorFile(currentDeliverableFiles, previewCapability)?.id || null,
     [currentDeliverableFiles, previewCapability]
   );
-  const previewAutoStartKey = React.useMemo(() => {
-    if (!previewCapability.canPreview || currentDeliverableFiles.length === 0) {
-      return null;
-    }
+  const previewAutoStartKey =
+    !previewCapability.canPreview || currentDeliverableFiles.length === 0
+      ? null
+      : (() => {
+          const routeNodeId = requestedNodeId || routeProjectId;
+          const fileSignature = currentDeliverableFiles
+            .filter((file) => file.nodeType === 'file')
+            .map((file) => `${file.id || file.path}:${file.revision}:${file.content.length}`)
+            .join('|');
 
-    const fileSignature = currentDeliverableFiles
-      .filter((file) => file.nodeType === 'file')
-      .map((file) => `${file.id || file.path}:${file.revision}:${file.content.length}`)
-      .join('|');
-
-    return fileSignature
-      ? `${workspaceId}:${currentVersionId || 'draft'}:${previewCapability.entryPath}:${fileSignature}`
-      : null;
-  }, [currentDeliverableFiles, currentVersionId, previewCapability, workspaceId]);
+          return fileSignature
+            ? `${routeNodeId}:${currentVersionId || 'draft'}:${previewCapability.entryPath}:${fileSignature}`
+            : null;
+        })();
   const activePreviewRun = React.useMemo(
     () =>
       workspaceRuns.find(
@@ -372,6 +372,27 @@ export default function WorkspacePage() {
     () => currentWorkspaceStateLabel || undefined,
     [currentWorkspaceStateLabel]
   );
+  const canonicalWorkspaceHref =
+    !currentWorkspace?.id || !currentProjectId
+      ? null
+      : buildWorkspaceRoute({
+          autoStartFirstPass: shouldAutoStartFirstPass,
+          conversationId: requestedConversationId,
+          fileId: requestedFileId,
+          nodeId: currentWorkspace.id,
+          projectId: currentProjectId,
+          versionId: requestedVersionId,
+        });
+  const currentWorkspaceHref = buildWorkspaceRoute({
+    autoStartFirstPass: shouldAutoStartFirstPass,
+    conversationId: requestedConversationId,
+    fileId: requestedFileId,
+    nodeId: requestedNodeId,
+    projectId: routeProjectId,
+    versionId: requestedVersionId,
+  });
+  const routeIsCanonical =
+    !canonicalWorkspaceHref || canonicalWorkspaceHref === currentWorkspaceHref;
   const canSwitchProjectDeliverable =
     !isVersionView && projectDeliverableSwitchOptions.length > 1;
   const canOpenOutline = outlineItems.some((item) => item.id.startsWith('heading-'));
@@ -458,40 +479,17 @@ export default function WorkspacePage() {
   });
 
   React.useEffect(() => {
-    if (!currentWorkspace?.id || !currentProjectId) {
+    if (!canonicalWorkspaceHref) {
       return;
     }
 
-    const canonicalHref = buildWorkspaceRoute({
-      autoStartFirstPass: shouldAutoStartFirstPass,
-      conversationId: requestedConversationId,
-      fileId: requestedFileId,
-      nodeId: currentWorkspace.id,
-      projectId: currentProjectId,
-      versionId: requestedVersionId,
-    });
-    const currentHref = buildWorkspaceRoute({
-      autoStartFirstPass: shouldAutoStartFirstPass,
-      conversationId: requestedConversationId,
-      fileId: requestedFileId,
-      nodeId: requestedNodeId,
-      projectId: routeProjectId,
-      versionId: requestedVersionId,
-    });
-
-    if (canonicalHref !== currentHref) {
-      router.replace(canonicalHref);
+    if (canonicalWorkspaceHref !== currentWorkspaceHref) {
+      router.replace(canonicalWorkspaceHref);
     }
   }, [
-    currentProjectId,
-    currentWorkspace?.id,
-    requestedConversationId,
-    requestedFileId,
-    requestedNodeId,
-    requestedVersionId,
-    routeProjectId,
+    canonicalWorkspaceHref,
+    currentWorkspaceHref,
     router,
-    shouldAutoStartFirstPass,
   ]);
 
   React.useEffect(() => {
@@ -751,7 +749,7 @@ export default function WorkspacePage() {
       currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
       isVersionView={isVersionView}
       onCreateProjectFolder={createProjectFolder}
-      onCreateSiblingDeliverable={createSiblingDeliverable}
+      onCreateSiblingDeliverable={routeIsCanonical ? createSiblingDeliverable : undefined}
       onDeleteWorkspace={deleteProject}
       onCreateSupportFile={createSupportFile}
       onCreateSupportFolder={createSupportFolder}
@@ -783,7 +781,7 @@ export default function WorkspacePage() {
   const hasMultipleNodes = projectDeliverables.length > 1;
   const workspaceShellActions = (
     <WorkspaceShellActions
-      canCreateSiblingDeliverable={Boolean(currentWorkspace && !isVersionView)}
+      canCreateSiblingDeliverable={Boolean(currentWorkspace && !isVersionView && routeIsCanonical)}
       canToggleImplementation={deliverableType !== 'document'}
       canToggleSurfaceMode={hasMultipleNodes && !isVersionView}
       isStartingPreview={isStartingPreview}
