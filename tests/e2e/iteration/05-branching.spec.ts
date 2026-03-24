@@ -107,6 +107,9 @@ async function createBranchVersionScenario(): Promise<BranchVersionScenario> {
 async function openVersionTree(page: Page) {
   const versionTreeDialog = page.getByRole('dialog', { name: /版本树|Version Tree/ });
   const versionTreeButton = page.getByTestId('version-tree-button');
+  const firstVersionCard = versionTreeDialog
+    .locator('[data-testid^="version-history-card-"]')
+    .first();
 
   if (await versionTreeDialog.isVisible().catch(() => false)) {
     return versionTreeDialog;
@@ -115,16 +118,18 @@ async function openVersionTree(page: Page) {
   await dismissVisibleFirstUseGuidance(page);
   await expect(versionTreeButton).toBeVisible();
   await expect(versionTreeButton).toBeEnabled();
+  let openRequested = false;
   await expect(async () => {
-    if (!(await versionTreeDialog.isVisible().catch(() => false))) {
+    if (!openRequested && !(await versionTreeDialog.isVisible().catch(() => false))) {
       await dismissVisibleFirstUseGuidance(page);
-      await versionTreeButton.click();
+      await versionTreeButton.evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      openRequested = true;
     }
     await expect(versionTreeDialog).toBeVisible();
-  }).toPass({ timeout: 5000 });
-  await expect(
-    versionTreeDialog.locator('[data-testid^="version-history-card-"]').first()
-  ).toBeVisible();
+    await expect(firstVersionCard).toBeVisible();
+  }).toPass({ timeout: 10000 });
 
   return versionTreeDialog;
 }
@@ -222,18 +227,26 @@ async function continueFromVersionTree(
   versionId: string,
   initialConversationId: string
 ) {
+  let continueRequested = false;
+
   await expect(async () => {
-    if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+    if (
+      !continueRequested &&
+      new URL(page.url()).searchParams.get('conversationId') === initialConversationId
+    ) {
       const versionTreeDialog = await openVersionTree(page);
       const continueButton = versionTreeDialog.getByTestId(`version-continue-${versionId}`);
       await expect(continueButton).toBeVisible();
       await expect(continueButton).toBeEnabled();
-      await continueButton.click({ force: true });
+      await continueButton.evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      continueRequested = true;
     }
 
     await waitForConversationChange(page, initialConversationId, {
       expectedVersionId: null,
-      timeout: 5_000,
+      timeout: 10_000,
     });
   }).toPass({ timeout: 30_000 });
 }
@@ -243,8 +256,13 @@ async function switchToBranchFromVersionTree(
   branchHeadVersionId: string,
   initialConversationId: string
 ) {
+  let switchRequested = false;
+
   await expect(async () => {
-    if (new URL(page.url()).searchParams.get('conversationId') === initialConversationId) {
+    if (
+      !switchRequested &&
+      new URL(page.url()).searchParams.get('conversationId') === initialConversationId
+    ) {
       const versionTreeDialog = await openVersionTree(page);
       const overviewSwitch = versionTreeDialog.getByTestId(
         `version-branch-overview-switch-${branchHeadVersionId}`
@@ -252,20 +270,26 @@ async function switchToBranchFromVersionTree(
 
       if (await overviewSwitch.isVisible().catch(() => false)) {
         await expect(overviewSwitch).toBeEnabled();
-        await overviewSwitch.click({ force: true });
+        await overviewSwitch.evaluate((button) => {
+          (button as HTMLButtonElement).click();
+        });
       } else {
         const switchButton = versionTreeDialog.getByTestId(
           `version-switch-branch-${branchHeadVersionId}`
         );
         await expect(switchButton).toBeVisible();
         await expect(switchButton).toBeEnabled();
-        await switchButton.click({ force: true });
+        await switchButton.evaluate((button) => {
+          (button as HTMLButtonElement).click();
+        });
       }
+
+      switchRequested = true;
     }
 
     await waitForConversationChange(page, initialConversationId, {
       expectedVersionId: null,
-      timeout: 5_000,
+      timeout: 10_000,
     });
   }).toPass({ timeout: 30_000 });
 }
@@ -684,27 +708,27 @@ test('branch overview groups visible heads and can switch the live draft to anot
   const continuedConversationId = new URL(page.url()).searchParams.get('conversationId');
   expect(continuedConversationId).not.toBeNull();
 
-  const branchVersionTree = await waitForBranchOverview(page, workspace.secondVersionId!, {
-    minimumCount: 2,
-  });
-  await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
-    /正式里程碑|Saved Milestones/
-  );
-  await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
-    /最近临时位|Latest Temporary/
-  );
-  await expect(branchVersionTree).toContainText(
-    /保存里程碑.*可见正式版本|Save Milestone creates the visible version/
-  );
-  await expect(
-    branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
-  ).toBeVisible();
-  await expect(
-    branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
-  ).toContainText('版本里程碑 V1');
-  await expect(
-    branchVersionTree.getByTestId(`version-branch-overview-card-${workspace.secondVersionId!}`)
-  ).toContainText('版本里程碑 V2');
+  await expect(async () => {
+    const branchVersionTree = await waitForBranchOverview(page, workspace.secondVersionId!, {
+      minimumCount: 2,
+    });
+    const overviewCard = branchVersionTree.getByTestId(
+      `version-branch-overview-card-${workspace.secondVersionId!}`
+    );
+
+    await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
+      /正式里程碑|Saved Milestones/
+    );
+    await expect(branchVersionTree.getByTestId('version-tree-header-stats')).toContainText(
+      /最近临时位|Latest Temporary/
+    );
+    await expect(branchVersionTree).toContainText(
+      /保存里程碑.*可见正式版本|Save Milestone creates the visible version/
+    );
+    await expect(overviewCard).toBeVisible();
+    await expect(overviewCard).toContainText('版本里程碑 V1');
+    await expect(overviewCard).toContainText('版本里程碑 V2');
+  }).toPass({ timeout: 30_000 });
 
   await switchToBranchFromVersionTree(page, workspace.secondVersionId!, continuedConversationId!);
 

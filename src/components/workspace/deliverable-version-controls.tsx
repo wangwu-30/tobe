@@ -34,6 +34,7 @@ export function DeliverableVersionControls({
   currentDraftBaseVersionId,
   currentVersionId,
   currentText,
+  interactionsEnabled = true,
   onContinueFromVersion,
   onCreateVersion,
   onRestoreVersion,
@@ -47,6 +48,7 @@ export function DeliverableVersionControls({
   currentDraftBaseVersionId?: string | null;
   currentVersionId?: string | null;
   currentText: string;
+  interactionsEnabled?: boolean;
   onContinueFromVersion?: (version: WorkspaceVersionData) => Promise<void> | void;
   onCreateVersion: () => void;
   onRestoreVersion: (versionId: string) => Promise<void> | void;
@@ -556,6 +558,7 @@ export function DeliverableVersionControls({
           className="h-8 gap-1.5"
           onClick={() => setVersionTreeOpen(true)}
           data-testid="version-tree-button"
+          disabled={!interactionsEnabled}
         >
           <GitBranch className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">{t('version.tree')}</span>
@@ -565,7 +568,7 @@ export function DeliverableVersionControls({
             </Badge>
           ) : null}
         </Button>
-        <Button size="sm" className="h-8" onClick={onCreateVersion}>
+        <Button size="sm" className="h-8" onClick={onCreateVersion} disabled={!interactionsEnabled}>
           {t('version.createVersion')}
         </Button>
       </div>

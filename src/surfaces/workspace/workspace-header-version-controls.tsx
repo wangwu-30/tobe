@@ -19,6 +19,7 @@ export function WorkspaceHeaderVersionControls({
   workflowStatus,
   currentText,
   currentVersionId,
+  interactionsEnabled = true,
   isAssistantBusy,
   onContinueFromVersion,
   onCreateVersion,
@@ -34,6 +35,7 @@ export function WorkspaceHeaderVersionControls({
   workflowStatus: WorkspaceWorkflowStatusData | null;
   currentText: string;
   currentVersionId?: string | null;
+  interactionsEnabled?: boolean;
   isAssistantBusy: boolean;
   onContinueFromVersion?: (version: WorkspaceVersionData) => Promise<void> | void;
   onCreateVersion: () => void;
@@ -94,7 +96,7 @@ export function WorkspaceHeaderVersionControls({
         variant="outline"
         className="h-8"
         onClick={() => requestSelectionCommentComposerOpen()}
-        disabled={!workspaceId}
+        disabled={!workspaceId || !interactionsEnabled}
       >
         {t('workspace.reviewComment')}
       </Button>
@@ -102,6 +104,7 @@ export function WorkspaceHeaderVersionControls({
         currentDraftBaseVersionId={currentDraftBaseVersionId}
         currentVersionId={currentVersionId}
         currentText={currentText}
+        interactionsEnabled={interactionsEnabled}
         onContinueFromVersion={onContinueFromVersion}
         onCreateVersion={onCreateVersion}
         onRestoreVersion={onRestoreVersion}

@@ -128,6 +128,14 @@ test('A2-A4, A8: Agent binding lifecycle in thread (binding, ordinary follow-up,
   const workspace = seedState.commentsAgentWorkspace;
   const baseURL = String(testInfo.project.use.baseURL);
 
+  await page.route('**/api/agent/run', async (route) => {
+    await route.fulfill({
+      body: '已收到评论建议。',
+      contentType: 'text/plain; charset=utf-8',
+      status: 200,
+    });
+  });
+
   await primeClientState(page);
   await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
   await page.getByRole('tab', { name: /评审|Review/ }).click();

@@ -1034,6 +1034,24 @@
 - 为什么：segment 级 `router.replace` 会导致页面 remount；如果用户恰好在校正窗口里点击了 create/comment 之类的本地 overlay 动作，overlay 会在旧页面上短暂打开后立刻被 remount 冲掉，表现成“按钮偶发无响应 / dialog 自己消失”。
 - 默认做法：需要本地 UI state 承接的动作只在 route canonical 稳定后显示；同时相关 callback 的依赖项要包含最新的 `conversationId` 等 runtime identity，避免 remount 后继续使用旧闭包。
 
+### 33. 只验证交互语义的 E2E 场景，不要把结果绑到真实 AI 凭证上
+
+- 结论：像评论线程的“绑定角色、继续监听、停止监听”这类场景，如果验收目标是交互语义而不是模型输出，就不应该在回归里真的调用 `/api/agent/run`。
+- 为什么：这类用例一旦依赖真实 provider，就会把本机 OAuth / API key 状态引进门禁，结果从“产品行为回归”退化成“环境是否刚好有凭证”的偶现失败。
+- 默认做法：在测试里直接 stub `/api/agent/run` 返回稳定文本流，只保留需要验证的 UI 语义；只有明确在验 AI 内容或后端 side-effect 时，才走真实 agent path。
+
+### 34. `toPass` 里的点击如果会触发写操作，必须避免重试时重复提交
+
+- 结论：像版本续写、切 branch 这类会创建新 conversation / 改写 runtime identity 的按钮，不能直接放在 `expect(...).toPass()` 里每轮都点击。
+- 为什么：全量门禁下请求稍慢时，第一次点击可能已经成功发出 mutation，但 URL/页面状态还没收敛；`toPass` 下一轮再点一次，就会制造第二次 continue/switch，把原本的等待问题放大成偶现失败。
+- 默认做法：带副作用的 Playwright helper 采用“单次触发 + 等待状态收敛”模式；如果需要 retry，只重试观测条件，不重复提交 mutation。
+
+### 35. canonical route 切换窗口里，所有 workspace header 本地动作都要一起 gate
+
+- 结论：`/workspace/{id}` 正在校正到 canonical `?node=` 路由时，不能只 gate“继续下一份内容”这类按钮；header 里的 `评审评论`、`版本树`、`保存里程碑` 等本地动作也必须一起等 route 稳定。
+- 为什么：这些动作要么会打开本地 overlay，要么会启动依赖当前 runtime identity 的本地 mutation。若在 `router.replace` remount 窗口里先点击，sheet/dialog 会自己消失，或把测试/用户交互打成偶现无响应。
+- 默认做法：workspace page 统一暴露一个 `routeIsCanonical` gate，所有 header-level local actions 都复用这一个条件，而不是按按钮零散兜底。
+
 ## 最新验证状态
 
 - **运行时健壮性验收闭环**：`framework/resilience/`、route error page、全局异常监听、`safeJsonParse` / `api client` / `defineRoute` 与相关产品回归，已在 2026-03-22 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed`。

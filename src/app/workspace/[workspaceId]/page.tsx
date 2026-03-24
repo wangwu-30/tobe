@@ -679,6 +679,7 @@ export default function WorkspacePage() {
       workflowStatus={workflowStatus}
       currentText={comparableDeliverableText}
       currentVersionId={currentVersionId}
+      interactionsEnabled={routeIsCanonical}
       isAssistantBusy={isAssistantBusy}
       onContinueFromVersion={continueConversationFromVersion}
       onCreateVersion={createVersion}
