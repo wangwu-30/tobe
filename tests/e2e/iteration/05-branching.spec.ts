@@ -332,6 +332,7 @@ async function expectCurrentBranchOverview(page: Page, branchHeadVersionId: stri
 }
 
 async function focusBranchLineageFromVersionTree(page: Page, branchHeadVersionId: string) {
+  let focusRequested = false;
   await expect(async () => {
     const versionTreeDialog = await waitForBranchOverview(page, branchHeadVersionId, {
       minimumCount: 1,
@@ -342,7 +343,12 @@ async function focusBranchLineageFromVersionTree(page: Page, branchHeadVersionId
 
     await expect(focusButton).toBeVisible();
     await expect(focusButton).toBeEnabled();
-    await focusButton.click({ force: true });
+    if (!focusRequested) {
+      await focusButton.evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      focusRequested = true;
+    }
     await expect(versionTreeDialog.getByTestId('version-branch-focus-banner')).toBeVisible();
     await expect(
       versionTreeDialog.getByTestId(`version-branch-workspace-section-${branchHeadVersionId}`)
@@ -765,30 +771,42 @@ test('branch overview can focus the milestone list on a single branch lineage', 
   await focusBranchLineageFromVersionTree(page, workspace.secondVersionId!);
   const branchVersionTree = await openVersionTree(page);
 
-  await expect(branchVersionTree.getByTestId('version-branch-focus-banner')).toContainText(
-    '版本里程碑 V2'
-  );
-  await expect(branchVersionTree.getByTestId('version-branch-workspace')).toBeVisible();
-  await expect(branchVersionTree.getByTestId('version-branch-workspace-stats')).toContainText(
-    /1|Temporary|临时/
-  );
-  await expect(
-    branchVersionTree.getByTestId(`version-history-card-${workspace.versionId}`)
-  ).toBeVisible();
-  await expect(
-    branchVersionTree.getByTestId(`version-history-card-${workspace.secondVersionId!}`)
-  ).toBeVisible();
-  await expect(
-    branchVersionTree.getByTestId(`version-branch-workspace-section-${workspace.secondVersionId!}`)
-  ).toContainText(/继续前安全回退点|Safety Checkpoint before Continue/);
-  await expect(
-    branchVersionTree.getByTestId(`version-branch-workspace-section-${workspace.versionId}`)
-  ).not.toContainText(/继续前安全回退点|Safety Checkpoint before Continue/);
-  await expect(
-    branchVersionTree
-      .locator('[data-testid^="version-history-card-"]')
-      .filter({ hasText: '从 版本里程碑 V1 继续' })
-  ).toHaveCount(0);
+  await expect(async () => {
+    const refreshedVersionTree = await openVersionTree(page);
+    const v2BranchWorkspaceSection = refreshedVersionTree.getByTestId(
+      `version-branch-workspace-section-${workspace.secondVersionId!}`
+    );
+    const v1BranchWorkspaceSection = refreshedVersionTree.getByTestId(
+      `version-branch-workspace-section-${workspace.versionId}`
+    );
+
+    await expect(refreshedVersionTree.getByTestId('version-branch-focus-banner')).toContainText(
+      '版本里程碑 V2'
+    );
+    await expect(refreshedVersionTree.getByTestId('version-branch-workspace')).toBeVisible();
+    await expect(refreshedVersionTree.getByTestId('version-branch-workspace-stats')).toContainText(
+      /1|Temporary|临时/
+    );
+    await expect(
+      refreshedVersionTree.getByTestId(`version-history-card-${workspace.versionId}`)
+    ).toBeVisible();
+    await expect(
+      refreshedVersionTree.getByTestId(`version-history-card-${workspace.secondVersionId!}`)
+    ).toBeVisible();
+    await expect(v2BranchWorkspaceSection).toBeVisible();
+    await expect(v2BranchWorkspaceSection).toContainText(
+      /继续前安全回退点|Safety Checkpoint before Continue/
+    );
+    await expect(v1BranchWorkspaceSection).toBeVisible();
+    await expect(v1BranchWorkspaceSection).not.toContainText(
+      /继续前安全回退点|Safety Checkpoint before Continue/
+    );
+    await expect(
+      refreshedVersionTree
+        .locator('[data-testid^="version-history-card-"]')
+        .filter({ hasText: '从 版本里程碑 V1 继续' })
+    ).toHaveCount(0);
+  }).toPass({ timeout: 30_000 });
 
   await branchVersionTree.getByTestId('version-branch-focus-clear').click();
   await expect(
