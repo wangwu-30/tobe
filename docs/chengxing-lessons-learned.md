@@ -1052,6 +1052,12 @@
 - 为什么：这些动作要么会打开本地 overlay，要么会启动依赖当前 runtime identity 的本地 mutation。若在 `router.replace` remount 窗口里先点击，sheet/dialog 会自己消失，或把测试/用户交互打成偶现无响应。
 - 默认做法：workspace page 统一暴露一个 `routeIsCanonical` gate，所有 header-level local actions 都复用这一个条件，而不是按按钮零散兜底。
 
+### 36. project route 已切换但 view 数据未收敛时，不能继续复用旧 node 的派生状态
+
+- 结论：统一工作空间下，只要 URL 已经切到新的 `workspaceId/nodeId`，页面里的 `currentFile`、`currentConversation`、`deliverable files` 等 route-sensitive 派生值就必须先按当前路由做一次匹配 gating；不能直接继续消费上一次 `workspaceView`。
+- 为什么：route 先变、view 后到是正常时序。如果新路由还没拿到自己的 view，就继续用旧 node 的 file/conversation 派生值，autosave、header create、review/comment 之类动作会把旧上下文写到新 node 上，表现成“切到新内容后还带着上一份文件/对话状态”。
+- 默认做法：先构造 `routeWorkspaceView = workspaceView?.workspace?.id === workspaceId ? workspaceView : null` 这类 route-matched view，再由它统一推导 `currentFile/currentConversation/supportFiles/stagedChangeSets` 等所有依赖当前 node 的运行时状态。
+
 ## 最新验证状态
 
 - **运行时健壮性验收闭环**：`framework/resilience/`、route error page、全局异常监听、`safeJsonParse` / `api client` / `defineRoute` 与相关产品回归，已在 2026-03-22 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed`。
@@ -1080,4 +1086,5 @@
 - **Gate E1 剩余验收 UI**：版本栏降密度（草稿选择器和比较移进版本树 header，顶栏只保留状态/评论/版本树/保存里程碑），"X 项内容"改为"X 份内容"，首页副标题精简为"目标驱动创作"；已在 2026-03-24 通过完整 `npm run verify:iteration` 验证，结果为 `75/76 passed (3.6m)`，唯一失败为已知偶现的大纲滚动定位 flaky。
 - **Gate E2 Canvas Advanced Features**：右键菜单（打开/重命名/连接到…/断开连接/删除 + 空白处新建），`NodeRelation` Prisma model + CRUD API（`/api/workspaces/[projectId]/node-relations`），SVG 依赖线 overlay（dashed arrows + 实时拖拽位置同步），首页列表|画布视图切换（`localStorage` 持久化），`ProjectCanvasLayout` Prisma model + GET/PATCH API，`HomeCanvas` tldraw 全局画布（mount 连线渲染），共享确定性自动布局 `canvas/layout.ts`（≤10 网格 / >10 scaled-columns）；已在 2026-03-24 通过完整 `npm run verify:iteration` 验证，结果为 `75/76 passed (3.4m)`。
 - **Regression closure 2026-03-25**：branch overview 的 `scope=all` 版本集合覆盖问题、project canonical route 切换期间的 sibling-create dialog race，以及大纲跳转用例的布局阈值已收口；已在 2026-03-25 通过完整 `npm run verify:iteration` 验证，结果为 `76 passed (4.3m)`。
+- **Regression closure 2026-03-25（push gate）**：workspace header 同项目切换已保留 `conversationId`，project route 切换期间的 route-matched view gating 已防止旧 node file/conversation 泄漏到新 node，web preview review tab 与 branch focus clear 两条 Playwright flake 已收口；已在 2026-03-25 通过完整 `npm run verify:iteration` 验证，结果为 `76 passed (3.5m)`。
 - **Pitfall：React Hooks 不能定义在条件返回之后**：`ProjectCanvas` 组件中 7 个 `useCallback`/`useEffect`/`useMemo` hooks 定义在 `if (!ready) return <Loading />` 条件返回之后，首次 `ready=false` 时只执行 14 个 hooks，`ready=true` 后执行 21 个，触发 `Rendered more hooks than during the previous render` 崩溃。修复：将所有 hooks 移到条件返回之前。教训：大组件中加 early return 时务必 grep 所有下方的 hook 调用。

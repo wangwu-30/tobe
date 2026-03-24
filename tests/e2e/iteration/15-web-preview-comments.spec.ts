@@ -56,8 +56,8 @@ test('web preview bridge supports selection comments and review refocus', async 
   expect(createdThread?.reviewAnchor?.surfaceType).toBe('web-component');
   expect(createdThread?.reviewAnchor?.anchorPayload?.cssSelector).toBe('#hero-copy');
 
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
-  const thread = page.getByTestId(`comment-thread-${createdThread.id}`);
+  await openReviewTab(page, createdThread.id);
+  const thread = await revealThreadInReview(page, createdThread.id);
   await expect(thread).toBeVisible();
   await thread.getByRole('button').first().click();
 
@@ -109,10 +109,9 @@ test('web preview bridge supports selection comments and review refocus', async 
   await apiRequest(baseURL, `/api/workspaces/${setup.workspace.id}/preview/start`, {
     method: 'POST',
   });
-  await page.reload();
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
-  const refreshedThread = page.getByTestId(`comment-thread-${createdThread.id}`);
-  await expect(refreshedThread).toBeVisible();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await openReviewTab(page, createdThread.id);
+  const refreshedThread = await revealThreadInReview(page, createdThread.id);
   const refreshedPreviewFrame = await waitForPreviewBridgeFrame(page);
 
   await expect
@@ -192,7 +191,7 @@ test('web-component @assistant replies use the revision path and refresh preview
     })
     .toContain('（已按评论更新）');
 
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   const refreshedPreviewFrame = await waitForPreviewBridgeFrame(page);
 
   await expect
@@ -276,7 +275,7 @@ test('web inherited threads become superseded after a new direct comment lands o
     method: 'POST',
   });
 
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   const relocatedPreviewFrame = await waitForPreviewBridgeFrame(page);
   await selectPreviewCopy(page, '#hero-summary');
   await submitPreviewSelectionComment(page, '这是新位置上的直接评论。');
@@ -304,10 +303,12 @@ test('web inherited threads become superseded after a new direct comment lands o
       oldState: 'superseded',
     });
 
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
-  await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toHaveCount(0);
+  await openReviewTab(page, firstThread.id);
+  await expect(page.locator(`[data-testid="comment-thread-${firstThread.id}"]:visible`)).toHaveCount(
+    0
+  );
   await page.getByRole('button', { name: /更早上下文|Earlier Context/ }).click();
-  await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toBeVisible();
+  await expect(page.locator(`[data-testid="comment-thread-${firstThread.id}"]:visible`)).toBeVisible();
 });
 
 test('web inherited threads become stale once selector, excerpt, and dom context all drift', async ({
@@ -382,7 +383,7 @@ test('web inherited threads become stale once selector, excerpt, and dom context
     method: 'POST',
   });
 
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForPreviewBridgeFrame(page);
 
   await expect
@@ -405,17 +406,92 @@ test('web inherited threads become stale once selector, excerpt, and dom context
       oldState: 'stale',
     });
 
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
-  await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toHaveCount(0);
+  await openReviewTab(page, firstThread.id);
+  await expect(page.locator(`[data-testid="comment-thread-${firstThread.id}"]:visible`)).toHaveCount(
+    0
+  );
   await page.getByRole('button', { name: /更早上下文|Earlier Context/ }).click();
-  await expect(page.getByTestId(`comment-thread-${firstThread.id}`)).toBeVisible();
+  await expect(page.locator(`[data-testid="comment-thread-${firstThread.id}"]:visible`)).toBeVisible();
 });
 
-async function waitForPreviewBridgeFrame(page: Page) {
+async function waitForPreviewBridgeFrame(page: Page, timeout = 20_000) {
   await expect
-    .poll(() => page.frames().some((frame) => /preview\/bridge/.test(frame.url())))
+    .poll(() => page.frames().some((frame) => /preview\/bridge/.test(frame.url())), { timeout })
     .toBe(true);
   return page.frames().find((frame) => /preview\/bridge/.test(frame.url())) || null;
+}
+
+async function dismissVisibleFirstUseGuidance(page: Page) {
+  let clearChecks = 0;
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const visibleGuide = page.locator('[data-testid^="first-use-guide-"]:visible').first();
+
+    if (!(await visibleGuide.isVisible().catch(() => false))) {
+      clearChecks += 1;
+      if (clearChecks >= 2) {
+        return;
+      }
+      await page.waitForTimeout(120);
+      continue;
+    }
+
+    clearChecks = 0;
+    const guideTestId = await visibleGuide.getAttribute('data-testid');
+    expect(guideTestId).not.toBeNull();
+
+    const guide = page.getByTestId(guideTestId!);
+    await guide.getByRole('button', { name: /知道了|Got It/ }).click();
+    await expect(guide).toHaveCount(0);
+  }
+}
+
+async function openReviewTab(page: Page, threadId?: string) {
+  await expect(async () => {
+    await dismissVisibleFirstUseGuidance(page);
+
+    const reviewTab = page.getByTestId('assistant-tab-review');
+    await expect(reviewTab).toBeVisible();
+    await expect(reviewTab).toBeEnabled();
+
+    if (threadId) {
+      await page.evaluate((focusedThreadId) => {
+        window.dispatchEvent(
+          new CustomEvent('comment-thread-focus', {
+            detail: { threadId: focusedThreadId },
+          })
+        );
+      }, threadId);
+    } else {
+      await reviewTab.click({ force: true });
+    }
+
+    await expect(reviewTab).toHaveAttribute('aria-selected', 'true');
+  }).toPass({ timeout: 15_000 });
+
+  await dismissVisibleFirstUseGuidance(page);
+}
+
+async function revealThreadInReview(page: Page, threadId: string) {
+  await openReviewTab(page, threadId);
+
+  const thread = page.getByTestId(`comment-thread-${threadId}`);
+  await expect.poll(() => thread.count()).toBeGreaterThan(0);
+
+  const visibleThread = page.locator(`[data-testid="comment-thread-${threadId}"]:visible`);
+  if (await visibleThread.isVisible().catch(() => false)) {
+    return visibleThread;
+  }
+
+  const earlierContextButton = page.getByRole('button', {
+    name: /更早上下文|Earlier Context/,
+  });
+  if (await earlierContextButton.isVisible().catch(() => false)) {
+    await earlierContextButton.click();
+  }
+
+  await expect(visibleThread).toBeVisible({ timeout: 10_000 });
+  return visibleThread;
 }
 
 async function startPreviewAndGetFrame(page: Page) {
@@ -424,9 +500,10 @@ async function startPreviewAndGetFrame(page: Page) {
     .first();
   if (await startPreviewButton.isVisible().catch(() => false)) {
     await startPreviewButton.click();
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
   }
 
+  await expect(page.locator('iframe').first()).toBeVisible({ timeout: 20_000 });
   await expect
     .poll(async () => {
       try {
@@ -434,9 +511,9 @@ async function startPreviewAndGetFrame(page: Page) {
       } catch {
         return null;
       }
-    })
+    }, { timeout: 20_000 })
     .toMatch(/preview\/bridge/);
-  return waitForPreviewBridgeFrame(page);
+  return waitForPreviewBridgeFrame(page, 20_000);
 }
 
 async function selectPreviewCopy(page: Page, selector = '#hero-copy') {

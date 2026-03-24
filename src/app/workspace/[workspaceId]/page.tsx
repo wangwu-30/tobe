@@ -116,44 +116,60 @@ export default function WorkspacePage() {
   const promptedRecoveryPointRef = React.useRef<string | null>(null);
   const autoStartedFirstPassRef = React.useRef<string | null>(null);
 
-  const currentWorkspace = workspaceView?.workspace || null;
-  const currentProject = workspaceView?.currentProject || null;
-  const currentConversation = workspaceView?.currentConversation || null;
+  const routeWorkspaceView = React.useMemo(
+    () =>
+      workspaceView?.workspace?.id === workspaceId
+        ? workspaceView
+        : null,
+    [workspaceId, workspaceView]
+  );
+  const currentWorkspace = routeWorkspaceView?.workspace || null;
+  const currentProject = routeWorkspaceView?.currentProject || null;
+  const currentConversation = routeWorkspaceView?.currentConversation || null;
   const {
     createNextDeliverableWithWorkflow,
     goalDialog,
     openProjectDeliverableComposer,
     openWorkspaceCreateEntry,
   } = useWorkspaceGoalDialogController({
-    activeWorkflowPlaybookId: workspaceView?.workspacePlan?.activeWorkflowPlaybookId || null,
-    currentConversationId: workspaceView?.currentConversation?.id || requestedConversationId || null,
+    activeWorkflowPlaybookId:
+      routeWorkspaceView?.workspacePlan?.activeWorkflowPlaybookId || null,
+    currentConversationId:
+      routeWorkspaceView?.currentConversation?.id || requestedConversationId || null,
     currentProject,
     currentWorkspace,
     workspaceId,
   });
   const projectFolders = React.useMemo(
-    () => workspaceView?.projectFolders || EMPTY_PROJECT_FOLDERS,
-    [workspaceView?.projectFolders]
+    () => routeWorkspaceView?.projectFolders || EMPTY_PROJECT_FOLDERS,
+    [routeWorkspaceView?.projectFolders]
   );
   const projectDeliverables = React.useMemo(
-    () => workspaceView?.projectDeliverables || EMPTY_PROJECT_DELIVERABLES,
-    [workspaceView?.projectDeliverables]
+    () => routeWorkspaceView?.projectDeliverables || EMPTY_PROJECT_DELIVERABLES,
+    [routeWorkspaceView?.projectDeliverables]
   );
-  const currentFile = workspaceView?.currentFile || null;
-  const currentVersion = workspaceView?.selectedVersion || null;
+  const currentFile = routeWorkspaceView?.currentFile || null;
+  const currentVersion = routeWorkspaceView?.selectedVersion || null;
   const currentDraftBaseVersionId = React.useMemo(
     () => {
-      const persistedDraftBaseVersionId = workspaceView?.workspace?.draftBaseVersionId || null;
+      const persistedDraftBaseVersionId =
+        routeWorkspaceView?.workspace?.draftBaseVersionId || null;
       if (
         persistedDraftBaseVersionId &&
-        (workspaceView?.versions || []).some((version) => version.id === persistedDraftBaseVersionId)
+        (routeWorkspaceView?.versions || []).some(
+          (version) => version.id === persistedDraftBaseVersionId
+        )
       ) {
         return persistedDraftBaseVersionId;
       }
 
-      return (workspaceView?.visibleVersions || [])[0]?.id || null;
+      return (routeWorkspaceView?.visibleVersions || [])[0]?.id || null;
     },
-    [workspaceView?.versions, workspaceView?.visibleVersions, workspaceView?.workspace?.draftBaseVersionId]
+    [
+      routeWorkspaceView?.versions,
+      routeWorkspaceView?.visibleVersions,
+      routeWorkspaceView?.workspace?.draftBaseVersionId,
+    ]
   );
   const currentConversationBaseVersion = React.useMemo(() => {
     const baseVersionId = currentConversation?.baseVersionId || null;
@@ -161,18 +177,25 @@ export default function WorkspacePage() {
       return null;
     }
 
-    return (workspaceView?.versions || []).find((version) => version.id === baseVersionId) || null;
-  }, [currentConversation?.baseVersionId, workspaceView?.versions]);
+    return (
+      (routeWorkspaceView?.versions || []).find((version) => version.id === baseVersionId) ||
+      null
+    );
+  }, [currentConversation?.baseVersionId, routeWorkspaceView?.versions]);
   const currentDraftBaseVersion = React.useMemo(() => {
     if (!currentDraftBaseVersionId) {
       return null;
     }
 
-    return (workspaceView?.versions || []).find((version) => version.id === currentDraftBaseVersionId) || null;
-  }, [currentDraftBaseVersionId, workspaceView?.versions]);
-  const deliverable = workspaceView?.deliverable || null;
-  const workspaceBrief = workspaceView?.workspacePlan || null;
-  const workflowStatus = workspaceView?.workflowStatus || null;
+    return (
+      (routeWorkspaceView?.versions || []).find(
+        (version) => version.id === currentDraftBaseVersionId
+      ) || null
+    );
+  }, [currentDraftBaseVersionId, routeWorkspaceView?.versions]);
+  const deliverable = routeWorkspaceView?.deliverable || null;
+  const workspaceBrief = routeWorkspaceView?.workspacePlan || null;
+  const workflowStatus = routeWorkspaceView?.workflowStatus || null;
   const renderAs = deliverable?.renderAs || 'document';
   const currentProjectId = currentProject?.id || currentWorkspace?.projectId || null;
   const currentProjectTitleValue = currentProject?.title || null;
@@ -268,9 +291,11 @@ export default function WorkspacePage() {
   const currentDeliverableFiles = React.useMemo(
     () =>
       currentVersion
-        ? (workspaceView?.versionFiles || []).filter((file) => file.role === 'deliverable')
-        : (workspaceView?.files || []).filter((file) => file.role === 'deliverable'),
-    [currentVersion, workspaceView?.files, workspaceView?.versionFiles]
+        ? (routeWorkspaceView?.versionFiles || []).filter(
+            (file) => file.role === 'deliverable'
+          )
+        : (routeWorkspaceView?.files || []).filter((file) => file.role === 'deliverable'),
+    [currentVersion, routeWorkspaceView?.files, routeWorkspaceView?.versionFiles]
   );
   const previewCapability = React.useMemo(
     () => detectWorkspacePreviewCapability(currentDeliverableFiles),
@@ -301,9 +326,9 @@ export default function WorkspacePage() {
           run.kind === 'preview' &&
           (run.status === 'pending' || run.status === 'running')
       ) ||
-      workspaceView?.activePreviewRun ||
+      routeWorkspaceView?.activePreviewRun ||
       null,
-    [workspaceRuns, workspaceView?.activePreviewRun]
+    [workspaceRuns, routeWorkspaceView?.activePreviewRun]
   );
   const comparableDeliverableText = React.useMemo(
     () => normalizeDeliverableText(fileContent),
@@ -346,10 +371,12 @@ export default function WorkspacePage() {
   );
   const supportFiles = React.useMemo(
     () =>
-      (currentVersion ? workspaceView?.versionFiles || [] : workspaceView?.files || []).filter(
-        (file) => file.role === 'support'
-      ),
-    [currentVersion, workspaceView?.files, workspaceView?.versionFiles]
+      (
+        currentVersion
+          ? routeWorkspaceView?.versionFiles || []
+          : routeWorkspaceView?.files || []
+      ).filter((file) => file.role === 'support'),
+    [currentVersion, routeWorkspaceView?.files, routeWorkspaceView?.versionFiles]
   );
   const activeSupportFileId = currentFile?.role === 'support' ? currentFile.id : null;
   const currentWorkspaceStatusLabel = describeWorkspaceStatusLabel({
@@ -401,12 +428,13 @@ export default function WorkspacePage() {
     (nextWorkspaceId: string) => {
       router.push(
         buildWorkspaceRoute({
+          conversationId: currentConversationId,
           nodeId: nextWorkspaceId,
           projectId: currentProjectId || routeProjectId,
         })
       );
     },
-    [currentProjectId, routeProjectId, router]
+    [currentConversationId, currentProjectId, routeProjectId, router]
   );
   const workspaceTitleNode = (
     <WorkspaceRouteTitle
@@ -455,7 +483,7 @@ export default function WorkspacePage() {
     setWorkspaceView,
     workspaceBriefStatus: workspaceBrief?.status,
     workspaceId,
-    workspaceReady: Boolean(workspaceView),
+    workspaceReady: Boolean(routeWorkspaceView),
   });
   const {
     applyWorkflowPlaybook,
@@ -581,7 +609,7 @@ export default function WorkspacePage() {
       deliverable?.title || currentWorkspace?.title || t('version.defaultTitle'),
     workflowStatusPrimaryAction: workflowStatus?.primaryAction,
     workspaceId,
-    workspaceReady: Boolean(workspaceView),
+    workspaceReady: Boolean(routeWorkspaceView),
   });
   const {
     createProjectDeliverable,
@@ -625,15 +653,15 @@ export default function WorkspacePage() {
 
   const assistantRail = (
     <WorkspaceAssistantRail
-      activeAssistantRun={workspaceView?.activeAssistantRun || null}
+      activeAssistantRun={routeWorkspaceView?.activeAssistantRun || null}
       activeFileId={currentFileId}
       activeWorkflowPlaybookId={workspaceBrief?.activeWorkflowPlaybookId || null}
       allowSourceApply={!currentVersionId}
       baseVersionId={currentConversation?.baseVersionId || null}
       baseVersionLabel={currentConversationBaseVersionLabel}
-      branches={workspaceView?.conversationTree || []}
+      branches={routeWorkspaceView?.conversationTree || []}
       conversationId={currentConversationId}
-      conversationRuns={workspaceView?.conversationRuns || []}
+      conversationRuns={routeWorkspaceView?.conversationRuns || []}
       conversationTitle={currentConversation?.title || null}
       currentProjectId={currentProjectId}
       currentDraftBranchTitle={currentDraftBaseVersion?.title || null}
@@ -641,7 +669,7 @@ export default function WorkspacePage() {
       versionId={currentVersionId}
       workflowStatus={workflowStatus}
       documentContent={commentContextContent}
-      files={workspaceView?.files || []}
+      files={routeWorkspaceView?.files || []}
       initialMessages={initialMessages}
       isAssistantBusy={isAssistantBusy}
       onApplyWorkflow={workspaceId ? applyWorkflowPlaybook : undefined}
@@ -687,8 +715,8 @@ export default function WorkspacePage() {
       onSelectVersion={(versionId) => syncLocation({ versionId })}
       onSwitchToVersionBranch={switchConversationToVersionBranch}
       onTogglePin={toggleRecoveryPointPin}
-      stagedChangeSets={workspaceView?.stagedChangeSets || []}
-      versions={workspaceView?.versions || []}
+      stagedChangeSets={routeWorkspaceView?.stagedChangeSets || []}
+      versions={routeWorkspaceView?.versions || []}
       workspaceId={workspaceId}
     />
   );
@@ -725,7 +753,7 @@ export default function WorkspacePage() {
       reviewThreads={reviewThreads}
       selectedVersion={currentVersion}
       showImplementation={showImplementation}
-      stagedChangeSets={workspaceView?.stagedChangeSets || []}
+      stagedChangeSets={routeWorkspaceView?.stagedChangeSets || []}
       workspaceId={workspaceId}
       workspaceTitle={currentWorkspace?.title || null}
     />

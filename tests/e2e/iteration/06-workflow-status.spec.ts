@@ -395,21 +395,13 @@ test('workspace header can switch to another deliverable in the same project', a
     .getByTestId(`workspace-switch-deliverable-${secondWorkspace.id}`)
     .click();
 
-  await expect
-    .poll(() => {
-      const currentUrl = new URL(page.url());
-      return {
-        nodeId:
-          currentUrl.searchParams.get('node') ||
-          currentUrl.pathname.split('/').pop() ||
-          '',
-        projectId: currentUrl.pathname.split('/').pop() || '',
-      };
-    })
-    .toEqual({
-      nodeId: secondWorkspace.id,
-      projectId,
-    });
+  const switchedRoute = await waitForWorkspaceRoute(page, {
+    excludeWorkspaceId: firstWorkspace.id,
+    timeout: 15000,
+  });
+
+  expect(switchedRoute.workspaceId).toBe(secondWorkspace.id);
+  expect(switchedRoute.projectId).toBe(projectId);
   await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(secondTitle);
   await expect(switcher).toContainText(/网页|Web Page/);

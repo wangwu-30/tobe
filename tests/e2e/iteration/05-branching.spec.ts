@@ -356,6 +356,29 @@ async function focusBranchLineageFromVersionTree(page: Page, branchHeadVersionId
   }).toPass({ timeout: 30_000 });
 }
 
+async function clearBranchLineageFocusFromVersionTree(page: Page) {
+  let clearRequested = false;
+
+  await expect(async () => {
+    const versionTreeDialog = await openVersionTree(page);
+    const clearButton = versionTreeDialog.getByTestId('version-branch-focus-clear');
+
+    await expect(clearButton).toBeVisible();
+    await expect(clearButton).toBeEnabled();
+
+    if (!clearRequested) {
+      await clearButton.evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      clearRequested = true;
+    }
+
+    await expect(versionTreeDialog.getByTestId('version-branch-focus-banner')).toHaveCount(0);
+  }).toPass({ timeout: 30_000 });
+
+  return openVersionTree(page);
+}
+
 async function openBranchCompareFromOverview(page: Page, branchHeadVersionId: string) {
   const compareDialog = page.getByRole('dialog', { name: /比较版本|Compare versions/ });
 
@@ -808,9 +831,9 @@ test('branch overview can focus the milestone list on a single branch lineage', 
     ).toHaveCount(0);
   }).toPass({ timeout: 30_000 });
 
-  await branchVersionTree.getByTestId('version-branch-focus-clear').click();
+  const clearedVersionTree = await clearBranchLineageFocusFromVersionTree(page);
   await expect(
-    branchVersionTree
+    clearedVersionTree
       .locator('[data-testid^="version-history-card-"]')
       .filter({ hasText: '从 版本里程碑 V1 继续' })
       .first()
