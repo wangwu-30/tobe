@@ -624,7 +624,18 @@ export function createWorkspaceAgentTools({
       const nextKind =
         input.kind ||
         preferredTarget?.kind ||
-        'markdown';
+        'richtext';
+
+      // For richtext files, ensure content is Plate JSON.
+      // If the AI produced raw markdown, convert it before storage.
+      let contentToStore = input.content;
+      if (nextKind === 'richtext' || nextKind === 'markdown') {
+        const parsed = safeJsonParse<unknown>(input.content, null);
+        if (!Array.isArray(parsed) && input.content.trim()) {
+          // Raw markdown → convert to Plate JSON
+          contentToStore = JSON.stringify(markdownToPlate(input.content));
+        }
+      }
       const nextLanguage =
         input.language !== undefined
           ? input.language
@@ -644,7 +655,7 @@ export function createWorkspaceAgentTools({
             userId: actorUserId,
           },
           {
-            content: input.content,
+            content: contentToStore,
             fileId: preferredTarget.id,
             kind: nextKind,
             language: nextLanguage,
@@ -674,7 +685,7 @@ export function createWorkspaceAgentTools({
             userId: actorUserId,
           },
           {
-            content: input.content,
+            content: contentToStore,
             fileId: createdFile.id,
             kind: nextKind,
             language: nextLanguage,

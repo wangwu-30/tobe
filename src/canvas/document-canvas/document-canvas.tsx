@@ -11,7 +11,7 @@ import { DeliverableOutlineItem } from '@/components/workspace/deliverable-sideb
 import { EditorWrapper } from '@/components/editor/editor-wrapper';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { plateToMarkdown } from '@/lib/ai/serializer';
+import { markdownToPlate, plateToMarkdown } from '@/lib/ai/serializer';
 import {
   COMMENT_THREAD_FOCUS_EVENT,
   requestManualCommentComposerOpen,
@@ -837,7 +837,16 @@ function SourceDeliverableCanvas({
 
 export function parsePlateContent(content: string): Value {
   const parsed = safeJsonParse<unknown>(content, null);
-  return Array.isArray(parsed) ? parsed : [{ type: 'p', children: [{ text: '' }] }];
+  if (Array.isArray(parsed)) {
+    return parsed;
+  }
+
+  // Legacy markdown content: convert to Plate JSON for rich-text rendering
+  if (content.trim()) {
+    return markdownToPlate(content);
+  }
+
+  return [{ type: 'p', children: [{ text: '' }] }];
 }
 
 export function normalizeDeliverableText(content: string) {

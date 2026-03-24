@@ -32,6 +32,8 @@ model Organization {
   workspacePlans   WorkspacePlan[]
   projectFolders   ProjectFolder[]
   projectMounts    ProjectMount[]
+  nodeRelations    NodeRelation[]
+  projectCanvasLayouts ProjectCanvasLayout[]
   mutationRequests MutationRequest[]
   stagedChangeSets StagedChangeSet[]
   chatAttachments  ChatAttachment[]
@@ -165,6 +167,7 @@ model Document {
   title           String          @default("Untitled")
   content         String          @default("[]")
   projectRootPath String?
+  canvasMetaJson  String?
   status          String          @default("draft")
   currentVersion  Int             @default(0)
   draftRevision   Int             @default(0)
@@ -181,6 +184,9 @@ model Document {
   projectConversations Session[]  @relation("ProjectScopedConversations")
   sourceProjectMounts ProjectMount[] @relation("ProjectMountSource")
   targetProjectMounts ProjectMount[] @relation("ProjectMountTarget")
+  sourceNodeRelations NodeRelation[] @relation("NodeRelationSource")
+  targetNodeRelations NodeRelation[] @relation("NodeRelationTarget")
+  projectCanvasPositions ProjectCanvasLayout[] @relation("ProjectCanvasPosition")
   chatMessages    ChatMessage[]
   focusedMessages ChatMessage[]   @relation("ConversationMessageFocusNode")
   files           WorkspaceFile[]
@@ -231,6 +237,35 @@ model ProjectMount {
   @@unique([sourceProjectId, targetProjectId])
   @@index([organizationId, sourceProjectId])
   @@index([organizationId, targetProjectId])
+}
+
+model NodeRelation {
+  id             String       @id @default(cuid())
+  organizationId String       @default("local-org")
+  sourceNodeId   String
+  targetNodeId   String
+  kind           String       @default("dependency")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceNode     Document     @relation("NodeRelationSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  targetNode     Document     @relation("NodeRelationTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceNodeId, targetNodeId, kind])
+  @@index([organizationId, sourceNodeId])
+  @@index([organizationId, targetNodeId])
+}
+
+model ProjectCanvasLayout {
+  id             String       @id @default(cuid())
+  organizationId String       @default("local-org")
+  projectId      String
+  x              Float        @default(0)
+  y              Float        @default(0)
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project        Document     @relation("ProjectCanvasPosition", fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, projectId])
 }
 
 model Version {

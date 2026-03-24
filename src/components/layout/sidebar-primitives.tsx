@@ -16,16 +16,18 @@ export function getSidebarWidthClass(collapsed: boolean) {
 export function SidebarSection({
   action,
   children,
+  className,
   testId,
   title,
 }: {
   action?: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
   testId?: string;
   title: string;
 }) {
   return (
-    <section className="min-w-0 overflow-hidden" data-testid={testId}>
+    <section className={cn('min-w-0 overflow-hidden', className)} data-testid={testId}>
       <div className="mb-2 flex min-w-0 items-center justify-between gap-2 px-2">
         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
           {title}

@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import type { Value } from 'platejs';
+import dynamic from 'next/dynamic';
 
 import {
   buildOutlineItems,
@@ -49,6 +50,23 @@ import { useWorkspaceVersionPreviewController } from '@/surfaces/workspace/use-w
 import { WorkspaceShellActions } from '@/surfaces/workspace/workspace-shell-actions';
 import { WorkspaceScreen } from '@/surfaces/workspace/workspace-screen';
 
+type SurfaceMode = 'editor' | 'overview';
+
+const ProjectCanvasLoader = dynamic(
+  () =>
+    import('@/canvas/project-canvas/project-canvas-loader').then((mod) => ({
+      default: mod.ProjectCanvasLoader,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+        Loading canvas...
+      </div>
+    ),
+  }
+);
+
 type WorkspaceNoticeAction = {
   label: string;
   onClick: () => void;
@@ -85,6 +103,7 @@ export default function WorkspacePage() {
   const [isStartingPreview, setIsStartingPreview] = React.useState(false);
   const [isStoppingPreview, setIsStoppingPreview] = React.useState(false);
   const [showImplementation, setShowImplementation] = React.useState(false);
+  const [surfaceMode, setSurfaceMode] = React.useState<SurfaceMode>('editor');
   const [workspaceNotice, setWorkspaceNotice] = React.useState<WorkspaceNotice | null>(
     null
   );
@@ -761,10 +780,12 @@ export default function WorkspacePage() {
     />
   );
 
+  const hasMultipleNodes = projectDeliverables.length > 1;
   const workspaceShellActions = (
     <WorkspaceShellActions
       canCreateSiblingDeliverable={Boolean(currentWorkspace && !isVersionView)}
       canToggleImplementation={deliverableType !== 'document'}
+      canToggleSurfaceMode={hasMultipleNodes && !isVersionView}
       isStartingPreview={isStartingPreview}
       isStoppingPreview={isStoppingPreview}
       onCreateSiblingDeliverable={() =>
@@ -776,18 +797,40 @@ export default function WorkspacePage() {
       onStopPreview={() => void stopPreview()}
       onToggleImplementation={() => setShowImplementation((open) => !open)}
       onTogglePaneOrder={togglePaneOrder}
+      onToggleSurfaceMode={() => setSurfaceMode((m) => (m === 'editor' ? 'overview' : 'editor'))}
       previewUrl={activePreviewRun?.previewUrl || null}
       showImplementation={showImplementation}
       showPreviewControls={previewCapability.canPreview && showImplementation}
+      surfaceMode={surfaceMode}
     />
   );
+
+  const canvasPanel = surfaceMode === 'overview' && currentProjectId ? (
+    <ProjectCanvasLoader
+      currentNodeId={workspaceId}
+      onDeleteNode={(nodeId) => {
+        void deleteDeliverable(nodeId);
+      }}
+      onDoubleClickNode={(nodeId) => {
+        setSurfaceMode('editor');
+        openWorkspaceRoute(nodeId);
+      }}
+      onNewNode={() => {
+        openProjectDeliverableComposer({ projectFolderId: null });
+      }}
+      onRenameNode={(nodeId, newTitle) => {
+        void renameDeliverable(nodeId, newTitle);
+      }}
+      projectId={currentProjectId}
+    />
+  ) : null;
 
   return (
     <WorkspaceScreen
       actions={workspaceShellActions}
       assistantRail={assistantRail}
       currentVersionId={currentVersionId}
-      deliverablePanel={deliverablePanel}
+      deliverablePanel={canvasPanel || deliverablePanel}
       deliverableType={deliverableType}
       goalDialog={goalDialog}
       paneOrder={paneOrder}

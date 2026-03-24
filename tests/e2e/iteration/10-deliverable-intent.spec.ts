@@ -20,7 +20,7 @@ test('legacy code create requests fold back into document defaults', async ({
   });
 
   expect(created.primaryFile.path).toBe('main');
-  expect(created.primaryFile.kind).toBe('markdown');
+  expect(created.primaryFile.kind).toBe('richtext');
 
   const files = await apiRequest<
     Array<{ isPrimary: boolean; kind: string; path: string }>
@@ -28,7 +28,7 @@ test('legacy code create requests fold back into document defaults', async ({
   const primaryFile = files.find((file) => file.isPrimary) || null;
 
   expect(primaryFile?.path).toBe('main');
-  expect(primaryFile?.kind).toBe('markdown');
+  expect(primaryFile?.kind).toBe('richtext');
   expect(files.some((file) => file.path === 'index.ts')).toBe(false);
 });
 

@@ -9,9 +9,11 @@ import {
   FolderClosed,
   FolderOpen,
   FolderPlus,
+  List,
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
   Settings,
   Sparkles,
   Trash2,
@@ -238,6 +240,9 @@ export function DeliverableSidebar({
   );
   const [moveSupportError, setMoveSupportError] = React.useState<string | null>(null);
   const [isMovingSupportNode, setIsMovingSupportNode] = React.useState(false);
+  // Canvas shell: surfaceMode controls which view the workspace renders.
+  // 'editor' = current result surface (default), 'overview' = reserved for Canvas.
+  const [_surfaceMode] = React.useState<'editor' | 'overview'>('editor');
   const projectFoldersById = React.useMemo(
     () => new Map(projectFolders.map((folder) => [folder.id, folder])),
     [projectFolders]
@@ -1227,7 +1232,7 @@ export function DeliverableSidebar({
               {!collapsed ? (
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <div className="truncate text-sm font-semibold">成形</div>
-                  <div className="truncate text-xs text-muted-foreground">
+                  <div className="truncate text-xs text-foreground/60">
                     {t('sidebar.aiNativeStudio')}
                   </div>
                 </div>
@@ -1255,25 +1260,33 @@ export function DeliverableSidebar({
           <ScrollArea className="min-h-0 w-full flex-1 overflow-hidden">
             {collapsed ? (
               <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-3">
-                {isLoading ? (
-                  <SidebarInfo compact text="..." />
-                ) : projects.length === 0 ? (
-                  <SidebarInfo compact text="-" />
-                ) : (
-                  projects.map((project) => (
-                    <SidebarIconButton
-                      key={project.id}
-                      active={currentProjectId === project.id}
-                      icon={<FolderClosed className="h-4 w-4" />}
-                      label={project.title}
-                      onClick={() => openProject(project)}
-                    />
-                  ))
-                )}
+                {currentWorkspaceId && currentProjectId ? (
+                  <SidebarIconButton
+                    icon={<Search className="h-4 w-4" />}
+                    label={t('sidebar.searchProjectNodes')}
+                    onClick={() => onOpenOutline?.('__search__')}
+                  />
+                ) : null}
+                <SidebarIconButton
+                  icon={<Sparkles className="h-4 w-4" />}
+                  label={t('sidebar.deliverableOutline')}
+                  onClick={() => onOpenOutline?.('__outline__')}
+                />
+                <SidebarIconButton
+                  icon={<List className="h-4 w-4" />}
+                  label={t('sidebar.projectTree')}
+                  onClick={() => onOpenOutline?.('__tree__')}
+                />
+                <SidebarIconButton
+                  icon={<FilePlus2 className="h-4 w-4" />}
+                  label={t('sidebar.newDeliverable')}
+                  onClick={() => onCreateDeliverable?.()}
+                />
               </div>
             ) : (
-              <div className="min-w-0 space-y-4 px-2 py-3">
+              <div className="flex min-w-0 flex-col gap-4 px-2 py-3">
                 <SidebarSection
+                  className="order-last"
                   title={t('sidebar.projects')}
                   action={
                     <Button
@@ -1545,6 +1558,7 @@ export function DeliverableSidebar({
 
                 {currentWorkspaceId && currentProjectId ? (
                   <SidebarSection
+                    className="order-2"
                     testId="sidebar-linked-projects-section"
                     title={t('sidebar.linkedProjects')}
                     action={
@@ -1653,6 +1667,7 @@ export function DeliverableSidebar({
                 </SidebarSection>
 
                 <SidebarSection
+                  className="order-3"
                   title={t('sidebar.uploads')}
                   action={
                     onCreateSupportFile || onCreateSupportFolder ? (

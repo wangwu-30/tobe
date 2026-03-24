@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
+import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, Sparkles } from 'lucide-react';
+import { ArrowRight, LayoutGrid, Map, Sparkles } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { ProjectCard } from '@/components/layout/project-card';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
@@ -27,6 +28,33 @@ import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
 
 import type { ProjectSummaryData } from '@/types';
+import { cn } from '@/lib/utils';
+
+const HomeCanvasLoader = dynamic(
+  () =>
+    import('@/canvas/home-canvas/home-canvas-loader').then((mod) => ({
+      default: mod.HomeCanvasLoader,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+        Loading canvas...
+      </div>
+    ),
+  }
+);
+
+type HomeViewMode = 'list' | 'canvas';
+
+function getStoredHomeViewMode(): HomeViewMode {
+  if (typeof window === 'undefined') return 'list';
+  return (localStorage.getItem('home-view-mode') as HomeViewMode) || 'list';
+}
+
+function setStoredHomeViewMode(mode: HomeViewMode) {
+  localStorage.setItem('home-view-mode', mode);
+}
 
 export default function HomePage() {
   const t = useT();
@@ -45,6 +73,7 @@ export default function HomePage() {
   const [pendingCreateEntry, setPendingCreateEntry] = React.useState<
     WorkspaceCreateContext | 'workspace' | null
   >(null);
+  const [viewMode, setViewMode] = React.useState<HomeViewMode>(getStoredHomeViewMode);
   const createWorkspaceRequestIdRef = React.useRef<string | null>(null);
   const createWorkspaceInFlightRef = React.useRef(false);
 
@@ -254,7 +283,7 @@ export default function HomePage() {
             }
           >
             <div className={showsProjectWall ? 'max-w-5xl' : 'max-w-2xl'}>
-              <div className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground">
+              <div className="inline-flex rounded-full bg-foreground/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-foreground/60 ring-1 ring-border/40">
                 {t('home.badge')}
               </div>
               <div
@@ -307,18 +336,71 @@ export default function HomePage() {
           </div>
 
           {showsProjectWall ? (
-            <section className="space-y-4" data-testid="home-project-wall">
-              <div className="grid gap-4 xl:grid-cols-3">
-                {homeProjects?.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    onContinueCurrent={openProject}
-                    onContinueNext={openProjectNextDeliverable}
-                    project={project}
-                  />
-                ))}
+            <>
+              <div className="flex items-center justify-between">
+                <div className="inline-flex rounded-lg border bg-muted/50 p-0.5">
+                  <button
+                    type="button"
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                      viewMode === 'list'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                    onClick={() => {
+                      setViewMode('list');
+                      setStoredHomeViewMode('list');
+                    }}
+                    data-testid="home-view-list"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    列表
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                      viewMode === 'canvas'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                    onClick={() => {
+                      setViewMode('canvas');
+                      setStoredHomeViewMode('canvas');
+                    }}
+                    data-testid="home-view-canvas"
+                  >
+                    <Map className="h-3.5 w-3.5" />
+                    画布
+                  </button>
+                </div>
               </div>
-            </section>
+
+              {viewMode === 'list' ? (
+                <section className="space-y-4" data-testid="home-project-wall">
+                  <div className="grid gap-4 xl:grid-cols-3">
+                    {homeProjects?.map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        onContinueCurrent={openProject}
+                        onContinueNext={openProjectNextDeliverable}
+                        project={project}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ) : (
+                <section
+                  className="h-[500px] overflow-hidden rounded-2xl border border-border/60 bg-background/60"
+                  data-testid="home-project-canvas"
+                >
+                  <HomeCanvasLoader
+                    projects={homeProjects || []}
+                    onDoubleClickProject={openProject}
+                  />
+                </section>
+              )}
+            </>
           ) : (
             <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
               {[t('home.card1'), t('home.card2'), t('home.card3')].map((copy) => (

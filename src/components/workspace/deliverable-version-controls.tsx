@@ -546,62 +546,20 @@ export function DeliverableVersionControls({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={selectedValue}
-          onValueChange={(value) => onSelectVersion(value === 'draft' ? null : value)}
-        >
-          <SelectTrigger className="h-8 w-[200px] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="draft">{t('version.currentDraft')}</SelectItem>
-            {visibleVersions.map((version) => (
-              <SelectItem key={version.id} value={version.id}>
-                {formatVersionOptionLabel(version, t)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <Button
           size="sm"
           variant="outline"
-          className="h-8"
-          onClick={() => {
-            setCompareBranchHeadId(null);
-            setCompareCrossBranchMode(false);
-            setCompareOpen(true);
-          }}
-          disabled={visibleVersions.length === 0}
-        >
-          <GitCompareArrows className="mr-1 h-3.5 w-3.5" />
-          {t('version.compare')}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-8 gap-2 rounded-full px-3"
+          className="h-8 gap-1.5"
           onClick={() => setVersionTreeOpen(true)}
           data-testid="version-tree-button"
         >
           <GitBranch className="h-3.5 w-3.5" />
           <span className="text-xs font-medium">{t('version.tree')}</span>
-          <HeaderDivider />
-          <HeaderStat
-            label={t('version.savedMilestonesStat')}
-            value={String(visibleVersions.length)}
-          />
-          <HeaderDivider />
-          <HeaderStat
-            label={t('version.pinnedRecoveryStat')}
-            value={`${pinnedRecoveryPoints.length}/3`}
-          />
-          <HeaderDivider />
-          <HeaderStat
-            label={t('version.latestTemporaryStat')}
-            value={String(temporaryRecoveryPoints.length)}
-            emphasized={temporaryRecoveryPoints.length > 0}
-          />
+          {visibleVersions.length > 0 ? (
+            <Badge variant="secondary" className="ml-0.5 h-5 px-1.5 text-[10px]">
+              {visibleVersions.length}
+            </Badge>
+          ) : null}
         </Button>
         <Button size="sm" className="h-8" onClick={onCreateVersion}>
           {t('version.createVersion')}
@@ -745,6 +703,38 @@ export function DeliverableVersionControls({
                   emphasized={temporaryRecoveryPoints.length > 0}
                 />
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={selectedValue}
+                onValueChange={(value) => onSelectVersion(value === 'draft' ? null : value)}
+              >
+                <SelectTrigger className="h-8 w-[200px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">{t('version.currentDraft')}</SelectItem>
+                  {visibleVersions.map((version) => (
+                    <SelectItem key={version.id} value={version.id}>
+                      {formatVersionOptionLabel(version, t)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8"
+                onClick={() => {
+                  setCompareBranchHeadId(null);
+                  setCompareCrossBranchMode(false);
+                  setCompareOpen(true);
+                }}
+                disabled={visibleVersions.length === 0}
+              >
+                <GitCompareArrows className="mr-1 h-3.5 w-3.5" />
+                {t('version.compare')}
+              </Button>
             </div>
             <SheetTitle>{t('version.tree')}</SheetTitle>
             <SheetDescription className="text-xs leading-5">

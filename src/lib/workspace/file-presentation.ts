@@ -34,7 +34,13 @@ export function isPlateBackedWorkspaceFile(file: WorkspaceFileLike | null | unde
     return true;
   }
 
-  return file.kind === 'markdown' && looksLikePlateDocumentContent(file.content);
+  // All markdown files are now renderable as rich text.
+  // parsePlateContent handles both Plate JSON and legacy markdown content.
+  if (file.kind === 'markdown') {
+    return true;
+  }
+
+  return false;
 }
 
 export function stripMarkdownSuffix(name: string) {

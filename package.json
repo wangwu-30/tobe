@@ -74,6 +74,7 @@
     "remark-parse": "^11.0.0",
     "remark-slate": "^1.8.6",
     "tailwind-merge": "^3.5.0",
+    "tldraw": "^4.5.3",
     "unified": "^11.0.5"
   },
   "devDependencies": {

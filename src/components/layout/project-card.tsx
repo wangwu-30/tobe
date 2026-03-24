@@ -23,6 +23,7 @@ export function ProjectCard({
 }) {
   const t = useT();
   const language = useAppLanguage();
+  const isSingleNode = project.deliverableCount <= 1;
   const latestNodeTitle =
     project.latestDeliverableTitle?.trim() ||
     project.preview?.trim() ||
@@ -68,15 +69,17 @@ export function ProjectCard({
           </div>
         </div>
 
-        <div className="rounded-2xl border border-border/60 bg-muted/25 px-4 py-4">
-          <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-            {t('home.projectCardLatestNode')}
+        {!isSingleNode && (
+          <div className="rounded-2xl border border-border/60 bg-muted/25 px-4 py-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
+              {t('home.projectCardLatestNode')}
+            </div>
+            <div className="mt-2 line-clamp-2 text-sm font-medium leading-6">{latestNodeTitle}</div>
           </div>
-          <div className="mt-2 line-clamp-2 text-sm font-medium leading-6">{latestNodeTitle}</div>
-        </div>
+        )}
 
         <div className="flex items-center justify-between text-sm font-medium text-foreground">
-          <span>{t('sidebar.continueCurrentDeliverable')}</span>
+          <span>{t('home.projectCardOpen')}</span>
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </div>
       </button>
@@ -88,7 +91,7 @@ export function ProjectCard({
           data-testid={`home-project-next-${project.id}`}
           onClick={() => onContinueNext(project)}
         >
-          <span>{t('sidebar.newSiblingDeliverable')}</span>
+          <span>{t('home.projectCardNewItem')}</span>
           <Plus className="h-4 w-4" />
         </Button>
       </div>

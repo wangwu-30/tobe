@@ -164,16 +164,16 @@ test('home project cards summarize the latest node and open the canonical projec
   await expect(page.getByTestId('home-project-wall')).toBeVisible({ timeout: 10000 });
   await expect(projectCard).toBeVisible();
   await expect(projectCard).toContainText(projectTitle);
-  await expect(projectCard).toContainText(/2 项内容|2 items/);
+  await expect(projectCard).toContainText(/2 份内容|2 nodes/);
   await expect(projectCard).toContainText(
     /最近活跃内容|Latest active content/
   );
   await expect(projectCard).toContainText(latestDeliverableTitle);
   await expect(projectCard).toContainText(
-    /继续当前内容|Continue Current Item/
+    /打开|Open/
   );
   await expect(projectCard).toContainText(
-    /继续下一项内容|Continue to Next Item/
+    /新建内容|New Item/
   );
 
   await page.getByTestId(`home-project-open-${firstWorkspace.workspace.id}`).click();

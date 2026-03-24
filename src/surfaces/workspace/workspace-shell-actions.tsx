@@ -5,6 +5,7 @@ import {
   Code2,
   ExternalLink,
   FilePlus2,
+  LayoutGrid,
   LoaderCircle,
   Play,
   SlidersHorizontal,
@@ -16,13 +17,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useT } from '@/components/providers/language-provider';
 
+type SurfaceMode = 'editor' | 'overview';
+
 export function WorkspaceShellActions({
   canCreateSiblingDeliverable,
   canToggleImplementation,
+  canToggleSurfaceMode = false,
   isStartingPreview,
   isStoppingPreview,
   onCreateSiblingDeliverable,
@@ -30,12 +35,15 @@ export function WorkspaceShellActions({
   onStopPreview,
   onToggleImplementation,
   onTogglePaneOrder,
+  onToggleSurfaceMode,
   previewUrl,
   showImplementation,
   showPreviewControls,
+  surfaceMode = 'editor',
 }: {
   canCreateSiblingDeliverable: boolean;
   canToggleImplementation: boolean;
+  canToggleSurfaceMode?: boolean;
   isStartingPreview: boolean;
   isStoppingPreview: boolean;
   onCreateSiblingDeliverable: () => void;
@@ -43,9 +51,11 @@ export function WorkspaceShellActions({
   onStopPreview: () => void;
   onToggleImplementation: () => void;
   onTogglePaneOrder: () => void;
+  onToggleSurfaceMode?: () => void;
   previewUrl?: string | null;
   showImplementation: boolean;
   showPreviewControls: boolean;
+  surfaceMode?: SurfaceMode;
 }) {
   const t = useT();
 
@@ -71,6 +81,20 @@ export function WorkspaceShellActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
+          {canToggleSurfaceMode && onToggleSurfaceMode ? (
+            <>
+              <DropdownMenuItem
+                onClick={onToggleSurfaceMode}
+                data-testid="workspace-toggle-surface-mode"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                {surfaceMode === 'editor'
+                  ? t('workspace.showOverview')
+                  : t('workspace.showEditor')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+            </>
+          ) : null}
           {canToggleImplementation ? (
             <DropdownMenuItem onClick={onToggleImplementation}>
               <Code2 className="h-4 w-4" />

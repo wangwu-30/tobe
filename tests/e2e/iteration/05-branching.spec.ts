@@ -819,7 +819,8 @@ test('version compare supports visible milestone against visible milestone, not 
 
   await dismissVisibleFirstUseGuidance(page);
 
-  await page.getByRole('button', { name: /比较|Compare/ }).first().click();
+  const versionTreeDialog = await openVersionTree(page);
+  await versionTreeDialog.getByRole('button', { name: /比较|Compare/ }).first().click();
 
   await page.getByTestId('version-compare-left-select').click();
   await page.getByRole('option', { name: '里程碑 · 版本里程碑 V1' }).click();

@@ -295,7 +295,7 @@ function WorkspaceSidebar({
             {!collapsed ? (
               <div className="min-w-0 flex-1 overflow-hidden">
                 <div className="truncate text-sm font-semibold">成形</div>
-                <div className="truncate text-xs text-muted-foreground">
+                <div className="truncate text-xs text-foreground/60">
                   {t('sidebar.aiNativeStudio')}
                 </div>
               </div>

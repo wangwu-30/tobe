@@ -678,7 +678,7 @@ function buildWorkspaceFileSeeds(params: {
     additional: [],
     primary: {
       content: params.initialContent || '[]',
-      kind: 'markdown' as const,
+      kind: 'richtext' as const,
       language: 'markdown',
       name: 'main',
     },
