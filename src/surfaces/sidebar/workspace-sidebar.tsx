@@ -62,8 +62,8 @@ export function WorkspaceSidebar({
   }) => Promise<void> | void;
   onCreateProjectFolder: (parentFolderId: string | null) => Promise<void> | void;
   onCreateSiblingDeliverable?: (workspaceId: string) => Promise<void> | void;
-  onCreateSupportFile: (parentId: string | null) => Promise<void> | void;
-  onCreateSupportFolder: (parentId: string | null) => Promise<void> | void;
+  onCreateSupportFile?: (parentId: string | null) => Promise<void> | void;
+  onCreateSupportFolder?: (parentId: string | null) => Promise<void> | void;
   onCreateWorkspace: () => void;
   onDeleteDeliverable: (workspaceId: string) => Promise<void> | void;
   onDeleteProjectFolder: (folderId: string) => Promise<void> | void;
@@ -130,10 +130,14 @@ export function WorkspaceSidebar({
       }
       onDeleteWorkspace={(projectId) => void onDeleteWorkspace(projectId)}
       onCreateSupportFile={
-        isVersionView ? undefined : (parentId) => void onCreateSupportFile(parentId || null)
+        isVersionView || !onCreateSupportFile
+          ? undefined
+          : (parentId) => void onCreateSupportFile(parentId || null)
       }
       onCreateSupportFolder={
-        isVersionView ? undefined : (parentId) => void onCreateSupportFolder(parentId || null)
+        isVersionView || !onCreateSupportFolder
+          ? undefined
+          : (parentId) => void onCreateSupportFolder(parentId || null)
       }
       onDeleteSupportFile={
         isVersionView ? undefined : (fileId) => void onDeleteSupportFile(fileId)

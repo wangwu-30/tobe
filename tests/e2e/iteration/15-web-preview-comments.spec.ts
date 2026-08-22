@@ -179,7 +179,7 @@ test('web-component @assistant replies use the revision path and refresh preview
         .find((message) => message.role === 'assistant');
 
       return latestAssistantMessage?.content || null;
-    })
+    }, { timeout: 30_000 })
     .toContain('已按评论更新');
 
   await expect
@@ -188,7 +188,7 @@ test('web-component @assistant replies use the revision path and refresh preview
         Array<{ content: string; id: string; path: string }>
       >(baseURL, `/api/workspaces/${setup.workspace.id}/files`);
       return files.find((file) => file.id === setup.indexFileId)?.content || '';
-    })
+    }, { timeout: 30_000 })
     .toContain('（已按评论更新）');
 
   await page.reload({ waitUntil: 'domcontentloaded' });

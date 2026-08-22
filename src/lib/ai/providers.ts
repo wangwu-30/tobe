@@ -1,6 +1,6 @@
 import { getModel as getPiModel, getModels, getProviders } from '@mariozechner/pi-ai';
 import type { Api, Model as PiModel, Provider as PiProvider } from '@mariozechner/pi-ai';
-import { safeJsonParse } from '@/framework/resilience';
+import { safeJsonParse } from '@/framework/resilience/safe-data';
 import { normalizeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { translate } from '@/lib/i18n/copy';
 import { normalizeCommentAgents } from '@/lib/comments/agents';

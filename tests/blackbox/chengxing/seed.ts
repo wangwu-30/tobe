@@ -9,6 +9,7 @@ import {
 type WorkspaceCreateResponse = {
   conversation: { id: string };
   primaryFile: { id: string };
+  room: { id: string; projectId: string | null };
   workspace: { id: string };
 };
 

@@ -51,6 +51,9 @@ export const CommentAgentTextarea = React.forwardRef<
   forwardedRef
 ) {
   const innerRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const generatedId = React.useId();
+  const textareaId = props.id || `comment-agent-textarea-${generatedId}`;
+  const listboxId = `${textareaId}-agent-suggestions`;
   const [mentionState, setMentionState] = React.useState<MentionState | null>(null);
   const [selectedIndex, setSelectedIndex] = React.useState(0);
 
@@ -103,7 +106,19 @@ export const CommentAgentTextarea = React.forwardRef<
     <div className="relative">
       <Textarea
         {...props}
+        aria-activedescendant={
+          mentionState && visibleAgents.length > 0
+            ? `${listboxId}-option-${visibleAgents[selectedIndex]?.id || visibleAgents[0].id}`
+            : undefined
+        }
+        aria-controls={mentionState && visibleAgents.length > 0 ? listboxId : undefined}
+        aria-expanded={mentionState ? visibleAgents.length > 0 : undefined}
+        aria-haspopup="listbox"
+        aria-autocomplete="list"
+        autoComplete={props.autoComplete || 'off'}
         className={cn(className)}
+        id={textareaId}
+        name={props.name || 'comment'}
         ref={innerRef}
         value={value}
         onChange={(event) => {
@@ -136,6 +151,7 @@ export const CommentAgentTextarea = React.forwardRef<
               return;
             }
             if (event.key === 'Escape') {
+              event.preventDefault();
               setMentionState(null);
               return;
             }
@@ -149,10 +165,11 @@ export const CommentAgentTextarea = React.forwardRef<
         <div
           aria-label="Comment agent suggestions"
           className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-border/80 bg-background shadow-xl"
+          id={listboxId}
           role="listbox"
         >
           <div className="flex items-center gap-2 border-b border-border/70 px-3 py-2 text-[11px] text-muted-foreground">
-            <Sparkles className="h-3.5 w-3.5" />
+            <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
             输入 `@角色` 立即加入回复监听
           </div>
           <div className="max-h-56 overflow-y-auto p-1.5">
@@ -160,19 +177,21 @@ export const CommentAgentTextarea = React.forwardRef<
               <button
                 key={agent.id}
                 className={cn(
-                  'flex w-full items-start gap-2 rounded-xl px-3 py-2 text-left transition-colors',
+                  'flex min-h-11 w-full touch-manipulation items-start gap-2 rounded-xl px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
                   index === selectedIndex ? 'bg-muted' : 'hover:bg-muted/60'
                 )}
+                id={`${listboxId}-option-${agent.id}`}
                 role="option"
                 aria-selected={index === selectedIndex}
+                tabIndex={-1}
                 type="button"
+                onClick={() => commitMention(agent)}
                 onMouseDown={(event) => {
                   event.preventDefault();
-                  commitMention(agent);
                 }}
               >
                 <div className="mt-0.5 rounded-full bg-primary/10 p-1 text-primary">
-                  <Bot className="h-3 w-3" />
+                  <Bot aria-hidden="true" className="h-3 w-3" />
                 </div>
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-foreground">

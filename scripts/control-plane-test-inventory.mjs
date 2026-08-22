@@ -1,0 +1,145 @@
+export const controlPlaneTestGroups = [
+  {
+    id: 'core',
+    config: 'playwright.control-plane.config.ts',
+    testDir: '.',
+    testMatch: [
+      'src/agent/context/context.test.ts',
+      'src/agent/execution/daemon-config.test.ts',
+      'src/agent/execution/daemon.test.ts',
+      'src/agent/execution/drivers/generic-cli.test.ts',
+      'src/agent/execution/drivers/git-worktree-wrapper.test.ts',
+      'src/agent/execution/drivers/openhands.test.ts',
+      'src/agent/execution/git-worktree-coordinator.test.ts',
+      'src/agent/execution/matcher.test.ts',
+      'src/agent/execution/prisma-daemon-store.test.ts',
+      'src/agent/execution/registry.test.ts',
+      'src/agent/execution/runtime-plugin-loader.test.ts',
+      'src/agent/execution/workspace-lifecycle.test.ts',
+      'src/agent/knowledge/git-worktree.test.ts',
+      'src/agent/knowledge/trusted-merge.test.ts',
+      'src/agent/room-runtime/adapters/pi-agent-core.test.ts',
+      'src/agent/room-runtime/registry.test.ts',
+      'src/agent/room-runtime/room-runtime.test.ts',
+      'src/agent/room/router.test.ts',
+      'src/agent/tool-policy.test.ts',
+      'src/components/room/room-ui.test.ts',
+      'src/lib/execution/client.test.ts',
+      'src/lib/execution/room-events.test.ts',
+      'src/lib/db/prisma-libsql-adapter.test.ts',
+      'src/lib/room/activity.test.ts',
+      'src/lib/room/client.test.ts',
+      'src/lib/room/mentions.test.ts',
+      'src/lib/room/sse.test.ts',
+      'src/objects/execution-runtime/registry.test.ts',
+      'src/objects/execution-runtime/schema.test.ts',
+      'src/objects/execution-runtime/worker-commands.test.ts',
+    ],
+  },
+  {
+    id: 'execution-daemon',
+    config: 'apps/execution-daemon/src/playwright.config.ts',
+    testDir: 'apps/execution-daemon/src',
+    testMatch: [
+      'index.test.ts',
+      'process.integration.test.ts',
+      'smoke.integration.test.ts',
+    ],
+  },
+  {
+    id: 'room-session-host',
+    config: 'apps/room-session-host/src/playwright.config.ts',
+    testDir: '.',
+    testMatch: [
+      'apps/room-session-host/src/index.test.ts',
+      'apps/room-session-host/src/pi-runtime.test.ts',
+      'apps/room-session-host/src/process-concurrency.integration.test.ts',
+      'apps/room-session-host/src/restart.integration.test.ts',
+      'apps/room-session-host/src/smoke.integration.test.ts',
+      'src/agent/room-host/host.test.ts',
+      'src/agent/room-host/prisma-store.test.ts',
+      'src/agent/room-host/stub-runtime.test.ts',
+    ],
+  },
+  {
+    id: 'knowledge-merge-worker',
+    config: 'apps/knowledge-merge-worker/src/playwright.config.ts',
+    testDir: 'apps/knowledge-merge-worker/src',
+    testMatch: [
+      'process.integration.test.ts',
+      'smoke.integration.test.ts',
+    ],
+  },
+  {
+    id: 'state',
+    config: 'src/objects/state/control-plane.playwright.config.ts',
+    testDir: 'src/objects/state',
+    testMatch: [
+      'aligned-label-migration.test.ts',
+      'commands.atomic.test.ts',
+      'schema.test.ts',
+    ],
+  },
+  {
+    id: 'file',
+    config: 'src/objects/file/control-plane.playwright.config.ts',
+    testDir: 'src/objects/file',
+    testMatch: ['commands.test.ts'],
+  },
+  {
+    id: 'execution-job',
+    config: 'src/objects/execution-job/control-plane.playwright.config.ts',
+    testDir: 'src/objects/execution-job',
+    testMatch: [
+      'commands.test.ts',
+      'idempotency.test.ts',
+      'input-commands.test.ts',
+      'queries.test.ts',
+      'room-projection.test.ts',
+      'schema.test.ts',
+      'worker-commands.test.ts',
+      'worker-events.test.ts',
+      'worker-queries.test.ts',
+    ],
+  },
+  {
+    id: 'execution-recovery',
+    config:
+      'src/objects/execution-recovery/control-plane.playwright.config.ts',
+    testDir: 'src/objects/execution-recovery',
+    testMatch: ['commands.test.ts'],
+  },
+  {
+    id: 'knowledge',
+    config: 'src/objects/knowledge/control-plane.playwright.config.ts',
+    testDir: 'src/objects/knowledge',
+    testMatch: [
+      'admission.test.ts',
+      'knowledge.test.ts',
+      'merge-worker-commands.test.ts',
+      'worker-commands.test.ts',
+    ],
+  },
+  {
+    id: 'room-persistence',
+    config: 'src/objects/room/control-plane.playwright.config.ts',
+    testDir: '.',
+    testMatch: [
+      'src/agent/room-host/prisma-context-source.test.ts',
+      'src/objects/room/room-host-store.persistence.test.ts',
+      'src/objects/room/room.persistence.test.ts',
+    ],
+  },
+  {
+    id: 'room-tool-confirmation',
+    config: 'src/objects/room-tool-confirmation/playwright.config.ts',
+    testDir: 'tests/control-plane',
+    testMatch: ['room-tool-confirmation.test.ts'],
+  },
+];
+
+export function controlPlaneTestGroup(id) {
+  const group = controlPlaneTestGroups.find((candidate) => candidate.id === id);
+  if (!group) throw new Error(`Unknown control-plane test group: ${id}`);
+  return group;
+}

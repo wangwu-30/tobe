@@ -38,22 +38,34 @@ test('D9: mention dropdown UI experience is smooth', async ({ page }) => {
 
   const thread = page.getByTestId(`comment-thread-${workspace.waitingThreadId}`);
   const composer = thread.getByPlaceholder(/继续告诉 AI 要怎么改|继续告诉我怎么改|Reply/i);
+  await expect(composer).toHaveAttribute('aria-haspopup', 'listbox');
+  await expect(composer).toHaveAttribute('autocomplete', 'off');
+  await expect(composer).toHaveAttribute('name', 'comment-follow-up');
   await composer.fill('@');
 
   // Verify list appears quickly (< 300ms visually, playwright waits for it)
   const listbox = page.getByRole('listbox');
   await expect(listbox).toBeVisible({ timeout: 1000 });
+  const listboxId = await listbox.getAttribute('id');
+  expect(listboxId).toBeTruthy();
+  await expect(composer).toHaveAttribute('aria-controls', String(listboxId));
+  await expect(composer).toHaveAttribute('aria-expanded', 'true');
   await expect(listbox).toContainText('@assistant');
   await expect(listbox).toContainText('@my-reviewer');
 
   // Typing filtering 
   await composer.fill('@my');
   await expect(listbox).toBeVisible();
+  await expect(composer).toHaveAttribute(
+    'aria-activedescendant',
+    /-agent-suggestions-option-/
+  );
 
   // Select via Enter
   await page.keyboard.press('Enter');
 
   // The dropdown should be gone, text inserted
   await expect(listbox).toBeHidden();
+  await expect(composer).not.toHaveAttribute('aria-controls', /.+/);
   expect(await composer.inputValue()).toMatch(/@my-reviewer\s/);
 });

@@ -1,0 +1,14 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../..",
+    "paths": {
+      "@/lib/db/prisma": [
+        "src/objects/execution-recovery/test-prisma.ts"
+      ],
+      "@/*": [
+        "src/*"
+      ]
+    }
+  }
+}

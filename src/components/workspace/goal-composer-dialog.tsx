@@ -24,7 +24,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -121,7 +120,6 @@ export function GoalComposerDialog({
   workflowContextId?: string | null;
 }) {
   const t = useT();
-  const [isDesktop, setIsDesktop] = React.useState(false);
   const [workflowPlaybooks, setWorkflowPlaybooks] = React.useState<WorkflowPlaybookData[]>(
     []
   );
@@ -141,7 +139,6 @@ export function GoalComposerDialog({
     } satisfies GoalComposerValues;
   }, [initialValues]);
   const [values, setValues] = React.useState<GoalComposerValues>(resolvedInitialValues);
-  const [locationError, setLocationError] = React.useState<string | null>(null);
   const [intentClarifyPrompt, setIntentClarifyPrompt] = React.useState<string | null>(
     null
   );
@@ -152,36 +149,12 @@ export function GoalComposerDialog({
   const [isResolvingIntent, setIsResolvingIntent] = React.useState(false);
 
   React.useEffect(() => {
-    setIsDesktop(Boolean(window.daoDesktop?.isDesktop));
-  }, []);
-
-  const pickProjectLocation = React.useCallback(async () => {
-    const pickLocation = window.daoDesktop?.projects?.pickLocation;
-    if (!pickLocation) {
-      setLocationError(t('goal.projectLocationUnavailable'));
-      return;
-    }
-
-    const pickedPath = await pickLocation();
-    if (!pickedPath) {
-      return;
-    }
-
-    setLocationError(null);
-    setValues((current) => ({
-      ...current,
-      projectParentPath: pickedPath,
-    }));
-  }, [t]);
-
-  React.useEffect(() => {
     if (!open) {
       return;
     }
 
     setValues(resolvedInitialValues);
     setGoalClarifyPrompt(null);
-    setLocationError(null);
     setIntentClarifyPrompt(null);
     setIntentOptions([]);
     setIntentError(null);
@@ -229,7 +202,6 @@ export function GoalComposerDialog({
     workflowPlaybooks.find((item) => item.id === values.workflowPlaybookId) || null;
   const hasWorkflowChoices = workflowPlaybooks.length > 0;
   const isDeliverableCreation = creationMode === 'deliverable';
-  const showProjectLocation = isDesktop && !isDeliverableCreation;
   const dialogDescription = isDeliverableCreation
     ? t('goal.deliverableDescription', {
         projectTitle: currentProjectTitle?.trim() || t('workspace.untitledProject'),
@@ -359,8 +331,7 @@ export function GoalComposerDialog({
   const submitDisabled =
     isSubmitting ||
     isResolvingIntent ||
-    !values.goal.trim() ||
-    (showProjectLocation && !values.projectParentPath.trim());
+    !values.goal.trim();
 
   return (
     <Dialog
@@ -391,11 +362,21 @@ export function GoalComposerDialog({
           <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <form
+          className="space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!submitDisabled && !showClarifyCards) {
+              void resolveIntent();
+            }
+          }}
+        >
           <div className="space-y-2">
             <Label htmlFor="goal">{t('goal.goal')}</Label>
             <Textarea
+              autoComplete="off"
               id="goal"
+              name="goal"
               value={values.goal}
               disabled={disableInputs || isSubmitting || isResolvingIntent}
               onChange={(event) => {
@@ -426,7 +407,9 @@ export function GoalComposerDialog({
             <div className="space-y-2">
               <Label htmlFor="style-guide">{t('goal.styleTone')}</Label>
               <Textarea
+                autoComplete="off"
                 id="style-guide"
+                name="styleGuide"
                 value={values.styleGuide}
                 disabled={disableInputs || isSubmitting || isResolvingIntent}
                 onChange={(event) =>
@@ -441,7 +424,7 @@ export function GoalComposerDialog({
             </div>
 
             <div className="space-y-2">
-              <Label>{t('goal.workflow')}</Label>
+              <Label htmlFor="goal-workflow">{t('goal.workflow')}</Label>
               {hasWorkflowChoices ? (
                 <>
                   <Select
@@ -454,7 +437,7 @@ export function GoalComposerDialog({
                     }
                     disabled={disableInputs || isSubmitting || isResolvingIntent}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="goal-workflow">
                       <SelectValue placeholder={t('goal.selectWorkflow')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -497,7 +480,9 @@ export function GoalComposerDialog({
           <div className="space-y-2">
             <Label htmlFor="constraints">{t('goal.constraints')}</Label>
             <Textarea
+              autoComplete="off"
               id="constraints"
+              name="constraints"
               value={values.constraints}
               disabled={disableInputs || isSubmitting || isResolvingIntent}
               onChange={(event) =>
@@ -510,38 +495,6 @@ export function GoalComposerDialog({
               className="min-h-[88px]"
             />
           </div>
-
-          {showProjectLocation ? (
-            <div className="space-y-2">
-              <Label htmlFor="project-location">{t('goal.projectLocation')}</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="project-location"
-                  value={values.projectParentPath}
-                  readOnly
-                  placeholder={t('goal.projectLocationPlaceholder')}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void pickProjectLocation()}
-                  disabled={disableInputs || isSubmitting || isResolvingIntent}
-                >
-                  {values.projectParentPath
-                    ? t('goal.changeProjectLocation')
-                    : t('goal.chooseProjectLocation')}
-                </Button>
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t('goal.projectLocationDescription')}
-              </p>
-              {locationError ? (
-                <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  {locationError}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
 
           {showClarifyCards ? (
             <div
@@ -583,6 +536,9 @@ export function GoalComposerDialog({
                         </div>
                       </div>
                       <Textarea
+                        aria-label={`${option.title}: ${option.detailPlaceholder}`}
+                        autoComplete="off"
+                        name={`intentNote-${option.id}`}
                         value={intentNotes[option.id] || ''}
                         disabled={disableInputs || isSubmitting || isResolvingIntent}
                         onChange={(event) => {
@@ -622,16 +578,19 @@ export function GoalComposerDialog({
               </div>
             </div>
           ) : null}
-        </div>
-
         {errorMessage || intentError ? (
-          <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive">
+          <div
+            aria-live="assertive"
+            className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive"
+            role="alert"
+          >
             {errorMessage || intentError}
           </div>
         ) : null}
 
         <DialogFooter>
           <Button
+            type="button"
             variant="ghost"
             onClick={() => onOpenChange(false)}
             disabled={isSubmitting || isResolvingIntent}
@@ -640,8 +599,8 @@ export function GoalComposerDialog({
           </Button>
           {!showClarifyCards ? (
             <Button
-              onClick={() => void resolveIntent()}
               disabled={submitDisabled}
+              type="submit"
             >
               {isSubmitting
                 ? submittingActionLabel
@@ -651,6 +610,7 @@ export function GoalComposerDialog({
             </Button>
           ) : null}
         </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

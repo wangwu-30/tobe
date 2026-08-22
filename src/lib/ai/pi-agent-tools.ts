@@ -6,7 +6,7 @@ import {
   formatProjectAiContext,
   loadProjectAiContextData,
 } from '@/lib/ai/project-context';
-import { markdownToPlate, plateToMarkdown } from '@/lib/ai/serializer';
+import { plateToMarkdown } from '@/lib/ai/serializer';
 import {
   getBoundVersionIdForWiki,
   bindDraftThreadsToVersion,
@@ -26,10 +26,6 @@ import {
   parseStoredDeliverableType,
 } from '@/lib/workspace/deliverable-types';
 import { deriveRenderAs } from '@/lib/workspace/render-as';
-import {
-  createWorkspaceFile,
-  updateWorkspaceFile,
-} from '@/objects/file/commands';
 import { listWorkspaceFiles } from '@/objects/file/queries';
 import {
   listWorkspaceVersions,
@@ -41,11 +37,7 @@ import {
 import { branchConversation } from '@/objects/conversation/commands';
 import { detectWorkspacePreviewCapability } from '@/lib/workspace/preview';
 import { inferDeliverableType } from '@/lib/workspace/planning';
-import {
-  applyStagedChangeSet,
-  discardStagedChangeSet,
-  getPendingStagedChangeSets,
-} from '@/lib/workspace/staged-changes';
+import { getPendingStagedChangeSets } from '@/lib/workspace/staged-changes';
 import {
   createNote,
   listNotes,
@@ -53,12 +45,15 @@ import {
 } from '@/objects/note';
 import { canAccessProjectFromProject } from '@/objects/project-mount';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
+import { createStartExecutionJobTool } from '@/agent/tools/execution/start-execution-job';
+import { createPublishTeamTaskTool } from '@/agent/tools/team-task/publish-team-task';
+import { createProposeDocumentChangeTool } from '@/agent/tools/document/propose-document-change';
+import type { AgentToolConfirmationAuthority } from '@/agent/tool-policy';
 import type { SearchProvider } from '@/lib/search/types';
 import type {
   DeliverableType,
   RenderAs,
   ResearchMode,
-  WorkspaceFileData,
 } from '@/types';
 
 type DebugWorkspacePlanDetails = {
@@ -83,6 +78,7 @@ type ResultShapeFile = {
 
 type CreateWorkspaceAgentToolsParams = {
   actorUserId: string;
+  confirmationAuthority?: AgentToolConfirmationAuthority;
   conversationId: string;
   organizationId: string;
   originDeviceId: string;
@@ -94,6 +90,7 @@ type CreateWorkspaceAgentToolsParams = {
 
 export function createWorkspaceAgentTools({
   actorUserId,
+  confirmationAuthority,
   conversationId,
   organizationId,
   originDeviceId,
@@ -108,13 +105,6 @@ export function createWorkspaceAgentTools({
   const wikiId = workspaceId;
   const toolSummaries: string[] = [];
   let remainingSearchBudget = searchBudget;
-  let cachedDeliverableType: DeliverableType | null = null;
-  let liveDraftRecoveryCheckpoint:
-    | {
-        id: string;
-        title: string;
-      }
-    | null = null;
 
   const rememberToolSummary = (summary: string) => {
     const normalized = summary.trim();
@@ -123,45 +113,6 @@ export function createWorkspaceAgentTools({
     }
 
     toolSummaries.push(normalized);
-  };
-
-  const getWorkspaceDeliverableType = async (): Promise<DeliverableType> => {
-    if (cachedDeliverableType) {
-      return cachedDeliverableType;
-    }
-
-    const [workspacePlan, workspace] = await Promise.all([
-      prisma.workspacePlan.findFirst({
-        where: {
-          deletedAt: null,
-          documentId: workspaceId,
-          organizationId,
-        },
-      }),
-      prisma.document.findFirst({
-        where: {
-          deletedAt: null,
-          id: workspaceId,
-          organizationId,
-        },
-        include: {
-          files: {
-            where: { deletedAt: null },
-            orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-          },
-        },
-      }),
-    ]);
-
-    cachedDeliverableType =
-      normalizeStoredDeliverableType(workspacePlan?.deliverableType) ||
-      inferDeliverableType({
-        fileKind: workspace?.files[0]?.kind || null,
-        files: workspace?.files.map((file) => ({ kind: file.kind, path: file.path })) || [],
-        title: workspace?.title,
-      });
-
-    return cachedDeliverableType;
   };
 
   const loadCurrentProjectContext = async () =>
@@ -429,75 +380,6 @@ export function createWorkspaceAgentTools({
     return note.scope === 'user' ? 'user' : note.scope;
   };
 
-  const ensureLiveDraftRecoveryCheckpoint = async () => {
-    if (liveDraftRecoveryCheckpoint) {
-      return liveDraftRecoveryCheckpoint;
-    }
-
-    const version = await createVersion({
-      recovery: true,
-      sourceConversationId: conversationId,
-      title: 'Recovery Point before AI Update',
-      workspaceId,
-    });
-
-    liveDraftRecoveryCheckpoint = {
-      id: version.id,
-      title: version.title,
-    };
-    return liveDraftRecoveryCheckpoint;
-  };
-
-  const maybeStartPreviewForWeb = async () => {
-    const [files, runs] = await Promise.all([
-      listWorkspaceFiles({
-        organizationId,
-        workspaceId,
-      }),
-      listWorkspaceRuns({
-        organizationId,
-        workspaceId,
-      }),
-    ]);
-    const previewCapability = detectWorkspacePreviewCapability(files);
-    const activePreviewRun =
-      runs.find(
-        (run) =>
-          run.kind === 'preview' &&
-          (run.status === 'pending' || run.status === 'running')
-      ) || null;
-
-    if (activePreviewRun) {
-      return {
-        previewCapability,
-        previewRun: activePreviewRun,
-      };
-    }
-
-    if (!previewCapability.canPreview) {
-      return {
-        previewCapability,
-        previewRun: null,
-      };
-    }
-
-    const previewRun = await startWorkspacePreview(
-      {
-        deviceId: originDeviceId,
-        organizationId,
-        userId: actorUserId,
-      },
-      {
-        workspaceId,
-      }
-    );
-
-    return {
-      previewCapability,
-      previewRun,
-    };
-  };
-
   const resolveWorkspacePresentation = (params: {
     content: string;
     files: ResultShapeFile[];
@@ -583,249 +465,6 @@ export function createWorkspaceAgentTools({
       storedDeliverableType: presentation.storedDeliverableType,
       styleGuide: workspacePlan.styleGuide || null,
       version: workspacePlan.version,
-    };
-  };
-
-  const upsertLiveDraftFile = async (input: {
-    content: string;
-    deliverableType: DeliverableType;
-    existing: WorkspaceFileData | null;
-    kind?: 'richtext' | 'markdown' | 'text' | 'code';
-    language?: string;
-    path?: string;
-    setPrimary?: boolean;
-  }) => {
-    const workspaceFiles = await listWorkspaceFiles({
-      organizationId,
-      workspaceId,
-    });
-    const primaryFile =
-      workspaceFiles.find((file) => file.nodeType === 'file' && file.isPrimary) ||
-      workspaceFiles.find((file) => file.nodeType === 'file') ||
-      null;
-    const explicitPath = input.path?.trim() || null;
-    const isWebDeliverable = input.deliverableType === 'web';
-
-    if (!isWebDeliverable) {
-      const preferredTarget = input.existing || (!explicitPath ? primaryFile : null) || null;
-      const targetPath =
-        explicitPath ||
-        preferredTarget?.path ||
-        getDefaultLiveDraftPath(input.deliverableType);
-
-      if (!preferredTarget && targetPath.includes('/')) {
-        throw new Error(
-          'Create the parent folders first before writing a nested live-draft file.'
-        );
-      }
-
-      await ensureLiveDraftRecoveryCheckpoint();
-
-      const nextKind =
-        input.kind ||
-        preferredTarget?.kind ||
-        'richtext';
-
-      // For richtext files, ensure content is Plate JSON.
-      // If the AI produced raw markdown, convert it before storage.
-      let contentToStore = input.content;
-      if (nextKind === 'richtext' || nextKind === 'markdown') {
-        const parsed = safeJsonParse<unknown>(input.content, null);
-        if (!Array.isArray(parsed) && input.content.trim()) {
-          // Raw markdown → convert to Plate JSON
-          contentToStore = JSON.stringify(markdownToPlate(input.content));
-        }
-      }
-      const nextLanguage =
-        input.language !== undefined
-          ? input.language
-          : inferFileLanguageFromPath(targetPath);
-      const shouldSetPrimary =
-        input.setPrimary !== undefined
-          ? input.setPrimary
-          : !explicitPath || preferredTarget?.isPrimary || false;
-      const targetName = targetPath.split('/').pop() || targetPath;
-
-      let updatedFile: WorkspaceFileData;
-      if (preferredTarget) {
-        updatedFile = await updateWorkspaceFile(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            content: contentToStore,
-            fileId: preferredTarget.id,
-            kind: nextKind,
-            language: nextLanguage,
-            name: targetName,
-            setPrimary: shouldSetPrimary,
-            workspaceId,
-          }
-        );
-      } else {
-        const createdFile = await createWorkspaceFile(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            kind: nextKind,
-            name: targetName,
-            workspaceId,
-          }
-        );
-
-        updatedFile = await updateWorkspaceFile(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            content: contentToStore,
-            fileId: createdFile.id,
-            kind: nextKind,
-            language: nextLanguage,
-            setPrimary: shouldSetPrimary,
-            workspaceId,
-          }
-        );
-      }
-
-      const summaryParts = [`Updated the live draft in ${updatedFile.path}.`];
-      if (liveDraftRecoveryCheckpoint?.title) {
-        summaryParts.push(
-          `Recovery point ready: ${liveDraftRecoveryCheckpoint.title}.`
-        );
-      }
-
-      const summary = summaryParts.join(' ');
-      rememberToolSummary(summary);
-
-      return {
-        details: {
-          recoveryCheckpoint: liveDraftRecoveryCheckpoint,
-          updatedFile,
-        },
-        summary,
-      };
-    }
-
-    const contentLooksHtml = looksLikeHtmlDocument(input.content);
-    const htmlEntrypoint =
-      workspaceFiles.find((file) => file.nodeType === 'file' && file.path === 'index.html') ||
-      null;
-    const preferredTarget =
-      input.existing ||
-      (!explicitPath
-        ? (contentLooksHtml ? htmlEntrypoint || primaryFile : primaryFile)
-        : null) ||
-      null;
-    const targetPath = resolveWebTargetPath({
-      contentLooksHtml,
-      existingPath: preferredTarget?.path || null,
-      explicitPath,
-    });
-
-    if (!preferredTarget && targetPath.includes('/')) {
-      throw new Error(
-        'Create the parent folders first before writing a nested web file.'
-      );
-    }
-
-    await ensureLiveDraftRecoveryCheckpoint();
-
-    const nextKind =
-      input.kind || (contentLooksHtml ? 'code' : preferredTarget?.kind || 'code');
-    const nextLanguage =
-      input.language !== undefined
-        ? input.language
-        : contentLooksHtml
-          ? 'html'
-          : inferFileLanguageFromPath(targetPath);
-    const shouldSetPrimary =
-      input.setPrimary !== undefined
-        ? input.setPrimary
-        : contentLooksHtml || targetPath === 'index.html' || preferredTarget?.isPrimary || false;
-    const targetName = targetPath.split('/').pop() || targetPath;
-
-    let updatedFile: WorkspaceFileData;
-    if (preferredTarget) {
-      updatedFile = await updateWorkspaceFile(
-        {
-          deviceId: originDeviceId,
-          organizationId,
-          userId: actorUserId,
-        },
-        {
-          content: input.content,
-          fileId: preferredTarget.id,
-          kind: nextKind,
-          language: nextLanguage,
-          name: targetName,
-          setPrimary: shouldSetPrimary,
-          workspaceId,
-        }
-      );
-    } else {
-      const createdFile = await createWorkspaceFile(
-        {
-          deviceId: originDeviceId,
-          organizationId,
-          userId: actorUserId,
-        },
-        {
-          kind: nextKind,
-          name: targetName,
-          workspaceId,
-        }
-      );
-
-      updatedFile = await updateWorkspaceFile(
-        {
-          deviceId: originDeviceId,
-          organizationId,
-          userId: actorUserId,
-        },
-        {
-          content: input.content,
-          fileId: createdFile.id,
-          kind: nextKind,
-          language: nextLanguage,
-          setPrimary: shouldSetPrimary,
-          workspaceId,
-        }
-      );
-    }
-
-    const { previewCapability, previewRun } = await maybeStartPreviewForWeb();
-    const summaryParts = [`Updated the current web deliverable in ${updatedFile.path}.`];
-
-    if (liveDraftRecoveryCheckpoint?.title) {
-      summaryParts.push(`Recovery point ready: ${liveDraftRecoveryCheckpoint.title}.`);
-    }
-
-    if (previewRun?.previewUrl) {
-      summaryParts.push(`Preview is available at ${previewRun.previewUrl}.`);
-    } else if (previewCapability.canPreview) {
-      summaryParts.push('The draft is previewable.');
-    } else {
-      summaryParts.push(`Preview is still blocked: ${previewCapability.reason}`);
-    }
-
-    const summary = summaryParts.join(' ');
-    rememberToolSummary(summary);
-
-    return {
-      details: {
-        previewRun,
-        recoveryCheckpoint: liveDraftRecoveryCheckpoint,
-        updatedFile,
-      },
-      summary,
     };
   };
 
@@ -1224,111 +863,6 @@ export function createWorkspaceAgentTools({
       },
     },
     {
-      name: 'write_file',
-      label: 'Write File',
-      description:
-        'Create or overwrite the live deliverable files in the current workspace directly. Treat slide decks as document content instead of a separate result shape.',
-      parameters: Type.Object({
-        content: Type.String(),
-        fileId: Type.Optional(Type.String({ minLength: 1 })),
-        kind: Type.Optional(Type.String({ minLength: 1 })),
-        language: Type.Optional(Type.String({ minLength: 1 })),
-        path: Type.Optional(Type.String({ minLength: 1 })),
-        setPrimary: Type.Optional(Type.Boolean()),
-      }),
-      async execute(_toolCallId, params) {
-        const input = params as {
-          content: string;
-          fileId?: string;
-          kind?: 'richtext' | 'markdown' | 'text' | 'code';
-          language?: string;
-          path?: string;
-          setPrimary?: boolean;
-        };
-        const deliverableType = await getWorkspaceDeliverableType();
-
-        const existing = input.fileId
-          ? await prisma.workspaceFile.findFirst({
-              where: {
-                deletedAt: null,
-                id: input.fileId,
-                documentId: workspaceId,
-                organizationId,
-              },
-            })
-          : input.path
-            ? await prisma.workspaceFile.findFirst({
-                where: {
-                  deletedAt: null,
-                  path: input.path,
-                  documentId: workspaceId,
-                  organizationId,
-                },
-              })
-            : null;
-
-        const result = await upsertLiveDraftFile({
-          content: input.content,
-          deliverableType,
-          existing: existing ? mapWorkspaceFileRecord(existing) : null,
-          kind: input.kind,
-          language: input.language,
-          path: input.path,
-          setPrimary: input.setPrimary,
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: result.summary,
-            },
-          ],
-          details: result.details,
-        };
-      },
-    },
-    {
-      name: 'create_file',
-      label: 'Create File',
-      description:
-        'Create a new file or folder in the current workspace.',
-      parameters: Type.Object({
-        kind: Type.Optional(Type.String({ minLength: 1 })),
-        name: Type.String({ minLength: 1 }),
-        nodeType: Type.Optional(Type.String({ minLength: 1 })),
-        parentId: Type.Optional(Type.String({ minLength: 1 })),
-      }),
-      async execute(_toolCallId, params) {
-        const input = params as {
-          kind?: 'richtext' | 'markdown' | 'text' | 'code';
-          name: string;
-          nodeType?: 'file' | 'folder';
-          parentId?: string;
-        };
-        const file = await createWorkspaceFile(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            kind: input.kind,
-            name: input.name,
-            nodeType: input.nodeType,
-            parentId: input.parentId,
-            workspaceId,
-          }
-        );
-        rememberToolSummary(`Created ${file.path}.`);
-
-        return {
-          content: [{ type: 'text', text: `Created ${file.path}.` }],
-          details: file,
-        };
-      },
-    },
-    {
       name: 'list_workspace_runs',
       label: 'List Workspace Runs',
       description:
@@ -1359,110 +893,15 @@ export function createWorkspaceAgentTools({
         };
       },
     },
-    {
-      name: 'apply_staged_change_set',
-      label: 'Apply Staged Change Set',
-      description:
-        'Apply a pending staged change set to the live workspace draft so the result becomes visible outside the plan review queue.',
-      parameters: Type.Object({
-        changeSetId: Type.Optional(Type.String({ minLength: 1 })),
-        checkpointTitle: Type.Optional(Type.String({ minLength: 1 })),
-      }),
-      async execute(_toolCallId, params) {
-        const input = params as { changeSetId?: string; checkpointTitle?: string };
-        const pendingChangeSets = await getPendingStagedChangeSets({
-          organizationId,
-          workspaceId,
-        });
-        const changeSet =
-          (input.changeSetId
-            ? pendingChangeSets.find((item) => item.id === input.changeSetId) || null
-            : pendingChangeSets[0] || null);
-
-        if (!changeSet) {
-          throw new Error(
-            input.changeSetId
-              ? 'Requested staged change set is not pending in this workspace.'
-              : 'No pending staged change sets are available.'
-          );
-        }
-
-        const applied = await applyStagedChangeSet(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            changeSetId: changeSet.id,
-            checkpointTitle: input.checkpointTitle,
-            workspaceId,
-          }
-        );
-        rememberToolSummary(`Applied staged changes "${applied.title}" to the live draft.`);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Applied staged changes "${applied.title}" to the live draft.`,
-            },
-          ],
-          details: applied,
-        };
-      },
-    },
-    {
-      name: 'discard_staged_change_set',
-      label: 'Discard Staged Change Set',
-      description:
-        'Discard a pending staged change set so it no longer waits in the plan review queue.',
-      parameters: Type.Object({
-        changeSetId: Type.Optional(Type.String({ minLength: 1 })),
-      }),
-      async execute(_toolCallId, params) {
-        const input = params as { changeSetId?: string };
-        const pendingChangeSets = await getPendingStagedChangeSets({
-          organizationId,
-          workspaceId,
-        });
-        const changeSet =
-          (input.changeSetId
-            ? pendingChangeSets.find((item) => item.id === input.changeSetId) || null
-            : pendingChangeSets[0] || null);
-
-        if (!changeSet) {
-          throw new Error(
-            input.changeSetId
-              ? 'Requested staged change set is not pending in this workspace.'
-              : 'No pending staged change sets are available.'
-          );
-        }
-
-        const discarded = await discardStagedChangeSet(
-          {
-            deviceId: originDeviceId,
-            organizationId,
-            userId: actorUserId,
-          },
-          {
-            changeSetId: changeSet.id,
-            workspaceId,
-          }
-        );
-        rememberToolSummary(`Discarded staged changes "${discarded.title}".`);
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Discarded staged changes "${discarded.title}".`,
-            },
-          ],
-          details: discarded,
-        };
-      },
-    },
+    createProposeDocumentChangeTool({
+      actorUserId,
+      organizationId,
+      originDeviceId,
+      rememberSummary: rememberToolSummary,
+      sessionId: conversationId,
+      sourceType: 'workspace-assistant',
+      workspaceId,
+    }) as AgentTool,
     {
       name: 'start_preview',
       label: 'Start Preview',
@@ -1624,6 +1063,23 @@ export function createWorkspaceAgentTools({
         };
       },
     },
+    createPublishTeamTaskTool({
+      actorUserId,
+      organizationId,
+      originDeviceId,
+      rememberSummary: rememberToolSummary,
+      resolveProjectId: async () => (await loadCurrentProjectContext())?.id || null,
+      workspaceId,
+    }) as AgentTool,
+    createStartExecutionJobTool({
+      actorUserId,
+      confirmationAuthority,
+      conversationId,
+      organizationId,
+      originDeviceId,
+      rememberSummary: rememberToolSummary,
+      workspaceId,
+    }) as AgentTool,
     ...(searchProvider
       ? [{
           name: 'search_web',
@@ -1891,115 +1347,6 @@ function summarizeThreads(
 
 function truncate(value: string, maxLength = 140) {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value;
-}
-
-function looksLikeHtmlDocument(content: string) {
-  const normalized = content.trim().toLowerCase();
-  return (
-    normalized.startsWith('<!doctype html') ||
-    (normalized.includes('<html') && normalized.includes('</html>')) ||
-    (normalized.includes('<body') && normalized.includes('</body>'))
-  );
-}
-
-function resolveWebTargetPath(params: {
-  contentLooksHtml: boolean;
-  existingPath: string | null;
-  explicitPath: string | null;
-}) {
-  if (params.explicitPath) {
-    return params.explicitPath;
-  }
-
-  if (
-    params.contentLooksHtml &&
-    (!params.existingPath ||
-      params.existingPath === 'index.ts' ||
-      params.existingPath === 'main.ts' ||
-      params.existingPath === 'main.js')
-  ) {
-    return 'index.html';
-  }
-
-  return params.existingPath || 'index.html';
-}
-
-function getDefaultLiveDraftPath(deliverableType: DeliverableType) {
-  return 'main';
-}
-
-function inferFileLanguageFromPath(filePath: string) {
-  const extension = filePath.split('.').pop()?.toLowerCase();
-  if (!extension || extension === filePath.toLowerCase()) {
-    return null;
-  }
-
-  const languageMap: Record<string, string> = {
-    css: 'css',
-    html: 'html',
-    js: 'javascript',
-    json: 'json',
-    jsx: 'javascript',
-    md: 'markdown',
-    mdx: 'markdown',
-    ts: 'typescript',
-    tsx: 'typescript',
-    txt: 'text',
-  };
-
-  return languageMap[extension] || extension;
-}
-
-function mapWorkspaceFileRecord(file: {
-  content: string;
-  createdAt: Date;
-  createdByUserId: string | null;
-  deletedAt: Date | null;
-  documentId: string;
-  id: string;
-  isPrimary: boolean;
-  kind: string;
-  language: string | null;
-  name: string;
-  organizationId: string;
-  originDeviceId: string | null;
-  parentId: string | null;
-  path: string;
-  role?: string | null;
-  revision: number;
-  sortOrder: number;
-  type: string;
-  updatedAt: Date;
-}): WorkspaceFileData {
-  return {
-    content: file.content,
-    createdAt: file.createdAt,
-    createdByUserId: file.createdByUserId,
-    deletedAt: file.deletedAt,
-    id: file.id,
-    isPrimary: file.isPrimary,
-    kind: normalizeWorkspaceFileKind(file.kind),
-    language: file.language,
-    name: file.name,
-    nodeType: file.type === 'folder' ? 'folder' : 'file',
-    organizationId: file.organizationId,
-    originDeviceId: file.originDeviceId,
-    parentId: file.parentId,
-    path: file.path,
-    role: file.role === 'support' ? 'support' : 'deliverable',
-    revision: file.revision,
-    sortOrder: file.sortOrder,
-    updatedAt: file.updatedAt,
-    workspaceId: file.documentId,
-  };
-}
-
-function normalizeWorkspaceFileKind(kind: string): WorkspaceFileData['kind'] {
-  if (kind === 'richtext' || kind === 'markdown' || kind === 'text' || kind === 'code') {
-    return kind;
-  }
-
-  return 'text';
 }
 
 function formatSearchResult(result: {

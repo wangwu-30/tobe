@@ -123,6 +123,12 @@ export function CommentSidebar({
   } | null>(null);
   const manualAnchorFieldId = React.useId();
   const manualCommentFieldId = React.useId();
+  const manualComposerTitleId = React.useId();
+  const manualComposerErrorId = React.useId();
+  const openThreadsRegionId = React.useId();
+  const appliedThreadsRegionId = React.useId();
+  const earlierContextRegionId = React.useId();
+  const historyRegionId = React.useId();
   const [manualComposerOpen, setManualComposerOpen] = React.useState(false);
   const [manualAnchorText, setManualAnchorText] = React.useState('');
   const [manualCommentText, setManualCommentText] = React.useState('');
@@ -221,7 +227,11 @@ export function CommentSidebar({
     if (!target) return;
 
     requestAnimationFrame(() => {
-      target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'nearest',
+      });
     });
   }, [appliedListOpen, focusedThreadId, historyOpen, openListOpen, threads]);
 
@@ -791,12 +801,12 @@ export function CommentSidebar({
         'flex min-h-0 min-w-0 flex-col overflow-hidden bg-muted/30',
         embedded
           ? 'h-full w-full border-0'
-          : 'w-[320px] max-w-[320px] shrink-0 border-l border-border',
+          : 'w-full max-w-full shrink-0 border-l border-border sm:w-[320px] sm:max-w-[320px]',
         className
       )}
     >
       <div className="space-y-2 border-b border-border px-3 py-2">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           {showHeader ? (
             <div className="min-w-0">
               <h3 className="flex items-center gap-1.5 text-xs font-semibold">
@@ -813,12 +823,12 @@ export function CommentSidebar({
               </p>
             </div>
           ) : null}
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-7 px-2 text-xs"
+              className="h-11 px-2 text-xs sm:h-7"
               onClick={openManualComposer}
             >
               <PenLine className="mr-1 h-3.5 w-3.5" />
@@ -829,22 +839,27 @@ export function CommentSidebar({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                className="shrink-0"
+                className="size-11 shrink-0 sm:size-6"
+                aria-label={`${t('execution.close')} ${t('assistant.review')}`}
                 onClick={onClose}
               >
-                <PanelRightClose className="h-3.5 w-3.5" />
+                <PanelRightClose aria-hidden="true" className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>
         </div>
 
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
-          {t('comments.description')}
-        </p>
+        {!showHeader ? (
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            {t('comments.description')}
+          </p>
+        ) : null}
         {threadStatusNotice ? (
           <div
+            aria-live={threadStatusNotice.tone === 'error' ? undefined : 'polite'}
+            role={threadStatusNotice.tone === 'error' ? 'alert' : 'status'}
             className={cn(
-              'rounded-md px-2 py-1.5 text-[10px] leading-relaxed',
+              'break-words rounded-md px-2 py-1.5 text-[10px] leading-relaxed [overflow-wrap:anywhere]',
               threadStatusNotice.tone === 'error'
                 ? 'bg-destructive/10 text-destructive'
                 : 'bg-muted/60 text-muted-foreground'
@@ -854,13 +869,21 @@ export function CommentSidebar({
           </div>
         ) : null}
         {manualComposerOpen ? (
-          <div
+          <form
+            aria-busy={manualSubmitting}
+            aria-labelledby={manualComposerTitleId}
             className="rounded-xl border border-border/70 bg-background/80 p-3"
             data-testid="manual-comment-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitManualComment();
+            }}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold">{t('comments.manualComposerTitle')}</p>
+                <p id={manualComposerTitleId} className="text-xs font-semibold">
+                  {t('comments.manualComposerTitle')}
+                </p>
                 <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
                   {t('comments.manualComposerDescription')}
                 </p>
@@ -869,9 +892,11 @@ export function CommentSidebar({
                 type="button"
                 size="icon-xs"
                 variant="ghost"
+                className="size-11 sm:size-6"
+                aria-label={t('execution.close')}
                 onClick={closeManualComposer}
               >
-                <X className="h-3.5 w-3.5" />
+                <X aria-hidden="true" className="h-3.5 w-3.5" />
               </Button>
             </div>
 
@@ -884,9 +909,14 @@ export function CommentSidebar({
               </label>
               <Input
                 id={manualAnchorFieldId}
+                name="comment-scope"
+                autoComplete="off"
                 data-testid="manual-comment-anchor-input"
                 value={manualAnchorText}
-                onChange={(event) => setManualAnchorText(event.target.value)}
+                onChange={(event) => {
+                  setManualAnchorText(event.target.value);
+                  if (manualComposerError) setManualComposerError(null);
+                }}
                 placeholder={t('comments.manualAnchorPlaceholder')}
               />
             </div>
@@ -901,36 +931,51 @@ export function CommentSidebar({
               <CommentAgentTextarea
                 agents={commentAgents}
                 id={manualCommentFieldId}
+                name="comment"
+                required
+                aria-describedby={manualComposerError ? manualComposerErrorId : undefined}
+                aria-invalid={manualComposerError ? true : undefined}
                 data-testid="manual-comment-textarea"
                 value={manualCommentText}
-                onChange={setManualCommentText}
+                onChange={(value) => {
+                  setManualCommentText(value);
+                  if (manualComposerError) setManualComposerError(null);
+                }}
                 placeholder={t('comments.manualCommentPlaceholder')}
                 className="min-h-[104px]"
               />
             </div>
 
             {manualComposerError ? (
-              <p className="mt-2 text-[11px] text-destructive">{manualComposerError}</p>
+              <p
+                id={manualComposerErrorId}
+                className="mt-2 break-words text-[11px] text-destructive [overflow-wrap:anywhere]"
+                role="alert"
+              >
+                {manualComposerError}
+              </p>
             ) : null}
 
-            <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="mt-3 flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-[11px] text-muted-foreground">
                 {t('comments.agentMentionHint')}
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
+                  className="h-11 sm:h-8"
                   onClick={closeManualComposer}
                   disabled={manualSubmitting}
                 >
                   {t('common.cancel')}
                 </Button>
                 <Button
-                  type="button"
+                  type="submit"
                   size="sm"
-                  onClick={() => void submitManualComment()}
+                  className="h-11 sm:h-8"
+                  aria-busy={manualSubmitting}
                   disabled={manualSubmitting || !manualCommentText.trim()}
                 >
                   {manualSubmitting
@@ -939,7 +984,7 @@ export function CommentSidebar({
                 </Button>
               </div>
             </div>
-          </div>
+          </form>
         ) : null}
       </div>
 
@@ -947,7 +992,9 @@ export function CommentSidebar({
         <div className="space-y-2 p-2">
           <div className="overflow-hidden rounded-lg border bg-background/80">
             <button
-              className="flex w-full items-center justify-between px-3 py-2 text-xs text-foreground"
+              aria-controls={openThreadsRegionId}
+              aria-expanded={openListOpen}
+              className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
               onClick={() => setOpenListOpen(open => !open)}
               type="button"
             >
@@ -956,14 +1003,18 @@ export function CommentSidebar({
                 {t('comments.openThreads', { count: openThreads.length })}
               </span>
               <ChevronDown
-                className={`h-3.5 w-3.5 transition-transform ${
+                aria-hidden="true"
+                className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${
                   openListOpen ? 'rotate-180' : ''
                 }`}
               />
             </button>
 
             {openListOpen && (
-              <div className="space-y-2 border-t border-border p-2">
+              <div
+                id={openThreadsRegionId}
+                className="space-y-2 border-t border-border p-2"
+              >
                 {openThreads.length === 0 ? (
                   <div className="py-6 text-center text-xs text-muted-foreground">
                     <MessageSquare className="mx-auto mb-2 h-6 w-6 opacity-30" />
@@ -975,7 +1026,7 @@ export function CommentSidebar({
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="mt-3 h-8"
+                      className="mt-3 h-11 sm:h-8"
                       onClick={openManualComposer}
                     >
                       <PenLine className="mr-1.5 h-3.5 w-3.5" />
@@ -1033,7 +1084,9 @@ export function CommentSidebar({
           {appliedThreads.length > 0 && (
             <div className="overflow-hidden rounded-lg border bg-background/80">
               <button
-                className="flex w-full items-center justify-between px-3 py-2 text-xs text-foreground"
+                aria-controls={appliedThreadsRegionId}
+                aria-expanded={appliedListOpen}
+                className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
                 onClick={() => setAppliedListOpen(open => !open)}
                 type="button"
               >
@@ -1044,14 +1097,18 @@ export function CommentSidebar({
                   })}
                 </span>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform ${
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${
                     appliedListOpen ? 'rotate-180' : ''
                   }`}
                 />
               </button>
 
               {appliedListOpen && (
-                <div className="space-y-2 border-t border-border p-2">
+                <div
+                  id={appliedThreadsRegionId}
+                  className="space-y-2 border-t border-border p-2"
+                >
                   <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
                     {t('comments.pendingVerificationDescription')}
                   </p>
@@ -1155,7 +1212,9 @@ export function CommentSidebar({
           {earlierContextThreads.length > 0 && (
             <div className="overflow-hidden rounded-lg border bg-background/80">
               <button
-                className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground"
+                aria-controls={earlierContextRegionId}
+                aria-expanded={earlierContextOpen}
+                className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
                 onClick={() => setEarlierContextOpen((open) => !open)}
                 type="button"
               >
@@ -1164,14 +1223,18 @@ export function CommentSidebar({
                   {t('comments.earlierContext', { count: earlierContextThreads.length })}
                 </span>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform ${
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${
                     earlierContextOpen ? 'rotate-180' : ''
                   }`}
                 />
               </button>
 
               {earlierContextOpen && (
-                <div className="space-y-2 border-t border-border p-2">
+                <div
+                  id={earlierContextRegionId}
+                  className="space-y-2 border-t border-border p-2"
+                >
                   <p className="px-1 text-[10px] leading-relaxed text-muted-foreground">
                     {t('comments.earlierContextDescription')}
                   </p>
@@ -1219,7 +1282,9 @@ export function CommentSidebar({
           {resolvedThreads.length > 0 && (
             <div className="overflow-hidden rounded-lg border bg-background/80">
               <button
-                className="flex w-full items-center justify-between px-3 py-2 text-xs text-muted-foreground"
+                aria-controls={historyRegionId}
+                aria-expanded={historyOpen}
+                className="flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-xs text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
                 onClick={() => setHistoryOpen(open => !open)}
                 type="button"
               >
@@ -1228,14 +1293,18 @@ export function CommentSidebar({
                   {t('comments.history', { count: resolvedThreads.length })}
                 </span>
                 <ChevronDown
-                  className={`h-3.5 w-3.5 transition-transform ${
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${
                     historyOpen ? 'rotate-180' : ''
                   }`}
                 />
               </button>
 
               {historyOpen && (
-                <div className="border-t border-border p-2 space-y-3">
+                <div
+                  id={historyRegionId}
+                  className="space-y-3 border-t border-border p-2"
+                >
                   {resolvedGroups.map(group => (
                     <div
                       key={group.versionNum === null ? 'draft' : `v${group.versionNum}`}
@@ -1361,6 +1430,9 @@ const CommentThreadCard = React.forwardRef<
   const [followUp, setFollowUp] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
+  const followUpFieldId = React.useId();
+  const followUpHintId = React.useId();
+  const followUpFeedbackId = React.useId();
   const [applyFeedback, setApplyFeedback] = React.useState<{
     text: string;
     tone: 'error' | 'success';
@@ -1533,20 +1605,20 @@ const CommentThreadCard = React.forwardRef<
       ref={ref}
       data-testid={`comment-thread-${thread.id}`}
       className={cn(
-        'w-full min-w-0 overflow-hidden rounded-xl border bg-background p-3 text-xs transition-colors',
+        'w-full min-w-0 overflow-hidden rounded-xl border bg-background p-3 text-xs transition-colors motion-reduce:transition-none',
         isResolved && 'opacity-70',
         highlighted && 'border-primary/60 bg-primary/5 ring-2 ring-primary/15'
       )}
     >
       <button
         type="button"
-        className="mb-3 flex w-full min-w-0 items-start justify-between gap-2 text-left"
+        className="mb-3 flex min-h-11 w-full min-w-0 items-start justify-between gap-2 rounded-lg text-left outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
         onClick={() => onFocusThread(thread.id)}
       >
         <div className="flex min-w-0 flex-1 items-start gap-1.5 overflow-hidden">
           <div className="mt-0.5 h-full min-h-[16px] w-1 shrink-0 rounded-full bg-yellow-400" />
           <div className="min-w-0 flex-1 overflow-hidden">
-            <p className="break-words text-muted-foreground italic">
+            <p className="break-words text-muted-foreground italic [overflow-wrap:anywhere]">
               &quot;{thread.anchorText}&quot;
             </p>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
@@ -1601,7 +1673,10 @@ const CommentThreadCard = React.forwardRef<
               )}
             >
               {binding.isResponding ? (
-                <LoaderCircle className="h-3 w-3 animate-spin" />
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="h-3 w-3 animate-spin motion-reduce:animate-none"
+                />
               ) : binding.blockedReason ? (
                 <CircleAlert className="h-3 w-3" />
               ) : (
@@ -1620,22 +1695,24 @@ const CommentThreadCard = React.forwardRef<
                   type="button"
                   variant="ghost"
                   size="icon-xs"
-                  className="h-5 w-5 rounded-full"
+                  className="size-11 rounded-full sm:size-5"
+                  aria-label={`${t('common.settings')}: ${binding.handle}`}
                   onClick={onOpenSettings}
                 >
-                  <Settings2 className="h-3 w-3" />
+                  <Settings2 aria-hidden="true" className="h-3 w-3" />
                 </Button>
               ) : null}
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                className="h-5 w-5 rounded-full"
+                className="size-11 rounded-full sm:size-5"
+                  aria-label={`${t('common.cancel')} ${t('comments.agentWaiting')}: ${binding.handle}`}
                 data-testid={`comment-stop-agent-${thread.id}-${binding.agentId}`}
                 onClick={() => void onStopAgentListening(thread.id, binding.agentId)}
                 disabled={isSubmitting || isApplying}
               >
-                <X className="h-3 w-3" />
+                <X aria-hidden="true" className="h-3 w-3" />
               </Button>
             </div>
           ))}
@@ -1657,10 +1734,10 @@ const CommentThreadCard = React.forwardRef<
                     : t('comments.researchPending')}
                 </Badge>
               </div>
-              <div className="text-sm font-medium text-foreground">
+              <div className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
                 {researchProposal.title}
               </div>
-              <p className="text-[11px] leading-5 text-muted-foreground">
+              <p className="break-words text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
                 {researchProposal.summary}
               </p>
               {researchProposal.subquestions.length > 0 ? (
@@ -1668,7 +1745,7 @@ const CommentThreadCard = React.forwardRef<
                   {researchProposal.subquestions.slice(0, 3).map((question, index) => (
                     <div
                       key={`${thread.id}-research-question-${index}`}
-                      className="rounded-lg border border-border/60 bg-background/70 px-2 py-1.5 text-[11px] leading-5 text-foreground"
+                      className="break-words rounded-lg border border-border/60 bg-background/70 px-2 py-1.5 text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]"
                     >
                       {question}
                     </div>
@@ -1678,9 +1755,11 @@ const CommentThreadCard = React.forwardRef<
               {researchProposal.status !== 'dismissed' && !researchBusy ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <Button
+                    type="button"
                     size="sm"
-                    className="h-7 px-2 text-[10px]"
+                    className="h-11 px-2 text-[10px] sm:h-7"
                     disabled={isSubmitting || isReplying || Boolean(researchActionForThread)}
+                    aria-busy={isStartingResearch}
                     onClick={() => void onResearchAction(thread, 'start')}
                   >
                     {isStartingResearch
@@ -1688,10 +1767,12 @@ const CommentThreadCard = React.forwardRef<
                       : t('comments.researchStart')}
                   </Button>
                   <Button
+                    type="button"
                     size="sm"
                     variant="outline"
-                    className="h-7 px-2 text-[10px]"
+                    className="h-11 px-2 text-[10px] sm:h-7"
                     disabled={isSubmitting || isReplying || Boolean(researchActionForThread)}
+                    aria-busy={isDismissingResearch}
                     onClick={() => void onResearchAction(thread, 'dismiss')}
                   >
                     {isDismissingResearch
@@ -1704,7 +1785,12 @@ const CommentThreadCard = React.forwardRef<
           ) : null}
 
           {researchProgress ? (
-            <div className="space-y-2">
+            <div
+              className="space-y-2"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                   <Sparkles className="h-3.5 w-3.5" />
@@ -1715,12 +1801,14 @@ const CommentThreadCard = React.forwardRef<
                 </Badge>
               </div>
               {researchProgress.currentStepLabel ? (
-                <p className="text-[11px] leading-5 text-muted-foreground">
+                <p className="break-words text-[11px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
                   {researchProgress.currentStepLabel}
                 </p>
               ) : null}
               {researchState.summary ? (
-                <p className="text-[11px] leading-5 text-foreground">{researchState.summary}</p>
+                <p className="break-words text-[11px] leading-5 text-foreground [overflow-wrap:anywhere]">
+                  {researchState.summary}
+                </p>
               ) : null}
               {researchProgress.providerState === 'unavailable' ? (
                 <div className="space-y-2">
@@ -1729,9 +1817,10 @@ const CommentThreadCard = React.forwardRef<
                     tone="error"
                   />
                   <Button
+                    type="button"
                     size="sm"
                     variant="ghost"
-                    className="h-7 px-2 text-[10px]"
+                    className="h-11 px-2 text-[10px] sm:h-7"
                     onClick={onOpenSettings}
                   >
                     {t('common.settings')}
@@ -1740,13 +1829,14 @@ const CommentThreadCard = React.forwardRef<
               ) : null}
               {hasResearchReport && onOpenFile ? (
                 <Button
+                  type="button"
                   size="sm"
                   variant="outline"
-                  className="h-7 px-2 text-[10px]"
+                  className="h-11 max-w-full px-2 text-[10px] sm:h-7"
                   onClick={() => onOpenFile(researchState.reportFileId!)}
                 >
-                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                  {t('comments.openResearchReport')}
+                  <ExternalLink aria-hidden="true" className="mr-1 h-3.5 w-3.5" />
+                  <span className="truncate">{t('comments.openResearchReport')}</span>
                 </Button>
               ) : null}
             </div>
@@ -1775,7 +1865,7 @@ const CommentThreadCard = React.forwardRef<
                 t('comments.commentToAi')
               )}
             </div>
-            <p className="break-words whitespace-pre-wrap leading-relaxed">
+            <p className="break-words whitespace-pre-wrap leading-relaxed [overflow-wrap:anywhere]">
               {msg.content}
             </p>
           </div>
@@ -1783,11 +1873,18 @@ const CommentThreadCard = React.forwardRef<
 
         {isReplying && (
           <div className="min-w-0 overflow-hidden rounded-lg border border-primary/15 bg-primary/5 px-2 py-1.5">
-            <div className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
-              <Bot className="h-3 w-3 animate-pulse text-primary" />
+            <div
+              className="mb-1 flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              <Bot
+                aria-hidden="true"
+                className="h-3 w-3 animate-pulse text-primary motion-reduce:animate-none"
+              />
               {t('comments.aiReplying')}
             </div>
-            <p className="break-words whitespace-pre-wrap leading-relaxed text-muted-foreground">
+            <p className="break-words whitespace-pre-wrap leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               {streamingContent || t('comments.thinkingThroughComment')}
             </p>
           </div>
@@ -1795,15 +1892,23 @@ const CommentThreadCard = React.forwardRef<
       </div>
 
       {!isResolved && !isInherited && (
-        <div className="space-y-3">
+        <form
+          className="space-y-3"
+          aria-busy={isSubmitting}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void handleSubmit();
+          }}
+        >
           <div className="space-y-2 rounded-lg border border-border/70 bg-muted/20 p-2">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
               <Button
                 type="button"
                 size="sm"
                 variant={researchMode === 'deep' ? 'secondary' : 'outline'}
-                className="h-7 rounded-full px-2 text-[10px]"
+                className="h-11 rounded-full px-2 text-[10px] sm:h-7"
                 disabled={researchComposerDisabled}
+                aria-pressed={researchMode === 'deep'}
                 onClick={() =>
                   setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
                 }
@@ -1821,6 +1926,16 @@ const CommentThreadCard = React.forwardRef<
             </div>
             <CommentAgentTextarea
               agents={agentRegistry}
+              id={followUpFieldId}
+              name="comment-follow-up"
+              required
+              aria-describedby={[
+                followUpHintId,
+                error || notice ? followUpFeedbackId : null,
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              aria-invalid={error ? true : undefined}
               value={followUp}
               onChange={(value) => {
                 setFollowUp(value);
@@ -1831,8 +1946,11 @@ const CommentThreadCard = React.forwardRef<
               className="min-h-[72px] resize-none border-0 bg-background text-xs shadow-none focus-visible:ring-1"
               placeholder={t('comments.followUpPlaceholder')}
             />
-            <div className="flex items-center justify-between gap-2">
-              <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-muted-foreground">
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p
+                id={followUpHintId}
+                className="min-w-0 flex-1 break-words text-[10px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]"
+              >
                 {researchMode === 'deep'
                   ? t('comments.deepResearchHint')
                   : bindingStates.length > 0
@@ -1840,13 +1958,17 @@ const CommentThreadCard = React.forwardRef<
                   : t('comments.agentMentionHint')}
               </p>
               <Button
+                type="submit"
                 size="sm"
-                className="h-7 px-2 text-[10px]"
-                onClick={() => void handleSubmit()}
+                className="h-11 self-end px-2 text-[10px] sm:h-7"
+                aria-busy={isSubmitting}
                 disabled={isSubmitting || isReplying || !followUp.trim() || researchBusy}
               >
                 {isSubmitting ? (
-                  <LoaderCircle className="mr-1 h-3 w-3 animate-spin" />
+                  <LoaderCircle
+                    aria-hidden="true"
+                    className="mr-1 h-3 w-3 animate-spin motion-reduce:animate-none"
+                  />
                 ) : (
                   <>
                     {researchMode === 'deep' ? (
@@ -1868,10 +1990,23 @@ const CommentThreadCard = React.forwardRef<
           </div>
 
           {error ? (
-            <p className="text-[10px] leading-relaxed text-destructive">{error}</p>
+            <p
+              id={followUpFeedbackId}
+              className="break-words text-[10px] leading-relaxed text-destructive [overflow-wrap:anywhere]"
+              role="alert"
+            >
+              {error}
+            </p>
           ) : null}
           {notice ? (
-            <p className="text-[10px] leading-relaxed text-muted-foreground">{notice}</p>
+            <p
+              id={followUpFeedbackId}
+              className="break-words text-[10px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]"
+              role="status"
+              aria-live="polite"
+            >
+              {notice}
+            </p>
           ) : null}
           {applyStatus ? (
             <ThreadActionStatus
@@ -1880,16 +2015,18 @@ const CommentThreadCard = React.forwardRef<
             />
           ) : null}
 
-          <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 flex-1 text-[10px] leading-relaxed text-muted-foreground">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="min-w-0 flex-1 break-words text-[10px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
               {footerHint}
             </p>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex max-w-full flex-wrap items-center gap-1 sm:shrink-0">
               {showApplyAction ? (
                 <Button
+                  type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[10px]"
+                  className="h-11 px-2 text-[10px] sm:h-6"
+                  aria-busy={isApplying}
                   data-testid={`comment-apply-source-${thread.id}`}
                   onClick={() => {
                     void (async () => {
@@ -1914,7 +2051,10 @@ const CommentThreadCard = React.forwardRef<
                   disabled={isApplying || isSubmitting || isReplying}
                 >
                   {isApplying ? (
-                    <LoaderCircle className="mr-1 h-3 w-3 animate-spin" />
+                    <LoaderCircle
+                      aria-hidden="true"
+                      className="mr-1 h-3 w-3 animate-spin motion-reduce:animate-none"
+                    />
                   ) : (
                     <PenLine className="mr-1 h-3 w-3" />
                   )}
@@ -1925,9 +2065,10 @@ const CommentThreadCard = React.forwardRef<
               ) : null}
               {isApplied ? (
                 <Button
+                  type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[10px]"
+                  className="h-11 px-2 text-[10px] sm:h-6"
                   onClick={() => void onReopen(thread.id)}
                   disabled={isSubmitting || isApplying || isReplying}
                 >
@@ -1935,9 +2076,10 @@ const CommentThreadCard = React.forwardRef<
                 </Button>
               ) : null}
               <Button
+                type="button"
                 size="sm"
                 variant="ghost"
-                className="h-6 px-2 text-[10px]"
+                className="h-11 px-2 text-[10px] sm:h-6"
                 onClick={() => void onResolve(thread.id)}
                 disabled={isSubmitting || isApplying || isReplying}
               >
@@ -1946,7 +2088,7 @@ const CommentThreadCard = React.forwardRef<
               </Button>
             </div>
           </div>
-        </div>
+        </form>
       )}
 
       {isInherited ? (
@@ -1979,8 +2121,11 @@ function ThreadActionStatus({
 }) {
   return (
     <div
+      role={tone === 'error' ? 'alert' : 'status'}
+      aria-live={tone === 'error' ? undefined : 'polite'}
+      aria-atomic="true"
       className={cn(
-        'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium',
+        'flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-medium',
         tone === 'error' &&
           'border-destructive/20 bg-destructive/10 text-destructive',
         tone === 'info' && 'border-primary/15 bg-primary/5 text-primary',
@@ -1988,13 +2133,18 @@ function ThreadActionStatus({
       )}
     >
       {tone === 'error' ? (
-        <CircleAlert className="h-3 w-3" />
+        <CircleAlert aria-hidden="true" className="h-3 w-3 shrink-0" />
       ) : tone === 'success' ? (
-        <CheckCircle className="h-3 w-3" />
+        <CheckCircle aria-hidden="true" className="h-3 w-3 shrink-0" />
       ) : (
-        <LoaderCircle className="h-3 w-3 animate-spin" />
+        <LoaderCircle
+          aria-hidden="true"
+          className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none"
+        />
       )}
-      <span className="leading-none">{text}</span>
+      <span className="min-w-0 break-words leading-tight [overflow-wrap:anywhere]">
+        {text}
+      </span>
     </div>
   );
 }

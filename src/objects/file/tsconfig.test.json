@@ -1,0 +1,17 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../../..",
+    "paths": {
+      "@/generated/prisma/client": [
+        "src/objects/file/test-generated-prisma.ts"
+      ],
+      "@/lib/db/prisma": [
+        "src/objects/file/test-prisma.ts"
+      ],
+      "@/*": [
+        "src/*"
+      ]
+    }
+  }
+}

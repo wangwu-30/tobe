@@ -192,7 +192,6 @@ export function useWorkspaceGoalDialogController({
         setGoalDialogOpen(false);
         router.push(
           buildCreatedWorkspaceLocation({
-            autoStartFirstPass: true,
             conversationId: result.conversation.id,
             projectId: result.workspace.projectId || result.workspace.id,
             workspaceId: result.workspace.id,

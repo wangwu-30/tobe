@@ -1,5 +1,7 @@
 # 成形后续迭代路线
 
+> **Historical / superseded（2026-08-21）**：本文仅保留决策历史，不代表当前产品、架构或实施状态。当前入口见 [README](../../README.md)、[SYSTEM](../../SYSTEM.md) 与 [Agent Room 与持久执行落地追踪器](../agent-room-execution-workstream.md)。
+
 > 日期：2026-03-22
 > 状态：待评审
 > 关联：[黑盒验收计划](../testing/blackbox-acceptance-plan.md) · [健壮性改造](./resilience-overhaul.md) · [北极星](../chengxing-product-north-star.md)

@@ -3,7 +3,12 @@ import type { StateLabelData, StateLabelKind } from '@/types';
 export function normalizeStateLabelKind(
   value: string | null | undefined
 ): StateLabelKind {
-  if (value === 'head' || value === 'recovery' || value === 'pinned') {
+  if (
+    value === 'head' ||
+    value === 'recovery' ||
+    value === 'pinned' ||
+    value === 'aligned'
+  ) {
     return value;
   }
 

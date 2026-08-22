@@ -12,6 +12,7 @@ import {
   hasPinnedStateLabel,
   hasRecoveryStateLabel,
 } from './schema';
+import { alignWorkspaceVersionWithDb } from './alignment';
 import { replaceWorkspaceDraftWithVersionFiles } from './draft-commands';
 import { resolveDraftBaseVersionIdForVersion } from './queries';
 import type {
@@ -28,6 +29,22 @@ export class WorkspaceRecoveryPinLimitError extends Error {
   constructor() {
     super('Pinned recovery points are limited to 3.');
   }
+}
+
+/**
+ * Records an explicit human decision that an immutable, visible version is a
+ * valid source of truth for durable execution. The command is intentionally
+ * workspace-scoped and idempotent; generic label creation is not a safe
+ * substitute for this authorization boundary.
+ */
+export async function alignWorkspaceVersion(
+  actor: WorkspaceStateActorContext,
+  input: {
+    versionId: string;
+    workspaceId: string;
+  }
+) {
+  return alignWorkspaceVersionWithDb(prisma, actor, input);
 }
 
 export async function createWorkspaceVersion(

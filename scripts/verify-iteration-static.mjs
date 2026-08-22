@@ -4,12 +4,22 @@ import path from 'node:path';
 import process from 'node:process';
 
 const repoRoot = process.cwd();
+const nextDistDir =
+  process.env.NEXT_DIST_DIR?.trim() || '.next';
+const typeScriptProject =
+  process.env.NEXT_TSCONFIG_PATH?.trim() || 'tsconfig.json';
 
 async function main() {
   await runStep('prisma', ['npx', 'prisma', 'generate']);
   await clearGeneratedNextTypes();
   await runStep('typegen', ['npx', 'next', 'typegen']);
-  await runStep('tsc', ['npx', 'tsc', '--noEmit']);
+  await runStep('tsc', [
+    'npx',
+    'tsc',
+    '--noEmit',
+    '--project',
+    typeScriptProject,
+  ]);
   await runStep('eslint', [
     'npx',
     'eslint',
@@ -20,28 +30,28 @@ async function main() {
     '--rule',
     '@typescript-eslint/no-unused-vars: off',
     '--ignore-pattern',
-    'apps/desktop/src/renderer/.vite/**',
-    '--ignore-pattern',
     'src/generated/prisma/**',
     'src/app',
+    'src/agent',
     'src/components',
     'src/hooks',
     'src/lib',
+    'src/objects',
     'src/types',
-    'apps/desktop/src',
-    'apps/desktop/scripts',
+    'apps/execution-daemon/src',
+    'apps/knowledge-merge-worker/src',
+    'apps/room-session-host/src',
     'scripts',
     'tests',
     'eslint.config.mjs',
-    'forge.config.js',
     'next.config.ts',
     'playwright.config.ts',
+    'playwright.control-plane.config.ts',
     'postcss.config.mjs',
     'prisma.config.ts',
-    'vite.backend.config.mts',
-    'vite.main.config.mts',
-    'vite.preload.config.mts',
-    'vite.renderer.config.mts',
+    'vite.execution-daemon.config.mts',
+    'vite.knowledge-merge-worker.config.mts',
+    'vite.room-session-host.config.mts',
   ]);
 }
 
@@ -51,8 +61,12 @@ function runStep(label, command) {
 }
 
 async function clearGeneratedNextTypes() {
-  await fs.rm(path.join(repoRoot, '.next', 'types'), { force: true, recursive: true });
-  await fs.rm(path.join(repoRoot, '.next', 'dev', 'types'), { force: true, recursive: true });
+  const outputRoot = path.resolve(repoRoot, nextDistDir);
+  await fs.rm(path.join(outputRoot, 'types'), { force: true, recursive: true });
+  await fs.rm(path.join(outputRoot, 'dev', 'types'), {
+    force: true,
+    recursive: true,
+  });
 }
 
 function runCommand(command) {

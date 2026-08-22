@@ -1,6 +1,6 @@
 # Prisma Schema 与 Object Seam 演进
 
-更新时间：2026-03-22
+更新时间：2026-08-21
 
 ## 核心结论
 
@@ -11,7 +11,7 @@
 
 ## 默认做法
 
-- 本地开发和桌面 runtime 默认走 [`../local-full-app.md`](../local-full-app.md) 里的 bootstrap 路径。
+- 本地 Web 开发默认走 [`../local-full-app.md`](../local-full-app.md) 里的 bootstrap 路径。
 - 做模型替换时，先让新表或新 object seam 跑通门禁，再开始删旧读写。
 - 如果一个字段已经降为 legacy 兼容，收口标准应明确到 `rg` 层面，例如“只剩类型定义和 schema mapping 命中”。
 - 用户可见语义先在 contract 文档里写清，再进 migration 和代码。

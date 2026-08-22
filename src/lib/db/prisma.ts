@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { Prisma, PrismaClient } from '@/generated/prisma/client';
-import { PrismaLibSql } from '@prisma/adapter-libsql';
 import { ensurePlatformDirectories, getPlatformPaths } from '@/lib/platform/paths';
+import { SafePrismaLibSqlAdapterV1 } from '@/lib/db/prisma-libsql-adapter';
 
 const globalForPrisma = globalThis as unknown as {
   prismaClients: Map<string, PrismaClient> | undefined;
@@ -10,10 +10,13 @@ const globalForPrisma = globalThis as unknown as {
 
 function createPrismaClient(databaseUrl: string) {
   ensurePlatformDirectories();
-  const adapter = new PrismaLibSql({
+  const adapter = new SafePrismaLibSqlAdapterV1({
     url: databaseUrl,
   });
-  const options: Prisma.PrismaClientOptions = { adapter };
+  const options: Prisma.PrismaClientOptions = {
+    adapter,
+    transactionOptions: { maxWait: 5_000, timeout: 10_000 },
+  };
   return new PrismaClient(options);
 }
 

@@ -1,6 +1,6 @@
 # 严格迭代回归门禁
 
-更新时间：2026-03-22
+更新时间：2026-08-21
 
 ## 何时必须执行
 
@@ -13,9 +13,20 @@
 - 日常迭代门禁：`npm run verify:iteration`
 - 浏览器依赖初始化：`npm run test:e2e:install`
 - 额外能力门禁：browser operator / blackbox acceptance（仅在显式运行或里程碑前执行）
-- 发布 / 打包门禁：`npm run desktop:smoke:packaged`
+- 发布门禁：`npm run build`，三个独立 Node 服务由 `npm run test:control-plane` 构建并验证
 
-`desktop:smoke:packaged` 不属于每次迭代的必跑项，只在打包验收或发布前执行。browser operator / blackbox acceptance 也不属于日常 `verify:iteration`，而是后续额外能力和额外门禁。
+browser operator / blackbox acceptance 不属于日常 `verify:iteration`，而是后续额外能力和额外门禁。
+
+## 身份验收边界
+
+- 当前运行主体是进程冻结的 trusted local single-user principal；identity header 是受信 Web runtime 的
+  transport receipt，不是认证机制。Room 显式 receipt 只能引用已存在且完整匹配的
+  organization/user/membership/device tuple。
+- 回归覆盖 team-mode schema、membership role、organization ACL 和越权 fail-closed。它不验收尚未交付的
+  production IdP、登录/session/JWT integration、成员邀请/provisioning 或企业 SSO，也不得把 seeded
+  membership 或 header resolver 解释为这些能力。
+- 当前 Git 回归只覆盖受信本地 repository root binding；remote credential/fetch/push 与 monorepo subpath
+  mount 是 non-goal。
 
 ## 固定执行顺序
 
@@ -24,12 +35,36 @@
    - `npx next typegen`
    - `npx tsc --noEmit`
    - `npx eslint` 覆盖 `src/`、`apps/`、`scripts/`、`tests/` 与根配置文件
-2. `db:bootstrap:local --app-data-root <.tmp/iteration-regression/app-data>`
-3. 本地 Web 壳启动
-4. Playwright 完整交互回归
+2. `test:control-plane`
+   - 校验 `apps/`、`src/`、`tests/control-plane/` 下每个 `*.test.ts` 恰好进入一个配置
+   - 拒绝跳过、待实现、仅运行或修复标记，运行 script contract tests
+   - 构建并测试 execution daemon、Room Session Host、knowledge merge worker 三个 Node 服务
+3. `db:bootstrap:local --app-data-root <.tmp/iteration-regression/app-data>`
+   - 必须启用并确认 local SQLite `journal_mode=wal`，设置 `busy_timeout` 与 foreign keys
+   - Web 与 Node 服务共用 safe Prisma/libSQL adapter；本步骤不把单机 WAL 外推为多节点存储能力
+4. `npm run build` 构建 production Web 应用
+5. `test:browser:preflight` 检查实际 Chromium headless-shell 与宿主共享库
+6. 在 production Web server 上运行 Playwright 完整交互回归
 
 ## 浏览器场景矩阵
 
+- Project Room 与多 Agent
+  - 新建或打开项目后 assistant rail 默认进入 Project Room；非法/缺失 tab canonicalize 回 Room
+  - typed mention 可同时路由多个 Agent，durable feed 在 reconnect 后按 SSE cursor replay
+  - Room 展示 Agent activity、delegation grant 与 durable tool confirmation，键盘和窄屏操作可达
+  - Room Session Host restart/reclaim 后继续 per-session FIFO，跨 session 仍可并行
+- 对齐版本与 durable Execution
+  - 只有满足 membership ACL 的 trusted local principal 显式对齐的 visible immutable version 可创建 Job；
+    草稿、recovery point、未对齐版本被拒绝
+  - Job list/detail 可读取 events、logs、artifacts；waiting-input 回答以 stable response receipt 恢复同一 attempt
+  - running cancel 必须走真实 HTTP route 并由 standalone daemon interrupt/cleanup；waiting-input cancel 同步取消请求
+  - dirty/partial incident 在 Job detail 显示 inspect/retry/verified-discard，unsafe discard 不可操作
+  - `git-worktree` capability 的当前实现使用 attempt 专属 isolated clone/workspace，不得断言存在 native
+    registered worktree；cleanup 验证的是受管 clone 路径删除并保留 proposal ref
+- Knowledge review
+  - success+changed 只产生 proposal/ChangeRequest，不直接移动 default ref 或 active snapshot
+  - review 显示真实 Git diff；trusted worker expected-old CAS 合入后才构建索引
+  - index failure 不移动 active pointer；retry 成功后只有 `ready` snapshot 进入普通检索
 - 创建与起始流
   - home / workspace -> Goal Composer
   - 首页不再弹阻断式 welcome modal；首次进入只显示可关闭的轻量起步提示
@@ -127,3 +162,7 @@
 - 任一阶段失败都阻断 push
 - 调试时可以单独跑某一条 spec，但交付前必须重新跑完整 `npm run verify:iteration`
 - 修复后必须重跑全套，不允许只凭“失败那一条已绿”直接交付
+- 代码存在、production composition、targeted suite 与完整门禁必须分别表述；完整结果只以当次命令为准
+- 精确 pass/fail 数字、环境阻塞与 artifact 路径只追加到 active tracker 的 dated verification record，
+  不覆盖历史记录，也不把旧运行结果写成当前状态
+- 本轮完整结果由本轮最终 gate 补录；补录前不得写“全绿”“通过”或等价结论

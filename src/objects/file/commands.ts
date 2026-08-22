@@ -1,3 +1,4 @@
+import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
 import { recordSyncEvent } from '@/lib/platform/sync';
@@ -26,6 +27,8 @@ type FileCommandDependencies = {
     workspaceId: string
   ) => Promise<void>;
 };
+
+type FileCommandDb = Prisma.TransactionClient | typeof prisma;
 
 const SUPPORT_UPLOADS_ROOT = 'Uploads';
 
@@ -101,13 +104,16 @@ export async function ensureWorkspaceFiles(
   return files;
 }
 
-export async function rebuildDescendantPaths(params: {
-  fileId: string;
-  oldPath: string;
-  organizationId: string;
-  workspaceId: string;
-}) {
-  const root = await prisma.workspaceFile.findUnique({
+export async function rebuildDescendantPaths(
+  params: {
+    fileId: string;
+    oldPath: string;
+    organizationId: string;
+    workspaceId: string;
+  },
+  db: FileCommandDb = prisma
+) {
+  const root = await db.workspaceFile.findUnique({
     where: { id: params.fileId },
   });
 
@@ -115,7 +121,7 @@ export async function rebuildDescendantPaths(params: {
     return;
   }
 
-  const descendants = await prisma.workspaceFile.findMany({
+  const descendants = await db.workspaceFile.findMany({
     where: {
       deletedAt: null,
       documentId: params.workspaceId,
@@ -129,7 +135,7 @@ export async function rebuildDescendantPaths(params: {
 
   for (const descendant of descendants) {
     const nextPath = descendant.path.replace(params.oldPath, root.path);
-    await prisma.workspaceFile.update({
+    await db.workspaceFile.update({
       where: { id: descendant.id },
       data: {
         path: nextPath,
@@ -181,23 +187,36 @@ export async function createWorkspaceFile(
   const path = buildWorkspacePath(parent?.path || null, safeName);
   const nodeType = input.nodeType || 'file';
   const fileKind = input.kind || inferFileKind(safeName);
-  const file = await prisma.workspaceFile.create({
-    data: {
-      organizationId: actor.organizationId,
-      documentId: input.workspaceId,
-      parentId: input.parentId || null,
-      name: safeName,
-      path,
-      type: nodeType,
-      kind: nodeType === 'folder' ? 'text' : fileKind,
-      role: input.role || 'deliverable',
-      language: nodeType === 'folder' ? null : inferFileLanguage(safeName),
-      content: nodeType === 'folder' ? '' : getInitialFileContent(fileKind),
-      sortOrder: siblings.length,
-      createdByUserId: actor.userId,
-      originDeviceId: actor.deviceId,
-      isPrimary: false,
-    },
+  const file = await prisma.$transaction(async (tx) => {
+    const created = await tx.workspaceFile.create({
+      data: {
+        organizationId: actor.organizationId,
+        documentId: input.workspaceId,
+        parentId: input.parentId || null,
+        name: safeName,
+        path,
+        type: nodeType,
+        kind: nodeType === 'folder' ? 'text' : fileKind,
+        role: input.role || 'deliverable',
+        language: nodeType === 'folder' ? null : inferFileLanguage(safeName),
+        content: nodeType === 'folder' ? '' : getInitialFileContent(fileKind),
+        sortOrder: siblings.length,
+        createdByUserId: actor.userId,
+        originDeviceId: actor.deviceId,
+        isPrimary: false,
+      },
+    });
+
+    await tx.document.update({
+      where: { id: input.workspaceId },
+      data: {
+        draftRevision: {
+          increment: 1,
+        },
+      },
+    });
+
+    return created;
   });
 
   await recordSyncEvent({
@@ -346,9 +365,9 @@ export async function updateWorkspaceFile(
     input.parentId !== undefined ||
     input.sortOrder !== undefined;
 
-  const file = requiresSortNormalization
-    ? await prisma.$transaction(async (tx) => {
-        const updated = await tx.workspaceFile.update({
+  const file = await prisma.$transaction(async (tx) => {
+    const updated = requiresSortNormalization
+      ? await tx.workspaceFile.update({
           where: { id: existing.id },
           data: {
             ...(input.content !== undefined && { content: input.content }),
@@ -366,66 +385,67 @@ export async function updateWorkspaceFile(
             },
             updatedAt: new Date(),
           },
+        })
+      : await tx.workspaceFile.update({
+          where: { id: existing.id },
+          data: {
+            ...(input.content !== undefined && { content: input.content }),
+            ...(input.kind !== undefined && { kind: input.kind }),
+            ...(input.role !== undefined && { role: input.role }),
+            ...(input.language !== undefined && { language: input.language }),
+            ...(input.name !== undefined && { name: nextName }),
+            ...(input.parentId !== undefined && { parentId: nextParentId }),
+            ...(nextPath !== existing.path && { path: nextPath }),
+            originDeviceId: actor.deviceId,
+            createdByUserId: actor.userId,
+            revision: {
+              increment: 1,
+            },
+            updatedAt: new Date(),
+          },
         });
 
-        const reorderedTargetIds = [
-          ...normalizedSiblings.slice(0, targetSortOrder).map((item) => item.id),
-          updated.id,
-          ...normalizedSiblings.slice(targetSortOrder).map((item) => item.id),
-        ];
+    if (requiresSortNormalization) {
+      const reorderedTargetIds = [
+        ...normalizedSiblings.slice(0, targetSortOrder).map((item) => item.id),
+        updated.id,
+        ...normalizedSiblings.slice(targetSortOrder).map((item) => item.id),
+      ];
 
-        for (const [index, id] of reorderedTargetIds.entries()) {
+      for (const [index, id] of reorderedTargetIds.entries()) {
+        await tx.workspaceFile.update({
+          where: { id },
+          data: { sortOrder: index },
+        });
+      }
+
+      if (previousSiblings.length > 0) {
+        const reorderedPreviousIds = [...previousSiblings]
+          .sort((left, right) => left.sortOrder - right.sortOrder)
+          .map((item) => item.id);
+        for (const [index, id] of reorderedPreviousIds.entries()) {
           await tx.workspaceFile.update({
             where: { id },
             data: { sortOrder: index },
           });
         }
+      }
+    }
 
-        if (previousSiblings.length > 0) {
-          const reorderedPreviousIds = [...previousSiblings]
-            .sort((left, right) => left.sortOrder - right.sortOrder)
-            .map((item) => item.id);
-          for (const [index, id] of reorderedPreviousIds.entries()) {
-            await tx.workspaceFile.update({
-              where: { id },
-              data: { sortOrder: index },
-            });
-          }
-        }
-
-        return updated;
-      })
-    : await prisma.workspaceFile.update({
-        where: { id: existing.id },
-        data: {
-          ...(input.content !== undefined && { content: input.content }),
-          ...(input.kind !== undefined && { kind: input.kind }),
-          ...(input.role !== undefined && { role: input.role }),
-          ...(input.language !== undefined && { language: input.language }),
-          ...(input.name !== undefined && { name: nextName }),
-          ...(input.parentId !== undefined && { parentId: nextParentId }),
-          ...(nextPath !== existing.path && { path: nextPath }),
-          originDeviceId: actor.deviceId,
-          createdByUserId: actor.userId,
-          revision: {
-            increment: 1,
-          },
-          updatedAt: new Date(),
+    if (nextPath !== existing.path) {
+      await rebuildDescendantPaths(
+        {
+          fileId: updated.id,
+          oldPath: existing.path,
+          organizationId: actor.organizationId,
+          workspaceId: input.workspaceId,
         },
-      });
+        tx
+      );
+    }
 
-  if (nextPath !== existing.path) {
-    await rebuildDescendantPaths({
-      fileId: file.id,
-      oldPath: existing.path,
-      organizationId: actor.organizationId,
-      workspaceId: input.workspaceId,
-    });
-  }
-
-  if (input.setPrimary) {
-    await prisma.$transaction([
-      prisma.workspaceFile.updateMany({
+    if (input.setPrimary) {
+      await tx.workspaceFile.updateMany({
         where: {
           deletedAt: null,
           documentId: input.workspaceId,
@@ -439,8 +459,8 @@ export async function updateWorkspaceFile(
             increment: 1,
           },
         },
-      }),
-      prisma.workspaceFile.update({
+      });
+      await tx.workspaceFile.update({
         where: { id: existing.id },
         data: {
           isPrimary: true,
@@ -448,30 +468,47 @@ export async function updateWorkspaceFile(
             increment: 1,
           },
         },
-      }),
-      prisma.document.update({
+      });
+      await tx.document.update({
         where: { id: input.workspaceId },
         data: {
           content: input.content !== undefined ? input.content : existing.content,
+          draftRevision: {
+            increment: 1,
+          },
           originDeviceId: actor.deviceId,
           revision: {
             increment: 1,
           },
         },
-      }),
-    ]);
-  } else if (file.isPrimary && input.content !== undefined) {
-    await prisma.document.update({
-      where: { id: input.workspaceId },
-      data: {
-        content: input.content,
-        originDeviceId: actor.deviceId,
-        revision: {
-          increment: 1,
+      });
+    } else if (updated.isPrimary && input.content !== undefined) {
+      await tx.document.update({
+        where: { id: input.workspaceId },
+        data: {
+          content: input.content,
+          draftRevision: {
+            increment: 1,
+          },
+          originDeviceId: actor.deviceId,
+          revision: {
+            increment: 1,
+          },
         },
-      },
-    });
-  }
+      });
+    } else {
+      await tx.document.update({
+        where: { id: input.workspaceId },
+        data: {
+          draftRevision: {
+            increment: 1,
+          },
+        },
+      });
+    }
+
+    return updated;
+  });
 
   await materializeWorkspaceMirror({
     organizationId: actor.organizationId,
@@ -516,8 +553,8 @@ export async function deleteWorkspaceFile(
   });
 
   const deletedAt = new Date();
-  await prisma.$transaction([
-    prisma.workspaceFile.updateMany({
+  await prisma.$transaction(async (tx) => {
+    await tx.workspaceFile.updateMany({
       where: {
         id: {
           in: descendants.map((file) => file.id),
@@ -529,8 +566,8 @@ export async function deleteWorkspaceFile(
           increment: 1,
         },
       },
-    }),
-    prisma.commentThread.updateMany({
+    });
+    await tx.commentThread.updateMany({
       where: {
         deletedAt: null,
         organizationId: actor.organizationId,
@@ -544,25 +581,23 @@ export async function deleteWorkspaceFile(
           increment: 1,
         },
       },
-    }),
-  ]);
+    });
 
-  const replacement = existing.isPrimary
-    ? await prisma.workspaceFile.findFirst({
-      where: {
-        deletedAt: null,
-        documentId: input.workspaceId,
-        organizationId: actor.organizationId,
-        id: { notIn: descendants.map((file) => file.id) },
-        type: 'file',
-      },
-      orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
-    })
-    : null;
+    const replacement = existing.isPrimary
+      ? await tx.workspaceFile.findFirst({
+          where: {
+            deletedAt: null,
+            documentId: input.workspaceId,
+            organizationId: actor.organizationId,
+            id: { notIn: descendants.map((file) => file.id) },
+            type: 'file',
+          },
+          orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+        })
+      : null;
 
-  if (replacement) {
-    await prisma.$transaction([
-      prisma.workspaceFile.update({
+    if (replacement) {
+      await tx.workspaceFile.update({
         where: { id: replacement.id },
         data: {
           isPrimary: true,
@@ -570,40 +605,55 @@ export async function deleteWorkspaceFile(
             increment: 1,
           },
         },
-      }),
-      prisma.document.update({
+      });
+      await tx.document.update({
         where: { id: input.workspaceId },
         data: {
           content: replacement.content,
+          draftRevision: {
+            increment: 1,
+          },
           originDeviceId: actor.deviceId,
           revision: {
             increment: 1,
           },
         },
-      }),
-    ]);
-  }
+      });
+    } else {
+      await tx.document.update({
+        where: { id: input.workspaceId },
+        data: {
+          draftRevision: {
+            increment: 1,
+          },
+        },
+      });
+    }
 
-  await prisma.session.updateMany({
-    where: {
-      activeFileId: {
-        in: descendants.map((file) => file.id),
+    await tx.session.updateMany({
+      where: {
+        activeFileId: {
+          in: descendants.map((file) => file.id),
+        },
+        deletedAt: null,
+        id: {
+          in: await listWorkspaceFocusedConversationIds(
+            {
+              organizationId: actor.organizationId,
+              workspaceId: input.workspaceId,
+            },
+            tx
+          ),
+        },
+        organizationId: actor.organizationId,
       },
-      deletedAt: null,
-      id: {
-        in: await listWorkspaceFocusedConversationIds({
-          organizationId: actor.organizationId,
-          workspaceId: input.workspaceId,
-        }),
+      data: {
+        activeFileId: replacement?.id || null,
+        revision: {
+          increment: 1,
+        },
       },
-      organizationId: actor.organizationId,
-    },
-    data: {
-      activeFileId: replacement?.id || null,
-      revision: {
-        increment: 1,
-      },
-    },
+    });
   });
 
   await materializeWorkspaceMirror({

@@ -321,7 +321,7 @@
 
 - 结论：迭代门禁必须跑在隔离 `app-data-root`、隔离数据库和命名场景 seed 上，不能复用真实开发数据。
 - 为什么：共享 `dev.db` 会污染样本、放大偶现问题，也会让浏览器回归不可复现。
-- 默认做法：功能交付默认用 `npm run verify:iteration` 关闭验收；真实 packaged smoke 留给发布门禁。
+- 默认做法：功能交付与发布前都用 `npm run verify:iteration` 关闭 Web-only 验收。
 
 ### 5. 表现层文件名可以和底层存储路径解耦
 

@@ -28,6 +28,10 @@ import {
 } from '@/objects/project/queries';
 import { mapConversation } from '@/objects/conversation/view';
 import { mapWorkspaceFile } from '@/objects/file/schema';
+import {
+  ensureProjectRoom,
+  postRoomMessageInTransaction,
+} from '@/objects/room';
 import { mapWorkspace } from '@/objects/workspace/view';
 import {
   formatWorkflowPlaybookForPrompt,
@@ -237,6 +241,7 @@ async function createWorkspaceForRequest(
     styleGuide?: string | null;
     title?: string;
     workflowPlaybookId?: string | null;
+    publishGoalToRoom?: boolean;
   }
 ) {
   const title = input.title?.trim() || 'Untitled Project';
@@ -492,10 +497,28 @@ async function createWorkspaceForRequest(
       },
     });
 
+    const room = await ensureProjectRoom(
+      tx,
+      actor,
+      workspace.projectId || workspace.id
+    );
+    const initialRoomMessageReceipt =
+      goal && input.publishGoalToRoom !== false
+        ? await postRoomMessageInTransaction(tx, actor, room.id, {
+            metadata: {
+              source: 'project-creation',
+              workspaceId: workspace.id,
+            },
+            text: goal,
+          })
+        : null;
+
     return {
       conversation: updatedConversation,
       files: [primaryFile, ...additionalFiles],
+      initialRoomMessageReceipt,
       primaryFile,
+      room,
       workspace,
     };
   });
@@ -536,6 +559,7 @@ async function createWorkspacePairForRequest(
       input.projectTitle?.trim() ||
       documentWorkspace.workspace.projectTitle ||
       documentWorkspace.workspace.title,
+    publishGoalToRoom: false,
     title: buildCompanionWebWorkspaceTitle(
       documentWorkspace.workspace.title,
       input.language || null
@@ -642,10 +666,14 @@ function mapWorkspaceCreateResponse(createdItems: CreatedWorkspaceRecord[]) {
     conversation: mapConversation(primary.conversation),
     createdDeliverables: createdItems.map((created) => ({
       conversation: mapConversation(created.conversation),
+      initialRoomMessageReceipt: created.initialRoomMessageReceipt,
       primaryFile: mapWorkspaceFile(created.primaryFile),
+      room: created.room,
       workspace: mapWorkspace(created.workspace),
     })),
     primaryFile: mapWorkspaceFile(primary.primaryFile),
+    initialRoomMessageReceipt: primary.initialRoomMessageReceipt,
+    room: primary.room,
     workspace: mapWorkspace(primary.workspace),
   };
 }
@@ -747,7 +775,7 @@ function deriveWorkspaceTitle(value: unknown) {
   const firstClause = strippedLead.split(/[，。,.：:]/u)[0]?.trim() || strippedLead;
   const candidate = firstClause || strippedLead;
 
-  return candidate.length > 28 ? `${candidate.slice(0, 25).trimEnd()}...` : candidate;
+  return candidate.length > 28 ? `${candidate.slice(0, 25).trimEnd()}…` : candidate;
 }
 
 function mergeIntentDetailIntoConstraints(

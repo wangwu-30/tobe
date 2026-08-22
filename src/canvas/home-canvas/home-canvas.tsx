@@ -13,7 +13,6 @@ import {
 } from 'tldraw';
 import 'tldraw/tldraw.css';
 import { FolderClosed } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { apiFetch } from '@/framework/resilience';
 import { computeProjectAutoLayout } from '@/canvas/layout';
 import type { ProjectSummaryData } from '@/types';
@@ -61,7 +60,7 @@ function ProjectCardContent({ shape }: { shape: ProjectCardShape }) {
       style={{ pointerEvents: 'all' }}
     >
       <div className="flex items-start gap-2">
-        <FolderClosed className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        <FolderClosed aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="text-sm font-medium leading-tight line-clamp-2 flex-1">
           {title || 'Untitled'}
         </span>
@@ -160,6 +159,7 @@ export function HomeCanvas({
   projects: ProjectSummaryData[];
 }) {
   const editorRef = React.useRef<Editor | null>(null);
+  const [canvasEditor, setCanvasEditor] = React.useState<Editor | null>(null);
   const positionsRef = React.useRef<PositionMap>({});
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ready, setReady] = React.useState(false);
@@ -209,6 +209,7 @@ export function HomeCanvas({
   const handleMount = React.useCallback(
     (editor: Editor) => {
       editorRef.current = editor;
+      setCanvasEditor(editor);
       const savedPos = positionsRef.current;
 
       const autoPositions = computeProjectAutoLayout(projects.length);
@@ -309,8 +310,7 @@ export function HomeCanvas({
 
   // Compute screen-space mount edges
   const screenMounts = React.useMemo(() => {
-    const editor = editorRef.current;
-    if (!editor || mounts.length === 0) return [];
+    if (!canvasEditor || mounts.length === 0) return [];
 
     return mounts
       .map((mount) => {
@@ -318,8 +318,8 @@ export function HomeCanvas({
         const tgt = edgePositions[mount.targetProjectId];
         if (!src || !tgt) return null;
 
-        const srcScreen = editor.pageToViewport(src);
-        const tgtScreen = editor.pageToViewport(tgt);
+        const srcScreen = canvasEditor.pageToViewport(src);
+        const tgtScreen = canvasEditor.pageToViewport(tgt);
 
         return {
           id: mount.id,
@@ -336,12 +336,12 @@ export function HomeCanvas({
       x2: number;
       y2: number;
     }>;
-  }, [mounts, edgePositions]);
+  }, [canvasEditor, mounts, edgePositions]);
 
   if (!ready) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas...
+      <div aria-live="polite" className="flex h-full w-full items-center justify-center text-muted-foreground" role="status">
+        Loading canvas…
       </div>
     );
   }
@@ -367,6 +367,7 @@ export function HomeCanvas({
       {/* SVG mount-line overlay */}
       {screenMounts.length > 0 && (
         <svg
+          aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-[5]"
           width="100%"
           height="100%"

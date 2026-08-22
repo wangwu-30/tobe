@@ -1,5 +1,7 @@
 # 成形产品北极星设计文档（讨论稿）
 
+> **Historical / superseded（2026-08-21）**：本文仅保留决策历史，不代表当前产品、架构或实施状态。当前入口见 [README](../README.md)、[SYSTEM](../SYSTEM.md) 与 [Agent Room 与持久执行落地追踪器](./agent-room-execution-workstream.md)。
+
 更新时间：2026-03-13
 状态：讨论稿，用于后续产品和交互收敛；在关键边界未定前，不把它当成已实现事实。
 

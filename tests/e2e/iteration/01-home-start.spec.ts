@@ -49,17 +49,24 @@ test('home starter exposes built-in workflows and can start from the research wo
   ]);
 
   expect(extractWorkspaceIdFromLocation(page.url())).toBeTruthy();
+  expect(new URL(page.url()).searchParams.has('autoStartFirstPass')).toBe(false);
+  await expect(page.getByTestId('assistant-tab-room')).toHaveAttribute(
+    'data-state',
+    'active'
+  );
+  await expect(page.getByTestId('project-room-surface')).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(
-    page
-      .getByRole('tabpanel', { name: /状态|Status/ })
-      .getByText('成形类产品市场分析报告', { exact: true })
-  ).toBeVisible();
-  await expect(
-    page.getByText(/AI 正在启动第一版 live draft|AI is starting the first live draft/)
-  ).toBeVisible();
-  await expect(
-    page.getByRole('button', { name: /生成第一稿|Generate First Pass/ })
-  ).toHaveCount(0);
+    page.getByTestId('room-feed').getByText(
+      '调研成形类产品的市场机会与竞争格局。',
+      { exact: true }
+    )
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
+    'data-state',
+    'inactive'
+  );
 });
 
 test('home create flow surfaces clarify cards for ambiguous goals', async ({ page }) => {
@@ -272,6 +279,46 @@ test('home project cards can continue the next deliverable inside the same proje
 
   expect(nextView.currentProject?.id).toBe(firstWorkspace.workspace.id);
   expect(nextView.workspace?.projectId).toBe(firstWorkspace.workspace.id);
+});
+
+test('home view mode is URL-addressable and restores with browser history', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+
+  await apiRequest(baseURL, '/api/workspaces', {
+    body: {
+      deliverableType: 'document',
+      goal: `验证首页视图 URL 状态 ${suffix}`,
+      title: `首页视图 ${suffix}`,
+    },
+    method: 'POST',
+  });
+
+  await primeClientState(page);
+  await page.goto('/');
+  await expect(page.getByTestId('home-project-wall')).toBeVisible();
+  await expect(page.locator('[data-testid^="home-project-open-"]').first()).toHaveAttribute(
+    'href',
+    /\/workspace\//
+  );
+  await expect(page.locator('[data-testid^="home-project-next-"]').first()).toHaveAttribute(
+    'href',
+    /newDeliverableProjectId=/
+  );
+
+  await page.getByTestId('home-view-canvas').click();
+  await expect(page).toHaveURL(/(?:\?|&)view=canvas(?:&|$)/);
+  await expect(page.getByTestId('home-view-canvas')).toHaveAttribute('aria-pressed', 'true');
+
+  await page.getByTestId('home-view-list').click();
+  await expect(page).not.toHaveURL(/(?:\?|&)view=/);
+  await expect(page.getByTestId('home-view-list')).toHaveAttribute('aria-pressed', 'true');
+
+  await page.goBack();
+  await expect(page).toHaveURL(/(?:\?|&)view=canvas(?:&|$)/);
+  await expect(page.getByTestId('home-view-canvas')).toHaveAttribute('aria-pressed', 'true');
 });
 
 async function getWorkspaceView(

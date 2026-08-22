@@ -42,6 +42,12 @@ export type WorkspaceCreateRecovery = {
 
 export type WorkspaceCreateResult = {
   conversation: { id: string };
+  initialRoomMessageReceipt: {
+    messageId: string;
+    roomId: string;
+    status: 'accepted';
+  } | null;
+  room: { id: string; projectId: string | null };
   workspace: { id: string; projectId?: string | null };
 };
 
@@ -212,7 +218,13 @@ export async function submitWorkspaceCreateRequest(params: {
     }
   );
 
-  if (!payload?.workspace?.id || !payload?.conversation?.id) {
+  if (
+    !payload?.workspace?.id ||
+    !payload?.conversation?.id ||
+    !payload?.room?.id ||
+    (params.values.goal.trim() &&
+      payload.initialRoomMessageReceipt?.status !== 'accepted')
+  ) {
     throw new WorkspaceCreateActionError(params.errorMessage);
   }
 

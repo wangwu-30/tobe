@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import {
   apiRequest,
   primeClientState,
@@ -190,12 +191,33 @@ test('finalized deliverables can start the next deliverable in the same project 
     },
     method: 'PATCH',
   });
+  const primaryFileId = await getPrimaryWorkspaceFileId(baseURL, workspace.id);
+  expect(primaryFileId).toBeTruthy();
+  if (!primaryFileId) {
+    throw new Error('Primary file should exist before finalizing the deliverable.');
+  }
+  await updateWorkspaceFile(baseURL, workspace.id, primaryFileId, {
+    content: JSON.stringify([
+      { type: 'h1', children: [{ text: `完成稿 ${suffix}` }] },
+      { type: 'p', children: [{ text: '这是一份稳定的非空交付物正文。' }] },
+    ]),
+    kind: 'richtext',
+  });
   await createVersion(baseURL, workspace.id, `完成稿 ${suffix}`);
 
   const originalView = await getWorkspaceView(baseURL, workspace.id, workspace.conversationId);
+  const projectId = originalView.currentProject?.id || originalView.workspace?.projectId || null;
+  expect(projectId).toBeTruthy();
+  if (!projectId) {
+    throw new Error('Project id should exist for next-deliverable coverage.');
+  }
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
+  await page.goto(buildWorkspaceRoute({
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId,
+  }));
 
   const nextDeliverableCard = page.getByTestId('plan-next-deliverable-card');
   await expect(nextDeliverableCard).toBeVisible();
@@ -284,9 +306,11 @@ test('workspace header shows the project path and keeps sibling creation in the 
   });
 
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${currentWorkspace.id}?conversationId=${currentWorkspace.conversationId}`
-  );
+  await page.goto(buildWorkspaceRoute({
+    conversationId: currentWorkspace.conversationId,
+    nodeId: currentWorkspace.id,
+    projectId,
+  }));
 
   await expect(page.getByTestId('workspace-title-project-context')).toContainText(
     `${projectTitle} / ${folderTitle}`
@@ -597,6 +621,7 @@ test('workspace sidebar can search project nodes by content and open the matched
   const result = page.getByTestId(`sidebar-node-search-result-${targetWorkspace.id}`);
   await expect(result).toContainText(targetTitle);
   await expect(result).toContainText(searchToken);
+  await expect(result).toHaveAttribute('href', /\/workspace\//);
   await result.click();
 
   await expect

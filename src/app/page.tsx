@@ -39,7 +39,7 @@ const HomeCanvasLoader = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas...
+        Loading canvas…
       </div>
     ),
   }
@@ -47,19 +47,23 @@ const HomeCanvasLoader = dynamic(
 
 type HomeViewMode = 'list' | 'canvas';
 
-function getStoredHomeViewMode(): HomeViewMode {
-  if (typeof window === 'undefined') return 'list';
-  return (localStorage.getItem('home-view-mode') as HomeViewMode) || 'list';
-}
-
 function setStoredHomeViewMode(mode: HomeViewMode) {
   localStorage.setItem('home-view-mode', mode);
 }
 
 export default function HomePage() {
+  return (
+    <React.Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <HomePageContent />
+    </React.Suspense>
+  );
+}
+
+function HomePageContent() {
   const t = useT();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
+  const requestedViewMode = searchParams.get('view');
   const [homeProjects, setHomeProjects] = React.useState<ProjectSummaryData[] | null>(null);
   const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false);
@@ -73,9 +77,37 @@ export default function HomePage() {
   const [pendingCreateEntry, setPendingCreateEntry] = React.useState<
     WorkspaceCreateContext | 'workspace' | null
   >(null);
-  const [viewMode, setViewMode] = React.useState<HomeViewMode>(getStoredHomeViewMode);
+  const [viewMode, setViewMode] = React.useState<HomeViewMode>(() =>
+    requestedViewMode === 'canvas' || requestedViewMode === 'list'
+      ? requestedViewMode
+      : 'list'
+  );
   const createWorkspaceRequestIdRef = React.useRef<string | null>(null);
   const createWorkspaceInFlightRef = React.useRef(false);
+
+  React.useEffect(() => {
+    const nextViewMode =
+      requestedViewMode === 'canvas' || requestedViewMode === 'list'
+        ? requestedViewMode
+        : (localStorage.getItem('home-view-mode') as HomeViewMode) || 'list';
+    setViewMode(nextViewMode);
+  }, [requestedViewMode]);
+
+  const selectViewMode = React.useCallback(
+    (nextViewMode: HomeViewMode) => {
+      setViewMode(nextViewMode);
+      setStoredHomeViewMode(nextViewMode);
+      const nextSearchParams = new URLSearchParams(searchParams.toString());
+      if (nextViewMode === 'list') {
+        nextSearchParams.delete('view');
+      } else {
+        nextSearchParams.set('view', nextViewMode);
+      }
+      const nextQuery = nextSearchParams.toString();
+      router.push(`${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`);
+    },
+    [router, searchParams]
+  );
 
   React.useEffect(() => {
     const recovery = loadWorkspaceCreateRecovery();
@@ -118,10 +150,15 @@ export default function HomePage() {
           }
         : 'workspace'
     );
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete('newDeliverableProjectId');
+    nextSearchParams.delete('newDeliverableProjectTitle');
+    nextSearchParams.delete('newWorkspace');
+    const nextQuery = nextSearchParams.toString();
     window.history.replaceState(
       window.history.state,
       '',
-      `${window.location.pathname}${window.location.hash}`
+      `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`
     );
   }, [router, searchParams]);
 
@@ -181,7 +218,6 @@ export default function HomePage() {
       setGoalDialogOpen(false);
       router.push(
         buildCreatedWorkspaceLocation({
-          autoStartFirstPass: true,
           conversationId: workspace.conversation.id,
           projectId: workspace.workspace.projectId || workspace.workspace.id,
           workspaceId: workspace.workspace.id,
@@ -245,17 +281,6 @@ export default function HomePage() {
     [router]
   );
 
-  const openProjectNextDeliverable = React.useCallback(
-    (project: ProjectSummaryData) => {
-      const params = new URLSearchParams({
-        newDeliverableProjectId: project.id,
-        newDeliverableProjectTitle: project.title,
-      });
-      router.push(`/?${params.toString()}`);
-    },
-    [router]
-  );
-
   const showsProjectWall = Boolean(homeProjects && homeProjects.length > 0);
 
   return (
@@ -273,7 +298,7 @@ export default function HomePage() {
       title={t('home.title')}
       subtitle={t('home.subtitle')}
     >
-      <main className="h-full overflow-y-auto px-6 py-8">
+      <main className="h-full overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
           <div
             className={
@@ -297,8 +322,8 @@ export default function HomePage() {
                   <h1
                     className={
                       showsProjectWall
-                        ? 'text-2xl font-semibold tracking-tight sm:text-3xl'
-                        : 'mt-4 text-3xl font-semibold tracking-tight sm:text-5xl'
+                        ? 'text-balance text-2xl font-semibold tracking-tight sm:text-3xl'
+                        : 'mt-4 text-balance text-3xl font-semibold tracking-tight sm:text-5xl'
                     }
                   >
                     {t('home.heroTitle')}
@@ -322,13 +347,11 @@ export default function HomePage() {
                     <Sparkles className="h-4 w-4" />
                     {t('home.startWithGoal')}
                   </Button>
-                  <Button
-                    variant="ghost"
-                    className="gap-2 rounded-xl"
-                    onClick={() => router.push('/settings')}
-                  >
-                    {t('home.configureModels')}
-                    <ArrowRight className="h-4 w-4" />
+                  <Button asChild className="gap-2 rounded-xl" variant="ghost">
+                    <a href="/settings">
+                      {t('home.configureModels')}
+                      <ArrowRight className="h-4 w-4" />
+                    </a>
                   </Button>
                 </div>
               </div>
@@ -342,16 +365,16 @@ export default function HomePage() {
                   <button
                     type="button"
                     className={cn(
-                      'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                      'inline-flex min-h-10 touch-manipulation items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:min-h-0',
                       viewMode === 'list'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
                     )}
                     onClick={() => {
-                      setViewMode('list');
-                      setStoredHomeViewMode('list');
+                      selectViewMode('list');
                     }}
                     data-testid="home-view-list"
+                    aria-pressed={viewMode === 'list'}
                   >
                     <LayoutGrid className="h-3.5 w-3.5" />
                     列表
@@ -359,16 +382,16 @@ export default function HomePage() {
                   <button
                     type="button"
                     className={cn(
-                      'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                      'inline-flex min-h-10 touch-manipulation items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:min-h-0',
                       viewMode === 'canvas'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
                     )}
                     onClick={() => {
-                      setViewMode('canvas');
-                      setStoredHomeViewMode('canvas');
+                      selectViewMode('canvas');
                     }}
                     data-testid="home-view-canvas"
+                    aria-pressed={viewMode === 'canvas'}
                   >
                     <Map className="h-3.5 w-3.5" />
                     画布
@@ -381,9 +404,15 @@ export default function HomePage() {
                   <div className="grid gap-4 xl:grid-cols-3">
                     {homeProjects?.map((project) => (
                       <ProjectCard
+                        currentHref={buildWorkspaceRoute({
+                          nodeId: project.workspaceId,
+                          projectId: project.id,
+                        })}
                         key={project.id}
-                        onContinueCurrent={openProject}
-                        onContinueNext={openProjectNextDeliverable}
+                        nextHref={`/?${new URLSearchParams({
+                          newDeliverableProjectId: project.id,
+                          newDeliverableProjectTitle: project.title,
+                        }).toString()}`}
                         project={project}
                       />
                     ))}

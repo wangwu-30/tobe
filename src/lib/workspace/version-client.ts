@@ -18,6 +18,22 @@ export async function createWorkspaceVersion(params: {
   });
 }
 
+export async function alignWorkspaceVersion(params: {
+  errorMessage: string;
+  versionId: string;
+  workspaceId: string;
+}) {
+  return apiCallOrThrow<{ schemaVersion: 1; version: WorkspaceVersionData }>(
+    `/api/workspaces/${params.workspaceId}/alignment`,
+    {
+      body: JSON.stringify({ versionId: params.versionId }),
+      fallbackMessage: params.errorMessage,
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+    }
+  );
+}
+
 export async function toggleWorkspaceRecoveryPointPin(params: {
   errorMessage: string;
   pinned: boolean;

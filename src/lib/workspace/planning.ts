@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
+
+import type { Prisma } from '@/generated/prisma/client';
 import { prisma } from '@/lib/db/prisma';
-import { safeJsonParse } from '@/framework/resilience';
+import { ConflictError, NotFoundError, ValidationError, safeJsonParse } from '@/framework/resilience';
 import { mapWorkspaceFile } from '@/objects/file/schema';
 import {
   normalizeStoredDeliverableType,
@@ -14,6 +17,7 @@ import type {
   DeliverableType,
   RenderAs,
   StagedChangePatchData,
+  StagedChangeOperation,
   StagedChangeSetData,
   WorkflowPlaybookData,
   WorkspaceWorkflowStatusData,
@@ -87,6 +91,10 @@ type StagedChangeSetRecord = {
   documentId: string;
   sessionId: string | null;
   baseVersionId: string | null;
+  baseVersionSha256: string | null;
+  baseDraftRevision: number | null;
+  patchSchemaVersion: number | null;
+  patchSha256: string | null;
   appliedCheckpointVersionId: string | null;
   title: string;
   summary: string;
@@ -97,10 +105,27 @@ type StagedChangeSetRecord = {
   originDeviceId: string | null;
   appliedAt: Date | null;
   discardedAt: Date | null;
+  reviewedByUserId: string | null;
+  reviewedAt: Date | null;
   revision: number;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+export const STAGED_CHANGE_PATCH_SCHEMA_VERSION = 1 as const;
+
+export type StagedChangePatchInput = {
+  operation: StagedChangeOperation;
+  fileId: string | null;
+  kind: StagedChangePatchData['kind'];
+  name: string;
+  nextContent: string | null;
+  preimage: {
+    content: string;
+    revision: number;
+  } | null;
+  summary: string;
 };
 
 export function inferDeliverableType(input: {
@@ -463,8 +488,9 @@ export async function listStagedChangeSets(params: {
 export async function createStagedChangeSet(
   actor: ActorContext,
   input: {
-    baseVersionId?: string | null;
-    changes: StagedChangePatchData[];
+    baseDraftRevision: number;
+    baseVersionId: string | null;
+    changes: StagedChangePatchInput[];
     conversationId?: string | null;
     sourceType?: string;
     summary: string;
@@ -472,19 +498,66 @@ export async function createStagedChangeSet(
     workspaceId: string;
   }
 ) {
-  const changeSet = await prisma.stagedChangeSet.create({
-    data: {
+  const changes = normalizeStagedChangePatches(input.changes);
+  const changesJson = canonicalJson(changes);
+  const patchSha256 = sha256(changesJson);
+  const title = input.title.trim();
+  const summary = input.summary.trim();
+  if (!title || !summary) {
+    throw new ValidationError('A proposal requires a title and summary.');
+  }
+  if (!Number.isSafeInteger(input.baseDraftRevision) || input.baseDraftRevision < 0) {
+    throw new ValidationError('A proposal base draft revision must be a non-negative integer.');
+  }
+
+  const changeSet = await prisma.$transaction(async (tx) => {
+    const workspace = await tx.document.findFirst({
+      where: {
+        deletedAt: null,
+        id: input.workspaceId,
+        organizationId: actor.organizationId,
+      },
+      select: { draftBaseVersionId: true, draftRevision: true },
+    });
+    if (!workspace) {
+      throw new NotFoundError('Workspace not found.');
+    }
+    if (workspace.draftRevision !== input.baseDraftRevision) {
+      throw new ConflictError('The document draft changed before the proposal was recorded.');
+    }
+    if (workspace.draftBaseVersionId !== input.baseVersionId) {
+      throw new ConflictError('The document base version changed before the proposal was recorded.');
+    }
+
+    await assertProposalFilePreimages(tx, {
+      changes,
       organizationId: actor.organizationId,
-      documentId: input.workspaceId,
-      sessionId: input.conversationId || null,
-      baseVersionId: input.baseVersionId || null,
-      title: input.title.trim(),
-      summary: input.summary.trim(),
-      sourceType: input.sourceType || 'ai',
-      changesJson: JSON.stringify(input.changes),
-      createdByUserId: actor.userId,
-      originDeviceId: actor.deviceId,
-    },
+      workspaceId: input.workspaceId,
+    });
+    const baseVersionSha256 = await resolveBaseVersionSha256(tx, {
+      baseVersionId: input.baseVersionId,
+      organizationId: actor.organizationId,
+      workspaceId: input.workspaceId,
+    });
+
+    return tx.stagedChangeSet.create({
+      data: {
+        organizationId: actor.organizationId,
+        documentId: input.workspaceId,
+        sessionId: input.conversationId || null,
+        baseVersionId: input.baseVersionId,
+        baseVersionSha256,
+        baseDraftRevision: input.baseDraftRevision,
+        patchSchemaVersion: STAGED_CHANGE_PATCH_SCHEMA_VERSION,
+        patchSha256,
+        title,
+        summary,
+        sourceType: input.sourceType?.trim() || 'ai',
+        changesJson,
+        createdByUserId: actor.userId,
+        originDeviceId: actor.deviceId,
+      },
+    });
   });
 
   return mapStagedChangeSet(changeSet);
@@ -495,6 +568,7 @@ export async function markStagedChangeSetStatus(
   input: {
     changeSetId: string;
     checkpointVersionId?: string | null;
+    expectedRevision: number;
     status: 'applied' | 'discarded';
   }
 ) {
@@ -510,8 +584,12 @@ export async function markStagedChangeSetStatus(
     throw new Error('Staged change set not found.');
   }
 
-  const next = await prisma.stagedChangeSet.update({
-    where: { id: existing.id },
+  if (existing.status !== 'pending' || existing.revision !== input.expectedRevision) {
+    throw new ConflictError('The proposal changed before this review decision.');
+  }
+
+  const updated = await prisma.stagedChangeSet.updateMany({
+    where: { id: existing.id, revision: input.expectedRevision, status: 'pending' },
     data: {
       status: input.status,
       ...(input.status === 'applied'
@@ -522,13 +600,21 @@ export async function markStagedChangeSetStatus(
         : {
             discardedAt: new Date(),
           }),
-      createdByUserId: actor.userId,
       originDeviceId: actor.deviceId,
+      reviewedAt: new Date(),
+      reviewedByUserId: actor.userId,
       revision: {
         increment: 1,
       },
     },
   });
+  if (updated.count !== 1) {
+    throw new ConflictError('The proposal changed before this review decision.');
+  }
+  const next = await prisma.stagedChangeSet.findUnique({ where: { id: existing.id } });
+  if (!next) {
+    throw new NotFoundError('Staged change set not found.');
+  }
 
   return mapStagedChangeSet(next);
 }
@@ -611,6 +697,10 @@ export function mapStagedChangeSet(changeSet: StagedChangeSetRecord): StagedChan
     workspaceId: changeSet.documentId,
     conversationId: changeSet.sessionId,
     baseVersionId: changeSet.baseVersionId,
+    baseVersionSha256: changeSet.baseVersionSha256,
+    baseDraftRevision: changeSet.baseDraftRevision,
+    patchSchemaVersion: changeSet.patchSchemaVersion,
+    patchSha256: changeSet.patchSha256,
     appliedCheckpointVersionId: changeSet.appliedCheckpointVersionId,
     title: changeSet.title,
     summary: changeSet.summary,
@@ -621,6 +711,8 @@ export function mapStagedChangeSet(changeSet: StagedChangeSetRecord): StagedChan
     originDeviceId: changeSet.originDeviceId,
     appliedAt: changeSet.appliedAt,
     discardedAt: changeSet.discardedAt,
+    reviewedByUserId: changeSet.reviewedByUserId,
+    reviewedAt: changeSet.reviewedAt,
     revision: changeSet.revision,
     deletedAt: changeSet.deletedAt,
     createdAt: changeSet.createdAt,
@@ -806,18 +898,190 @@ function parseChangeSetPatches(changesJson: string): StagedChangePatchData[] {
     return [];
   }
 
-  return parsed.map((change) => ({
-    fileId: typeof change?.fileId === 'string' ? change.fileId : null,
-    name: typeof change?.name === 'string' ? change.name : 'Untitled change',
-    summary: typeof change?.summary === 'string' ? change.summary : '',
-    nextContent: typeof change?.nextContent === 'string' ? change.nextContent : '',
-    kind:
-      change?.kind === 'markdown' ||
-      change?.kind === 'text' ||
-      change?.kind === 'code'
-        ? change.kind
-        : 'richtext',
-  }));
+  return parsed.flatMap((value) => {
+    if (!value || typeof value !== 'object') return [];
+    const change = value as Record<string, unknown>;
+    const operation = normalizeStagedChangeOperation(change.operation, change.fileId);
+    const preimage = normalizeStoredPreimage(change.preimage);
+    return [{
+      operation,
+      fileId: typeof change.fileId === 'string' ? change.fileId : null,
+      name: typeof change.name === 'string' ? change.name : 'Untitled change',
+      summary: typeof change.summary === 'string' ? change.summary : '',
+      nextContent:
+        operation === 'delete'
+          ? null
+          : typeof change.nextContent === 'string'
+            ? change.nextContent
+            : '',
+      kind: normalizeStagedChangeKind(change.kind),
+      preimage,
+    } satisfies StagedChangePatchData];
+  });
+}
+
+function normalizeStagedChangePatches(
+  changes: StagedChangePatchInput[]
+): StagedChangePatchData[] {
+  if (changes.length === 0 || changes.length > 50) {
+    throw new ValidationError('A proposal must contain between 1 and 50 file operations.');
+  }
+  const existingFileIds = changes.flatMap((change) => change.fileId ? [change.fileId] : []);
+  if (new Set(existingFileIds).size !== existingFileIds.length) {
+    throw new ConflictError('A proposal may contain only one operation per existing file.');
+  }
+
+  const createNames = new Set<string>();
+  return changes.map((change) => {
+    const name = change.name.trim();
+    const summary = change.summary.trim();
+    if (!name || !summary) {
+      throw new ValidationError('Every proposal operation requires a name and summary.');
+    }
+    if (change.operation === 'create') {
+      if (change.fileId !== null || change.preimage !== null || change.nextContent === null) {
+        throw new ValidationError('A create operation requires a null file and preimage plus content.');
+      }
+      if (createNames.has(name)) {
+        throw new ConflictError('A proposal may create a file name only once.');
+      }
+      createNames.add(name);
+    } else if (!change.fileId || !change.preimage) {
+      throw new ValidationError('Update and delete operations require an existing-file preimage.');
+    } else if (change.operation === 'update' && change.nextContent === null) {
+      throw new ValidationError('An update operation requires content.');
+    } else if (change.operation === 'delete' && change.nextContent !== null) {
+      throw new ValidationError('A delete operation cannot include next content.');
+    }
+    if (change.preimage && (!Number.isSafeInteger(change.preimage.revision) || change.preimage.revision < 1)) {
+      throw new ValidationError('A file preimage revision must be a positive integer.');
+    }
+
+    return {
+      operation: change.operation,
+      fileId: change.fileId,
+      kind: change.kind,
+      name,
+      nextContent: change.nextContent,
+      preimage: change.preimage
+        ? {
+            content: change.preimage.content,
+            contentSha256: sha256(change.preimage.content),
+            revision: change.preimage.revision,
+          }
+        : null,
+      summary,
+    };
+  });
+}
+
+function normalizeStagedChangeOperation(
+  value: unknown,
+  fileId: unknown
+): StagedChangeOperation {
+  if (value === 'create' || value === 'update' || value === 'delete') return value;
+  return typeof fileId === 'string' ? 'update' : 'create';
+}
+
+function normalizeStagedChangeKind(value: unknown): StagedChangePatchData['kind'] {
+  return value === 'markdown' || value === 'text' || value === 'code'
+    ? value
+    : 'richtext';
+}
+
+function normalizeStoredPreimage(
+  value: unknown
+): StagedChangePatchData['preimage'] {
+  if (!value || typeof value !== 'object') return null;
+  const preimage = value as Record<string, unknown>;
+  if (
+    typeof preimage.content !== 'string' ||
+    typeof preimage.contentSha256 !== 'string' ||
+    typeof preimage.revision !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    content: preimage.content,
+    contentSha256: preimage.contentSha256,
+    revision: preimage.revision,
+  };
+}
+
+async function assertProposalFilePreimages(
+  db: Prisma.TransactionClient,
+  params: {
+    changes: StagedChangePatchData[];
+    organizationId: string;
+    workspaceId: string;
+  }
+) {
+  const fileIds = params.changes.flatMap((change) => change.fileId ? [change.fileId] : []);
+  const files = fileIds.length > 0
+    ? await db.workspaceFile.findMany({
+        where: {
+          deletedAt: null,
+          documentId: params.workspaceId,
+          id: { in: fileIds },
+          organizationId: params.organizationId,
+        },
+        select: { content: true, id: true, revision: true },
+      })
+    : [];
+  const byId = new Map(files.map((file) => [file.id, file]));
+  for (const change of params.changes) {
+    if (change.operation === 'create') continue;
+    const file = change.fileId ? byId.get(change.fileId) : null;
+    if (!file) {
+      throw new ConflictError('A proposed document file is no longer available.');
+    }
+    if (
+      !change.preimage ||
+      file.revision !== change.preimage.revision ||
+      file.content !== change.preimage.content ||
+      sha256(file.content) !== change.preimage.contentSha256
+    ) {
+      throw new ConflictError('A proposed document file changed before the proposal was recorded.');
+    }
+  }
+}
+
+async function resolveBaseVersionSha256(
+  db: Prisma.TransactionClient,
+  params: {
+  baseVersionId: string | null;
+  organizationId: string;
+  workspaceId: string;
+  }
+) {
+  if (!params.baseVersionId) return null;
+  const version = await db.version.findFirst({
+    where: {
+      deletedAt: null,
+      documentId: params.workspaceId,
+      id: params.baseVersionId,
+      organizationId: params.organizationId,
+    },
+    select: { content: true },
+  });
+  if (!version) {
+    throw new ConflictError('The proposal base version is not available in this workspace.');
+  }
+  return sha256(version.content);
+}
+
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.entries(value)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+    .join(',')}}`;
+}
+
+export function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function parsePlanStages(

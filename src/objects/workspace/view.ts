@@ -157,6 +157,7 @@ export function mapWorkspaceVersion(
     deletedAt: version.deletedAt,
     lockedAt: version.lockedAt,
     labels,
+    aligned: stateSemantics.aligned,
     visible: stateSemantics.visible,
     restorable: stateSemantics.restorable,
     pinned: stateSemantics.pinned,

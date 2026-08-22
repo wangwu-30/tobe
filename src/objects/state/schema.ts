@@ -13,7 +13,12 @@ type WorkspaceStateSemanticsSource = {
 
 type WorkspaceStateSemantics = Pick<
   WorkspaceVersionData,
-  'pinned' | 'recoveryKind' | 'restorable' | 'versionType' | 'visible'
+  | 'aligned'
+  | 'pinned'
+  | 'recoveryKind'
+  | 'restorable'
+  | 'versionType'
+  | 'visible'
 >;
 
 export function hasStateLabelKind(
@@ -35,6 +40,10 @@ export function hasPinnedStateLabel(labels?: StateLabelLike[] | null) {
   return hasStateLabelKind(labels, 'pinned');
 }
 
+export function hasAlignedStateLabel(labels?: StateLabelLike[] | null) {
+  return hasStateLabelKind(labels, 'aligned');
+}
+
 export function deriveWorkspaceStateSemantics(
   source: WorkspaceStateSemanticsSource
 ): WorkspaceStateSemantics {
@@ -43,6 +52,10 @@ export function deriveWorkspaceStateSemantics(
   const versionType = visible ? 'manual' : pinned ? 'checkpoint_pinned' : 'checkpoint';
 
   return {
+    // Alignment is effective only for a visible immutable state. This keeps
+    // malformed legacy recovery points fail-closed even if they carry an
+    // orphaned aligned label.
+    aligned: visible && hasAlignedStateLabel(source.labels),
     versionType,
     visible,
     restorable: true,

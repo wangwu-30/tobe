@@ -25,7 +25,9 @@ import { listProjectFolderPath } from '@/lib/workspace/project-summary';
 import {
   buildWorkspaceRoute,
   WORKSPACE_AUTO_START_FIRST_PASS_PARAM,
+  WORKSPACE_ASSISTANT_SEARCH_PARAM,
   WORKSPACE_NODE_SEARCH_PARAM,
+  parseWorkspaceAssistantTab,
 } from '@/lib/workspace/route';
 import type {
   ChatMessageData,
@@ -61,7 +63,7 @@ const ProjectCanvasLoader = dynamic(
     ssr: false,
     loading: () => (
       <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas...
+        Loading canvas…
       </div>
     ),
   }
@@ -81,6 +83,14 @@ const EMPTY_PROJECT_FOLDERS: WorkspaceViewData['projectFolders'] = [];
 const EMPTY_PROJECT_DELIVERABLES: WorkspaceViewData['projectDeliverables'] = [];
 
 export default function WorkspacePage() {
+  return (
+    <React.Suspense fallback={<div className="min-h-screen bg-background" />}>
+      <WorkspacePageContent />
+    </React.Suspense>
+  );
+}
+
+function WorkspacePageContent() {
   const t = useT();
   const params = useAppParams<{ workspaceId: string }>();
   const router = useAppRouter();
@@ -91,6 +101,9 @@ export default function WorkspacePage() {
   const requestedConversationId = searchParams.get('conversationId');
   const requestedFileId = searchParams.get('fileId');
   const requestedVersionId = searchParams.get('versionId');
+  const requestedAssistantTab = parseWorkspaceAssistantTab(
+    searchParams.get(WORKSPACE_ASSISTANT_SEARCH_PARAM)
+  );
   const shouldAutoStartFirstPass =
     searchParams.get(WORKSPACE_AUTO_START_FIRST_PASS_PARAM) === '1';
 
@@ -404,6 +417,7 @@ export default function WorkspacePage() {
       ? null
       : buildWorkspaceRoute({
           autoStartFirstPass: shouldAutoStartFirstPass,
+          assistant: requestedAssistantTab,
           conversationId: requestedConversationId,
           fileId: requestedFileId,
           nodeId: currentWorkspace.id,
@@ -412,6 +426,7 @@ export default function WorkspacePage() {
         });
   const currentWorkspaceHref = buildWorkspaceRoute({
     autoStartFirstPass: shouldAutoStartFirstPass,
+    assistant: requestedAssistantTab,
     conversationId: requestedConversationId,
     fileId: requestedFileId,
     nodeId: requestedNodeId,
@@ -419,7 +434,7 @@ export default function WorkspacePage() {
     versionId: requestedVersionId,
   });
   const routeIsCanonical =
-    !canonicalWorkspaceHref || canonicalWorkspaceHref === currentWorkspaceHref;
+    Boolean(canonicalWorkspaceHref) && canonicalWorkspaceHref === currentWorkspaceHref;
   const canSwitchProjectDeliverable =
     !isVersionView && projectDeliverableSwitchOptions.length > 1;
   const canOpenOutline = outlineItems.some((item) => item.id.startsWith('heading-'));
@@ -428,13 +443,14 @@ export default function WorkspacePage() {
     (nextWorkspaceId: string) => {
       router.push(
         buildWorkspaceRoute({
+          assistant: requestedAssistantTab,
           conversationId: currentConversationId,
           nodeId: nextWorkspaceId,
           projectId: currentProjectId || routeProjectId,
         })
       );
     },
-    [currentConversationId, currentProjectId, routeProjectId, router]
+    [currentConversationId, currentProjectId, requestedAssistantTab, routeProjectId, router]
   );
   const workspaceTitleNode = (
     <WorkspaceRouteTitle
@@ -458,6 +474,7 @@ export default function WorkspacePage() {
     syncLocation,
   } = useWorkspaceRouteController({
     activePreviewRun,
+    assistant: requestedAssistantTab,
     currentConversationId,
     currentFileId,
     workflowStatusPrimaryAction: workflowStatus?.primaryAction,
@@ -541,6 +558,7 @@ export default function WorkspacePage() {
 
     router.replace(
       buildWorkspaceRoute({
+        assistant: requestedAssistantTab,
         conversationId: requestedConversationId,
         fileId: requestedFileId,
         nodeId: currentWorkspace?.id || requestedNodeId || workspaceId,
@@ -558,6 +576,7 @@ export default function WorkspacePage() {
     queuedPrompt,
     router,
     requestedConversationId,
+    requestedAssistantTab,
     requestedFileId,
     requestedNodeId,
     requestedVersionId,
@@ -690,6 +709,19 @@ export default function WorkspacePage() {
           workspaceId: nextWorkspaceId || workspaceId,
         });
       }}
+      onValueChange={(assistant) => {
+        const nextSearchParams = new URLSearchParams(searchParams.toString());
+        if (assistant === 'room') {
+          nextSearchParams.delete(WORKSPACE_ASSISTANT_SEARCH_PARAM);
+        } else {
+          nextSearchParams.set(WORKSPACE_ASSISTANT_SEARCH_PARAM, assistant);
+        }
+        const nextQuery = nextSearchParams.toString();
+        router.replace(
+          `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`,
+          { scroll: false }
+        );
+      }}
       plan={workspaceBrief}
       queuedPrompt={queuedPrompt}
       refreshThreads={async () => {
@@ -698,11 +730,13 @@ export default function WorkspacePage() {
       reviewThreads={reviewThreads}
       wikiId={workspaceId}
       workspaceId={workspaceId}
+      value={requestedAssistantTab}
     />
   );
 
   const headerVersionControls = (
     <WorkspaceHeaderVersionControls
+      conversationId={currentConversationId}
       currentDraftBaseVersionId={currentDraftBaseVersionId}
       workflowStatus={workflowStatus}
       currentText={comparableDeliverableText}
@@ -715,6 +749,8 @@ export default function WorkspacePage() {
       onSelectVersion={(versionId) => syncLocation({ versionId })}
       onSwitchToVersionBranch={switchConversationToVersionBranch}
       onTogglePin={toggleRecoveryPointPin}
+      projectId={currentProjectId}
+      sourceTitle={currentWorkspace?.title || deliverable?.title || null}
       stagedChangeSets={routeWorkspaceView?.stagedChangeSets || []}
       versions={routeWorkspaceView?.versions || []}
       workspaceId={workspaceId}
@@ -780,8 +816,8 @@ export default function WorkspacePage() {
       onCreateProjectFolder={createProjectFolder}
       onCreateSiblingDeliverable={routeIsCanonical ? createSiblingDeliverable : undefined}
       onDeleteWorkspace={deleteProject}
-      onCreateSupportFile={createSupportFile}
-      onCreateSupportFolder={createSupportFolder}
+      onCreateSupportFile={routeIsCanonical ? createSupportFile : undefined}
+      onCreateSupportFolder={routeIsCanonical ? createSupportFolder : undefined}
       onDeleteSupportFile={deleteSupportFile}
       onMoveSupportFile={moveSupportFile}
       onReorderSupportFile={reorderSupportFile}

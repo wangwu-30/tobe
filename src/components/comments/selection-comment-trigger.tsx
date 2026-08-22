@@ -4,10 +4,8 @@ import * as React from 'react';
 import { getCommentKey, getDraftCommentKey } from '@platejs/comment';
 import { getSelectionBoundingClientRect } from '@platejs/floating';
 import { MessageSquarePlus, Search } from 'lucide-react';
-import {
-  useEditorPlugin,
-  useEditorRef,
-} from 'platejs/react';
+import { useEditorPlugin, useEditorRef } from 'platejs/react';
+import { RangeApi } from 'platejs';
 
 import { commentPlugin } from '@/components/editor/plugins/comment-kit';
 import { useEditorSession } from '@/components/editor/editor-session-context';
@@ -75,8 +73,6 @@ export function SelectionCommentTrigger({
     if (
       !isMounted ||
       composerState ||
-      !editor.selection ||
-      !editor.api.isExpanded() ||
       !domSelection ||
       domSelection.rangeCount === 0 ||
       domSelection.isCollapsed
@@ -90,18 +86,28 @@ export function SelectionCommentTrigger({
     }
 
     try {
+      const domRange = domSelection.getRangeAt(0);
+      const editorRange =
+        editor.api.toSlateRange(domSelection, {
+          exactMatch: false,
+          suppressThrow: true,
+        }) || editor.selection;
+      if (!editorRange || !RangeApi.isExpanded(editorRange)) {
+        return null;
+      }
+
       const structuredRange = createStructuredDocumentSelectionRange({
         anchor: {
-          offset: editor.selection.anchor.offset,
-          path: [...editor.selection.anchor.path],
+          offset: editorRange.anchor.offset,
+          path: [...editorRange.anchor.path],
         },
         focus: {
-          offset: editor.selection.focus.offset,
-          path: [...editor.selection.focus.path],
+          offset: editorRange.focus.offset,
+          path: [...editorRange.focus.path],
         },
       });
       const rect =
-        domSelection.getRangeAt(0).getBoundingClientRect() || getSelectionBoundingClientRect(editor);
+        domRange.getBoundingClientRect() || getSelectionBoundingClientRect(editor);
       if (!rect || rect.width === 0 || rect.height === 0) {
         return null;
       }
@@ -522,6 +528,9 @@ export function SelectionCommentTrigger({
 
           <CommentAgentTextarea
             agents={commentAgents}
+            aria-label={t('comments.manualCommentLabel')}
+            autoComplete="off"
+            name="selection-comment"
             ref={textareaRef}
             value={commentText}
             onChange={setCommentText}
@@ -537,7 +546,7 @@ export function SelectionCommentTrigger({
           />
 
           {error && (
-            <p className="mt-2 text-[11px] text-destructive">{error}</p>
+            <p aria-live="assertive" className="mt-2 text-[11px] text-destructive" role="alert">{error}</p>
           )}
 
           <div className="mt-3 flex items-center justify-between gap-3">

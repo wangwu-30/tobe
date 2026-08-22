@@ -13,7 +13,7 @@ import {
   readWorkspaceRuns,
   readWorkspaceView,
 } from '@/lib/workspace/read-client';
-import { buildWorkspaceRoute } from '@/lib/workspace/route';
+import { buildWorkspaceRoute, type WorkspaceAssistantTab } from '@/lib/workspace/route';
 import type {
   ChatMessageData,
   CommentThreadData,
@@ -23,6 +23,7 @@ import type {
 } from '@/types';
 
 type WorkspaceRouteLocation = {
+  assistant?: WorkspaceAssistantTab | null;
   conversationId?: string | null;
   fileId?: string | null;
   projectId?: string | null;
@@ -53,6 +54,7 @@ type WorkspaceRouteNotice = {
 
 export function useWorkspaceRouteController({
   activePreviewRun,
+  assistant,
   currentConversationId,
   currentFileId,
   workflowStatusPrimaryAction,
@@ -81,6 +83,7 @@ export function useWorkspaceRouteController({
   workspaceReady,
 }: {
   activePreviewRun: WorkspaceRunData | null;
+  assistant: WorkspaceAssistantTab;
   currentConversationId: string | null;
   currentFileId: string | null;
   workflowStatusPrimaryAction: string | null | undefined;
@@ -377,6 +380,7 @@ export function useWorkspaceRouteController({
         next.versionId !== undefined ? next.versionId : currentVersionId;
 
       const href = buildWorkspaceRoute({
+        assistant: next.assistant !== undefined ? next.assistant : assistant,
         conversationId,
         fileId,
         nodeId: resolvedWorkspaceId,
@@ -394,6 +398,7 @@ export function useWorkspaceRouteController({
       currentConversationId,
       currentFileId,
       currentVersionId,
+      assistant,
       projectId,
       pushRoute,
       replaceRoute,

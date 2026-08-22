@@ -1,13 +1,13 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Loader2, Search } from 'lucide-react';
 
 import { useT } from '@/components/providers/language-provider';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { useDebounce } from '@/hooks/use-debounce';
-import { useAppRouter } from '@/lib/app-router';
 import { cn } from '@/lib/utils';
 import { searchWorkspaceProjectNodes } from '@/lib/workspace/project-client';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
@@ -24,7 +24,6 @@ export function SidebarSearch({
   projectId: string;
 }) {
   const t = useT();
-  const router = useAppRouter();
   const [query, setQuery] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [isLoading, setIsLoading] = React.useState(false);
@@ -83,21 +82,12 @@ export function SidebarSearch({
     };
   }, [currentNodeId, projectId, t, trimmedQuery]);
 
-  const handleOpenResult = React.useCallback(
-    (result: ProjectNodeSearchResultData) => {
+  const handleOpenResult = React.useCallback(() => {
       onNavigate?.();
       setQuery('');
       setResults([]);
       setError(null);
-      router.push(
-        buildWorkspaceRoute({
-          nodeId: result.id,
-          projectId: result.projectId,
-        })
-      );
-    },
-    [onNavigate, router]
-  );
+  }, [onNavigate]);
 
   const hasQuery = query.trim().length > 0;
 
@@ -106,6 +96,10 @@ export function SidebarSearch({
       <div className="relative border-b border-border/70">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          aria-label={t('sidebar.searchProjectNodes')}
+          aria-describedby="sidebar-node-search-status"
+          autoComplete="off"
+          name="projectSearch"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t('sidebar.searchProjectNodesPlaceholder')}
@@ -114,17 +108,25 @@ export function SidebarSearch({
           type="search"
         />
         {isLoading ? (
-          <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          <Loader2
+            aria-hidden="true"
+            className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground motion-reduce:animate-none"
+          />
         ) : null}
       </div>
 
-      <div className="min-w-0 px-2 py-2">
+      <div
+        aria-atomic="true"
+        aria-live="polite"
+        className="min-w-0 px-2 py-2"
+        id="sidebar-node-search-status"
+      >
         {!hasQuery ? (
           <div className="px-2 py-1 text-xs text-muted-foreground">
             {t('sidebar.searchProjectNodesHint')}
           </div>
         ) : error ? (
-          <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive" role="alert">
             {error}
           </div>
         ) : isLoading ? (
@@ -141,14 +143,17 @@ export function SidebarSearch({
         ) : (
           <div className="space-y-1" data-testid="sidebar-node-search-results">
             {results.map((result) => (
-              <button
+              <Link
                 key={result.id}
-                type="button"
+                href={buildWorkspaceRoute({
+                  nodeId: result.id,
+                  projectId: result.projectId,
+                })}
                 className={cn(
-                  'flex w-full min-w-0 items-start gap-2 rounded-xl px-2 py-2 text-left transition-colors hover:bg-accent',
+                  'flex min-h-11 w-full min-w-0 touch-manipulation items-start gap-2 rounded-xl px-2 py-2 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
                   result.isCurrent && 'bg-accent/60'
                 )}
-                onClick={() => handleOpenResult(result)}
+                onClick={handleOpenResult}
                 data-testid={`sidebar-node-search-result-${result.id}`}
               >
                 <div className="mt-0.5 shrink-0 rounded-md bg-foreground/5 p-1.5 ring-1 ring-border/30">
@@ -173,7 +178,7 @@ export function SidebarSearch({
                     {result.matchPreview}
                   </div>
                 </div>
-              </button>
+              </Link>
             ))}
           </div>
         )}

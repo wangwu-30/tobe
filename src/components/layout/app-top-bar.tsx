@@ -24,7 +24,7 @@ export function AppTopBar({
 }) {
   return (
     <header className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="flex h-16 w-full items-center gap-3 px-4 sm:px-6">
+      <div className="flex min-h-16 w-full items-center gap-3 px-3 py-2 sm:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-3">
           <Button
             variant="ghost"
@@ -45,11 +45,12 @@ export function AppTopBar({
             size="icon"
             className="md:hidden"
             onClick={onOpenSidebar}
+            aria-label="Open navigation"
           >
             <PanelLeft className="h-4 w-4" />
           </Button>
 
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             {titleNode || (
               <div className="truncate text-sm font-semibold">{title}</div>
             )}
@@ -59,7 +60,7 @@ export function AppTopBar({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2 overflow-x-auto pb-1">
+        <div className="flex min-w-0 shrink items-center gap-2 overflow-x-auto py-1">
           {actions}
         </div>
       </div>

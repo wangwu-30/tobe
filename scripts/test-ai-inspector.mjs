@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = process.cwd();
 const blackboxRoot = path.join(repoRoot, '.tmp', 'blackbox-acceptance');
@@ -9,7 +10,7 @@ const appDataRoot = path.join(blackboxRoot, 'app-data');
 const artifactsRoot = path.join(blackboxRoot, 'artifacts');
 const playwrightBrowsersRoot = path.join(repoRoot, '.tmp', 'playwright-browsers');
 const htmlReportRoot = path.join(artifactsRoot, 'html-report');
-const aiInspectorScenarios = [
+export const aiInspectorScenarios = [
   {
     id: 'A1',
     title: 'AI inspector A1 first-use flow passes the blackbox gate',
@@ -34,9 +35,20 @@ const aiInspectorScenarios = [
     id: 'B4',
     title: 'AI inspector B4 branch continue and switch flow keeps the current branch clear',
   },
+  {
+    id: 'C1',
+    title: 'AI inspector C1 context knowledge flow creates, edits, and persists a note',
+  },
+  {
+    id: 'C2',
+    title: 'AI inspector C2 context workflow flow applies a builtin workflow to the current task',
+  },
 ];
 
 async function main() {
+  await runStep('browser-preflight', ['node', 'scripts/browser-preflight.mjs'], {
+    PLAYWRIGHT_BROWSERS_PATH: playwrightBrowsersRoot,
+  });
   await prepareRoots();
   for (const scenario of aiInspectorScenarios) {
     await resetAppDataRoot();
@@ -110,7 +122,9 @@ function runCommand(command, extraEnv = {}) {
   });
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

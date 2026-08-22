@@ -19,6 +19,7 @@ import {
 type WorkspaceCreateResponse = {
   conversation: { id: string };
   primaryFile: { id: string };
+  room: { id: string; projectId: string | null };
   workspace: { id: string };
 };
 
@@ -1001,6 +1002,7 @@ async function createWorkspace(
     conversationId: payload.conversation.id,
     fileId: payload.primaryFile.id,
     id: payload.workspace.id,
+    roomId: payload.room.id,
   };
 }
 

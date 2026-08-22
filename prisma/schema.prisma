@@ -8,47 +8,79 @@ datasource db {
 }
 
 model Organization {
-  id               String                  @id
-  slug             String                  @unique
-  name             String
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
-  memberships      OrganizationMembership[]
-  subscription     Subscription?
-  devices          Device[]
-  sessions         Session[]
-  messages         ChatMessage[]
-  documents        Document[]
-  workspaceFiles   WorkspaceFile[]
-  versions         Version[]
-  labels           Label[]
-  commentThreads   CommentThread[]
-  commentMessages  CommentMessage[]
-  notes            Note[]
-  workflowPlaybooks WorkflowPlaybook[]
-  wikiEditLocks    WikiEditLock[]
-  workspaceRuns    WorkspaceRun[]
-  assistantRuns    AssistantRun[]
-  workspacePlans   WorkspacePlan[]
-  projectFolders   ProjectFolder[]
-  projectMounts    ProjectMount[]
-  nodeRelations    NodeRelation[]
-  projectCanvasLayouts ProjectCanvasLayout[]
-  mutationRequests MutationRequest[]
-  stagedChangeSets StagedChangeSet[]
-  chatAttachments  ChatAttachment[]
-  syncEvents       SyncEvent[]
-  syncCursors      SyncCursor[]
+  id                         String                        @id
+  slug                       String                        @unique
+  name                       String
+  createdAt                  DateTime                      @default(now())
+  updatedAt                  DateTime                      @updatedAt
+  memberships                OrganizationMembership[]
+  subscription               Subscription?
+  devices                    Device[]
+  sessions                   Session[]
+  messages                   ChatMessage[]
+  documents                  Document[]
+  workspaceFiles             WorkspaceFile[]
+  versions                   Version[]
+  labels                     Label[]
+  commentThreads             CommentThread[]
+  commentMessages            CommentMessage[]
+  notes                      Note[]
+  workflowPlaybooks          WorkflowPlaybook[]
+  wikiEditLocks              WikiEditLock[]
+  workspaceRuns              WorkspaceRun[]
+  assistantRuns              AssistantRun[]
+  workspacePlans             WorkspacePlan[]
+  projectFolders             ProjectFolder[]
+  projectMounts              ProjectMount[]
+  nodeRelations              NodeRelation[]
+  projectCanvasLayouts       ProjectCanvasLayout[]
+  mutationRequests           MutationRequest[]
+  stagedChangeSets           StagedChangeSet[]
+  chatAttachments            ChatAttachment[]
+  syncEvents                 SyncEvent[]
+  syncCursors                SyncCursor[]
+  agentProfiles              AgentProfile[]
+  teamTasks                  TeamTask[]
+  taskActivities             TaskActivity[]
+  executionRuntimes          ExecutionRuntime[]
+  executionJobs              ExecutionJob[]
+  executionAttempts          ExecutionAttempt[]
+  executionEvents            ExecutionEvent[]
+  executionArtifacts         ExecutionArtifact[]
+  executionInputRequests     ExecutionInputRequest[]
+  executionRecoveryIncidents ExecutionRecoveryIncident[]
+  executionOutbox            ExecutionOutbox[]
+  knowledgeSpaces            KnowledgeSpace[]
+  knowledgeBindings          KnowledgeBinding[]
+  knowledgeSnapshots         KnowledgeSnapshot[]
+  knowledgeChanges           KnowledgeChangeRequest[]
+  knowledgeMergeOperations   KnowledgeMergeOperation[]
+  rooms                      Room[]
+  roomMessages               RoomMessage[]
+  roomMentions               RoomMention[]
+  roomAgentSessions          RoomAgentSession[]
+  roomInboxDeliveries        RoomInboxDelivery[]
+  roomEvents                 RoomEvent[]
+  roomOutbox                 RoomOutbox[]
+  roomDelegationGrants       RoomDelegationGrant[]
+  roomDelegationInvocations  RoomDelegationInvocation[]
+  roomDelegationRootBudgets  RoomDelegationRootBudget[]
+  roomToolConfirmations      RoomToolConfirmationRequest[]
+  roomContextSummaries       RoomContextSummaryCache[]
 }
 
 model User {
-  id          String                   @id
-  name        String
-  email       String?                  @unique
-  createdAt   DateTime                 @default(now())
-  updatedAt   DateTime                 @updatedAt
-  memberships OrganizationMembership[]
-  devices     Device[]
+  id                             String                        @id
+  name                           String
+  email                          String?                       @unique
+  createdAt                      DateTime                      @default(now())
+  updatedAt                      DateTime                      @updatedAt
+  memberships                    OrganizationMembership[]
+  devices                        Device[]
+  requestedRoomToolConfirmations RoomToolConfirmationRequest[] @relation("RoomToolConfirmationRequestedBy")
+  approvedRoomToolConfirmations  RoomToolConfirmationRequest[] @relation("RoomToolConfirmationApprovedBy")
+  rejectedRoomToolConfirmations  RoomToolConfirmationRequest[] @relation("RoomToolConfirmationRejectedBy")
+  reviewedStagedChangeSets       StagedChangeSet[]             @relation("StagedChangeSetReviewer")
 }
 
 model OrganizationMembership {
@@ -90,35 +122,35 @@ model Device {
 }
 
 model Session {
-  id              String        @id @default(cuid())
-  organizationId  String        @default("local-org")
-  title           String        @default("New Conversation")
-  wikiId          String?
-  projectId       String?
-  parentSessionId String?
+  id                  String           @id @default(cuid())
+  organizationId      String           @default("local-org")
+  title               String           @default("New Conversation")
+  wikiId              String?
+  projectId           String?
+  parentSessionId     String?
   forkedFromMessageId String?
-  baseVersionId   String?
-  activeFileId    String?
-  createdByUserId String?
-  originDeviceId  String?
-  sourceType      String        @default("chat")
-  revision        Int           @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  wiki            Document?     @relation("WikiConversations", fields: [wikiId], references: [id], onDelete: SetNull)
-  project         Document?     @relation("ProjectScopedConversations", fields: [projectId], references: [id], onDelete: SetNull)
-  parentSession   Session?      @relation("ConversationBranches", fields: [parentSessionId], references: [id], onDelete: SetNull)
-  childSessions   Session[]     @relation("ConversationBranches")
-  forkedFromMessage ChatMessage? @relation("ConversationForkMessage", fields: [forkedFromMessageId], references: [id], onDelete: SetNull)
-  baseVersion     Version?      @relation("ConversationBaseVersion", fields: [baseVersionId], references: [id], onDelete: SetNull)
-  activeFile      WorkspaceFile? @relation("ConversationActiveFile", fields: [activeFileId], references: [id], onDelete: SetNull)
-  messages        ChatMessage[]
-  assistantRuns   AssistantRun[]
-  chatAttachments ChatAttachment[]
-  documents       Document[]    @relation("PrimaryConversationDocuments")
-  sourceVersions  Version[]     @relation("SnapshotSourceConversation")
+  baseVersionId       String?
+  activeFileId        String?
+  createdByUserId     String?
+  originDeviceId      String?
+  sourceType          String           @default("chat")
+  revision            Int              @default(1)
+  deletedAt           DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  wiki                Document?        @relation("WikiConversations", fields: [wikiId], references: [id], onDelete: SetNull)
+  project             Document?        @relation("ProjectScopedConversations", fields: [projectId], references: [id], onDelete: SetNull)
+  parentSession       Session?         @relation("ConversationBranches", fields: [parentSessionId], references: [id], onDelete: SetNull)
+  childSessions       Session[]        @relation("ConversationBranches")
+  forkedFromMessage   ChatMessage?     @relation("ConversationForkMessage", fields: [forkedFromMessageId], references: [id], onDelete: SetNull)
+  baseVersion         Version?         @relation("ConversationBaseVersion", fields: [baseVersionId], references: [id], onDelete: SetNull)
+  activeFile          WorkspaceFile?   @relation("ConversationActiveFile", fields: [activeFileId], references: [id], onDelete: SetNull)
+  messages            ChatMessage[]
+  assistantRuns       AssistantRun[]
+  chatAttachments     ChatAttachment[]
+  documents           Document[]       @relation("PrimaryConversationDocuments")
+  sourceVersions      Version[]        @relation("SnapshotSourceConversation")
 
   @@index([organizationId, updatedAt])
   @@index([wikiId, updatedAt])
@@ -127,27 +159,27 @@ model Session {
 }
 
 model ChatMessage {
-  id              String        @id @default(cuid())
-  organizationId  String        @default("local-org")
-  sessionId       String
-  role            String
-  content         String
-  documentId      String?
-  focusNodeId     String?
-  model           String?
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int           @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  session         Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  document        Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
-  focusNode       Document?     @relation("ConversationMessageFocusNode", fields: [focusNodeId], references: [id], onDelete: SetNull)
-  forkedConversations Session[] @relation("ConversationForkMessage")
-  sourceSnapshots Version[]     @relation("SnapshotSourceMessage")
-  requestedRuns   AssistantRun[] @relation("ConversationRequestRuns")
-  attachments     ChatAttachment[]
+  id                  String           @id @default(cuid())
+  organizationId      String           @default("local-org")
+  sessionId           String
+  role                String
+  content             String
+  documentId          String?
+  focusNodeId         String?
+  model               String?
+  createdByUserId     String?
+  originDeviceId      String?
+  revision            Int              @default(1)
+  deletedAt           DateTime?
+  createdAt           DateTime         @default(now())
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session             Session          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  document            Document?        @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  focusNode           Document?        @relation("ConversationMessageFocusNode", fields: [focusNodeId], references: [id], onDelete: SetNull)
+  forkedConversations Session[]        @relation("ConversationForkMessage")
+  sourceSnapshots     Version[]        @relation("SnapshotSourceMessage")
+  requestedRuns       AssistantRun[]   @relation("ConversationRequestRuns")
+  attachments         ChatAttachment[]
 
   @@index([organizationId, createdAt])
   @@index([sessionId, createdAt])
@@ -155,50 +187,50 @@ model ChatMessage {
 }
 
 model Document {
-  id              String          @id @default(cuid())
-  organizationId  String          @default("local-org")
-  sessionId       String
-  projectId       String?
-  projectFolderId String?
-  draftBaseVersionId String?
-  projectTitle    String?
-  parentDocumentId String?
-  treeSortOrder   Float           @default(0)
-  title           String          @default("Untitled")
-  content         String          @default("[]")
-  projectRootPath String?
-  canvasMetaJson  String?
-  status          String          @default("draft")
-  currentVersion  Int             @default(0)
-  draftRevision   Int             @default(0)
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int             @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  session         Session         @relation("PrimaryConversationDocuments", fields: [sessionId], references: [id], onDelete: Cascade)
-  draftBaseVersion Version?       @relation("DocumentDraftBaseVersion", fields: [draftBaseVersionId], references: [id], onDelete: SetNull)
-  conversations   Session[]       @relation("WikiConversations")
-  projectConversations Session[]  @relation("ProjectScopedConversations")
-  sourceProjectMounts ProjectMount[] @relation("ProjectMountSource")
-  targetProjectMounts ProjectMount[] @relation("ProjectMountTarget")
-  sourceNodeRelations NodeRelation[] @relation("NodeRelationSource")
-  targetNodeRelations NodeRelation[] @relation("NodeRelationTarget")
+  id                     String                @id @default(cuid())
+  organizationId         String                @default("local-org")
+  sessionId              String
+  projectId              String?
+  projectFolderId        String?
+  draftBaseVersionId     String?
+  projectTitle           String?
+  parentDocumentId       String?
+  treeSortOrder          Float                 @default(0)
+  title                  String                @default("Untitled")
+  content                String                @default("[]")
+  projectRootPath        String?
+  canvasMetaJson         String?
+  status                 String                @default("draft")
+  currentVersion         Int                   @default(0)
+  draftRevision          Int                   @default(0)
+  createdByUserId        String?
+  originDeviceId         String?
+  revision               Int                   @default(1)
+  deletedAt              DateTime?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  organization           Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session                Session               @relation("PrimaryConversationDocuments", fields: [sessionId], references: [id], onDelete: Cascade)
+  draftBaseVersion       Version?              @relation("DocumentDraftBaseVersion", fields: [draftBaseVersionId], references: [id], onDelete: SetNull)
+  conversations          Session[]             @relation("WikiConversations")
+  projectConversations   Session[]             @relation("ProjectScopedConversations")
+  sourceProjectMounts    ProjectMount[]        @relation("ProjectMountSource")
+  targetProjectMounts    ProjectMount[]        @relation("ProjectMountTarget")
+  sourceNodeRelations    NodeRelation[]        @relation("NodeRelationSource")
+  targetNodeRelations    NodeRelation[]        @relation("NodeRelationTarget")
   projectCanvasPositions ProjectCanvasLayout[] @relation("ProjectCanvasPosition")
-  chatMessages    ChatMessage[]
-  focusedMessages ChatMessage[]   @relation("ConversationMessageFocusNode")
-  files           WorkspaceFile[]
-  versions        Version[]
-  threads         CommentThread[]
-  workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookDocument")
-  wikiEditLock    WikiEditLock?
-  workspaceRuns   WorkspaceRun[]
-  assistantRuns   AssistantRun[]
-  workspacePlan   WorkspacePlan?
-  stagedChangeSets StagedChangeSet[]
-  chatAttachments ChatAttachment[]
+  chatMessages           ChatMessage[]
+  focusedMessages        ChatMessage[]         @relation("ConversationMessageFocusNode")
+  files                  WorkspaceFile[]
+  versions               Version[]
+  threads                CommentThread[]
+  workflowPlaybooks      WorkflowPlaybook[]    @relation("WorkflowPlaybookDocument")
+  wikiEditLock           WikiEditLock?
+  workspaceRuns          WorkspaceRun[]
+  assistantRuns          AssistantRun[]
+  workspacePlan          WorkspacePlan?
+  stagedChangeSets       StagedChangeSet[]
+  chatAttachments        ChatAttachment[]
 
   @@index([organizationId, updatedAt])
   @@index([sessionId, updatedAt])
@@ -269,34 +301,36 @@ model ProjectCanvasLayout {
 }
 
 model Version {
-  id              String          @id @default(cuid())
-  organizationId  String          @default("local-org")
-  documentId      String
-  versionNum      Int
-  content         String
-  title           String
-  parentVersionId String?
-  sourceSessionId String?
-  sourceMessageId String?
+  id                                String             @id @default(cuid())
+  organizationId                    String             @default("local-org")
+  documentId                        String
+  versionNum                        Int
+  content                           String
+  title                             String
+  parentVersionId                   String?
+  sourceSessionId                   String?
+  sourceMessageId                   String?
   /// @deprecated Legacy read-compat field. Runtime write/query semantics now derive from `Label`.
-  versionType     String         @default("manual")
-  lockedAt        DateTime        @default(now())
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int             @default(1)
-  deletedAt       DateTime?
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document        Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  parentVersion   Version?        @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
-  childVersions   Version[]       @relation("VersionLineage")
-  sourceConversation Session?     @relation("SnapshotSourceConversation", fields: [sourceSessionId], references: [id], onDelete: SetNull)
-  sourceMessage   ChatMessage?    @relation("SnapshotSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
-  baseConversations Session[]     @relation("ConversationBaseVersion")
-  draftBaseDocuments Document[]   @relation("DocumentDraftBaseVersion")
-  labels          Label[]
-  threads         CommentThread[]
-  workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookSourceVersion")
-  workspaceRuns   WorkspaceRun[]
+  versionType                       String             @default("manual")
+  lockedAt                          DateTime           @default(now())
+  createdByUserId                   String?
+  originDeviceId                    String?
+  revision                          Int                @default(1)
+  deletedAt                         DateTime?
+  organization                      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document                          Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parentVersion                     Version?           @relation("VersionLineage", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions                     Version[]          @relation("VersionLineage")
+  sourceConversation                Session?           @relation("SnapshotSourceConversation", fields: [sourceSessionId], references: [id], onDelete: SetNull)
+  sourceMessage                     ChatMessage?       @relation("SnapshotSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  baseConversations                 Session[]          @relation("ConversationBaseVersion")
+  draftBaseDocuments                Document[]         @relation("DocumentDraftBaseVersion")
+  baseStagedChangeSets              StagedChangeSet[]  @relation("StagedChangeSetBaseVersion")
+  appliedCheckpointStagedChangeSets StagedChangeSet[]  @relation("StagedChangeSetAppliedCheckpoint")
+  labels                            Label[]
+  threads                           CommentThread[]
+  workflowPlaybooks                 WorkflowPlaybook[] @relation("WorkflowPlaybookSourceVersion")
+  workspaceRuns                     WorkspaceRun[]
 
   @@unique([documentId, versionNum])
   @@index([organizationId, lockedAt])
@@ -317,37 +351,40 @@ model Label {
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   version         Version      @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
+  /// Active aligned-label uniqueness is enforced by a SQLite partial unique
+  /// index in migrations because Prisma schema indexes cannot express the
+  /// deletedAt/kind predicate.
   @@index([organizationId, createdAt])
   @@index([versionId, createdAt])
 }
 
 model WorkspaceFile {
-  id              String          @id @default(cuid())
-  organizationId  String          @default("local-org")
-  documentId      String
-  parentId        String?
-  name            String
-  type            String          @default("file")
-  kind            String          @default("richtext")
-  role            String          @default("deliverable")
-  path            String
-  language        String?
-  content         String          @default("")
-  isPrimary       Boolean         @default(false)
-  sortOrder       Int             @default(0)
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int             @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document        Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  parent          WorkspaceFile?  @relation("WorkspaceFileChildren", fields: [parentId], references: [id], onDelete: SetNull)
-  children        WorkspaceFile[] @relation("WorkspaceFileChildren")
-  activeConversations Session[]   @relation("ConversationActiveFile")
-  commentThreads  CommentThread[]
-  chatAttachments ChatAttachment[]
+  id                  String           @id @default(cuid())
+  organizationId      String           @default("local-org")
+  documentId          String
+  parentId            String?
+  name                String
+  type                String           @default("file")
+  kind                String           @default("richtext")
+  role                String           @default("deliverable")
+  path                String
+  language            String?
+  content             String           @default("")
+  isPrimary           Boolean          @default(false)
+  sortOrder           Int              @default(0)
+  createdByUserId     String?
+  originDeviceId      String?
+  revision            Int              @default(1)
+  deletedAt           DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document            Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent              WorkspaceFile?   @relation("WorkspaceFileChildren", fields: [parentId], references: [id], onDelete: SetNull)
+  children            WorkspaceFile[]  @relation("WorkspaceFileChildren")
+  activeConversations Session[]        @relation("ConversationActiveFile")
+  commentThreads      CommentThread[]
+  chatAttachments     ChatAttachment[]
 
   @@unique([documentId, path])
   @@index([organizationId, updatedAt])
@@ -355,29 +392,29 @@ model WorkspaceFile {
 }
 
 model CommentThread {
-  id              String           @id @default(cuid())
-  organizationId  String           @default("local-org")
-  documentId      String
-  fileId          String?
-  versionId       String?
-  anchorText      String
-  selectionAnchor String?
+  id                String             @id @default(cuid())
+  organizationId    String             @default("local-org")
+  documentId        String
+  fileId            String?
+  versionId         String?
+  anchorText        String
+  selectionAnchor   String?
   agentBindingsJson String?
   researchStateJson String?
-  draftRevision   Int?
-  status          String           @default("open")
-  resolvedAt      DateTime?
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int              @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document        Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  file            WorkspaceFile?   @relation(fields: [fileId], references: [id], onDelete: SetNull)
-  version         Version?         @relation(fields: [versionId], references: [id], onDelete: SetNull)
-  messages        CommentMessage[]
+  draftRevision     Int?
+  status            String             @default("open")
+  resolvedAt        DateTime?
+  createdByUserId   String?
+  originDeviceId    String?
+  revision          Int                @default(1)
+  deletedAt         DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document          Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file              WorkspaceFile?     @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  version           Version?           @relation(fields: [versionId], references: [id], onDelete: SetNull)
+  messages          CommentMessage[]
   workflowPlaybooks WorkflowPlaybook[] @relation("WorkflowPlaybookSourceThread")
 
   @@index([organizationId, updatedAt])
@@ -386,22 +423,22 @@ model CommentThread {
 }
 
 model CommentMessage {
-  id              String        @id @default(cuid())
-  organizationId  String        @default("local-org")
-  threadId        String
-  role            String
-  content         String
-  model           String?
+  id                  String        @id @default(cuid())
+  organizationId      String        @default("local-org")
+  threadId            String
+  role                String
+  content             String
+  model               String?
   mentionedAgentsJson String?
-  agentId         String?
-  agentLabel      String?
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int           @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  thread          CommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  agentId             String?
+  agentLabel          String?
+  createdByUserId     String?
+  originDeviceId      String?
+  revision            Int           @default(1)
+  deletedAt           DateTime?
+  createdAt           DateTime      @default(now())
+  organization        Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  thread              CommentThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, createdAt])
   @@index([threadId, createdAt])
@@ -431,30 +468,30 @@ model Note {
 }
 
 model WorkflowPlaybook {
-  id              String        @id @default(cuid())
-  organizationId  String        @default("local-org")
-  documentId      String?
-  sourceVersionId String?
-  sourceThreadId  String?
-  title           String
-  status          String        @default("draft")
-  summary         String        @default("")
-  steps           String        @default("")
-  constraints     String        @default("")
-  checklist       String        @default("")
-  extensionHints  String        @default("[]")
-  content         String        @default("")
-  archivedAt      DateTime?
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int           @default(1)
-  deletedAt       DateTime?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document        Document?     @relation("WorkflowPlaybookDocument", fields: [documentId], references: [id], onDelete: SetNull)
-  sourceVersion   Version?      @relation("WorkflowPlaybookSourceVersion", fields: [sourceVersionId], references: [id], onDelete: SetNull)
-  sourceThread    CommentThread? @relation("WorkflowPlaybookSourceThread", fields: [sourceThreadId], references: [id], onDelete: SetNull)
+  id                   String          @id @default(cuid())
+  organizationId       String          @default("local-org")
+  documentId           String?
+  sourceVersionId      String?
+  sourceThreadId       String?
+  title                String
+  status               String          @default("draft")
+  summary              String          @default("")
+  steps                String          @default("")
+  constraints          String          @default("")
+  checklist            String          @default("")
+  extensionHints       String          @default("[]")
+  content              String          @default("")
+  archivedAt           DateTime?
+  createdByUserId      String?
+  originDeviceId       String?
+  revision             Int             @default(1)
+  deletedAt            DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  organization         Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document             Document?       @relation("WorkflowPlaybookDocument", fields: [documentId], references: [id], onDelete: SetNull)
+  sourceVersion        Version?        @relation("WorkflowPlaybookSourceVersion", fields: [sourceVersionId], references: [id], onDelete: SetNull)
+  sourceThread         CommentThread?  @relation("WorkflowPlaybookSourceThread", fields: [sourceThreadId], references: [id], onDelete: SetNull)
   activeWorkspacePlans WorkspacePlan[] @relation("WorkspacePlanActiveWorkflow")
 
   @@index([organizationId, createdAt])
@@ -505,28 +542,28 @@ model WorkspaceRun {
 }
 
 model AssistantRun {
-  id              String       @id @default(cuid())
-  organizationId  String       @default("local-org")
-  sessionId       String
-  documentId      String
+  id               String       @id @default(cuid())
+  organizationId   String       @default("local-org")
+  sessionId        String
+  documentId       String
   requestMessageId String?
-  mode            String       @default("revision")
-  title           String
-  status          String       @default("queued")
-  summary         String?
-  payloadJson     String?
-  createdByUserId String?
-  originDeviceId  String?
-  revision        Int          @default(1)
-  deletedAt       DateTime?
-  startedAt       DateTime     @default(now())
-  finishedAt      DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  requestMessage  ChatMessage? @relation("ConversationRequestRuns", fields: [requestMessageId], references: [id], onDelete: SetNull)
+  mode             String       @default("revision")
+  title            String
+  status           String       @default("queued")
+  summary          String?
+  payloadJson      String?
+  createdByUserId  String?
+  originDeviceId   String?
+  revision         Int          @default(1)
+  deletedAt        DateTime?
+  startedAt        DateTime     @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session          Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  document         Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  requestMessage   ChatMessage? @relation("ConversationRequestRuns", fields: [requestMessageId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, startedAt])
   @@index([sessionId, startedAt])
@@ -535,28 +572,28 @@ model AssistantRun {
 }
 
 model ChatAttachment {
-  id              String       @id @default(cuid())
-  organizationId  String       @default("local-org")
+  id              String        @id @default(cuid())
+  organizationId  String        @default("local-org")
   sessionId       String
   messageId       String
   documentId      String
   fileId          String
   kind            String
-  source          String       @default("upload")
-  storageFormat   String       @default("text")
+  source          String        @default("upload")
+  storageFormat   String        @default("text")
   mimeType        String?
   originalName    String
   sizeBytes       Int?
   createdByUserId String?
   originDeviceId  String?
-  revision        Int          @default(1)
+  revision        Int           @default(1)
   deletedAt       DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  session         Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  message         ChatMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  document        Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session         Session       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  message         ChatMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  document        Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
   file            WorkspaceFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, createdAt])
@@ -566,28 +603,28 @@ model ChatAttachment {
 }
 
 model WorkspacePlan {
-  id               String       @id @default(cuid())
-  organizationId   String
-  documentId       String       @unique
+  id                       String            @id @default(cuid())
+  organizationId           String
+  documentId               String            @unique
   activeWorkflowPlaybookId String?
-  goal             String
-  deliverableType  String       @default("document")
-  constraints      String?
-  styleGuide       String?
-  status           String       @default("drafting")
-  version          Int          @default(1)
-  stagesJson       String
-  activeStageId    String?
-  lastProgressNote String?
-  createdByUserId  String?
-  originDeviceId   String?
-  revision         Int          @default(1)
-  deletedAt        DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
-  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  document         Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  activeWorkflowPlaybook WorkflowPlaybook? @relation("WorkspacePlanActiveWorkflow", fields: [activeWorkflowPlaybookId], references: [id], onDelete: SetNull)
+  goal                     String
+  deliverableType          String            @default("document")
+  constraints              String?
+  styleGuide               String?
+  status                   String            @default("drafting")
+  version                  Int               @default(1)
+  stagesJson               String
+  activeStageId            String?
+  lastProgressNote         String?
+  createdByUserId          String?
+  originDeviceId           String?
+  revision                 Int               @default(1)
+  deletedAt                DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+  organization             Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document                 Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  activeWorkflowPlaybook   WorkflowPlaybook? @relation("WorkspacePlanActiveWorkflow", fields: [activeWorkflowPlaybookId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, updatedAt])
   @@index([documentId, updatedAt])
@@ -621,6 +658,10 @@ model StagedChangeSet {
   documentId                 String
   sessionId                  String?
   baseVersionId              String?
+  baseVersionSha256          String?
+  baseDraftRevision          Int?
+  patchSchemaVersion         Int?
+  patchSha256                String?
   appliedCheckpointVersionId String?
   title                      String
   summary                    String
@@ -631,17 +672,679 @@ model StagedChangeSet {
   originDeviceId             String?
   appliedAt                  DateTime?
   discardedAt                DateTime?
+  reviewedByUserId           String?
+  reviewedAt                 DateTime?
   revision                   Int          @default(1)
   deletedAt                  DateTime?
   createdAt                  DateTime     @default(now())
   updatedAt                  DateTime     @updatedAt
   organization               Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   document                   Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  baseVersion                Version?     @relation("StagedChangeSetBaseVersion", fields: [baseVersionId], references: [id], onDelete: SetNull)
+  appliedCheckpointVersion   Version?     @relation("StagedChangeSetAppliedCheckpoint", fields: [appliedCheckpointVersionId], references: [id], onDelete: SetNull)
+  reviewedByUser             User?        @relation("StagedChangeSetReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, updatedAt])
   @@index([documentId, updatedAt])
   @@index([sessionId, updatedAt])
   @@index([status, updatedAt])
+  @@index([baseVersionId])
+  @@index([appliedCheckpointVersionId])
+  @@index([reviewedByUserId])
+}
+
+model AgentProfile {
+  id               String       @id @default(cuid())
+  organizationId   String       @default("local-org")
+  handle           String
+  name             String
+  description      String       @default("")
+  skillsJson       String       @default("[]")
+  capabilitiesJson String       @default("{\"schemaVersion\":1,\"skills\":[]}")
+  configJson       String       @default("{\"schemaVersion\":1,\"room\":{\"runtimeId\":\"pi-agent-core\",\"configVersion\":1}}")
+  enabled          Boolean      @default(true)
+  builtin          Boolean      @default(false)
+  revision         Int          @default(1)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, handle])
+  @@index([organizationId, enabled, name])
+}
+
+model Room {
+  id                    String                        @id @default(cuid())
+  organizationId        String                        @default("local-org")
+  key                   String                        @default("default")
+  projectId             String?
+  name                  String                        @default("Project Room")
+  hostAgentId           String
+  policyJson            String
+  messageSequence       Int                           @default(0)
+  eventSequence         Int                           @default(0)
+  createdByUserId       String?
+  createdAt             DateTime                      @default(now())
+  updatedAt             DateTime                      @updatedAt
+  organization          Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  messages              RoomMessage[]
+  sessions              RoomAgentSession[]
+  events                RoomEvent[]
+  outbox                RoomOutbox[]
+  grants                RoomDelegationGrant[]
+  delegationInvocations RoomDelegationInvocation[]
+  delegationRootBudgets RoomDelegationRootBudget[]
+  toolConfirmations     RoomToolConfirmationRequest[]
+  contextSummaries      RoomContextSummaryCache[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, projectId, updatedAt])
+}
+
+model RoomMessage {
+  id                     String                        @id @default(cuid())
+  organizationId         String                        @default("local-org")
+  roomId                 String
+  sequence               Int
+  actorType              String
+  actorId                String
+  actorDisplayName       String?
+  text                   String
+  attachmentsJson        String                        @default("[]")
+  replyToMessageId       String?
+  correlationId          String?
+  metadataJson           String?
+  createdAt              DateTime                      @default(now())
+  organization           Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room                   Room                          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  replyTo                RoomMessage?                  @relation("RoomMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies                RoomMessage[]                 @relation("RoomMessageReplies")
+  mentions               RoomMention[]
+  deliveries             RoomInboxDelivery[]
+  toolConfirmations      RoomToolConfirmationRequest[]
+  delegationInstructions RoomDelegationInvocation[]    @relation("RoomDelegationInstructionMessage")
+
+  @@unique([roomId, sequence])
+  @@index([organizationId, roomId, createdAt])
+  @@index([roomId, replyToMessageId])
+}
+
+model RoomMention {
+  id             String       @id @default(cuid())
+  organizationId String       @default("local-org")
+  roomId         String
+  messageId      String
+  mentionIndex   Int
+  agentId        String
+  handle         String
+  rangeStart     Int
+  rangeEnd       Int
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  message        RoomMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, mentionIndex])
+  @@index([organizationId, roomId, agentId, createdAt])
+}
+
+model RoomAgentSession {
+  id                          String                        @id @default(cuid())
+  organizationId              String                        @default("local-org")
+  roomId                      String
+  agentId                     String
+  agentHandle                 String
+  agentDisplayName            String?
+  agentConfigVersion          String                        @default("1")
+  deliverySequence            Int                           @default(0)
+  lastRoomSequence            Int                           @default(0)
+  lastEventSequence           Int                           @default(0)
+  status                      String                        @default("active")
+  generation                  Int                           @default(0)
+  leaseOwnerId                String?
+  leaseExpiresAt              DateTime?
+  lastHeartbeatAt             DateTime?
+  runtimeId                   String?
+  runtimeSessionId            String?
+  checkpointJson              String?
+  checkpointUpdatedAt         DateTime?
+  currentDeliveryId           String?
+  createdAt                   DateTime                      @default(now())
+  updatedAt                   DateTime                      @updatedAt
+  organization                Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room                        Room                          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  deliveries                  RoomInboxDelivery[]
+  toolConfirmations           RoomToolConfirmationRequest[]
+  contextSummaries            RoomContextSummaryCache[]
+  sourceDelegationInvocations RoomDelegationInvocation[]    @relation("RoomDelegationSourceSession")
+
+  @@unique([organizationId, roomId, agentId])
+  @@index([organizationId, status, updatedAt])
+  @@index([status, leaseExpiresAt])
+  @@index([leaseOwnerId, leaseExpiresAt])
+}
+
+model RoomContextSummaryCache {
+  id              String           @id @default(cuid())
+  organizationId  String           @default("local-org")
+  roomId          String
+  roomSessionId   String
+  fromSequence    Int
+  throughSequence Int
+  sourceHash      String
+  aclHash         String
+  configVersion   String
+  content         String
+  contentHash     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room            Room             @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomSession     RoomAgentSession @relation(fields: [roomSessionId], references: [id], onDelete: Cascade)
+
+  @@unique([roomSessionId, configVersion])
+  @@index([organizationId, roomId, updatedAt])
+  @@index([organizationId, roomSessionId, updatedAt])
+}
+
+model RoomInboxDelivery {
+  id                          String                        @id @default(cuid())
+  organizationId              String                        @default("local-org")
+  roomId                      String
+  roomSessionId               String
+  messageId                   String
+  deliverySequence            Int
+  intent                      String
+  causeJson                   String
+  attempt                     Int                           @default(1)
+  status                      String                        @default("pending")
+  availableAt                 DateTime                      @default(now())
+  claimedAt                   DateTime?
+  completedAt                 DateTime?
+  lastError                   String?
+  createdAt                   DateTime                      @default(now())
+  updatedAt                   DateTime                      @updatedAt
+  organization                Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  session                     RoomAgentSession              @relation(fields: [roomSessionId], references: [id], onDelete: Cascade)
+  message                     RoomMessage                   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  toolConfirmations           RoomToolConfirmationRequest[]
+  sourceDelegationInvocations RoomDelegationInvocation[]    @relation("RoomDelegationSourceDelivery")
+  targetDelegationInvocations RoomDelegationInvocation[]    @relation("RoomDelegationTargetDelivery")
+
+  @@unique([roomSessionId, deliverySequence])
+  @@unique([roomSessionId, messageId])
+  @@index([organizationId, status, availableAt])
+  @@index([organizationId, roomId, createdAt])
+}
+
+model RoomEvent {
+  id                            String                     @id @default(cuid())
+  organizationId                String                     @default("local-org")
+  roomId                        String
+  sequence                      Int
+  type                          String
+  dataJson                      String
+  createdAt                     DateTime                   @default(now())
+  organization                  Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room                          Room                       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  acceptedDelegationInvocations RoomDelegationInvocation[] @relation("RoomDelegationAcceptedEvent")
+  blockedDelegationInvocations  RoomDelegationInvocation[] @relation("RoomDelegationBlockedEvent")
+
+  @@unique([roomId, sequence])
+  @@index([organizationId, roomId, sequence])
+}
+
+model RoomOutbox {
+  id             String       @id @default(cuid())
+  organizationId String       @default("local-org")
+  roomId         String
+  topic          String
+  dedupeKey      String
+  payloadJson    String
+  status         String       @default("pending")
+  attempts       Int          @default(0)
+  availableAt    DateTime     @default(now())
+  publishedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room           Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, topic, dedupeKey])
+  @@index([organizationId, status, availableAt])
+}
+
+model RoomDelegationGrant {
+  id                     String                     @id @default(cuid())
+  organizationId         String                     @default("local-org")
+  roomId                 String
+  issuedByUserId         String
+  fromAgentId            String
+  targetAgentId          String
+  scope                  String
+  status                 String                     @default("active")
+  rootMessageId          String?
+  consumedByInvocationId String?
+  consumedAt             DateTime?
+  revokedAt              DateTime?
+  expiresAt              DateTime                   @default(dbgenerated("(datetime('now', '+30 days'))"))
+  hopLimit               Int                        @default(3)
+  invocationLimit        Int                        @default(8)
+  invocationCount        Int                        @default(0)
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  organization           Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room                   Room                       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  invocations            RoomDelegationInvocation[]
+
+  @@unique([organizationId, roomId, consumedByInvocationId])
+  @@index([organizationId, roomId, status, fromAgentId, targetAgentId])
+}
+
+model RoomDelegationInvocation {
+  id                   String                     @id @default(cuid())
+  organizationId       String                     @default("local-org")
+  roomId               String
+  invocationId         String
+  requestHash          String
+  grantId              String?
+  rootMessageId        String
+  fromAgentId          String
+  targetAgentId        String
+  sourceRoomSessionId  String
+  sourceDeliveryId     String
+  sourceGeneration     Int
+  parentInvocationId   String?
+  hop                  Int
+  instructionMessageId String?
+  targetDeliveryId     String?
+  acceptedEventId      String?
+  blockedEventId       String?
+  failureCode          String?
+  status               String
+  completedAt          DateTime
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  organization         Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room                 Room                       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  grant                RoomDelegationGrant?       @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  sourceRoomSession    RoomAgentSession           @relation("RoomDelegationSourceSession", fields: [sourceRoomSessionId], references: [id], onDelete: Cascade)
+  sourceDelivery       RoomInboxDelivery          @relation("RoomDelegationSourceDelivery", fields: [sourceDeliveryId], references: [id], onDelete: Cascade)
+  parentInvocation     RoomDelegationInvocation?  @relation("RoomDelegationInvocationParent", fields: [parentInvocationId], references: [id], onDelete: Restrict)
+  childInvocations     RoomDelegationInvocation[] @relation("RoomDelegationInvocationParent")
+  instructionMessage   RoomMessage?               @relation("RoomDelegationInstructionMessage", fields: [instructionMessageId], references: [id], onDelete: Restrict)
+  targetDelivery       RoomInboxDelivery?         @relation("RoomDelegationTargetDelivery", fields: [targetDeliveryId], references: [id], onDelete: Restrict)
+  acceptedEvent        RoomEvent?                 @relation("RoomDelegationAcceptedEvent", fields: [acceptedEventId], references: [id], onDelete: Restrict)
+  blockedEvent         RoomEvent?                 @relation("RoomDelegationBlockedEvent", fields: [blockedEventId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, roomId, invocationId])
+  @@unique([targetDeliveryId])
+  @@index([organizationId, roomId, rootMessageId, status])
+  @@index([grantId, status, createdAt])
+  @@index([parentInvocationId])
+  @@index([sourceRoomSessionId, sourceDeliveryId])
+}
+
+model RoomDelegationRootBudget {
+  id              String       @id @default(cuid())
+  organizationId  String       @default("local-org")
+  roomId          String
+  rootMessageId   String
+  invocationLimit Int
+  invocationCount Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  room            Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, roomId, rootMessageId])
+  @@index([organizationId, roomId, updatedAt])
+}
+
+model RoomToolConfirmationRequest {
+  id                      String            @id @default(cuid())
+  organizationId          String            @default("local-org")
+  requestedByUserId       String
+  approvedByUserId        String?
+  rejectedByUserId        String?
+  roomId                  String
+  roomMessageId           String
+  roomSessionId           String
+  deliveryId              String
+  toolCallId              String
+  toolName                String
+  parametersJson          String
+  parametersHash          String
+  safetyLevel             String
+  writePolicy             String
+  status                  String            @default("pending")
+  revision                Int               @default(1)
+  workspaceId             String
+  projectId               String?
+  originDeviceId          String?
+  expiresAt               DateTime
+  capabilityHash          String?           @unique
+  approvedAt              DateTime?
+  executedAt              DateTime?
+  rejectedAt              DateTime?
+  executionJobId          String?           @unique
+  executionJobReceiptJson String?
+  createdAt               DateTime          @default(now())
+  updatedAt               DateTime          @updatedAt
+  organization            Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedByUser         User              @relation("RoomToolConfirmationRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  approvedByUser          User?             @relation("RoomToolConfirmationApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  rejectedByUser          User?             @relation("RoomToolConfirmationRejectedBy", fields: [rejectedByUserId], references: [id], onDelete: SetNull)
+  room                    Room              @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomMessage             RoomMessage       @relation(fields: [roomMessageId], references: [id], onDelete: Cascade)
+  roomSession             RoomAgentSession  @relation(fields: [roomSessionId], references: [id], onDelete: Cascade)
+  delivery                RoomInboxDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+  executionJob            ExecutionJob?     @relation(fields: [executionJobId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, roomSessionId, deliveryId, toolCallId])
+  @@index([organizationId, roomId, status, createdAt])
+  @@index([organizationId, requestedByUserId, status, expiresAt])
+  @@index([roomMessageId])
+  @@index([roomSessionId])
+  @@index([deliveryId])
+}
+
+model TeamTask {
+  id             String         @id @default(cuid())
+  organizationId String         @default("local-org")
+  title          String
+  description    String         @default("")
+  kind           String         @default("execution")
+  status         String         @default("open")
+  priority       Int            @default(0)
+  projectId      String?
+  workspaceId    String?
+  threadId       String?
+  createdByType  String         @default("user")
+  createdById    String
+  assigneeType   String?
+  assigneeId     String?
+  blockedReason  String?
+  dueAt          DateTime?
+  completedAt    DateTime?
+  revision       Int            @default(1)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  activities     TaskActivity[]
+  executionJobs  ExecutionJob[]
+
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, status, updatedAt])
+  @@index([organizationId, kind, updatedAt])
+  @@index([organizationId, projectId, updatedAt])
+  @@index([organizationId, workspaceId, updatedAt])
+  @@index([organizationId, threadId, updatedAt])
+  @@index([organizationId, assigneeType, assigneeId, updatedAt])
+}
+
+model TaskActivity {
+  id             String       @id @default(cuid())
+  organizationId String       @default("local-org")
+  taskId         String
+  type           String
+  message        String       @default("")
+  actorType      String       @default("user")
+  actorId        String
+  metadataJson   String       @default("{}")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  task           TeamTask     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([taskId, createdAt])
+}
+
+model ExecutionRuntime {
+  id                String             @id @default(cuid())
+  organizationId    String             @default("local-org")
+  key               String
+  name              String
+  driver            String
+  version           String?
+  endpoint          String?
+  enabled           Boolean            @default(true)
+  registrationJson  String             @default("{}")
+  capabilitiesJson  String             @default("{}")
+  healthStatus      String             @default("unknown")
+  healthJson        String             @default("{}")
+  lastHeartbeatAt   DateTime?
+  capacityTotal     Int                @default(1)
+  capacityUsed      Int                @default(0)
+  capacityJson      String             @default("{}")
+  capacityUpdatedAt DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedJobs     ExecutionJob[]     @relation("ExecutionJobRequestedRuntime")
+  selectedJobs      ExecutionJob[]     @relation("ExecutionJobSelectedRuntime")
+  executionAttempts ExecutionAttempt[]
+
+  @@unique([organizationId, key])
+  @@index([organizationId, enabled, healthStatus, updatedAt])
+  @@index([organizationId, driver, enabled])
+  @@index([organizationId, lastHeartbeatAt])
+}
+
+model ExecutionJob {
+  id                  String                       @id @default(cuid())
+  organizationId      String                       @default("local-org")
+  teamTaskId          String?
+  originRoomId        String?
+  originRoomMessageId String?
+  kind                String
+  status              String                       @default("queued")
+  priority            Int                          @default(0)
+  specJson            String
+  requirementsJson    String                       @default("{}")
+  contextManifestJson String                       @default("{}")
+  selectionJson       String                       @default("{}")
+  requestedRuntimeId  String?
+  selectedRuntimeId   String?
+  selectionReason     String?
+  selectedAt          DateTime?
+  maxAttempts         Int                          @default(1)
+  deadlineAt          DateTime?
+  queuedAt            DateTime                     @default(now())
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  cancelRequestedAt   DateTime?
+  resultJson          String?
+  errorJson           String?
+  revision            Int                          @default(1)
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teamTask            TeamTask?                    @relation(fields: [teamTaskId], references: [id], onDelete: SetNull)
+  requestedRuntime    ExecutionRuntime?            @relation("ExecutionJobRequestedRuntime", fields: [requestedRuntimeId], references: [id], onDelete: SetNull)
+  selectedRuntime     ExecutionRuntime?            @relation("ExecutionJobSelectedRuntime", fields: [selectedRuntimeId], references: [id], onDelete: SetNull)
+  attempts            ExecutionAttempt[]
+  events              ExecutionEvent[]
+  artifacts           ExecutionArtifact[]
+  inputRequests       ExecutionInputRequest[]
+  outbox              ExecutionOutbox[]
+  recoveryIncidents   ExecutionRecoveryIncident[]
+  confirmationRequest RoomToolConfirmationRequest?
+
+  @@index([organizationId, status, priority, queuedAt])
+  @@index([organizationId, kind, status, updatedAt])
+  @@index([teamTaskId, createdAt])
+  @@index([organizationId, originRoomId, createdAt])
+  @@index([originRoomMessageId])
+  @@index([requestedRuntimeId, status, queuedAt])
+  @@index([selectedRuntimeId, status, updatedAt])
+  @@index([status, deadlineAt])
+}
+
+model ExecutionOutbox {
+  id             String       @id @default(cuid())
+  organizationId String       @default("local-org")
+  jobId          String
+  roomId         String?
+  topic          String
+  dedupeKey      String
+  payloadJson    String
+  status         String       @default("pending")
+  attempts       Int          @default(0)
+  availableAt    DateTime     @default(now())
+  deliveredAt    DateTime?
+  roomEventId    String?
+  ignoredReason  String?
+  lastError      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            ExecutionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, topic, dedupeKey])
+  @@index([organizationId, status, availableAt])
+  @@index([jobId, createdAt])
+  @@index([roomId, status, availableAt])
+}
+
+model ExecutionAttempt {
+  id                     String                      @id @default(cuid())
+  organizationId         String                      @default("local-org")
+  jobId                  String
+  runtimeId              String?
+  number                 Int
+  status                 String                      @default("pending")
+  generation             Int                         @default(0)
+  leaseOwnerId           String?
+  leaseExpiresAt         DateTime?
+  lastHeartbeatAt        DateTime?
+  runtimeRunId           String?
+  capacityReserved       Boolean                     @default(false)
+  checkpointJson         String?
+  workspaceLifecycleJson String?
+  resultJson             String?
+  errorJson              String?
+  startedAt              DateTime?
+  finishedAt             DateTime?
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+  organization           Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job                    ExecutionJob                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  runtime                ExecutionRuntime?           @relation(fields: [runtimeId], references: [id], onDelete: SetNull)
+  events                 ExecutionEvent[]
+  artifacts              ExecutionArtifact[]
+  inputRequests          ExecutionInputRequest[]
+  recoveryIncidents      ExecutionRecoveryIncident[]
+
+  @@unique([jobId, number])
+  @@unique([runtimeId, runtimeRunId])
+  @@index([organizationId, status, updatedAt])
+  @@index([jobId, status, updatedAt])
+  @@index([runtimeId, status, leaseExpiresAt])
+  @@index([leaseOwnerId, leaseExpiresAt])
+  @@index([status, leaseExpiresAt])
+}
+
+model ExecutionRecoveryIncident {
+  id                  String           @id @default(cuid())
+  organizationId      String           @default("local-org")
+  jobId               String
+  attemptId           String
+  generation          Int
+  stage               String
+  reasonCode          String
+  classification      String           @default("unknown")
+  discardable         Boolean          @default(false)
+  status              String           @default("open")
+  requestedAction     String?
+  resolution          String?
+  actionRequestedAt   DateTime?
+  actionRequestedById String?
+  resolvedAt          DateTime?
+  revision            Int              @default(1)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job                 ExecutionJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt             ExecutionAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, generation])
+  @@index([organizationId, status, updatedAt])
+  @@index([jobId, createdAt])
+  @@index([attemptId, createdAt])
+}
+
+model ExecutionEvent {
+  id             String            @id @default(cuid())
+  organizationId String            @default("local-org")
+  jobId          String
+  attemptId      String?
+  sequence       Int
+  type           String
+  source         String            @default("runtime")
+  runtimeEventId String?
+  payloadJson    String            @default("{}")
+  occurredAt     DateTime          @default(now())
+  createdAt      DateTime          @default(now())
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            ExecutionJob      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt        ExecutionAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
+  @@unique([jobId, sequence])
+  @@unique([attemptId, runtimeEventId])
+  @@index([organizationId, createdAt])
+  @@index([jobId, occurredAt])
+  @@index([attemptId, occurredAt])
+}
+
+model ExecutionArtifact {
+  id             String            @id @default(cuid())
+  organizationId String            @default("local-org")
+  jobId          String
+  attemptId      String?
+  kind           String
+  name           String
+  storageUri     String?
+  payloadJson    String?
+  mimeType       String?
+  sizeBytes      Int?
+  sha256         String?
+  metadataJson   String            @default("{}")
+  createdAt      DateTime          @default(now())
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            ExecutionJob      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt        ExecutionAttempt? @relation(fields: [attemptId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([jobId, kind, createdAt])
+  @@index([attemptId, createdAt])
+}
+
+model ExecutionInputRequest {
+  id             String           @id @default(cuid())
+  organizationId String           @default("local-org")
+  jobId          String
+  attemptId      String
+  requestKey     String
+  prompt         String
+  schemaJson     String           @default("{}")
+  responseJson   String?
+  responseId     String?          @unique
+  status         String           @default("pending")
+  requestedAt    DateTime         @default(now())
+  respondedAt    DateTime?
+  respondedById  String?
+  revision       Int              @default(1)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            ExecutionJob     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt        ExecutionAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, requestKey])
+  @@index([organizationId, status, requestedAt])
+  @@index([jobId, status, requestedAt])
+  @@index([attemptId, status, requestedAt])
 }
 
 model SyncEvent {
@@ -673,4 +1376,131 @@ model SyncCursor {
   device         Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, deviceId, backend])
+}
+
+model KnowledgeSpace {
+  id               String                   @id @default(cuid())
+  organizationId   String                   @default("local-org")
+  scope            String
+  ownerAgentId     String?
+  repoPath         String?
+  repoUrl          String?
+  defaultBranch    String                   @default("main")
+  credentialRef    String?
+  activeSnapshotId String?
+  readPolicy       String
+  writePolicy      String
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  bindings         KnowledgeBinding[]
+  snapshots        KnowledgeSnapshot[]
+  changeRequests   KnowledgeChangeRequest[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, scope, updatedAt])
+  @@index([organizationId, ownerAgentId, updatedAt])
+}
+
+model KnowledgeBinding {
+  id             String         @id @default(cuid())
+  organizationId String         @default("local-org")
+  workspaceId    String
+  agentId        String?
+  spaceId        String
+  mountPath      String
+  access         String         @default("read")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  space          KnowledgeSpace @relation(fields: [spaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([organizationId, workspaceId, agentId, spaceId, mountPath])
+  @@index([organizationId, workspaceId, updatedAt])
+  @@index([organizationId, agentId, updatedAt])
+  @@index([spaceId, updatedAt])
+}
+
+model KnowledgeSnapshot {
+  id              String                 @id @default(cuid())
+  organizationId  String                 @default("local-org")
+  spaceId         String
+  changeRequestId String
+  commitSha       String
+  indexVersion    String
+  artifactPath    String
+  artifactSha256  String
+  readyAt         DateTime
+  createdAt       DateTime               @default(now())
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  space           KnowledgeSpace         @relation(fields: [spaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  changeRequest   KnowledgeChangeRequest @relation(fields: [changeRequestId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([spaceId, commitSha, indexVersion])
+  @@unique([id, organizationId])
+  @@index([organizationId, createdAt])
+  @@index([spaceId, createdAt])
+  @@index([changeRequestId, createdAt])
+}
+
+model KnowledgeChangeRequest {
+  id               String                    @id @default(cuid())
+  organizationId   String                    @default("local-org")
+  jobId            String
+  attemptId        String
+  spaceId          String
+  baseCommit       String
+  headCommit       String
+  branchName       String
+  status           String                    @default("pending_review")
+  diffSummary      String                    @default("")
+  diffMetadataJson String                    @default("{}")
+  reviewerId       String?
+  reviewNote       String?
+  reviewedAt       DateTime?
+  mergedCommit     String?
+  mergedAt         DateTime?
+  revision         Int                       @default(1)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  space            KnowledgeSpace            @relation(fields: [spaceId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  snapshots        KnowledgeSnapshot[]
+  mergeOperations  KnowledgeMergeOperation[]
+
+  @@unique([id, organizationId])
+  @@unique([attemptId, spaceId, headCommit])
+  @@index([organizationId, status, updatedAt])
+  @@index([jobId, createdAt])
+  @@index([attemptId, createdAt])
+  @@index([spaceId, status, updatedAt])
+}
+
+model KnowledgeMergeOperation {
+  id                 String                 @id @default(cuid())
+  organizationId     String                 @default("local-org")
+  changeRequestId    String
+  requestedById      String
+  expectedRevision   Int
+  expectedBaseCommit String
+  expectedHeadCommit String
+  indexVersion       String
+  status             String                 @default("queued")
+  attemptCount       Int                    @default(0)
+  leaseOwnerId       String?
+  leaseExpiresAt     DateTime?
+  mergedCommit       String?
+  snapshotId         String?
+  errorCode          String?
+  errorMessage       String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  changeRequest      KnowledgeChangeRequest @relation(fields: [changeRequestId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([changeRequestId, expectedRevision])
+  @@index([organizationId, status, updatedAt])
+  @@index([changeRequestId, createdAt])
 }

@@ -1,6 +1,56 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, primeClientState, readSeedState } from './helpers';
 
+test('workspace opens in Room and switching to Chat preserves the legacy request conversation', async ({
+  page,
+}) => {
+  const workspace = readSeedState().branchVersionWorkspace;
+
+  await primeClientState(page);
+  await page.goto('/');
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=chat`
+  );
+
+  const roomTab = page.getByTestId('assistant-tab-room');
+  await expect(roomTab).toBeVisible();
+  const chatTab = page.getByTestId('assistant-tab-chat');
+  await expect(chatTab).toHaveAttribute('data-state', 'active');
+  await expect(page).toHaveURL(/(?:\?|&)assistant=chat(?:&|$)/);
+  await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(
+    page.getByText('请把这一版再压缩成更简洁的说明。', { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText('已经整理出一个更简洁的方向。', { exact: true })
+  ).toBeVisible();
+
+  await roomTab.click();
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
+  await expect(roomTab).toHaveAttribute('data-state', 'active');
+  await expect(page.getByTestId('project-room-surface')).toBeVisible();
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+});
+
+test('invalid assistant tab URLs fall back to Room and canonicalize the query', async ({
+  page,
+}) => {
+  const workspace = readSeedState().baseWorkspace;
+
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=unknown`
+  );
+
+  await expect(page.getByTestId('assistant-tab-room')).toHaveAttribute(
+    'data-state',
+    'active'
+  );
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
+});
+
 test('outline jump keeps the target heading near the top and status stays visible', async ({
   page,
 }) => {
@@ -11,6 +61,10 @@ test('outline jump keeps the target heading near the top and status stays visibl
   await page.goto(
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
   );
+
+  const statusTab = page.getByTestId('assistant-tab-status');
+  await statusTab.click();
+  await expect(statusTab).toHaveAttribute('data-state', 'active');
 
   await expect(
     page.getByText('这个工作区用于验证大纲跳转、状态面板和主交付物表面。')

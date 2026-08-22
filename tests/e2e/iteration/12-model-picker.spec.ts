@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { primeClientState, readSeedState } from './helpers';
 
 test('Global settings ModelPicker shows correct options and cascade changes', async ({
@@ -43,8 +44,13 @@ test('ChatInput compact ModelPicker renders the current selection inside the wor
   const workspace = seedState.baseWorkspace;
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /对话|Chat/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'chat',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute('data-state', 'active');
 
   const composer = page.getByTestId('chat-composer');
   await expect(composer).toBeVisible();
@@ -56,7 +62,103 @@ test('ChatInput compact ModelPicker renders the current selection inside the wor
 
   await expect(providerCombobox).toBeVisible();
   await expect(modelCombobox).toBeVisible();
-  await expect(page.getByRole('button', { name: /深度研究|Deep Research/ })).toBeVisible();
+  await expect(providerCombobox).toHaveAccessibleName(/Provider/);
+  await expect(modelCombobox).toHaveAccessibleName(/模型|Model/);
+  await expect(composer.locator('select[name="chatModelProvider"]')).toHaveAttribute(
+    'autocomplete',
+    'off'
+  );
+  await expect(composer.locator('select[name="chatModelModel"]')).toHaveAttribute(
+    'autocomplete',
+    'off'
+  );
+  const researchButton = page.getByRole('button', { name: /深度研究|Deep Research/ });
+  await expect(researchButton).toBeVisible();
+  await expect(researchButton).toHaveAttribute('aria-pressed', 'false');
+  await researchButton.click();
+  await expect(researchButton).toHaveAttribute('aria-pressed', 'true');
+
+  const messageInput = composer.getByRole('textbox', {
+    name: /给 Agent 发消息|Message Agent/,
+  });
+  await expect(messageInput).toHaveAttribute('name', 'message');
+  await expect(messageInput).toHaveAttribute('autocomplete', 'off');
+  await expect(
+    composer.getByRole('button', { name: /添加附件|Add attachments/ })
+  ).toBeVisible();
+  await expect(
+    composer.getByRole('button', { name: /发送消息|Send message/ })
+  ).toBeVisible();
+
+  const pasteWasPrevented = await messageInput.evaluate((element) => {
+    const clipboard = new DataTransfer();
+    clipboard.setData('text/plain', 'Keep pasted text');
+    clipboard.items.add(new File(['attachment'], 'pasted-note.txt', { type: 'text/plain' }));
+    const event = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    });
+    element.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(pasteWasPrevented).toBe(false);
+  await expect(composer.getByText('pasted-note.txt')).toBeVisible();
+  const removeMixedAttachment = composer.getByRole('button', {
+    name: /移除 pasted-note.txt|Remove pasted-note.txt/,
+  });
+  await expect(removeMixedAttachment).toBeVisible();
+  await removeMixedAttachment.click();
+
+  let submittedBody = '';
+  await page.route('**/api/agent/run', async (route) => {
+    submittedBody = route.request().postDataBuffer()?.toString('utf8') || '';
+    await route.fulfill({
+      body: 'Oversized paste received.',
+      contentType: 'text/plain; charset=utf-8',
+      status: 200,
+    });
+  });
+
+  await messageInput.fill('Existing draft');
+  const oversizedPasteWasPrevented = await messageInput.evaluate((element) => {
+    const textarea = element as HTMLTextAreaElement;
+    const pastedText = `OVERSIZED_CLIPBOARD_${'x'.repeat(4100)}_END`;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+    const clipboard = new DataTransfer();
+    clipboard.setData('text/plain', pastedText);
+    const pasteEvent = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    });
+    textarea.dispatchEvent(pasteEvent);
+
+    if (!pasteEvent.defaultPrevented) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      textarea.setRangeText(pastedText, start, end, 'end');
+      textarea.dispatchEvent(
+        new InputEvent('input', {
+          bubbles: true,
+          data: pastedText,
+          inputType: 'insertFromPaste',
+        })
+      );
+    }
+
+    return pasteEvent.defaultPrevented;
+  });
+
+  expect(oversizedPasteWasPrevented).toBe(false);
+  await expect(messageInput).toHaveValue('Existing draft');
+  await expect(composer.getByText(/clipboard-.*.txt/)).toBeVisible();
+
+  await composer.getByRole('button', { name: /发送消息|Send message/ }).click();
+  await expect(page.getByText('Oversized paste received.', { exact: true })).toBeVisible();
+  expect((submittedBody.match(/OVERSIZED_CLIPBOARD_/g) || [])).toHaveLength(1);
+  expect(submittedBody).toContain('Existing draft');
 
   await providerCombobox.click();
   const providerList = page.getByRole('listbox');
@@ -129,10 +231,17 @@ test('workspace chat composer re-syncs to the saved default model when re-enteri
   await page.getByRole('button', { name: /保存|Save/ }).click();
   await expect(page.getByText(/已保存|Saved/)).toBeVisible();
 
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /对话|Chat/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'chat',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  const chatTab = page.getByTestId('assistant-tab-chat');
+  await expect(chatTab).toHaveAttribute('data-state', 'active');
 
   const composer = page.getByTestId('chat-composer');
+  await expect(composer).toBeVisible();
   const workspaceProviderCombobox = composer.getByRole('combobox').first();
   const workspaceModelCombobox = composer.getByRole('combobox').nth(1);
 

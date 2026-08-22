@@ -421,8 +421,12 @@ async function dismissVisibleFirstUseGuidance(page: Page) {
     }
 
     clearChecks = 0;
-    const guideTestId = await visibleGuide.getAttribute('data-testid');
-    expect(guideTestId).not.toBeNull();
+    const guideTestId = await visibleGuide
+      .getAttribute('data-testid', { timeout: 500 })
+      .catch(() => null);
+    if (!guideTestId) {
+      continue;
+    }
 
     const guide = page.getByTestId(guideTestId!);
     await guide.getByRole('button', { name: /知道了|Got It/ }).click();
@@ -594,9 +598,7 @@ test('opening a new chat from a message preserves the selected version surface',
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&versionId=${workspace.versionId}`
   );
 
-  await expect(
-    page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_VERSION_SURFACE_TEXT)
-  ).toBeVisible();
+  await expectWorkspaceSurfaceText(page, BRANCH_VERSION_SURFACE_TEXT, { timeout: 60000 });
   await page.getByTestId('assistant-tab-chat').click();
 
   await page

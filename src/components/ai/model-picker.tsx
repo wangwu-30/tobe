@@ -18,6 +18,8 @@ export function ModelPicker({
   allowUnconfiguredProviders = true,
   catalog,
   disabled = false,
+  idPrefix,
+  namePrefix = 'modelSelection',
   onChange,
   value,
   variant = 'stacked',
@@ -25,11 +27,19 @@ export function ModelPicker({
   allowUnconfiguredProviders?: boolean;
   catalog: ModelCatalogData | null;
   disabled?: boolean;
+  idPrefix?: string;
+  namePrefix?: string;
   onChange: (selection: ModelSelectionData) => void;
   value: ModelSelectionData | null;
   variant?: ModelPickerVariant;
 }) {
   const t = useT();
+  const generatedId = React.useId().replace(/:/g, '');
+  const fieldIdPrefix = `${idPrefix || 'model-picker'}-${generatedId}`;
+  const providerLabelId = `${fieldIdPrefix}-provider-label`;
+  const providerTriggerId = `${fieldIdPrefix}-provider`;
+  const modelLabelId = `${fieldIdPrefix}-model-label`;
+  const modelTriggerId = `${fieldIdPrefix}-model`;
   const providerOptions = React.useMemo(() => catalog?.providers || [], [catalog?.providers]);
   const selectedProvider =
     providerOptions.find((provider) => provider.id === value?.providerId) ||
@@ -83,13 +93,22 @@ export function ModelPicker({
     <div className="min-w-0 space-y-2">
       <div className={layoutClassName}>
         <div className="min-w-0 space-y-2">
-          <Label className="text-xs">{t('settings.provider')}</Label>
+          <Label className="text-xs" htmlFor={providerTriggerId} id={providerLabelId}>
+            {t('settings.provider')}
+          </Label>
           <Select
+            autoComplete="off"
             disabled={disabled || providerOptions.length === 0}
+            name={`${namePrefix}Provider`}
             value={selectedProvider?.id || ''}
             onValueChange={handleProviderChange}
           >
-            <SelectTrigger className="w-full min-w-0" size={triggerSize}>
+            <SelectTrigger
+              aria-labelledby={providerLabelId}
+              className="w-full min-w-0"
+              id={providerTriggerId}
+              size={triggerSize}
+            >
               <SelectValue placeholder={t('settings.selectModelProvider')} />
             </SelectTrigger>
             <SelectContent>
@@ -116,13 +135,22 @@ export function ModelPicker({
         </div>
 
         <div className="min-w-0 space-y-2">
-          <Label className="text-xs">{t('settings.model')}</Label>
+          <Label className="text-xs" htmlFor={modelTriggerId} id={modelLabelId}>
+            {t('settings.model')}
+          </Label>
           <Select
+            autoComplete="off"
             disabled={disabled || modelOptions.length === 0}
+            name={`${namePrefix}Model`}
             value={selectedModel?.id || ''}
             onValueChange={handleModelChange}
           >
-            <SelectTrigger className="w-full min-w-0" size={triggerSize}>
+            <SelectTrigger
+              aria-labelledby={modelLabelId}
+              className="w-full min-w-0"
+              id={modelTriggerId}
+              size={triggerSize}
+            >
               <SelectValue placeholder={t('settings.selectModel')} />
             </SelectTrigger>
             <SelectContent>
