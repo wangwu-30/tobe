@@ -7,7 +7,7 @@
 未完成的 execution recovery 测试契约、Team Tasks UI 收口和 Room delegation 测试修复，且最新 TypeScript
 门禁失败；不得把本页历史专项通过记录解读为当前 release-ready。
 
-相关文档：[系统契约](../SYSTEM.md) · [产品 brief](./briefs/team-document-agent-marketplace.md) · [Runtime 调研](../../agent-runtime-architecture-research.md)
+相关文档：[系统契约](../SYSTEM.md) · [产品 brief](./briefs/team-document-agent-marketplace.md) · [Runtime 调研](./agent-runtime-architecture-research.md)
 
 ## 当前范围
 

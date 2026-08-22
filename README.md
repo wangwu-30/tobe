@@ -50,6 +50,7 @@ Session Host, and knowledge merge worker.
 ## Documentation
 
 - [Current handoff snapshot](./docs/HANDOFF-2026-08-22.md) — paused implementation state, exact known blockers, and continuation order.
+- Agent runtime research and architecture decisions: [docs/agent-runtime-architecture-research.md](./docs/agent-runtime-architecture-research.md)
 - Change log and project status: [CHANGELOG.md](./CHANGELOG.md)
 - Product north star and IA glossary: [docs/chengxing-product-north-star.md](./docs/chengxing-product-north-star.md)
 - Rollout plan and phase boundaries: [docs/chengxing-rollout-plan.md](./docs/chengxing-rollout-plan.md)
