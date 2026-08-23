@@ -126,7 +126,7 @@ const BlockCommentContent = function BlockCommentContent({
             {discussionsCount > 0 && primaryDiscussionId && (
               <Button
                 variant="ghost"
-                className="!px-1.5 flex h-6 gap-1 py-0 text-muted-foreground/80 hover:text-muted-foreground/80"
+                className="!px-1.5 flex h-6 gap-1 py-0 text-muted-foreground hover:text-foreground"
                 contentEditable={false}
                 data-testid={`block-discussion-trigger-${primaryDiscussionId}`}
                 onMouseDown={(event) => event.preventDefault()}
@@ -144,7 +144,7 @@ const BlockCommentContent = function BlockCommentContent({
                 <PopoverTrigger asChild>
                   <Button
                     variant="ghost"
-                    className="!px-1.5 flex h-6 gap-1 py-0 text-muted-foreground/80 hover:text-muted-foreground/80 data-[active=true]:bg-muted"
+                    className="!px-1.5 flex h-6 gap-1 py-0 text-muted-foreground hover:text-foreground data-[active=true]:bg-muted"
                     data-active={suggestionsOpen}
                     contentEditable={false}
                   >

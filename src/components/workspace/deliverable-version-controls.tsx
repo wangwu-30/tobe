@@ -928,7 +928,13 @@ export function DeliverableVersionControls({
             </p>
           </SheetHeader>
 
-          <ScrollArea className="min-h-0 flex-1 px-6 py-5">
+          <ScrollArea
+            className="min-h-0 flex-1 px-6 py-5"
+            viewportProps={{
+              'aria-label': t('version.tree'),
+              tabIndex: 0,
+            }}
+          >
             <div className="space-y-5">
               {visibleBranchOverview.length > 0 ? (
                 <section className="space-y-3">

@@ -21,6 +21,97 @@ const durableDelegationMigration =
   '20260821160000_add_durable_room_delegation_ledger';
 const documentProposalMigration =
   '20260821170000_document_proposal_cas';
+const canvasTablesMigration = '20260822010000_add_canvas_tables';
+const canvasColumnSchemas = {
+  NodeRelation: [
+    {
+      name: 'id',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 1,
+    },
+    {
+      name: 'organizationId',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: "'local-org'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'sourceNodeId',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'targetNodeId',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'kind',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: "'dependency'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'createdAt',
+      type: 'DATETIME',
+      notNull: true,
+      defaultValue: 'CURRENT_TIMESTAMP',
+      primaryKeyPosition: 0,
+    },
+  ],
+  ProjectCanvasLayout: [
+    {
+      name: 'id',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 1,
+    },
+    {
+      name: 'organizationId',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: "'local-org'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'projectId',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'x',
+      type: 'REAL',
+      notNull: true,
+      defaultValue: '0',
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'y',
+      type: 'REAL',
+      notNull: true,
+      defaultValue: '0',
+      primaryKeyPosition: 0,
+    },
+    {
+      name: 'updatedAt',
+      type: 'DATETIME',
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+  ],
+};
 
 test('every local migration has an explicit compatibility probe', async () => {
   const migrations = await localMigrationNames();
@@ -40,6 +131,7 @@ test('fresh bootstrap applies all migrations and a second run is inert', async (
   );
   assert.match(first.stdout, new RegExp(`Applying ${durableDelegationMigration}`, 'u'));
   assert.match(first.stdout, new RegExp(`Applying ${documentProposalMigration}`, 'u'));
+  assert.match(first.stdout, new RegExp(`Applying ${canvasTablesMigration}`, 'u'));
 
   const second = await runBootstrap(appDataRoot);
   assert.doesNotMatch(second.stdout, /Applying |Marking |Repairing /u);
@@ -47,6 +139,139 @@ test('fresh bootstrap applies all migrations and a second run is inert', async (
   assert.equal(await pragmaValue(databasePath, 'journal_mode'), 'wal');
   assert.deepEqual(await appliedMigrationNames(databasePath), await localMigrationNames());
   await assertCurrentControlPlaneSchema(databasePath);
+});
+
+test('legacy canvas metadata migration upgrades missing canvas tables', async (t) => {
+  const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-canvas-legacy-');
+  const databasePath = path.join(appDataRoot, 'dev.db');
+
+  await createMigratedDatabase(
+    databasePath,
+    '20260324040000_add_canvas_meta'
+  );
+
+  await withClient(databasePath, async (client) => {
+    const tables = await schemaObjectNames(client, 'table');
+    assert.equal(tables.has('NodeRelation'), false);
+    assert.equal(tables.has('ProjectCanvasLayout'), false);
+    assert.equal(
+      await tableColumnNames(client, 'Document').then((columns) =>
+        columns.has('canvasMetaJson')
+      ),
+      true
+    );
+  });
+  assert.equal(
+    (await appliedMigrationNames(databasePath)).includes(
+      '20260324040000_add_canvas_meta'
+    ),
+    true
+  );
+
+  const first = await runBootstrap(appDataRoot);
+  assert.match(first.stdout, new RegExp(`Applying ${canvasTablesMigration}`, 'u'));
+  assert.deepEqual(await appliedMigrationNames(databasePath), await localMigrationNames());
+  await assertCurrentCanvasSchema(databasePath);
+
+  const second = await runBootstrap(appDataRoot);
+  assert.doesNotMatch(second.stdout, /Applying |Marking |Repairing /u);
+});
+
+test('mixed canvas index definitions fail closed without recording the migration', async (t) => {
+  const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-canvas-partial-');
+  const databasePath = path.join(appDataRoot, 'dev.db');
+
+  await pushCurrentPrismaSchema(databasePath);
+  await withClient(databasePath, (client) =>
+    client.executeMultiple(`
+      DROP INDEX "NodeRelation_organizationId_sourceNodeId_idx";
+      CREATE INDEX "NodeRelation_organizationId_sourceNodeId_idx"
+        ON "NodeRelation"("kind");
+      CREATE INDEX "NodeRelation_source_columns_legacy_idx"
+        ON "NodeRelation"("organizationId", "sourceNodeId");
+    `)
+  );
+
+  await assert.rejects(runBootstrap(appDataRoot), /NodeRelation.*already exists/u);
+  assert.equal(
+    (await appliedMigrationNames(databasePath)).includes(canvasTablesMigration),
+    false
+  );
+});
+
+test('canvas column constraint lookalikes fail closed without recording the migration', async (t) => {
+  const fixtures = [
+    {
+      name: 'wrong declared type',
+      table: 'ProjectCanvasLayout',
+      column: 'x',
+      property: 'type',
+      expectedValue: 'TEXT',
+      original: '"x" REAL NOT NULL DEFAULT 0,',
+      replacement: '"x" TEXT NOT NULL DEFAULT 0,',
+    },
+    {
+      name: 'missing NOT NULL',
+      table: 'NodeRelation',
+      column: 'sourceNodeId',
+      property: 'notNull',
+      expectedValue: false,
+      original: '"sourceNodeId" TEXT NOT NULL,',
+      replacement: '"sourceNodeId" TEXT,',
+    },
+    {
+      name: 'wrong default',
+      table: 'NodeRelation',
+      column: 'kind',
+      property: 'defaultValue',
+      expectedValue: "'association'",
+      original: `"kind" TEXT NOT NULL DEFAULT 'dependency',`,
+      replacement: `"kind" TEXT NOT NULL DEFAULT 'association',`,
+    },
+    {
+      name: 'missing primary key',
+      table: 'NodeRelation',
+      column: 'id',
+      property: 'primaryKeyPosition',
+      expectedValue: 0,
+      original: `CREATE TABLE "NodeRelation" (
+    "id" TEXT NOT NULL PRIMARY KEY,`,
+      replacement: `CREATE TABLE "NodeRelation" (
+    "id" TEXT NOT NULL,`,
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    await t.test(fixture.name, async (t) => {
+      const appDataRoot = await temporaryDirectory(
+        t,
+        'tobe-bootstrap-canvas-lookalike-'
+      );
+      const databasePath = path.join(appDataRoot, 'dev.db');
+
+      await createMigratedDatabase(databasePath, documentProposalMigration);
+      await createCanvasLookalikeSchema(databasePath, fixture);
+
+      await withClient(databasePath, async (client) => {
+        const column = (await tableColumnSchema(client, fixture.table)).find(
+          (candidate) => candidate.name === fixture.column
+        );
+        assert.equal(column?.[fixture.property], fixture.expectedValue);
+        await assertCurrentCanvasIndexesAndForeignKeys(client);
+      });
+
+      await assert.rejects(
+        runBootstrap(appDataRoot),
+        /NodeRelation.*already exists/u
+      );
+      assert.equal(
+        (await appliedMigrationNames(databasePath)).includes(
+          canvasTablesMigration
+        ),
+        false
+      );
+    });
+  }
 });
 
 test('current schema bootstrap backfills legacy labels before marking migrations', async (t) => {
@@ -78,6 +303,13 @@ test('current schema bootstrap backfills legacy labels before marking migrations
   assert.match(
     first.stdout,
     new RegExp(`Repairing existing schema for ${documentProposalMigration}`, 'u')
+  );
+  assert.match(
+    first.stdout,
+    new RegExp(
+      `Marking existing schema as already satisfying ${canvasTablesMigration}`,
+      'u'
+    )
   );
   assert.deepEqual(await labelKinds(databasePath, 'version-1'), [
     'head',
@@ -496,6 +728,22 @@ async function createMigratedDatabase(databasePath, cutoff) {
   });
 }
 
+async function createCanvasLookalikeSchema(databasePath, fixture) {
+  const migrationSql = await fs.readFile(
+    path.join(migrationsRoot, canvasTablesMigration, 'migration.sql'),
+    'utf8'
+  );
+  assert.equal(migrationSql.includes(fixture.original), true, fixture.name);
+  const lookalikeSql = migrationSql.replace(
+    fixture.original,
+    fixture.replacement
+  );
+  assert.notEqual(lookalikeSql, migrationSql, fixture.name);
+  await withClient(databasePath, (client) =>
+    client.executeMultiple(lookalikeSql)
+  );
+}
+
 async function appliedMigrationNames(databasePath) {
   return withClient(databasePath, async (client) => {
     const result = await client.execute(
@@ -516,6 +764,7 @@ async function pragmaValue(databasePath, pragma) {
 }
 
 async function assertCurrentControlPlaneSchema(databasePath) {
+  await assertCurrentCanvasSchema(databasePath);
   await withClient(databasePath, async (client) => {
     const tables = await schemaObjectNames(client, 'table');
     assert.equal(tables.has('RoomToolConfirmationRequest'), true);
@@ -613,6 +862,115 @@ async function assertCurrentControlPlaneSchema(databasePath) {
   });
 }
 
+async function assertCurrentCanvasSchema(databasePath) {
+  await withClient(databasePath, async (client) => {
+    const tables = await schemaObjectNames(client, 'table');
+    assert.equal(tables.has('NodeRelation'), true);
+    assert.equal(tables.has('ProjectCanvasLayout'), true);
+
+    assert.deepEqual(
+      await tableColumnSchema(client, 'NodeRelation'),
+      canvasColumnSchemas.NodeRelation
+    );
+    assert.deepEqual(
+      await tableColumnSchema(client, 'ProjectCanvasLayout'),
+      canvasColumnSchemas.ProjectCanvasLayout
+    );
+
+    await assertCurrentCanvasIndexesAndForeignKeys(client);
+  });
+}
+
+async function assertCurrentCanvasIndexesAndForeignKeys(client) {
+  for (const [table, index, columns, unique] of [
+    [
+      'NodeRelation',
+      'NodeRelation_organizationId_sourceNodeId_idx',
+      ['organizationId', 'sourceNodeId'],
+      false,
+    ],
+    [
+      'NodeRelation',
+      'NodeRelation_organizationId_targetNodeId_idx',
+      ['organizationId', 'targetNodeId'],
+      false,
+    ],
+    [
+      'NodeRelation',
+      'NodeRelation_sourceNodeId_targetNodeId_kind_key',
+      ['sourceNodeId', 'targetNodeId', 'kind'],
+      true,
+    ],
+    [
+      'ProjectCanvasLayout',
+      'ProjectCanvasLayout_organizationId_projectId_key',
+      ['organizationId', 'projectId'],
+      true,
+    ],
+  ]) {
+    assert.equal(
+      await hasNamedIndexOnColumns(client, table, index, columns, unique),
+      true,
+      index
+    );
+  }
+
+  for (const [table, expected] of [
+    [
+      'NodeRelation',
+      {
+        column: 'organizationId',
+        referencedColumn: 'id',
+        referencedTable: 'Organization',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+    ],
+    [
+      'NodeRelation',
+      {
+        column: 'sourceNodeId',
+        referencedColumn: 'id',
+        referencedTable: 'Document',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+    ],
+    [
+      'NodeRelation',
+      {
+        column: 'targetNodeId',
+        referencedColumn: 'id',
+        referencedTable: 'Document',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+    ],
+    [
+      'ProjectCanvasLayout',
+      {
+        column: 'organizationId',
+        referencedColumn: 'id',
+        referencedTable: 'Organization',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+    ],
+    [
+      'ProjectCanvasLayout',
+      {
+        column: 'projectId',
+        referencedColumn: 'id',
+        referencedTable: 'Document',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+    ],
+  ]) {
+    assert.equal(await hasForeignKey(client, table, expected), true);
+  }
+}
+
 async function assertCurrentDelegationLedgerSchema(client) {
   const tables = await schemaObjectNames(client, 'table');
   for (const table of [
@@ -678,6 +1036,33 @@ async function tableColumnNames(client, table) {
   return new Set(result.rows.map((row) => String(row.name)));
 }
 
+async function tableColumnSchema(client, table) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(table)) {
+    throw new Error(`Unsafe SQLite table name: ${table}`);
+  }
+  const result = await client.execute(`PRAGMA table_info("${table}")`);
+  return result.rows
+    .map((row) => ({
+      name: String(row.name),
+      type: String(row.type).trim().toUpperCase(),
+      notNull: Boolean(Number(row.notnull)),
+      defaultValue:
+        row.dflt_value === null || row.dflt_value === undefined
+          ? null
+          : String(row.dflt_value),
+      primaryKeyPosition: Number(row.pk),
+      position: Number(row.cid),
+    }))
+    .sort((left, right) => left.position - right.position)
+    .map((column) => ({
+      name: column.name,
+      type: column.type,
+      notNull: column.notNull,
+      defaultValue: column.defaultValue,
+      primaryKeyPosition: column.primaryKeyPosition,
+    }));
+}
+
 async function hasUniqueIndex(client, table, columns) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(table)) {
     throw new Error(`Unsafe SQLite table name: ${table}`);
@@ -704,6 +1089,40 @@ async function hasUniqueIndex(client, table, columns) {
   return false;
 }
 
+async function hasNamedIndexOnColumns(
+  client,
+  table,
+  indexName,
+  columns,
+  unique
+) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(table)) {
+    throw new Error(`Unsafe SQLite table name: ${table}`);
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(indexName)) {
+    throw new Error(`Unsafe SQLite index name: ${indexName}`);
+  }
+  const indexes = await client.execute(`PRAGMA index_list("${table}")`);
+  const index = indexes.rows.find(
+    (candidate) => String(candidate.name) === indexName
+  );
+  if (!index || Boolean(Number(index.unique)) !== unique) {
+    return false;
+  }
+
+  const indexedColumns = await client.execute(
+    `PRAGMA index_info("${indexName}")`
+  );
+  const actual = indexedColumns.rows
+    .map((row) => ({ name: String(row.name), sequence: Number(row.seqno) }))
+    .sort((left, right) => left.sequence - right.sequence)
+    .map(({ name }) => name);
+  return (
+    actual.length === columns.length &&
+    actual.every((column, position) => column === columns[position])
+  );
+}
+
 async function hasIndex(client, index) {
   const result = await client.execute({
     sql: 'SELECT 1 FROM sqlite_master WHERE "type" = ? AND "name" = ? LIMIT 1',
@@ -722,7 +1141,9 @@ async function hasForeignKey(client, table, expected) {
       String(foreignKey.from) === expected.column &&
       String(foreignKey.table) === expected.referencedTable &&
       String(foreignKey.to) === expected.referencedColumn &&
-      String(foreignKey.on_delete).toUpperCase() === expected.onDelete
+      String(foreignKey.on_delete).toUpperCase() === expected.onDelete &&
+      (expected.onUpdate === undefined ||
+        String(foreignKey.on_update).toUpperCase() === expected.onUpdate)
   );
 }
 

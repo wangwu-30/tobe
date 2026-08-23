@@ -70,7 +70,13 @@ export function PlanPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        viewportProps={{
+          'aria-label': t('assistant.status'),
+          tabIndex: 0,
+        }}
+      >
         <div className="space-y-4 p-4">
           <section className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">

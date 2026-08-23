@@ -81,6 +81,7 @@ export function CommentSidebar({
   threads,
   refreshThreads,
   versionId,
+  workspaceRevision,
 }: {
   className?: string;
   documentId: string;
@@ -98,6 +99,7 @@ export function CommentSidebar({
   threads: CommentThreadData[];
   refreshThreads: () => Promise<void>;
   versionId?: string | null;
+  workspaceRevision?: number | null;
 }) {
   const t = useT();
   const router = useAppRouter();
@@ -490,69 +492,49 @@ export function CommentSidebar({
         if (nextContent === plan.targetFile.content) {
           throw new Error(t('comments.applyNoMaterialChange'));
         }
-        const createResponse = await apiFetch(`/api/workspaces/${documentId}/staged-changes`, {
+        if (!Number.isSafeInteger(workspaceRevision) || (workspaceRevision || 0) < 1) {
+          throw new Error(t('comments.applyFailed'));
+        }
+        await apiCallOrThrow(`/api/threads/${thread.id}/apply-source`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sourceType: 'comment',
-            summary: t('comments.applySummary', { anchorText: thread.anchorText }),
-            title: t('comments.applyTitle'),
-            changes: [
-              {
-                fileId: plan.targetFile.id,
-                kind: plan.targetFile.kind,
-                name: plan.targetFile.name,
-                nextContent,
-                summary: t('comments.applySummary', { anchorText: thread.anchorText }),
-              },
-            ],
+            expectedFileRevision: plan.targetFile.revision,
+            expectedThreadRevision: thread.revision,
+            expectedWorkspaceRevision: workspaceRevision,
+            fileId: plan.targetFile.id,
+            nextContent,
+            workspaceId: documentId,
           }),
+          fallbackMessage: t('comments.applyFailed'),
         });
 
-        if (!createResponse.ok) {
-          const payload = await createResponse.json().catch(() => null);
-          throw new Error(payload?.error || 'Failed to create staged changes');
+        try {
+          await Promise.all([
+            refreshThreads(),
+            Promise.resolve(onSourceContentApplied?.()),
+          ]);
+          requestCommentThreadFocus(thread.id);
+        } catch (refreshError) {
+          console.error('[comment-source] committed edit refresh failed', refreshError);
+          setThreadStatusNotice({
+            tone: 'info',
+            text: t('comments.applyRefreshFailed'),
+          });
         }
-
-        const changeSet = (await createResponse.json()) as { id: string };
-        const applyResponse = await apiFetch(
-          `/api/workspaces/${documentId}/staged-changes/${changeSet.id}`,
-          {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'apply',
-              checkpointTitle: t('comments.applyCheckpointTitle'),
-            }),
-          }
-        );
-
-        if (!applyResponse.ok) {
-          const payload = await applyResponse.json().catch(() => null);
-          throw new Error(payload?.error || 'Failed to apply staged changes');
-        }
-
-        const threadResponse = await apiFetch(`/api/threads/${thread.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'applied' }),
-        });
-
-        if (!threadResponse.ok) {
-          const payload = await threadResponse.json().catch(() => null);
-          throw new Error(payload?.error || t('comments.applyStatusUpdateFailed'));
-        }
-
-        await Promise.all([
-          refreshThreads(),
-          Promise.resolve(onSourceContentApplied?.()),
-        ]);
-        requestCommentThreadFocus(thread.id);
       } finally {
         setApplyingThreadId(null);
       }
     },
-    [documentId, files, onSourceContentApplied, refreshThreads, requestSuggestion, t]
+    [
+      documentId,
+      files,
+      onSourceContentApplied,
+      refreshThreads,
+      requestSuggestion,
+      t,
+      workspaceRevision,
+    ]
   );
 
   const handleStopAgentListening = React.useCallback(
@@ -988,7 +970,13 @@ export function CommentSidebar({
         ) : null}
       </div>
 
-      <ScrollArea className="min-h-0 flex-1 overflow-hidden">
+      <ScrollArea
+        className="min-h-0 flex-1 overflow-hidden"
+        viewportProps={{
+          'aria-label': t('assistant.review'),
+          tabIndex: 0,
+        }}
+      >
         <div className="space-y-2 p-2">
           <div className="overflow-hidden rounded-lg border bg-background/80">
             <button
@@ -1928,6 +1916,7 @@ const CommentThreadCard = React.forwardRef<
               agents={agentRegistry}
               id={followUpFieldId}
               name="comment-follow-up"
+              suggestionsPlacement="above"
               required
               aria-describedby={[
                 followUpHintId,

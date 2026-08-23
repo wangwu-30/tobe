@@ -33,6 +33,17 @@ type ActorContext = {
   userId: string;
 };
 
+export type CreateStagedChangeSetInput = {
+  baseDraftRevision: number;
+  baseVersionId: string | null;
+  changes: StagedChangePatchInput[];
+  conversationId?: string | null;
+  sourceType?: string;
+  summary: string;
+  title: string;
+  workspaceId: string;
+};
+
 type WorkspaceRecord = {
   id: string;
   title: string;
@@ -487,16 +498,17 @@ export async function listStagedChangeSets(params: {
 
 export async function createStagedChangeSet(
   actor: ActorContext,
-  input: {
-    baseDraftRevision: number;
-    baseVersionId: string | null;
-    changes: StagedChangePatchInput[];
-    conversationId?: string | null;
-    sourceType?: string;
-    summary: string;
-    title: string;
-    workspaceId: string;
-  }
+  input: CreateStagedChangeSetInput
+) {
+  return prisma.$transaction((tx) =>
+    createStagedChangeSetInTransaction(tx, actor, input)
+  );
+}
+
+export async function createStagedChangeSetInTransaction(
+  tx: Prisma.TransactionClient,
+  actor: ActorContext,
+  input: CreateStagedChangeSetInput
 ) {
   const changes = normalizeStagedChangePatches(input.changes);
   const changesJson = canonicalJson(changes);
@@ -510,54 +522,52 @@ export async function createStagedChangeSet(
     throw new ValidationError('A proposal base draft revision must be a non-negative integer.');
   }
 
-  const changeSet = await prisma.$transaction(async (tx) => {
-    const workspace = await tx.document.findFirst({
-      where: {
-        deletedAt: null,
-        id: input.workspaceId,
-        organizationId: actor.organizationId,
-      },
-      select: { draftBaseVersionId: true, draftRevision: true },
-    });
-    if (!workspace) {
-      throw new NotFoundError('Workspace not found.');
-    }
-    if (workspace.draftRevision !== input.baseDraftRevision) {
-      throw new ConflictError('The document draft changed before the proposal was recorded.');
-    }
-    if (workspace.draftBaseVersionId !== input.baseVersionId) {
-      throw new ConflictError('The document base version changed before the proposal was recorded.');
-    }
-
-    await assertProposalFilePreimages(tx, {
-      changes,
+  const workspace = await tx.document.findFirst({
+    where: {
+      deletedAt: null,
+      id: input.workspaceId,
       organizationId: actor.organizationId,
-      workspaceId: input.workspaceId,
-    });
-    const baseVersionSha256 = await resolveBaseVersionSha256(tx, {
+    },
+    select: { draftBaseVersionId: true, draftRevision: true },
+  });
+  if (!workspace) {
+    throw new NotFoundError('Workspace not found.');
+  }
+  if (workspace.draftRevision !== input.baseDraftRevision) {
+    throw new ConflictError('The document draft changed before the proposal was recorded.');
+  }
+  if (workspace.draftBaseVersionId !== input.baseVersionId) {
+    throw new ConflictError('The document base version changed before the proposal was recorded.');
+  }
+
+  await assertProposalFilePreimages(tx, {
+    changes,
+    organizationId: actor.organizationId,
+    workspaceId: input.workspaceId,
+  });
+  const baseVersionSha256 = await resolveBaseVersionSha256(tx, {
+    baseVersionId: input.baseVersionId,
+    organizationId: actor.organizationId,
+    workspaceId: input.workspaceId,
+  });
+
+  const changeSet = await tx.stagedChangeSet.create({
+    data: {
+      organizationId: actor.organizationId,
+      documentId: input.workspaceId,
+      sessionId: input.conversationId || null,
       baseVersionId: input.baseVersionId,
-      organizationId: actor.organizationId,
-      workspaceId: input.workspaceId,
-    });
-
-    return tx.stagedChangeSet.create({
-      data: {
-        organizationId: actor.organizationId,
-        documentId: input.workspaceId,
-        sessionId: input.conversationId || null,
-        baseVersionId: input.baseVersionId,
-        baseVersionSha256,
-        baseDraftRevision: input.baseDraftRevision,
-        patchSchemaVersion: STAGED_CHANGE_PATCH_SCHEMA_VERSION,
-        patchSha256,
-        title,
-        summary,
-        sourceType: input.sourceType?.trim() || 'ai',
-        changesJson,
-        createdByUserId: actor.userId,
-        originDeviceId: actor.deviceId,
-      },
-    });
+      baseVersionSha256,
+      baseDraftRevision: input.baseDraftRevision,
+      patchSchemaVersion: STAGED_CHANGE_PATCH_SCHEMA_VERSION,
+      patchSha256,
+      title,
+      summary,
+      sourceType: input.sourceType?.trim() || 'ai',
+      changesJson,
+      createdByUserId: actor.userId,
+      originDeviceId: actor.deviceId,
+    },
   });
 
   return mapStagedChangeSet(changeSet);

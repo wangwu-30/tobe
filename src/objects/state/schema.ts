@@ -11,6 +11,11 @@ type WorkspaceStateSemanticsSource = {
   labels?: StateLabelLike[] | null;
 };
 
+type WorkspaceVersionLineageNode = WorkspaceStateSemanticsSource & {
+  id: string;
+  parentVersionId: string | null;
+};
+
 type WorkspaceStateSemantics = Pick<
   WorkspaceVersionData,
   | 'aligned'
@@ -70,4 +75,32 @@ export function isVisibleWorkspaceState(source: WorkspaceStateSemanticsSource) {
 
 export function isRecoveryWorkspaceState(source: WorkspaceStateSemanticsSource) {
   return !deriveWorkspaceStateSemantics(source).visible;
+}
+
+export function resolveDraftBaseVersionIdFromLineage(params: {
+  startVersionId: string | null;
+  versions: WorkspaceVersionLineageNode[];
+}) {
+  const byId = new Map(params.versions.map((version) => [version.id, version]));
+  const visited = new Set<string>();
+  let currentVersionId = params.startVersionId;
+
+  while (currentVersionId) {
+    if (visited.has(currentVersionId)) {
+      return null;
+    }
+    visited.add(currentVersionId);
+
+    const version = byId.get(currentVersionId);
+    if (!version) {
+      return null;
+    }
+    if (!isRecoveryWorkspaceState(version)) {
+      return version.id;
+    }
+
+    currentVersionId = version.parentVersionId;
+  }
+
+  return null;
 }

@@ -12,7 +12,14 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
 
   const layouts = await prisma.projectCanvasLayout.findMany({
-    where: { organizationId: actor.organizationId },
+    where: {
+      organizationId: actor.organizationId,
+      project: {
+        deletedAt: null,
+        organizationId: actor.organizationId,
+        projectId: { equals: prisma.document.fields.id },
+      },
+    },
     select: {
       projectId: true,
       x: true,
@@ -51,28 +58,58 @@ export const PATCH = defineRoute(async function PATCH(req: NextRequest) {
       Number.isFinite(pos.y)
   );
 
-  await Promise.all(
-    entries.map(([projectId, pos]) =>
-      prisma.projectCanvasLayout.upsert({
-        where: {
-          organizationId_projectId: {
+  const updated = await prisma.$transaction(async (tx) => {
+    const projectIds = entries.map(([projectId]) => projectId);
+    const projects = await tx.document.findMany({
+      where: {
+        deletedAt: null,
+        id: { in: projectIds },
+        organizationId: actor.organizationId,
+      },
+      select: {
+        id: true,
+        projectId: true,
+      },
+    });
+    const validProjectIds = new Set(
+      projects
+        .filter((project) => project.projectId === project.id)
+        .map((project) => project.id)
+    );
+
+    if (validProjectIds.size !== projectIds.length) {
+      return false;
+    }
+
+    await Promise.all(
+      entries.map(([projectId, pos]) =>
+        tx.projectCanvasLayout.upsert({
+          where: {
+            organizationId_projectId: {
+              organizationId: actor.organizationId,
+              projectId,
+            },
+          },
+          create: {
             organizationId: actor.organizationId,
             projectId,
+            x: pos.x,
+            y: pos.y,
           },
-        },
-        create: {
-          organizationId: actor.organizationId,
-          projectId,
-          x: pos.x,
-          y: pos.y,
-        },
-        update: {
-          x: pos.x,
-          y: pos.y,
-        },
-      })
-    )
-  );
+          update: {
+            x: pos.x,
+            y: pos.y,
+          },
+        })
+      )
+    );
+
+    return true;
+  });
+
+  if (!updated) {
+    return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
+  }
 
   return NextResponse.json({ ok: true });
 });

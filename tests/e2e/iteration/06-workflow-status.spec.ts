@@ -46,16 +46,24 @@ test('status and context surfaces show draft, active, and archived workflows', a
   });
 
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
-  );
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'status',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
 
+  const statusTab = page.getByTestId('assistant-tab-status');
+  await expect(statusTab).toHaveAttribute('aria-selected', 'true');
   await expect(
     page.getByRole('tabpanel', { name: /状态|Status/ }).getByText(activeTitle, {
       exact: true,
     })
   ).toBeVisible();
-  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+  const contextTab = page.getByTestId('assistant-tab-context');
+  await contextTab.click();
+  await expect(page).toHaveURL(/(?:\?|&)assistant=context(?:&|$)/);
+  await expect(contextTab).toHaveAttribute('aria-selected', 'true');
 
   const contextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
   await expect(contextPanel.getByText(/已激活 Workflow（\d+）/)).toBeVisible();
@@ -69,13 +77,21 @@ test('status and context surfaces show draft, active, and archived workflows', a
 
 test('built-in workflows can be applied from context and become the active method', async ({
   page,
-}, testInfo) => {
+}) => {
   const seedState = readSeedState();
   const workspace = seedState.baseWorkspace;
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'context',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  await expect(page.getByTestId('assistant-tab-context')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   const contextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
   await expect(contextPanel.getByText('内置 Workflow（2）')).toBeVisible();
@@ -90,7 +106,10 @@ test('built-in workflows can be applied from context and become the active metho
   await expect(builtinCard).toContainText(/Skills/);
   await builtinCard.getByRole('button', { name: /用于当前任务|Use for Task/ }).click();
 
-  await page.getByRole('tab', { name: /状态|Status/ }).click();
+  const statusTab = page.getByTestId('assistant-tab-status');
+  await statusTab.click();
+  await expect(page).toHaveURL(/(?:\?|&)assistant=status(?:&|$)/);
+  await expect(statusTab).toHaveAttribute('aria-selected', 'true');
   await expect(
     page.getByRole('tabpanel', { name: /状态|Status/ }).getByText(/需求规格到网页上线/)
   ).toBeVisible();
@@ -111,8 +130,14 @@ test('custom workflow extension hints persist across context and status surfaces
   const skillsHint = '沉淀实现与验收方法。';
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'context',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  const contextTab = page.getByTestId('assistant-tab-context');
+  await expect(contextTab).toHaveAttribute('aria-selected', 'true');
 
   const contextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
   await contextPanel.getByPlaceholder(/Workflow title|Workflow 标题/).fill(title);
@@ -145,7 +170,8 @@ test('custom workflow extension hints persist across context and status surfaces
   await activeCard.getByRole('button', { name: /用于当前任务|Use for Task/ }).click();
 
   await page.reload();
-  await page.getByRole('tab', { name: /上下文|Context/ }).click();
+  await expect(page).toHaveURL(/(?:\?|&)assistant=context(?:&|$)/);
+  await expect(contextTab).toHaveAttribute('aria-selected', 'true');
 
   const reloadedContextPanel = page.getByRole('tabpanel', { name: /上下文|Context/ });
   const persistedCard = reloadedContextPanel
@@ -156,7 +182,10 @@ test('custom workflow extension hints persist across context and status surfaces
   await expect(persistedCard).toContainText(mcpHint);
   await expect(persistedCard).toContainText(skillsHint);
 
-  await page.getByRole('tab', { name: /状态|Status/ }).click();
+  const statusTab = page.getByTestId('assistant-tab-status');
+  await statusTab.click();
+  await expect(page).toHaveURL(/(?:\?|&)assistant=status(?:&|$)/);
+  await expect(statusTab).toHaveAttribute('aria-selected', 'true');
   const statusPanel = page.getByRole('tabpanel', { name: /状态|Status/ });
   await expect(statusPanel.getByText(title, { exact: true })).toBeVisible();
   await expect(statusPanel.getByText(/^开放扩展$|^Open Extensions$/)).toBeVisible();
@@ -214,10 +243,15 @@ test('finalized deliverables can start the next deliverable in the same project 
 
   await primeClientState(page);
   await page.goto(buildWorkspaceRoute({
+    assistant: 'status',
     conversationId: workspace.conversationId,
     nodeId: workspace.id,
     projectId,
   }));
+  await expect(page.getByTestId('assistant-tab-status')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   const nextDeliverableCard = page.getByTestId('plan-next-deliverable-card');
   await expect(nextDeliverableCard).toBeVisible();
@@ -260,6 +294,11 @@ test('finalized deliverables can start the next deliverable in the same project 
   });
   const nextWorkspaceId = nextRoute.workspaceId;
   const nextConversationId = nextRoute.conversationId;
+  await expect(page).toHaveURL(/(?:\?|&)assistant=status(?:&|$)/);
+  await expect(page.getByTestId('assistant-tab-status')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   const nextView = await getWorkspaceView(baseURL, nextWorkspaceId, nextConversationId);
 

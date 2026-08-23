@@ -438,7 +438,6 @@ export function TaskCenter() {
           reason={blockedReason}
         />
         <CompleteTaskDialog
-          language={language}
           onConfirm={() => {
             const task = completingTask;
             if (!task) return;
@@ -466,8 +465,6 @@ function TaskFilters({
   onStatusChange: (value: StatusFilter) => void; onViewChange: (value: TaskView) => void;
 }) {
   const t = useT();
-  const language = useAppLanguage();
-  const labels = taskLocalCopy(language);
   return (
     <div aria-label={t('tasks.list')} className="flex flex-col gap-3 rounded-xl border bg-card p-3 lg:flex-row lg:items-center" role="search">
       <div className="relative min-w-0 flex-1">
@@ -476,23 +473,23 @@ function TaskFilters({
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:flex">
         <Select name="status" onValueChange={(value) => onStatusChange(value as StatusFilter)} value={status}>
-          <SelectTrigger aria-label={labels.statusFilter} className="w-full lg:w-32" data-testid="task-status-filter" size="sm"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label={t('tasks.filter.statusLabel')} className="w-full lg:w-32" data-testid="task-status-filter" size="sm"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="active">{t('tasks.filter.active')}</SelectItem><SelectItem value="all">{t('tasks.filter.allStatuses')}</SelectItem>
             {TASK_STATUS_OPTIONS.map((option) => <SelectItem key={option.value} value={option.value}>{t(option.labelKey)}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select name="kind" onValueChange={(value) => onKindChange(value as TaskKind | 'all')} value={kind}>
-          <SelectTrigger aria-label={labels.kindFilter} className="w-full lg:w-28" data-testid="task-kind-filter" size="sm"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label={t('tasks.filter.kindLabel')} className="w-full lg:w-28" data-testid="task-kind-filter" size="sm"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">{t('tasks.filter.allKinds')}</SelectItem><SelectItem value="execution">{t('tasks.kind.execution')}</SelectItem><SelectItem value="help">{t('tasks.kind.help')}</SelectItem></SelectContent>
         </Select>
         <Select name="assignee" onValueChange={onAssigneeChange} value={assignee}>
-          <SelectTrigger aria-label={labels.assigneeFilter} className="col-span-2 w-full sm:col-span-1 lg:w-36" data-testid="task-assignee-filter" size="sm"><SelectValue /></SelectTrigger>
+          <SelectTrigger aria-label={t('tasks.filter.assigneeLabel')} className="col-span-2 w-full sm:col-span-1 lg:w-36" data-testid="task-assignee-filter" size="sm"><SelectValue /></SelectTrigger>
           <SelectContent><SelectItem value="all">{t('tasks.filter.allAssignees')}</SelectItem><SelectItem value="unassigned">{t('tasks.filter.unassigned')}</SelectItem>{agents.map((agent) => <SelectItem key={agent.id} value={agent.id}>{agent.name}</SelectItem>)}</SelectContent>
         </Select>
       </div>
       <div className="flex items-center justify-between gap-2 border-t pt-3 lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
-        <div aria-label={labels.taskView} className="inline-flex rounded-lg bg-muted p-0.5" role="group">
+        <div aria-label={t('tasks.view.label')} className="inline-flex rounded-lg bg-muted p-0.5" role="group">
           <Button aria-label={t('tasks.view.list')} aria-pressed={view === 'list'} className="h-7 px-2.5" data-testid="task-view-list" onClick={() => onViewChange('list')} size="sm" variant={view === 'list' ? 'secondary' : 'ghost'}><LayoutList /><span className="hidden sm:inline">{t('tasks.view.listShort')}</span></Button>
           <Button aria-label={t('tasks.view.board')} aria-pressed={view === 'board'} className="h-7 px-2.5" data-testid="task-view-board" onClick={() => onViewChange('board')} size="sm" variant={view === 'board' ? 'secondary' : 'ghost'}><Columns3 /><span className="hidden sm:inline">{t('tasks.view.boardShort')}</span></Button>
         </div>
@@ -508,7 +505,6 @@ function TaskBoard({ agents, onStatusChange, tasks, updatingIds }: {
 }) {
   const t = useT();
   const language = useAppLanguage();
-  const labels = taskLocalCopy(language);
   const numberFormatter = React.useMemo(() => new Intl.NumberFormat(language), [language]);
   return (
     <div
@@ -519,7 +515,7 @@ function TaskBoard({ agents, onStatusChange, tasks, updatingIds }: {
     >
       <div className="flex items-start justify-between gap-3 px-1 pb-2 text-xs text-muted-foreground">
         <p id="task-board-help">
-          {labels.boardHelp}
+          {t('tasks.board.help')}
         </p>
       </div>
       <div
@@ -623,6 +619,38 @@ function BlockTaskDialog({
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CompleteTaskDialog({
+  onConfirm,
+  onOpenChange,
+  task,
+}: {
+  onConfirm: () => void;
+  onOpenChange: (open: boolean) => void;
+  task: TeamTask | null;
+}) {
+  const t = useT();
+  return (
+    <Dialog onOpenChange={onOpenChange} open={task !== null}>
+      <DialogContent className="sm:max-w-md" data-testid="complete-task-dialog">
+        <DialogHeader>
+          <DialogTitle>{t('tasks.completeConfirm.title')}</DialogTitle>
+          <DialogDescription className="break-words">
+            {task ? t('tasks.completeConfirm.description', { title: task.title }) : ''}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)} type="button" variant="ghost">
+            {t('tasks.composer.cancel')}
+          </Button>
+          <Button onClick={onConfirm} type="button">
+            {t('tasks.action.done')}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

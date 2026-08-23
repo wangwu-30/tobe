@@ -332,7 +332,7 @@ export function RoomComposer({
           aria-describedby={`${composerHintId} ${mentionStatusId}`}
           aria-invalid={Boolean(submitError)}
           autoComplete="off"
-          className="block min-h-20 w-full resize-none bg-transparent px-3 py-3 text-base leading-6 outline-none placeholder:text-muted-foreground/70 disabled:opacity-60 sm:text-sm"
+          className="block min-h-20 w-full resize-none bg-transparent px-3 py-3 text-base leading-6 outline-none placeholder:text-muted-foreground/70 focus-visible:ring-2 focus-visible:ring-ring sm:text-sm disabled:opacity-60"
           data-testid="room-message-input"
           disabled={disabled}
           id={messageInputId}

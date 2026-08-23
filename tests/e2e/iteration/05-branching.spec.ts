@@ -1,3 +1,7 @@
+import { createHash, randomUUID } from 'node:crypto';
+import path from 'node:path';
+
+import { createClient, type Client } from '@libsql/client';
 import { expect, test, type Page } from '@playwright/test';
 import {
   apiRequest,
@@ -23,6 +27,20 @@ type BranchVersionScenario = Omit<
   secondVersionId: string;
   siblingBranchThreadId: string;
   versionId: string;
+};
+
+type StagedReviewPatch = {
+  fileId: string | null;
+  kind: 'richtext' | 'markdown';
+  name: string;
+  nextContent: string;
+  operation: 'create' | 'update';
+  preimage: {
+    content: string;
+    contentSha256: string;
+    revision: number;
+  } | null;
+  summary: string;
 };
 
 async function createBranchVersionScenario(): Promise<BranchVersionScenario> {
@@ -106,13 +124,18 @@ async function createBranchVersionScenario(): Promise<BranchVersionScenario> {
 
 async function openVersionTree(page: Page) {
   const versionTreeDialog = page.getByRole('dialog', { name: /版本树|Version Tree/ });
+  const openVersionTreeDialog = versionTreeDialog.and(page.locator('[data-state="open"]'));
   const versionTreeButton = page.getByTestId('version-tree-button');
-  const firstVersionCard = versionTreeDialog
+  const firstVersionCard = openVersionTreeDialog
     .locator('[data-testid^="version-history-card-"]')
     .first();
 
+  if (await openVersionTreeDialog.isVisible().catch(() => false)) {
+    return openVersionTreeDialog;
+  }
+
   if (await versionTreeDialog.isVisible().catch(() => false)) {
-    return versionTreeDialog;
+    await expect(versionTreeDialog).toBeHidden();
   }
 
   await dismissVisibleFirstUseGuidance(page);
@@ -120,18 +143,18 @@ async function openVersionTree(page: Page) {
   await expect(versionTreeButton).toBeEnabled();
   let openRequested = false;
   await expect(async () => {
-    if (!openRequested && !(await versionTreeDialog.isVisible().catch(() => false))) {
+    if (!openRequested && !(await openVersionTreeDialog.isVisible().catch(() => false))) {
       await dismissVisibleFirstUseGuidance(page);
       await versionTreeButton.evaluate((button) => {
         (button as HTMLButtonElement).click();
       });
       openRequested = true;
     }
-    await expect(versionTreeDialog).toBeVisible();
+    await expect(openVersionTreeDialog).toBeVisible();
     await expect(firstVersionCard).toBeVisible();
   }).toPass({ timeout: 10000 });
 
-  return versionTreeDialog;
+  return openVersionTreeDialog;
 }
 
 async function openReadOnlyVersionFromTree(page: Page, versionId: string) {
@@ -227,6 +250,7 @@ async function continueFromVersionTree(
   versionId: string,
   initialConversationId: string
 ) {
+  const versionTreeDialog = page.getByRole('dialog', { name: /版本树|Version Tree/ });
   let continueRequested = false;
 
   await expect(async () => {
@@ -249,49 +273,42 @@ async function continueFromVersionTree(
       timeout: 10_000,
     });
   }).toPass({ timeout: 30_000 });
+
+  await expect(versionTreeDialog).toBeHidden({ timeout: 10_000 });
+  await expect(versionTreeDialog).toHaveCount(0, { timeout: 10_000 });
 }
 
 async function switchToBranchFromVersionTree(
   page: Page,
+  workspaceId: string,
   branchHeadVersionId: string,
   initialConversationId: string
 ) {
-  let switchRequested = false;
+  const versionTreeDialog = await openVersionTree(page);
+  const overviewSwitch = versionTreeDialog.getByTestId(
+    `version-branch-overview-switch-${branchHeadVersionId}`
+  );
+  const switchButton = (await overviewSwitch.isVisible().catch(() => false))
+    ? overviewSwitch
+    : versionTreeDialog.getByTestId(`version-switch-branch-${branchHeadVersionId}`);
 
-  await expect(async () => {
-    if (
-      !switchRequested &&
-      new URL(page.url()).searchParams.get('conversationId') === initialConversationId
-    ) {
-      const versionTreeDialog = await openVersionTree(page);
-      const overviewSwitch = versionTreeDialog.getByTestId(
-        `version-branch-overview-switch-${branchHeadVersionId}`
-      );
+  await expect(switchButton).toBeVisible();
+  await expect(switchButton).toBeEnabled();
 
-      if (await overviewSwitch.isVisible().catch(() => false)) {
-        await expect(overviewSwitch).toBeEnabled();
-        await overviewSwitch.evaluate((button) => {
-          (button as HTMLButtonElement).click();
-        });
-      } else {
-        const switchButton = versionTreeDialog.getByTestId(
-          `version-switch-branch-${branchHeadVersionId}`
-        );
-        await expect(switchButton).toBeVisible();
-        await expect(switchButton).toBeEnabled();
-        await switchButton.evaluate((button) => {
-          (button as HTMLButtonElement).click();
-        });
-      }
+  const switchPath =
+    `/api/workspaces/${workspaceId}/versions/${branchHeadVersionId}/switch`;
+  const switchResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === switchPath
+  );
+  await switchButton.click();
+  const switchResponse = await switchResponsePromise;
+  expect(switchResponse.ok()).toBe(true);
 
-      switchRequested = true;
-    }
-
-    await waitForConversationChange(page, initialConversationId, {
-      expectedVersionId: null,
-      timeout: 10_000,
-    });
-  }).toPass({ timeout: 30_000 });
+  await waitForConversationChange(page, initialConversationId, {
+    expectedVersionId: null,
+  });
 }
 
 async function waitForBranchOverview(
@@ -587,6 +604,274 @@ async function seedDefaultReviewPlan(baseURL: string, workspaceId: string, goal:
   });
 }
 
+async function seedPendingStagedChange(
+  database: Client,
+  input: {
+    conversationId: string;
+    draftBaseVersionId: string | null;
+    draftRevision: number;
+    id: string;
+    patches: StagedReviewPatch[];
+    summary: string;
+    title: string;
+    workspaceId: string;
+  }
+) {
+  const changesJson = canonicalJson(input.patches);
+  const now = new Date().toISOString();
+
+  await database.execute({
+    sql: `INSERT INTO "StagedChangeSet" (
+      "id", "organizationId", "documentId", "sessionId",
+      "baseVersionId", "baseVersionSha256", "baseDraftRevision",
+      "patchSchemaVersion", "patchSha256", "title", "summary",
+      "status", "sourceType", "changesJson", "createdByUserId",
+      "originDeviceId", "revision", "createdAt", "updatedAt"
+    ) VALUES (?, 'local-org', ?, ?, ?, NULL, ?, 1, ?, ?, ?,
+      'pending', 'acceptance-test', ?, 'local-user', 'local-device', 1, ?, ?)`,
+    args: [
+      input.id,
+      input.workspaceId,
+      input.conversationId,
+      input.draftBaseVersionId,
+      input.draftRevision,
+      sha256(changesJson),
+      input.title,
+      input.summary,
+      changesJson,
+      now,
+      now,
+    ],
+  });
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.entries(value)
+    .filter(([, child]) => child !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, child]) => `${JSON.stringify(key)}:${canonicalJson(child)}`)
+    .join(',')}}`;
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function resolveIterationDatabaseUrl() {
+  if (process.env.DATABASE_URL?.trim()) return process.env.DATABASE_URL.trim();
+  const iterationRoot =
+    process.env.ITERATION_ROOT || path.join(process.cwd(), '.tmp', 'iteration-regression');
+  const appDataRoot =
+    process.env.DAO_APP_DATA_ROOT || path.join(iterationRoot, 'app-data');
+  return `file:${path.join(appDataRoot, 'dev.db')}`;
+}
+
+test('staged document proposal review shows multi-file diff and applies through the browser', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+  const originalPrimaryText = `浏览器审阅前的主稿 ${suffix}`;
+  const appliedPrimaryText = `浏览器已应用的主稿 ${suffix}`;
+  const createdFileText = `Supporting review evidence ${suffix}`;
+  const originalPrimaryContent = JSON.stringify([
+    { ...buildHeading('多文件提案审阅'), id: `review-heading-${suffix}` },
+    { ...buildParagraph(originalPrimaryText), id: `review-copy-${suffix}` },
+  ]);
+  const appliedPrimaryContent = JSON.stringify([
+    { ...buildHeading('多文件提案审阅'), id: `review-heading-${suffix}` },
+    { ...buildParagraph(appliedPrimaryText), id: `review-copy-${suffix}` },
+  ]);
+  const createdFileName = `review-notes-${suffix}.md`;
+  const proposalId = `e2e-staged-proposal-${randomUUID()}`;
+  const proposalTitle = `多文件草稿提案 ${suffix}`;
+  const proposalSummary = '更新主稿并补充一份审阅说明。';
+  const workspace = await createWorkspace(baseURL, {
+    content: originalPrimaryContent,
+    goal: '验证 staged document proposal 的浏览器审阅与应用闭环。',
+    projectsRoot: resolveIterationProjectsRoot(),
+    title: `迭代回归-提案审阅-${suffix}`,
+  });
+  const initialView = await apiRequest<{
+    files: Array<{
+      content: string;
+      id: string;
+      isPrimary: boolean;
+      kind: 'richtext' | 'markdown';
+      name: string;
+      revision: number;
+    }>;
+    workspace: {
+      draftBaseVersionId: string | null;
+      draftRevision: number;
+    };
+  }>(
+    baseURL,
+    `/api/workspaces/${workspace.id}?conversationId=${workspace.conversationId}`
+  );
+  const primaryFile = initialView.files.find((file) => file.id === workspace.fileId);
+  expect(primaryFile).toBeTruthy();
+  if (!primaryFile) throw new Error('Proposal review workspace primary file is missing.');
+  expect(initialView.workspace.draftBaseVersionId).toBeNull();
+
+  const patches: StagedReviewPatch[] = [
+    {
+      fileId: primaryFile.id,
+      kind: primaryFile.kind,
+      name: primaryFile.name,
+      nextContent: appliedPrimaryContent,
+      operation: 'update',
+      preimage: {
+        content: primaryFile.content,
+        contentSha256: sha256(primaryFile.content),
+        revision: primaryFile.revision,
+      },
+      summary: '将主稿替换为已审阅版本。',
+    },
+    {
+      fileId: null,
+      kind: 'markdown',
+      name: createdFileName,
+      nextContent: `# Review notes\n\n${createdFileText}`,
+      operation: 'create',
+      preimage: null,
+      summary: '新增审阅说明文件。',
+    },
+  ];
+  const database = createClient({ url: resolveIterationDatabaseUrl() });
+  try {
+    await database.execute('PRAGMA busy_timeout = 5000');
+    await seedPendingStagedChange(database, {
+      conversationId: workspace.conversationId,
+      draftBaseVersionId: initialView.workspace.draftBaseVersionId,
+      draftRevision: initialView.workspace.draftRevision,
+      id: proposalId,
+      patches,
+      summary: proposalSummary,
+      title: proposalTitle,
+      workspaceId: workspace.id,
+    });
+  } finally {
+    await database.close();
+  }
+
+  const seededProposals = await apiRequest<
+    Array<{ id: string; revision: number; status: string }>
+  >(baseURL, `/api/workspaces/${workspace.id}/staged-changes`);
+  expect(seededProposals).toContainEqual(
+    expect.objectContaining({ id: proposalId, revision: 1, status: 'pending' })
+  );
+
+  await primeClientState(page);
+  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
+  await dismissVisibleFirstUseGuidance(page);
+
+  const reviewTrigger = page.getByTestId('staged-review-trigger');
+  await expect(reviewTrigger).toBeVisible();
+  await expect(reviewTrigger).toContainText('1');
+  await reviewTrigger.click();
+
+  const reviewDialog = page.getByRole('dialog', { name: /审阅待应用修改|Review proposed changes/ });
+  await expect(reviewDialog).toBeVisible();
+  await expect(reviewDialog.getByTestId(`staged-change-${proposalId}`)).toHaveAttribute(
+    'aria-current',
+    'true'
+  );
+  await expect(reviewDialog.getByRole('heading', { name: proposalTitle })).toBeVisible();
+  await expect(reviewDialog).toContainText(proposalSummary);
+  await expect(reviewDialog).toContainText(/涉及 2 个文件|2 affected files/);
+  await expect(reviewDialog).toContainText(/来源：acceptance-test|Prepared by acceptance-test/);
+
+  const diffs = reviewDialog.getByTestId(`staged-change-diff-${proposalId}`);
+  await expect(diffs).toHaveCount(2);
+  await expect(diffs.nth(0)).toContainText(primaryFile.name);
+  await expect(diffs.nth(0)).toContainText(originalPrimaryText);
+  await expect(diffs.nth(0)).toContainText(appliedPrimaryText);
+  await expect(diffs.nth(1)).toContainText(createdFileName);
+  await expect(diffs.nth(1)).toContainText(createdFileText);
+
+  const decisionPath =
+    `/api/workspaces/${workspace.id}/staged-changes/${proposalId}`;
+  const decisionResponsePromise = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === decisionPath &&
+      response.request().method() === 'PATCH'
+  );
+  const reloadPromise = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
+  await reviewDialog.getByTestId(`staged-change-apply-${proposalId}`).click();
+  const decisionResponse = await decisionResponsePromise;
+
+  expect(decisionResponse.status()).toBe(200);
+  expect(decisionResponse.request().postDataJSON()).toEqual({
+    action: 'apply',
+    expectedRevision: 1,
+  });
+  expect(await decisionResponse.json()).toMatchObject({
+    id: proposalId,
+    revision: 2,
+    status: 'applied',
+  });
+  await expect(page.getByTestId('staged-change-notice')).toContainText(
+    /已将 staged changes 应用到当前草稿|Applied staged changes/
+  );
+  await reloadPromise;
+
+  await expect(page.getByTestId('staged-review-trigger')).toHaveCount(0);
+  await expectWorkspaceSurfaceText(page, appliedPrimaryText, {
+    hiddenText: originalPrimaryText,
+  });
+
+  const [proposals, files, versions] = await Promise.all([
+    apiRequest<
+      Array<{
+        appliedCheckpointVersionId: string | null;
+        id: string;
+        reviewedAt: string | null;
+        reviewedByUserId: string | null;
+        revision: number;
+        status: string;
+      }>
+    >(baseURL, `/api/workspaces/${workspace.id}/staged-changes`),
+    apiRequest<Array<{ content: string; id: string; name: string; revision: number }>>(
+      baseURL,
+      `/api/workspaces/${workspace.id}/files`
+    ),
+    apiRequest<
+      Array<{ id: string; restorable: boolean; title: string; visible: boolean }>
+    >(baseURL, `/api/workspaces/${workspace.id}/versions?scope=all`),
+  ]);
+  const appliedProposal = proposals.find((proposal) => proposal.id === proposalId);
+  const appliedPrimaryFile = files.find((file) => file.id === primaryFile.id);
+  const createdFile = files.find((file) => file.name === createdFileName);
+  const recoveryCheckpoint = versions.find(
+    (version) => version.id === appliedProposal?.appliedCheckpointVersionId
+  );
+
+  expect(appliedProposal).toMatchObject({
+    id: proposalId,
+    reviewedByUserId: 'local-user',
+    revision: 2,
+    status: 'applied',
+  });
+  expect(appliedProposal?.reviewedAt).toBeTruthy();
+  expect(appliedProposal?.appliedCheckpointVersionId).toBeTruthy();
+  expect(appliedPrimaryFile).toMatchObject({
+    content: appliedPrimaryContent,
+    revision: primaryFile.revision + 1,
+  });
+  expect(createdFile).toMatchObject({
+    content: `# Review notes\n\n${createdFileText}`,
+    revision: 1,
+  });
+  expect(recoveryCheckpoint).toMatchObject({
+    restorable: true,
+    title: 'Recovery Point before Apply',
+    visible: false,
+  });
+});
+
 test('opening a new chat from a message preserves the selected version surface', async ({
   page,
 }) => {
@@ -698,7 +983,12 @@ test('switching to another visible branch head from the version tree moves the l
   expect(continuedConversationId).not.toBeNull();
 
   const switchedBranchId = workspace.secondVersionId!;
-  await switchToBranchFromVersionTree(page, switchedBranchId, continuedConversationId!);
+  await switchToBranchFromVersionTree(
+    page,
+    workspace.id,
+    switchedBranchId,
+    continuedConversationId!
+  );
 
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)
@@ -761,7 +1051,12 @@ test('branch overview groups visible heads and can switch the live draft to anot
     await expect(overviewCard).toContainText('版本里程碑 V2');
   }).toPass({ timeout: 30_000 });
 
-  await switchToBranchFromVersionTree(page, workspace.secondVersionId!, continuedConversationId!);
+  await switchToBranchFromVersionTree(
+    page,
+    workspace.id,
+    workspace.secondVersionId!,
+    continuedConversationId!
+  );
 
   await expect(
     page.locator('[data-workspace-outline-surface="true"]').getByText(BRANCH_V2_SURFACE_TEXT)

@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { ConflictError, NotFoundError, ValidationError } from '@/framework/resilience';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '@/framework/resilience/app-error';
 import { prisma } from '@/lib/db/prisma';
 
 import {
@@ -36,11 +40,20 @@ export type RequestExecutionRecoveryActionInputV1 = {
   expectedRevision: number;
 };
 
-export type ResolveExecutionRecoveryInputV1 = {
+type ResolveExecutionRecoveryBaseInputV1 = {
   incidentId: string;
   attemptId: string;
-  resolution: ExecutionRecoveryResolutionV1;
 };
+
+export type ResolveExecutionRecoveryInputV1 =
+  | (ResolveExecutionRecoveryBaseInputV1 & {
+      resolution: 'retried';
+      workerId: string;
+      generation: number;
+    })
+  | (ResolveExecutionRecoveryBaseInputV1 & {
+      resolution: Exclude<ExecutionRecoveryResolutionV1, 'retried'>;
+    });
 
 type QuarantineAttemptRow = {
   id: string;
@@ -319,6 +332,35 @@ export async function resolveExecutionRecovery(
   const expectedAction =
     input.resolution === 'discarded' ? 'discard' : 'retry';
   const now = new Date();
+  if (input.resolution === 'retried') {
+    const workerId = requireText(input.workerId, 'workerId');
+    if (!Number.isInteger(input.generation) || input.generation < 1) {
+      throw new ValidationError('generation must be a positive integer.');
+    }
+    const resolved = await prisma.$executeRaw`
+      UPDATE "ExecutionRecoveryIncident"
+      SET "status" = 'resolved', "resolution" = 'retried',
+        "resolvedAt" = ${now}, "revision" = "revision" + 1,
+        "updatedAt" = ${now}
+      WHERE "id" = ${incidentId}
+        AND "attemptId" = ${attemptId}
+        AND "organizationId" = ${organizationId}
+        AND "status" = 'action_requested'
+        AND "requestedAction" = 'retry'
+        AND EXISTS (
+          SELECT 1 FROM "ExecutionAttempt" AS attempt
+          WHERE attempt."id" = "ExecutionRecoveryIncident"."attemptId"
+            AND attempt."organizationId" = "ExecutionRecoveryIncident"."organizationId"
+            AND attempt."status" = 'running'
+            AND attempt."generation" = ${input.generation}
+            AND attempt."leaseOwnerId" = ${workerId}
+            AND attempt."leaseExpiresAt" IS NOT NULL
+            AND attempt."leaseExpiresAt" > ${now}
+            AND attempt."capacityReserved" = TRUE
+        )
+    `;
+    return resolved === 1 ? 'resolved' : 'fenced';
+  }
   const resolved = await prisma.$executeRaw`
     UPDATE "ExecutionRecoveryIncident"
     SET "status" = 'resolved', "resolution" = ${input.resolution},

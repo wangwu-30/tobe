@@ -260,8 +260,8 @@ export function AgentEditorDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form noValidate onSubmit={handleSubmit}>
-          <div className="space-y-5 px-5 py-5 sm:px-6">
+        <form className="min-w-0" noValidate onSubmit={handleSubmit}>
+          <div className="min-w-0 space-y-5 px-5 py-5 sm:px-6">
             {builtin ? (
               <div
                 className="flex items-start gap-2 rounded-lg border bg-muted/35 px-3 py-2.5 text-sm text-muted-foreground"
@@ -429,18 +429,21 @@ export function AgentEditorDialog({
               ) : null}
             </div>
 
-            <details className="group rounded-lg border" data-testid="agent-runtime-details">
-              <summary className="flex min-h-11 min-w-0 list-none items-center justify-between gap-3 px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none [&::-webkit-details-marker]:hidden">
-                Runtime configuration
+            <details
+              className="group min-w-0 overflow-hidden rounded-lg border"
+              data-testid="agent-runtime-details"
+            >
+              <summary className="flex min-h-11 min-w-0 list-none items-center gap-3 overflow-hidden px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none [&::-webkit-details-marker]:hidden">
+                <span className="shrink-0">Runtime configuration</span>
                 <span
-                  className="min-w-0 truncate font-mono text-xs font-normal text-muted-foreground"
+                  className="min-w-0 flex-1 truncate text-right font-mono text-xs font-normal text-muted-foreground"
                   title={runtimeId || 'Not set'}
                   translate="no"
                 >
                   {runtimeId || 'Not set'}
                 </span>
               </summary>
-              <div className="space-y-2 border-t px-3 py-3">
+              <div className="min-w-0 space-y-2 border-t px-3 py-3">
                 <Label htmlFor="agent-runtime">Room runtime ID</Label>
                 <Input
                   aria-describedby={invalidField === 'runtime' ? FORM_ERROR_ID : undefined}

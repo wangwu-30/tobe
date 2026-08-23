@@ -78,7 +78,7 @@ export function RoomPresence({ activity }: RoomPresenceProps) {
                   <span>{activityLabel(item, now)}</span>
                 </div>
                 {item.roomSessionId ? (
-                  <div className="mt-1 break-all pl-9 font-mono text-[11px] text-muted-foreground/70">
+                  <div className="mt-1 break-all pl-9 font-mono text-[11px] text-muted-foreground">
                     <span className="sr-only">Room session </span>
                     <span aria-hidden="true">session </span>
                     {item.roomSessionId}

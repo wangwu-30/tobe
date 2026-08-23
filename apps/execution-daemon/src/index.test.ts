@@ -7,7 +7,10 @@ import { expect, test } from '@playwright/test';
 import type { ExecutionDaemonOptionsV1 } from '@/agent/execution/daemon';
 import type { ExecutionRuntimeDriverV1 } from '@/agent/execution/driver';
 import { GitWorktreeLifecycleCoordinatorV1 } from '@/agent/execution/git-worktree-coordinator';
-import type { GitWorktreePortV1 } from '@/agent/knowledge/contracts';
+import type {
+  GitWorktreePortV1,
+  GitWorktreeRecoveryPortV1,
+} from '@/agent/knowledge/contracts';
 import { safeJsonParse } from '@/framework/resilience/safe-data';
 import {
   createExecutionDaemonProcessControllerV1,
@@ -818,7 +821,7 @@ function runtimeDriver(runtimeId = 'runtime-1'): ExecutionRuntimeDriverV1 {
   };
 }
 
-function unusedGitWorktreePort(): GitWorktreePortV1 {
+function unusedGitWorktreePort(): GitWorktreePortV1 & GitWorktreeRecoveryPortV1 {
   const unused = async (): Promise<never> => {
     throw new Error('Git worktree port should not be used by this test.');
   };
@@ -829,5 +832,8 @@ function unusedGitWorktreePort(): GitWorktreePortV1 {
     finalizeOrRecover: unused,
     cleanup: unused,
     cleanupOrRecover: unused,
+    inspectRecoveryState: unused,
+    recoverSuspended: unused,
+    discardQuarantined: unused,
   };
 }

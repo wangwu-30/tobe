@@ -32,21 +32,24 @@ type HumanActorContext = {
   userId: string;
 };
 
+export type ApplyStagedChangeSetInput = {
+  changeSetId: string;
+  checkpointTitle?: string;
+  expectedRevision: number;
+  expectedWorkspaceRevision?: number;
+  workspaceId: string;
+};
+
 type ProposalRecord = Prisma.StagedChangeSetGetPayload<Record<string, never>>;
 type WorkspaceFileRecord = Prisma.WorkspaceFileGetPayload<Record<string, never>>;
 
 export async function applyStagedChangeSet(
   actor: HumanActorContext,
-  input: {
-    changeSetId: string;
-    checkpointTitle?: string;
-    expectedRevision: number;
-    workspaceId: string;
-  }
+  input: ApplyStagedChangeSetInput
 ) {
   assertExpectedRevision(input.expectedRevision);
   const result = await prisma.$transaction((tx) =>
-    applyStagedChangeSetTransaction(tx, actor, input)
+    applyStagedChangeSetInTransaction(tx, actor, input)
   );
 
   await materializeWorkspaceMirror({
@@ -116,16 +119,15 @@ export async function getPendingStagedChangeSets(params: {
   return items.map(mapStagedChangeSet);
 }
 
-async function applyStagedChangeSetTransaction(
+export async function applyStagedChangeSetInTransaction(
   tx: Prisma.TransactionClient,
   actor: HumanActorContext,
-  input: {
-    changeSetId: string;
-    checkpointTitle?: string;
-    expectedRevision: number;
-    workspaceId: string;
-  }
+  input: ApplyStagedChangeSetInput
 ) {
+  assertExpectedRevision(input.expectedRevision);
+  if (input.expectedWorkspaceRevision !== undefined) {
+    assertExpectedRevision(input.expectedWorkspaceRevision);
+  }
   await requireOwner(tx, actor);
   const proposal = await getProposal(tx, actor.organizationId, input);
   assertPendingProposal(proposal, input.expectedRevision);
@@ -173,6 +175,9 @@ async function applyStagedChangeSetTransaction(
       draftRevision: proposal.baseDraftRevision!,
       id: workspace.id,
       organizationId: actor.organizationId,
+      ...(input.expectedWorkspaceRevision !== undefined
+        ? { revision: input.expectedWorkspaceRevision }
+        : {}),
     },
     data: {
       content: finalPrimary?.content || '',
@@ -347,15 +352,6 @@ async function createRecoveryCheckpoint(
     workspace: Prisma.DocumentGetPayload<Record<string, never>>;
   }
 ) {
-  const latestVersion = await tx.version.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: input.workspace.id,
-      organizationId: actor.organizationId,
-    },
-    orderBy: { versionNum: 'desc' },
-    select: { id: true },
-  });
   const mappedFiles = input.files.map((file) => mapWorkspaceFileToVersion(mapWorkspaceFile(file)));
   const version = await tx.version.create({
     data: {
@@ -364,7 +360,7 @@ async function createRecoveryCheckpoint(
       documentId: input.workspace.id,
       organizationId: actor.organizationId,
       originDeviceId: actor.deviceId,
-      parentVersionId: latestVersion?.id || null,
+      parentVersionId: input.workspace.draftBaseVersionId,
       sourceSessionId: input.sessionId,
       title: input.title,
       versionNum: input.workspace.currentVersion + 1,
@@ -419,8 +415,14 @@ async function applyFilePatches(
 
     const existing = byId.get(patch.fileId!)!;
     if (patch.operation === 'update') {
-      const updated = await tx.workspaceFile.update({
-        where: { id: existing.id },
+      const update = await tx.workspaceFile.updateMany({
+        where: {
+          deletedAt: null,
+          documentId: workspaceId,
+          id: existing.id,
+          organizationId: actor.organizationId,
+          revision: existing.revision,
+        },
         data: {
           content: patch.nextContent!,
           createdByUserId: actor.userId,
@@ -430,15 +432,31 @@ async function applyFilePatches(
           updatedAt: new Date(),
         },
       });
+      if (update.count !== 1) {
+        proposalConflict(`The proposed file ${patch.name} changed while it was applying.`);
+      }
+      const updated = await tx.workspaceFile.findUnique({ where: { id: existing.id } });
+      if (!updated) {
+        proposalConflict(`The proposed file ${patch.name} is no longer available.`);
+      }
       byId.set(updated.id, updated);
       continue;
     }
 
     const deletedAt = new Date();
-    await tx.workspaceFile.update({
-      where: { id: existing.id },
+    const deletion = await tx.workspaceFile.updateMany({
+      where: {
+        deletedAt: null,
+        documentId: workspaceId,
+        id: existing.id,
+        organizationId: actor.organizationId,
+        revision: existing.revision,
+      },
       data: { deletedAt, originDeviceId: actor.deviceId, revision: { increment: 1 } },
     });
+    if (deletion.count !== 1) {
+      proposalConflict(`The proposed file ${patch.name} changed while it was applying.`);
+    }
     await tx.commentThread.updateMany({
       where: { deletedAt: null, fileId: existing.id, organizationId: actor.organizationId },
       data: { deletedAt, originDeviceId: actor.deviceId, revision: { increment: 1 } },
@@ -453,10 +471,30 @@ async function applyFilePatches(
       .filter((file) => file.type === 'file')
       .sort((left, right) => left.sortOrder - right.sortOrder || left.createdAt.getTime() - right.createdAt.getTime())[0] || null;
     if (primary) {
-      primary = await tx.workspaceFile.update({
-        where: { id: primary.id },
+      const replacementPrimary = primary;
+      const promotion = await tx.workspaceFile.updateMany({
+        where: {
+          deletedAt: null,
+          documentId: workspaceId,
+          id: replacementPrimary.id,
+          organizationId: actor.organizationId,
+          revision: replacementPrimary.revision,
+        },
         data: { isPrimary: true, revision: { increment: 1 } },
       });
+      if (promotion.count !== 1) {
+        proposalConflict(
+          `The replacement primary file ${replacementPrimary.name} changed while it was applying.`
+        );
+      }
+      primary = await tx.workspaceFile.findUnique({
+        where: { id: replacementPrimary.id },
+      });
+      if (!primary) {
+        proposalConflict(
+          `The replacement primary file ${replacementPrimary.name} is no longer available.`
+        );
+      }
       byId.set(primary.id, primary);
     }
   }

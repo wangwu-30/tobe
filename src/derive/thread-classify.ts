@@ -85,14 +85,38 @@ function canMapThreadToCurrentSurface(params: {
 
   if (
     fileSearchableContent !== null &&
-    anchorCandidates.some((candidate) => fileSearchableContent.includes(candidate))
+    anchorCandidates.some((candidate) =>
+      searchableContentIncludesCandidate(fileSearchableContent, candidate)
+    )
   ) {
     return true;
   }
 
   return params.thread.fileId !== null
     ? false
-    : anchorCandidates.some((candidate) => params.combinedSurfaceText.includes(candidate));
+    : anchorCandidates.some((candidate) =>
+        searchableContentIncludesCandidate(params.combinedSurfaceText, candidate)
+      );
+}
+
+function searchableContentIncludesCandidate(
+  searchableContent: string,
+  candidate: string
+) {
+  if (searchableContent.includes(candidate)) {
+    return true;
+  }
+
+  // Plate stores separate blocks as separate text nodes. The extracted surface text
+  // deliberately inserts whitespace between those nodes, while a browser selection
+  // spanning the same blocks can serialize its excerpt without a separator. Remove
+  // whitespace only for this fallback so punctuation and character order still have
+  // to match exactly.
+  const whitespaceInsensitiveCandidate = removeSearchWhitespace(candidate);
+  return (
+    whitespaceInsensitiveCandidate.length > 0 &&
+    removeSearchWhitespace(searchableContent).includes(whitespaceInsensitiveCandidate)
+  );
 }
 
 function collectAnchorCandidates(thread: CommentThreadData) {
@@ -240,6 +264,10 @@ function collectJsonText(value: unknown, target: string[]) {
 
 function normalizeSearchText(value: string) {
   return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function removeSearchWhitespace(value: string) {
+  return value.replace(/\s+/g, '');
 }
 
 function isWebComponentThread(thread: CommentThreadData) {

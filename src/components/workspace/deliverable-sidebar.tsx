@@ -1281,7 +1281,13 @@ export function DeliverableSidebar({
             )}
           </div>
 
-          <ScrollArea className="min-h-0 w-full flex-1 overflow-hidden">
+          <ScrollArea
+            className="min-h-0 w-full flex-1 overflow-hidden"
+            viewportProps={{
+              'aria-label': t('sidebar.projectTree'),
+              tabIndex: 0,
+            }}
+          >
             {collapsed ? (
               <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-3">
                 {currentWorkspaceId && currentProjectId ? (
@@ -1353,7 +1359,7 @@ export function DeliverableSidebar({
                               <div className="truncate text-sm font-medium leading-5">
                                 {project.title}
                               </div>
-                              <div className="truncate text-[11px] text-muted-foreground/80">
+                              <div className="truncate text-[11px] text-muted-foreground">
                                 {!currentWorkspaceId
                                   ? `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`
                                   : currentProjectId === project.id && currentWorkspaceStatusLabel
@@ -1495,7 +1501,7 @@ export function DeliverableSidebar({
                           })}
                         </div>
                         {currentProjectDeliverablePath ? (
-                          <div className="truncate text-[11px] text-muted-foreground/80">
+                          <div className="truncate text-[11px] text-muted-foreground">
                             {currentProjectDeliverablePath}
                           </div>
                         ) : null}

@@ -26,6 +26,10 @@ test('default Project Room has no automated WCAG A or AA violations', async ({
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
   );
   await expect(page.getByTestId('room-feed')).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('node'))
+    .toBe(workspace.id);
+  await expect(page.getByTestId('workspace-start-agent')).toBeEnabled();
   await expectNoAccessibilityViolations(page, 'Project Room');
 });
 

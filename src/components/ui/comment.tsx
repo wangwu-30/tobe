@@ -38,6 +38,7 @@ import {
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/components/providers/language-provider';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +84,7 @@ export function Comment(props: {
   showDocumentContent?: boolean;
   onEditorClick?: () => void;
 }) {
+  const t = useT();
   const {
     comment,
     discussionLength,
@@ -186,7 +188,7 @@ export function Comment(props: {
           {userInfo?.name}
         </h4>
 
-        <div className="text-muted-foreground/80 text-xs leading-none">
+        <div className="text-muted-foreground text-xs leading-none">
           <span className="mr-1">
             {formatCommentDate(new Date(comment.createdAt))}
           </span>
@@ -197,6 +199,7 @@ export function Comment(props: {
           <div className="absolute top-0 right-0 flex space-x-1">
             {index === 0 && (
               <Button
+                aria-label={t('comments.resolve')}
                 variant="ghost"
                 className="h-6 p-1 text-muted-foreground"
                 onClick={onResolveComment}
@@ -251,6 +254,7 @@ export function Comment(props: {
             {isEditing && (
               <div className="ml-auto flex shrink-0 gap-1">
                 <Button
+                  aria-label={t('comments.cancelEditing')}
                   size="icon"
                   variant="ghost"
                   className="size-[28px]"
@@ -265,6 +269,7 @@ export function Comment(props: {
                 </Button>
 
                 <Button
+                  aria-label={t('comments.saveComment')}
                   size="icon"
                   variant="ghost"
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
@@ -293,6 +298,7 @@ function CommentMoreDropdown(props: {
   onCloseAutoFocus?: () => void;
   onRemoveComment?: () => void;
 }) {
+  const t = useT();
   const {
     comment,
     dropdownOpen,
@@ -339,7 +345,11 @@ function CommentMoreDropdown(props: {
       modal={false}
     >
       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-        <Button variant="ghost" className={cn('h-6 p-1 text-muted-foreground')}>
+        <Button
+          aria-label={t('comments.actions')}
+          variant="ghost"
+          className={cn('h-6 p-1 text-muted-foreground')}
+        >
           <MoreHorizontalIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -397,6 +407,7 @@ export function CommentCreateForm({
   discussionId?: string;
   focusOnMount?: boolean;
 }) {
+  const t = useT();
   const discussions = usePluginOption(discussionPlugin, 'discussions');
   const editor = useEditorRef();
   const commentId = useCommentId();
@@ -606,6 +617,7 @@ export function CommentCreateForm({
             />
 
             <Button
+              aria-label={t('comments.sendReply')}
               size="icon"
               variant="ghost"
               className="absolute right-0.5 bottom-0.5 ml-auto size-6 shrink-0"

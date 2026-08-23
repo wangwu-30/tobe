@@ -2,7 +2,7 @@ import {
   ForbiddenError,
   NotFoundError,
   ValidationError,
-} from '@/framework/resilience';
+} from '@/framework/resilience/app-error';
 import { prisma } from '@/lib/db/prisma';
 
 import {

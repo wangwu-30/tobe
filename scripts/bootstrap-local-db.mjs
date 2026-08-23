@@ -15,6 +15,168 @@ const DURABLE_ROOM_DELEGATION_LEDGER_MIGRATION =
   "20260821160000_add_durable_room_delegation_ledger";
 const DOCUMENT_PROPOSAL_CAS_MIGRATION =
   "20260821170000_document_proposal_cas";
+const CANVAS_TABLES_MIGRATION = "20260822010000_add_canvas_tables";
+const CANVAS_TABLES = [
+  {
+    name: "NodeRelation",
+    columns: [
+      {
+        name: "id",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 1,
+      },
+      {
+        name: "organizationId",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: "'local-org'",
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "sourceNodeId",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "targetNodeId",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "kind",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: "'dependency'",
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "createdAt",
+        type: "DATETIME",
+        notNull: true,
+        defaultValue: "CURRENT_TIMESTAMP",
+        primaryKeyPosition: 0,
+      },
+    ],
+    indexes: [
+      {
+        name: "NodeRelation_organizationId_sourceNodeId_idx",
+        columns: ["organizationId", "sourceNodeId"],
+        unique: false,
+      },
+      {
+        name: "NodeRelation_organizationId_targetNodeId_idx",
+        columns: ["organizationId", "targetNodeId"],
+        unique: false,
+      },
+      {
+        name: "NodeRelation_sourceNodeId_targetNodeId_kind_key",
+        columns: ["sourceNodeId", "targetNodeId", "kind"],
+        unique: true,
+      },
+    ],
+    foreignKeys: [
+      {
+        column: "organizationId",
+        referencedColumn: "id",
+        referencedTable: "Organization",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
+      },
+      {
+        column: "sourceNodeId",
+        referencedColumn: "id",
+        referencedTable: "Document",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
+      },
+      {
+        column: "targetNodeId",
+        referencedColumn: "id",
+        referencedTable: "Document",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
+      },
+    ],
+    checks: [],
+  },
+  {
+    name: "ProjectCanvasLayout",
+    columns: [
+      {
+        name: "id",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 1,
+      },
+      {
+        name: "organizationId",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: "'local-org'",
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "projectId",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "x",
+        type: "REAL",
+        notNull: true,
+        defaultValue: "0",
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "y",
+        type: "REAL",
+        notNull: true,
+        defaultValue: "0",
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "updatedAt",
+        type: "DATETIME",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      },
+    ],
+    indexes: [
+      {
+        name: "ProjectCanvasLayout_organizationId_projectId_key",
+        columns: ["organizationId", "projectId"],
+        unique: true,
+      },
+    ],
+    foreignKeys: [
+      {
+        column: "organizationId",
+        referencedColumn: "id",
+        referencedTable: "Organization",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
+      },
+      {
+        column: "projectId",
+        referencedColumn: "id",
+        referencedTable: "Document",
+        onDelete: "CASCADE",
+        onUpdate: "CASCADE",
+      },
+    ],
+    checks: [],
+  },
+];
 const DOCUMENT_PROPOSAL_CAS_COLUMNS = [
   "baseVersionSha256",
   "baseDraftRevision",
@@ -854,6 +1016,14 @@ export const MIGRATION_PROBES = {
     hasCompleteDurableRoomDelegationLedgerSchema(inspector),
   [DOCUMENT_PROPOSAL_CAS_MIGRATION]: async (inspector) =>
     hasCompleteDocumentProposalCasSchema(inspector),
+  [CANVAS_TABLES_MIGRATION]: async (inspector) =>
+    (
+      await Promise.all(
+        CANVAS_TABLES.map((table) =>
+          hasCompleteTableSchema(inspector, table),
+        ),
+      )
+    ).every(Boolean),
 };
 
 async function hasCompleteAgentProfileManagementSchema(inspector) {
@@ -953,10 +1123,26 @@ async function hasCompleteTableSchema(inspector, table) {
     return false;
   }
 
-  const [indexChecks, constraintChecks] = await Promise.all([
+  const [indexChecks, foreignKeyChecks, constraintChecks] = await Promise.all([
     Promise.all(
       table.indexes.map((index) =>
-        inspector.hasIndexOnColumns(table.name, index.columns, index.unique),
+        index.name === undefined
+          ? inspector.hasIndexOnColumns(
+              table.name,
+              index.columns,
+              index.unique,
+            )
+          : inspector.hasNamedIndexOnColumns(
+              table.name,
+              index.name,
+              index.columns,
+              index.unique,
+            ),
+      ),
+    ),
+    Promise.all(
+      (table.foreignKeys ?? []).map((foreignKey) =>
+        inspector.hasForeignKey(table.name, foreignKey),
       ),
     ),
     Promise.all(
@@ -970,7 +1156,7 @@ async function hasCompleteTableSchema(inspector, table) {
     ),
   ]);
 
-  return [...indexChecks, ...constraintChecks].every(Boolean);
+  return [...indexChecks, ...foreignKeyChecks, ...constraintChecks].every(Boolean);
 }
 
 async function hasCompleteTableShapeWithoutChecks(inspector, table) {
@@ -1337,14 +1523,32 @@ function createSchemaInspector(client) {
       );
       const actual = result.rows
         .map((row) => ({
+          defaultValue:
+            row.dflt_value === null || row.dflt_value === undefined
+              ? null
+              : String(row.dflt_value),
           name: typeof row.name === "string" ? row.name : String(row.name ?? ""),
+          notNull: Boolean(Number(row.notnull)),
           position: Number(row.cid),
+          primaryKeyPosition: Number(row.pk),
+          type: String(row.type ?? "").trim().toUpperCase(),
         }))
-        .sort((left, right) => left.position - right.position)
-        .map(({ name }) => name);
+        .sort((left, right) => left.position - right.position);
       return (
         actual.length === columns.length &&
-        actual.every((column, position) => column === columns[position])
+        actual.every((column, position) => {
+          const expected = columns[position];
+          if (typeof expected === "string") {
+            return column.name === expected;
+          }
+          return (
+            column.name === expected.name &&
+            column.type === expected.type.trim().toUpperCase() &&
+            column.notNull === expected.notNull &&
+            column.defaultValue === expected.defaultValue &&
+            column.primaryKeyPosition === expected.primaryKeyPosition
+          );
+        })
       );
     },
     async hasIndex(index) {
@@ -1387,6 +1591,32 @@ function createSchemaInspector(client) {
       }
       return false;
     },
+    async hasNamedIndexOnColumns(table, indexName, columns, unique) {
+      const indexes = await client.execute(
+        `PRAGMA index_list(${quoteSqliteIdentifier(table)})`,
+      );
+      const index = indexes.rows.find(
+        (candidate) => String(candidate.name ?? "") === indexName,
+      );
+      if (!index || Boolean(Number(index.unique)) !== unique) {
+        return false;
+      }
+
+      const indexedColumns = await client.execute(
+        `PRAGMA index_info(${quoteSqliteIdentifier(indexName)})`,
+      );
+      const actual = indexedColumns.rows
+        .map((row) => ({
+          name: typeof row.name === "string" ? row.name : String(row.name ?? ""),
+          sequence: Number(row.seqno),
+        }))
+        .sort((left, right) => left.sequence - right.sequence)
+        .map(({ name }) => name);
+      return (
+        actual.length === columns.length &&
+        actual.every((column, position) => column === columns[position])
+      );
+    },
     async hasForeignKey(table, expected) {
       const foreignKeys = await client.execute(
         `PRAGMA foreign_key_list(${quoteSqliteIdentifier(table)})`,
@@ -1396,11 +1626,13 @@ function createSchemaInspector(client) {
         const referencedTable = String(foreignKey.table ?? "");
         const referencedColumn = String(foreignKey.to ?? "");
         const onDelete = String(foreignKey.on_delete ?? "").toUpperCase();
+        const onUpdate = String(foreignKey.on_update ?? "").toUpperCase();
         return (
           column === expected.column &&
           referencedTable === expected.referencedTable &&
           referencedColumn === expected.referencedColumn &&
-          onDelete === expected.onDelete
+          onDelete === expected.onDelete &&
+          (expected.onUpdate === undefined || onUpdate === expected.onUpdate)
         );
       });
     },

@@ -4,6 +4,8 @@ import type {
   FinalizedGitWorktreeV1,
   GitWorktreePortV1,
   GitWorktreePrepareInputV1,
+  GitWorktreeRecoveryPortV1,
+  GitWorktreeRecoveryStateV1,
   PreparedGitWorktreeV1,
 } from '@/agent/knowledge/contracts';
 
@@ -111,13 +113,23 @@ function coordinatorInput(
   };
 }
 
-class FakeGitWorktreePort implements GitWorktreePortV1 {
+class FakeGitWorktreePort
+  implements GitWorktreePortV1, GitWorktreeRecoveryPortV1
+{
   readonly prepareInputs: GitWorktreePrepareInputV1[] = [];
   readonly finalizeInputs: PreparedGitWorktreeV1[] = [];
   readonly cleanupInputs: PreparedGitWorktreeV1[] = [];
+  readonly inspectRecoveryInputs: PreparedGitWorktreeV1[] = [];
+  readonly recoverSuspendedInputs: PreparedGitWorktreeV1[] = [];
+  readonly discardQuarantinedInputs: PreparedGitWorktreeV1[] = [];
 
   preparedResult: PreparedGitWorktreeV1 = prepared;
   finalizedResult: FinalizedGitWorktreeV1 = changedFinalized;
+  recoveryStateResult: GitWorktreeRecoveryStateV1 = {
+    schemaVersion: 1,
+    state: 'prepared-clean',
+  };
+  recoveredResult: PreparedGitWorktreeV1 = prepared;
 
   async prepare(
     input: GitWorktreePrepareInputV1
@@ -151,6 +163,26 @@ class FakeGitWorktreePort implements GitWorktreePortV1 {
 
   async cleanupOrRecover(receipt: PreparedGitWorktreeV1): Promise<void> {
     this.cleanupInputs.push(receipt);
+  }
+
+  async inspectRecoveryState(
+    receipt: PreparedGitWorktreeV1
+  ): Promise<GitWorktreeRecoveryStateV1> {
+    this.inspectRecoveryInputs.push(receipt);
+    return this.recoveryStateResult;
+  }
+
+  async recoverSuspended(
+    receipt: PreparedGitWorktreeV1
+  ): Promise<PreparedGitWorktreeV1> {
+    this.recoverSuspendedInputs.push(receipt);
+    return this.recoveredResult;
+  }
+
+  async discardQuarantined(
+    receipt: PreparedGitWorktreeV1
+  ): Promise<void> {
+    this.discardQuarantinedInputs.push(receipt);
   }
 }
 
@@ -485,4 +517,52 @@ test('cleanup rejects a skipped stage before invoking Git', async () => {
     })
   ).rejects.toMatchObject({ code: 'invalid-advance' });
   expect(port.cleanupInputs).toEqual([]);
+});
+
+test('forwards recovery inspection using the durable prepared receipt', async () => {
+  const port = new FakeGitWorktreePort();
+  port.recoveryStateResult = { schemaVersion: 1, state: 'prepared-dirty' };
+  const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
+
+  await expect(
+    coordinator.inspectRecoveryState(preparedLifecycle())
+  ).resolves.toEqual({ schemaVersion: 1, state: 'prepared-dirty' });
+  expect(port.inspectRecoveryInputs).toEqual([prepared]);
+});
+
+test('recovers a suspended workspace only when the receipt matches exactly', async () => {
+  const port = new FakeGitWorktreePort();
+  const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
+
+  await expect(
+    coordinator.recoverSuspended(preparedLifecycle())
+  ).resolves.toEqual({
+    lifecycle: preparedLifecycle(),
+    workspace: {
+      uri: 'file:///trusted/worktrees/attempt%20one',
+      revision: BASE,
+    },
+  });
+  expect(port.recoverSuspendedInputs).toEqual([prepared]);
+
+  port.recoveredResult = {
+    ...prepared,
+    worktreePath: '/trusted/worktrees/lookalike',
+  };
+  await expect(
+    coordinator.recoverSuspended(preparedLifecycle())
+  ).rejects.toMatchObject({
+    code: 'invalid-lifecycle',
+    path: 'lifecycle.prepared',
+  });
+  expect(port.recoverSuspendedInputs).toEqual([prepared, prepared]);
+});
+
+test('forwards quarantined discard using the durable prepared receipt', async () => {
+  const port = new FakeGitWorktreePort();
+  const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
+
+  await coordinator.discardQuarantined(preparedLifecycle());
+
+  expect(port.discardQuarantinedInputs).toEqual([prepared]);
 });

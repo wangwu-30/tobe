@@ -12,7 +12,7 @@ import type {
   WorkspaceVersionFileData,
 } from '@/types';
 
-import { isRecoveryWorkspaceState } from './schema';
+import { resolveDraftBaseVersionIdFromLineage } from './schema';
 
 type WorkspaceVersionRecord = Parameters<typeof mapWorkspaceVersion>[0];
 
@@ -90,44 +90,34 @@ export async function resolveDraftBaseVersionIdForVersion(
   params: {
     organizationId: string;
     versionId: string | null;
+    workspaceId: string;
   },
   db: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<string | null> {
-  let currentVersionId = params.versionId;
-
-  while (currentVersionId) {
-    const version = await db.version.findFirst({
-      where: {
-        deletedAt: null,
-        id: currentVersionId,
-        organizationId: params.organizationId,
-      },
-      select: {
-        id: true,
-        labels: {
-          where: {
-            deletedAt: null,
-          },
-          select: {
-            kind: true,
-          },
+  const versions = await db.version.findMany({
+    where: {
+      deletedAt: null,
+      documentId: params.workspaceId,
+      organizationId: params.organizationId,
+    },
+    select: {
+      id: true,
+      labels: {
+        where: {
+          deletedAt: null,
         },
-        parentVersionId: true,
+        select: {
+          kind: true,
+        },
       },
-    });
+      parentVersionId: true,
+    },
+  });
 
-    if (!version) {
-      return null;
-    }
-
-    if (!isRecoveryWorkspaceState(version)) {
-      return version.id;
-    }
-
-    currentVersionId = version.parentVersionId;
-  }
-
-  return null;
+  return resolveDraftBaseVersionIdFromLineage({
+    startVersionId: params.versionId,
+    versions,
+  });
 }
 
 export function findNearestVersionBeforeMessage(params: {

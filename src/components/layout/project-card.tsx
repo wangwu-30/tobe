@@ -65,7 +65,7 @@ export function ProjectCard({
                 </div>
               </div>
               <div
-                className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
+                className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-foreground/70"
                 title={formatStableDateTime(project.updatedAt)}
               >
                 {relativeUpdatedAt}

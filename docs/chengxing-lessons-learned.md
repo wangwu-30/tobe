@@ -1,6 +1,6 @@
 # 成形经验教训台账
 
-更新时间：2026-03-23
+更新时间：2026-08-23
 状态：持续维护中
 相关文档：[项目状态](./chengxing-project-status.md) · [迭代回归门禁](./testing/iteration-regression-plan.md)
 
@@ -845,6 +845,12 @@
 - 为什么：已有项目用户的首要任务是“回到哪个项目、接着做什么”；如果中央区还在重复空态宣言，真正的项目入口就会被迫退到侧栏，首页会失去 project-scoped workspace 的主导航意义。
 - 默认做法：Hero 收成单行说明，项目卡片成为主画面；每张卡片至少同时给出项目名、最近活跃内容、相对时间和继续动作，并统一走 canonical route。
 
+### 92. Web 规范必须同时落成项目能力、窄静态门禁和真实浏览器证据
+
+- 结论：repo-local skill 负责完整审阅方法，scanner 只负责静态可判定的高置信反模式，Chromium、axe 和人工 review 负责动态结果；三者不能互相冒充。
+- 为什么：只有 skill 会依赖人工记忆，只有 scanner 又会制造“静态零告警等于完全合规”的错误结论；一次性外部审阅也无法阻止后续回流。
+- 默认做法：在 `.agents/skills` 注册项目级 skill；scanner fail closed 并置于 static gate 首位；文档明确 scanner 的规则集和非覆盖范围；完整交付结论必须来自所有后续修复完成后的同树 browser gate；若 gate 后工作树继续变化，旧 PASS 自动降级为历史证据，且不得表述为 fully compliant。
+
 ## 技术踩坑记录
 
 ### 1. 富文本文档上做全文替换，可靠性远低于看起来
@@ -1058,7 +1064,57 @@
 - 为什么：route 先变、view 后到是正常时序。如果新路由还没拿到自己的 view，就继续用旧 node 的 file/conversation 派生值，autosave、header create、review/comment 之类动作会把旧上下文写到新 node 上，表现成“切到新内容后还带着上一份文件/对话状态”。
 - 默认做法：先构造 `routeWorkspaceView = workspaceView?.workspace?.id === workspaceId ? workspaceView : null` 这类 route-matched view，再由它统一推导 `currentFile/currentConversation/supportFiles/stagedChangeSets` 等所有依赖当前 node 的运行时状态。
 
+### 37. 发布过的 migration 出现缺表时，只能向前修复
+
+- 结论：不能修改旧 migration 来修复已经记录 applied 的数据库；必须新增时间顺序更晚的 forward migration。
+- 为什么：回写旧 migration 只能修复 fresh database，已部署数据库仍会跳过它，最终形成 fresh 与 upgraded 两套 schema 事实。
+- 默认做法：新 migration 补齐对象；bootstrap probe 核对 exact columns、named index identity/order/unique 和 foreign-key actions，并同时覆盖 legacy upgrade、partial-schema fail-closed、current-schema marking 与 successful second-run inert。
+
+### 38. Comment apply 必须复用 proposal transaction，不能成为旁路 mutation
+
+- 结论：comment proposal、recovery checkpoint、文件/文档 CAS 与 thread transition 必须同生同灭。
+- 为什么：先改源码再单独标记 thread 会留下“文件已变但评论仍 open”，反向顺序则可能出现“评论 applied 但 proposal/checkpoint 不存在”。
+- 默认做法：在同一 transaction 内创建 canonical staged change、apply、checkpoint、推进 revisions 并迁移 thread；用 late-failure injection 证明全量 rollback。mirror 等 projection 留在 commit 后，并明确不属于数据库原子性声明。
+
+### 39. Prior-draft comment 是继承参考，不是当前写权限
+
+- 结论：旧 draft 的活跃评论可以继续展示，但不能直接修改当前源码。
+- 为什么：完全隐藏会丢失尚未完成的 review context；把它当当前 thread 又会让已经漂移的 anchor 获得错误 mutation authority。
+- 默认做法：direct query 锁 exact current revision；prior drafts 单独查询、排序并标 inherited；apply 时重验 workspace/file/thread revision、current draft、open status 和 file binding。
+
+### 40. Draft revision 与 version lineage 必须显式组合
+
+- 结论：旧 draft、父版本和兄弟分支不能按更新时间混成一条继承链，checkpoint parent 也不能偷用“最近创建版本”。
+- 为什么：时间邻近不等于正式祖先关系，会造成兄弟分支评论泄漏、draft base 漂移和错误 parentVersionId。
+- 默认做法：prior draft 先按 revision 新到旧排序，其后仅沿 formal same-workspace parent lineage；missing parent/cycle fail closed；snapshot 绑定 through-revision 的 active unbound threads，future/resolved threads 不动。
+
+### 41. 多 Host exactly-once 必须由真实进程和 crash/restart 证明
+
+- 结论：单进程并发 promise 不能证明跨 Host lease ownership、durable delegation 或故障恢复。
+- 为什么：真正风险位于独立 PID、数据库 CAS、winner crash、lease generation 和 restart replay 的边界。
+- 默认做法：启动两个真实 Host 子进程竞争同 delivery；杀死 winner；重启后断言 source reclaim、target 不重投、duplicate durable block；另证跨 session 并行和 session 内 FIFO。
+
+### 42. Runtime authority 必须同时受 composition、tool scope 和 live fence 约束
+
+- 结论：架构文档里的 Room Session 与 durable Execution 分离，必须在 production composition 中落成。
+- 为什么：如果通用 adapter 能绕过 live lease 或挂载越界工具，stale Host 就可能复用 delegation authority，甚至把 Room 能力误扩展到 Job、document apply 或 knowledge merge。
+- 默认做法：Room Host 只安装 governed Room tools，并从 live lease 解析 owner/generation fence；Execution 继续只走 `generic-cli | trusted external-module`，OpenHands fail closed，human/trusted-worker mutation boundary 单独保留。
+
+### 43. 窄面板里的输入建议层必须避让提交动作，不能覆盖下一行交互目标
+
+- 结论：`@` mention 等 overlay 在靠近 composer 底部触发时，展开方向必须结合相邻动作区选择；候选层可以悬浮，但不能落在发送按钮上方拦截真实指针事件。
+- 为什么：尾部裸 `@` 是合法输入，会立即展开全部候选；若 textarea 下方绝对定位的 listbox 覆盖提交行，界面看似完整，用户和浏览器却都无法点击发送。
+- 默认做法：为建议层提供明确的 `above | below` placement，在底部 composer 使用向上展开，并保留 combobox/listbox 的键盘语义；浏览器门禁必须用真实尾部 `@`、普通 click 和未遮挡的发送按钮证明交互可达。
+
+### 44. disabled 状态解除时，不要让 opacity 动画晚于语义状态
+
+- 结论：共享控件可以用 opacity 表示 disabled，但 disabled -> enabled 时不应继续动画整体 opacity。
+- 为什么：属性解除后控件已可聚焦、可点击，若视觉仍停留在半透明中间帧，用户会看到低对比度的已启用控件，自动化无障碍扫描也会稳定捕获这个真实竞态。
+- 默认做法：disabled 视觉状态可以立即切换；测试等待业务稳定信号（例如 canonical URL 与代表性动作 enabled）后扫描，不使用固定 sleep 掩盖竞态。
+
 ## 最新验证状态
+
+- **Web Agent Collaboration pre-push closure 2026-08-23**：项目级 Web guideline skill 与 fail-closed scanner、Canvas forward migration、atomic proposal/comment apply、prior-draft 与 formal lineage semantics、dual-Host delegation crash/restart、Execution recovery contract、真实尾部 `@` overlay，以及 Canvas layout ACL、workspace-scoped relation delete、retry recovery lease CAS、Canvas bootstrap column contract 四项终审 blocker 均已完成实现修复。01:15、01:51 与 02:05 的 `npm run verify:iteration` 保留为各自旧 fingerprint 的历史 PASS。后续发现 Project Room disabled -> enabled opacity 动画会产生可被 axe 捕获的低对比度中间帧；移除 opacity transition 并按 canonical route/控件 enabled 同步测试后，11:51 完整门禁通过：inventory `69/69`、script contracts `46`、control-plane Playwright `462`、总计 `508`、Chromium `134/134 passed (3.4m)`，两个 WCAG A/AA 用例均通过。只读产品验收结果为 P0 `0`、P1 `0`、P2 `1`、P3 `0`；唯一 P2 是 tldraw production-license watermark，需在正式发布前配置合法 license 或明确接受。最终 delivery 必须在本记录进入 closure commit 后，对精确 clean commit 无编辑复跑完整门禁，再 push 并核对远端 SHA；未授权创建 PR、merge 或 release，也不宣称 fully Web Interface Guidelines compliant。
 
 - **运行时健壮性验收闭环**：`framework/resilience/`、route error page、全局异常监听、`safeJsonParse` / `api client` / `defineRoute` 与相关产品回归，已在 2026-03-22 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed`。
 - **统一工作空间 Step 0.1**：`src/lib/workspace/node.ts` seam、项目级 AI context 和同项目正文读取已在 2026-03-23 通过完整 `npm run verify:iteration` 验证，结果为 `69 passed (3.3m)`。

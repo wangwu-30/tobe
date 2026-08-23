@@ -16,6 +16,7 @@ import {
   WorkspaceCreateActionError,
   type WorkspaceCreateContext,
 } from '@/lib/workspace/create-request';
+import type { WorkspaceAssistantTab } from '@/lib/workspace/route';
 import type { WorkspaceViewData } from '@/types';
 
 import { WorkspaceGoalDialogSurface } from './workspace-route-chrome';
@@ -27,12 +28,14 @@ type OpenProjectDeliverableComposerParams = {
 
 export function useWorkspaceGoalDialogController({
   activeWorkflowPlaybookId,
+  assistant,
   currentConversationId,
   currentProject,
   currentWorkspace,
   workspaceId,
 }: {
   activeWorkflowPlaybookId: string | null;
+  assistant: WorkspaceAssistantTab;
   currentConversationId: string | null;
   currentProject: WorkspaceViewData['currentProject'] | null;
   currentWorkspace: WorkspaceViewData['workspace'] | null;
@@ -192,6 +195,7 @@ export function useWorkspaceGoalDialogController({
         setGoalDialogOpen(false);
         router.push(
           buildCreatedWorkspaceLocation({
+            assistant,
             conversationId: result.conversation.id,
             projectId: result.workspace.projectId || result.workspace.id,
             workspaceId: result.workspace.id,
@@ -221,7 +225,14 @@ export function useWorkspaceGoalDialogController({
         setIsCreatingWorkspace(false);
       }
     },
-    [clearWorkspaceRecoveryState, resetDialogState, router, t, workspaceCreateContext]
+    [
+      assistant,
+      clearWorkspaceRecoveryState,
+      resetDialogState,
+      router,
+      t,
+      workspaceCreateContext,
+    ]
   );
 
   const createNextDeliverableWithWorkflow = React.useCallback(() => {

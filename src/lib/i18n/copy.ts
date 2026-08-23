@@ -111,6 +111,8 @@ const COPY = {
       'The model did not respond in time. Retry once; if it keeps happening, switch model or account in Settings.',
     'comments.aiReply': 'AI Reply',
     'comments.aiReplying': 'AI Replying',
+    'comments.acceptSuggestion': 'Accept Suggestion',
+    'comments.actions': 'Comment Actions',
     'comments.applyAnchorAmbiguous':
       'The original text appears multiple times. Narrow the selection before applying.',
     'comments.applyAnchorMissing':
@@ -121,6 +123,8 @@ const COPY = {
     'comments.applied': 'Applied',
     'comments.appliedToSource': 'Applied to the original file.',
     'comments.applyFailed': 'Could not apply this edit to the original file.',
+    'comments.applyRefreshFailed':
+      'The edit was applied, but this view could not refresh. Reload to see the latest draft.',
     'comments.applyLocating': 'Locating',
     'comments.applyStatusUpdateFailed':
       'Applied to source, but could not move this thread into pending verification.',
@@ -135,6 +139,7 @@ const COPY = {
     'comments.applyToSource': 'Apply to source',
     'comments.commentPlaceholder': 'Tell AI what you want reviewed here…',
     'comments.commentToAi': 'Comment to AI',
+    'comments.cancelEditing': 'Cancel Editing Comment',
     'comments.composerDescription':
       'This request will appear in the review sidebar and can trigger AI replies after you submit.',
     'comments.createFailed': 'Failed to create the comment thread.',
@@ -184,6 +189,7 @@ const COPY = {
       'This thread was applied to source. Resolve it after you verify the change, or leave a follow-up to reopen it.',
     'comments.pendingVerificationThreads': 'Pending Verification ({count})',
     'comments.reopen': 'Needs Work',
+    'comments.rejectSuggestion': 'Reject Suggestion',
     'comments.resolvedMoveToHistory':
       'Resolved threads move into history for this version.',
     'comments.resolve': 'Resolve',
@@ -243,6 +249,8 @@ const COPY = {
     'comments.reviewStateSupersededHint':
       'A newer thread already covers the same anchor, so this inherited thread is secondary context.',
     'comments.sendFollowUp': 'Send',
+    'comments.saveComment': 'Save Comment',
+    'comments.sendReply': 'Send Reply',
     'comments.sendingFollowUp': 'Sending…',
     'comments.stopListeningFailed': 'Could not stop this role from listening.',
     'comments.selectionExpired':
@@ -701,6 +709,7 @@ const COPY = {
       '@assistant The document is aligned. Use the current content as the only source of truth and start working. Explain the plan first, then update the workspace directly. If you hit something you cannot solve independently, publish a team help task.',
     'tasks.blockedPrompt':
       'Briefly describe what is blocking progress so the team can help.',
+    'tasks.board.help': 'On small screens, swipe sideways between columns.',
     'tasks.board.closed': 'Closed',
     'tasks.board.closedDescription': 'Recently archived',
     'tasks.board.progress': 'In Progress',
@@ -713,6 +722,9 @@ const COPY = {
       'Keep execution, help, and review work from people and Agents in one clear queue.',
     'tasks.centerTitle': 'Team Task Center',
     'tasks.clearFilters': 'Clear filters',
+    'tasks.completeConfirm.description':
+      '“{title}” will be moved to Completed. Completed tasks cannot be reopened.',
+    'tasks.completeConfirm.title': 'Complete this task?',
     'tasks.composer.assignee': 'Assignee',
     'tasks.composer.cancel': 'Cancel',
     'tasks.composer.create': 'Create Task',
@@ -748,9 +760,12 @@ const COPY = {
     'tasks.empty.filteredTitle': 'No matching tasks',
     'tasks.empty.title': 'The team queue is empty',
     'tasks.filter.active': 'Active',
+    'tasks.filter.assigneeLabel': 'Filter by assignee',
     'tasks.filter.allAssignees': 'All assignees',
     'tasks.filter.allKinds': 'All types',
     'tasks.filter.allStatuses': 'All statuses',
+    'tasks.filter.kindLabel': 'Filter by type',
+    'tasks.filter.statusLabel': 'Filter by status',
     'tasks.filter.unassigned': 'Unassigned',
     'tasks.fromSource': 'From {title}',
     'tasks.kind.execution': 'Execution',
@@ -797,6 +812,7 @@ const COPY = {
     'tasks.view.boardShort': 'Board',
     'tasks.view.list': 'List view',
     'tasks.view.listShort': 'List',
+    'tasks.view.label': 'Task view',
     'sidebar.deleteProjectConfirm':
       'Delete this project? The current draft, conversations, and recovery points will no longer appear in the workspace list.',
     'sidebar.deleteProject': 'Delete Project',
@@ -1250,6 +1266,8 @@ const COPY = {
       '模型响应超时。可以先重试一次；如果持续出现，请到设置里切换模型或账户。',
     'comments.aiReply': 'AI 回复',
     'comments.aiReplying': 'AI 回复中',
+    'comments.acceptSuggestion': '接受建议',
+    'comments.actions': '评论操作',
     'comments.applyAnchorAmbiguous':
       '原文里出现了多处相同片段，暂时无法安全自动应用。请把选区收窄一些。',
     'comments.applyAnchorMissing': '暂时无法在原文件里安全定位这段原文。',
@@ -1259,6 +1277,8 @@ const COPY = {
     'comments.applied': '已应用',
     'comments.appliedToSource': '已经应用到原文件。',
     'comments.applyFailed': '无法把这次修改应用到原文件。',
+    'comments.applyRefreshFailed':
+      '修改已应用，但当前视图刷新失败。请重新加载以查看最新草稿。',
     'comments.applyLocating': '定位中',
     'comments.applyStatusUpdateFailed':
       '已经应用到原文件，但无法把线程移到待确认区。',
@@ -1271,6 +1291,7 @@ const COPY = {
     'comments.applyToSource': '应用到原文件',
     'comments.commentPlaceholder': '告诉 AI 这里需要怎么处理……',
     'comments.commentToAi': '写给 AI 的评论',
+    'comments.cancelEditing': '取消编辑评论',
     'comments.composerDescription':
       '提交后，这条请求会进入评论侧栏，并可继续触发 AI 回复。',
     'comments.createFailed': '创建评论线程失败。',
@@ -1319,6 +1340,7 @@ const COPY = {
       '这条线程已经应用到原文件。确认修改无误后再解决；如果还要继续改，可以直接补一条追问重新打开它。',
     'comments.pendingVerificationThreads': '待确认（{count}）',
     'comments.reopen': '仍需修改',
+    'comments.rejectSuggestion': '拒绝建议',
     'comments.resolvedMoveToHistory': '已解决的线程会进入当前版本的历史记录。',
     'comments.resolve': '解决',
     'comments.resolveFailed': '无法解决这条线程。',
@@ -1376,6 +1398,8 @@ const COPY = {
     'comments.reviewStateSupersededHint':
       '更新的线程已经覆盖同一锚点，这条继承线程现在只作为次级上下文保留。',
     'comments.sendFollowUp': '发送',
+    'comments.saveComment': '保存评论',
+    'comments.sendReply': '发送回复',
     'comments.sendingFollowUp': '发送中……',
     'comments.stopListeningFailed': '无法停止这个角色的监听。',
     'comments.selectionExpired': '选区已失效，请重新选择内容。',
@@ -1803,6 +1827,7 @@ const COPY = {
     'tasks.agentPrompt':
       '@assistant 文档已经对齐，请以当前内容为唯一事实源开始执行。先说明计划，再直接更新工作区；如果遇到无法独立解决的问题，请发布一条团队求助任务。',
     'tasks.blockedPrompt': '请简要说明当前阻塞点，便于团队接手。',
+    'tasks.board.help': '在小屏幕上，可左右滑动查看各列。',
     'tasks.board.closed': '已结束',
     'tasks.board.closedDescription': '近期归档',
     'tasks.board.progress': '进行中',
@@ -1815,6 +1840,9 @@ const COPY = {
       '集中查看人和 Agent 的执行、求助与评审，让下一步始终清楚。',
     'tasks.centerTitle': '团队任务中心',
     'tasks.clearFilters': '清除筛选',
+    'tasks.completeConfirm.description':
+      '“{title}”将移入已完成。已完成的任务无法重新打开。',
+    'tasks.completeConfirm.title': '确认完成这个任务？',
     'tasks.composer.assignee': '负责人',
     'tasks.composer.cancel': '取消',
     'tasks.composer.create': '创建任务',
@@ -1846,9 +1874,12 @@ const COPY = {
     'tasks.empty.filteredTitle': '没有符合条件的任务',
     'tasks.empty.title': '团队队列还是空的',
     'tasks.filter.active': '进行中',
+    'tasks.filter.assigneeLabel': '按负责人筛选',
     'tasks.filter.allAssignees': '全部负责人',
     'tasks.filter.allKinds': '全部类型',
     'tasks.filter.allStatuses': '全部状态',
+    'tasks.filter.kindLabel': '按类型筛选',
+    'tasks.filter.statusLabel': '按状态筛选',
     'tasks.filter.unassigned': '尚未指派',
     'tasks.fromSource': '来自 {title}',
     'tasks.kind.execution': '执行',
@@ -1895,6 +1926,7 @@ const COPY = {
     'tasks.view.boardShort': '看板',
     'tasks.view.list': '列表视图',
     'tasks.view.listShort': '列表',
+    'tasks.view.label': '任务视图',
     'sidebar.deleteProjectConfirm':
       '确认删除这个项目吗？当前草稿、会话和回退点都会从项目列表中移除。',
     'sidebar.deleteProject': '删除项目',

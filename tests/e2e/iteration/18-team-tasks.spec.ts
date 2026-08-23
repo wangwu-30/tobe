@@ -394,7 +394,8 @@ test("draft execution action fails closed until an immutable version exists", as
     "/workspace/" +
       encodeURIComponent(workspace.id) +
       "?conversationId=" +
-      encodeURIComponent(workspace.conversationId),
+      encodeURIComponent(workspace.conversationId) +
+      "&assistant=status",
   );
 
   const statusTab = page.getByTestId("assistant-tab-status");
@@ -423,7 +424,7 @@ test("draft execution action fails closed until an immutable version exists", as
   ).toBeVisible();
   await expect(
     dialog.getByTestId("workspace-execution-create-version"),
-  ).not.toBeFocused();
+  ).toBeFocused();
   await expect(dialog.getByTestId("workspace-execution-submit")).toBeDisabled();
   expect(submittedGoal).not.toBe("");
   expect(submittedBody).toBeNull();
@@ -553,12 +554,14 @@ test("aligned document action preserves the active chat and its existing draft",
     "/workspace/" +
       encodeURIComponent(workspace.id) +
       "?conversationId=" +
-      encodeURIComponent(workspace.conversationId),
+      encodeURIComponent(workspace.conversationId) +
+      "&assistant=chat",
   );
 
   const chatTab = page.getByTestId("assistant-tab-chat");
   const composerInput = page.getByTestId("agent-composer-input");
-  await chatTab.click();
+  await expect(chatTab).toHaveAttribute("data-state", "active");
+  await expect(composerInput).toBeVisible();
   await composerInput.fill(existingDraft);
   await page.getByTestId("workspace-start-agent").click();
 
@@ -666,6 +669,10 @@ test("/tasks exposes task creation, filters, and visible centralized tasks", asy
   await expect(page.getByTestId("task-status-filter")).toBeVisible();
   await expect(page.getByTestId("task-kind-filter")).toBeVisible();
   await expect(page.getByTestId("task-assignee-filter")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "按状态筛选" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "按类型筛选" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "按负责人筛选" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "任务视图" })).toBeVisible();
   await expect(page.getByText(seeded.title, { exact: true })).toBeVisible();
 
   const uiTitle = `E2E 页面创建 ${suffix}`;
@@ -686,13 +693,62 @@ test("/tasks exposes task creation, filters, and visible centralized tasks", asy
   await expect(page.getByText(uiTitle, { exact: true })).toBeVisible();
 });
 
+test("/tasks confirms terminal task completion and preserves review on cancel", async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = uniqueSuffix(testInfo);
+  const task = await createTask(baseURL, {
+    description: "完成前应由用户明确确认，取消时保持待评审。",
+    kind: "execution",
+    title: `E2E 完成确认 ${suffix}`,
+  });
+
+  await transitionTask(baseURL, task.id, "claimed");
+  await transitionTask(baseURL, task.id, "in_progress");
+  await transitionTask(baseURL, task.id, "review");
+
+  await primeClientState(page);
+  await page.goto("/tasks");
+
+  const action = page.getByTestId(`task-action-${task.id}`);
+  await expect(action).toHaveAccessibleName(`标记完成: ${task.title}`);
+  await action.click();
+
+  const confirmation = page.getByTestId("complete-task-dialog");
+  await expect(confirmation).toBeVisible();
+  await expect(
+    confirmation.getByRole("heading", { name: "确认完成这个任务？" }),
+  ).toBeVisible();
+  await expect(confirmation).toContainText(task.title);
+  await expect(confirmation).toContainText("已完成的任务无法重新打开");
+
+  await confirmation.getByRole("button", { name: "取消" }).click();
+  await expect(confirmation).toBeHidden();
+  const afterCancel = unwrapItem<TeamTask>(
+    await apiRequest<unknown>(baseURL, `/api/tasks/${task.id}`),
+  );
+  expect(afterCancel.status).toBe("review");
+
+  await action.click();
+  await confirmation.getByRole("button", { name: "标记完成" }).click();
+  await expect(confirmation).toBeHidden();
+  await expect(page.getByTestId("tasks-success")).toContainText("已更新为已完成");
+  await expect(page.getByText(task.title, { exact: true })).toHaveCount(0);
+
+  const completed = unwrapItem<TeamTask>(
+    await apiRequest<unknown>(baseURL, `/api/tasks/${task.id}`),
+  );
+  expect(completed.status).toBe("done");
+});
+
 test("/tasks restores shareable filters from URL and falls back invalid params to safe defaults", async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
   const suffix = uniqueSuffix(testInfo);
-  const sharedTitle = `E2E 分享筛选 求助 ${suffix}`;
-  const hiddenTitle = `E2E 分享筛选 执行 ${suffix}`;
+  const sharedTitle = `E2E 分享筛选 ${suffix} 求助`;
+  const hiddenTitle = `E2E 分享筛选 ${suffix} 执行`;
 
   await createTask(baseURL, {
     description: "应当通过 URL 筛选稳定命中这条求助任务。",
@@ -726,6 +782,7 @@ test("/tasks restores shareable filters from URL and falls back invalid params t
 
   await page.goto("/tasks?status=unsafe&kind=unsafe&view=unsafe");
 
+  await expect(page).toHaveURL(/\/tasks$/);
   await expect(page.getByTestId("task-list")).toBeVisible();
   await expect(page.getByTestId("task-board")).toHaveCount(0);
   await expect(page.getByTestId("task-status-filter")).toHaveText("进行中");
@@ -754,7 +811,7 @@ test("/tasks board stays usable on mobile without forcing a full-page 960px canv
   const board = page.getByTestId("task-board");
   await expect(board).toBeVisible();
   await expect(boardRegion).toHaveAttribute("aria-describedby", "task-board-help");
-  await expect(page.getByText("On small screens, swipe sideways between columns.")).toBeVisible();
+  await expect(page.getByText("在小屏幕上，可左右滑动查看各列。")).toBeVisible();
 
   const pageOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,

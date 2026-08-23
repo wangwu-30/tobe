@@ -26,6 +26,7 @@ import { useEditorPlugin, usePluginOption } from 'platejs/react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/components/providers/language-provider';
 import {
   type TDiscussion,
   discussionPlugin,
@@ -84,6 +85,7 @@ export function BlockSuggestionCard({
   isLast: boolean;
   suggestion: ResolvedSuggestion;
 }) {
+  const t = useT();
   const { api, editor } = useEditorPlugin(SuggestionPlugin);
 
   const userInfo = usePluginOption(discussionPlugin, 'user', suggestion.userId);
@@ -127,7 +129,7 @@ export function BlockSuggestionCard({
           <h4 className="mx-2 font-semibold text-sm leading-none">
             {userInfo?.name}
           </h4>
-          <div className="text-muted-foreground/80 text-xs leading-none">
+          <div className="text-muted-foreground text-xs leading-none">
             <span className="mr-1">
               {formatCommentDate(new Date(suggestion.createdAt))}
             </span>
@@ -221,6 +223,7 @@ export function BlockSuggestionCard({
         {hovering && (
           <div className="absolute top-4 right-4 flex gap-2">
             <Button
+              aria-label={t('comments.acceptSuggestion')}
               variant="ghost"
               className="size-6 p-1 text-muted-foreground"
               onClick={() => accept(suggestion)}
@@ -229,6 +232,7 @@ export function BlockSuggestionCard({
             </Button>
 
             <Button
+              aria-label={t('comments.rejectSuggestion')}
               variant="ghost"
               className="size-6 p-1 text-muted-foreground"
               onClick={() => reject(suggestion)}

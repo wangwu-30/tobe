@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { primeClientState, readSeedState } from './helpers';
 
 test('chat surface defaults to light search semantics and keeps deep research inside run cards', async ({
@@ -8,8 +9,16 @@ test('chat surface defaults to light search semantics and keeps deep research in
   const workspace = seedState.researchWorkspace;
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /对话|Chat/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'chat',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   await expect(page.getByRole('button', { name: /深度研究|Deep Research/ })).toBeVisible();
   await expect(page.getByText(/实时网页|Live Web/)).toHaveCount(0);
@@ -49,8 +58,16 @@ test('comment deep research stays concise in-thread and exposes the full report 
   const workspace = seedState.researchWorkspace;
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'review',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  await expect(page.getByTestId('assistant-tab-review')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   const proposalThread = page.getByTestId(
     `comment-thread-${workspace.commentResearchProposalThreadId}`
@@ -82,21 +99,45 @@ test('blocked deep research states expose a direct settings recovery action', as
   const workspace = seedState.researchWorkspace;
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /对话|Chat/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'chat',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   const blockedRunCard = page.getByTestId(`assistant-run-card-${workspace.blockedRunId}`);
   await expect(blockedRunCard).toContainText(/联网研究当前不可用/);
-  await blockedRunCard.getByRole('button', { name: /打开设置|Open Settings/ }).click();
+  const openSettingsLink = blockedRunCard.getByRole('link', {
+    name: /打开设置|Open Settings/,
+  });
+  await expect(openSettingsLink).toHaveAttribute('href', '/settings');
+  await openSettingsLink.click();
   await expect(page).toHaveURL(/\/settings$/);
 
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'review',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
+  await expect(page.getByTestId('assistant-tab-review')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   const blockedThread = page.getByTestId(
     `comment-thread-${workspace.commentResearchBlockedThreadId}`
   );
   await expect(blockedThread).toContainText(/联网研究当前不可用/);
-  await blockedThread.getByRole('button', { name: /设置|Settings/ }).click();
+  const commentSettingsButton = blockedThread.getByRole('button', {
+    name: /设置|Settings/,
+  });
+  await expect(commentSettingsButton).toBeVisible();
+  await commentSettingsButton.click();
   await expect(page).toHaveURL(/\/settings$/);
 });

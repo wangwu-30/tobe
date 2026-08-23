@@ -1,22 +1,21 @@
 import { expect, test } from '@playwright/test';
 import { primeClientState } from './helpers';
 
-test('Knowledge dirty guard covers shell button navigation and restores back and forward', async ({
+test('Knowledge dirty guard covers shell link navigation and restores back and forward', async ({
   page,
 }) => {
   await primeClientState(page);
-  await page.addInitScript(() => {
-    window.localStorage.setItem('dao-sidebar-collapsed', 'true');
-  });
 
   await page.goto('/settings');
-  await page.getByRole('button', { name: 'Knowledge' }).click();
-  await page.getByTestId('knowledge-configuration-tab').click();
+  await page.getByRole('link', { name: 'Knowledge', exact: true }).click();
+  const configurationTab = page.getByTestId('knowledge-configuration-tab');
+  await configurationTab.click();
+  await expect(configurationTab).toHaveAttribute('aria-current', 'page');
   const repoPath = page.getByTestId('knowledge-repo-path');
   await repoPath.fill('/tmp/unsaved-navigation-guard');
 
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('button', { name: '团队任务' }).click();
+  await page.getByRole('link', { name: /团队任务|Team Tasks/ }).click();
   await expect(page).toHaveURL(/\/knowledge\?view=configuration$/);
   await expect(repoPath).toHaveValue('/tmp/unsaved-navigation-guard');
 
@@ -32,7 +31,7 @@ test('Knowledge dirty guard covers shell button navigation and restores back and
   await page.goForward();
   await expect(page).toHaveURL(/\/knowledge\?view=configuration$/);
   await expect(repoPath).toHaveValue('');
-  await page.getByRole('button', { name: '团队任务' }).click();
+  await page.getByRole('link', { name: /团队任务|Team Tasks/ }).click();
   await expect(page).toHaveURL(/\/tasks$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/knowledge\?view=configuration$/);

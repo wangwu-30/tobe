@@ -27,13 +27,13 @@ import {
 import { threadsToDiscussions } from '@/lib/comments/discussion-sync';
 import type { CommentThreadData } from '@/types';
 import { apiFetch } from '@/framework/resilience';
+import {
+  serializeChangedRichTextValue,
+  serializeRichTextForComparison,
+} from '@/components/editor/rich-text-change';
 
 
 const emptyValue: Value = [{ type: 'p', children: [{ text: '' }] }];
-
-function serializeEditorValue(value: Value | null | undefined) {
-  return JSON.stringify(value || emptyValue);
-}
 
 export function EditorWrapper({
   commentSidebarOpen = true,
@@ -91,11 +91,14 @@ export function EditorWrapper({
   primaryActionLabel?: string;
 }) {
   const t = useT();
+  const editorLabelId = React.useId();
   const isLocked = status === 'locked';
   const isReadOnly = readOnlyOverride ?? isLocked;
   const [threads, setThreads] = React.useState<CommentThreadData[]>([]);
   const editorSurfaceRef = React.useRef<HTMLDivElement | null>(null);
-  const lastLoadedContentRef = React.useRef(serializeEditorValue(initialContent));
+  const lastLoadedSemanticContentRef = React.useRef(
+    serializeRichTextForComparison(initialContent)
+  );
   const editorPlaceholder = placeholder || t('workspace.documentPlaceholder');
   const resolvedEmptyTitle = emptyTitle || t('workspace.noDocumentYet');
   const resolvedEmptyDescription =
@@ -131,7 +134,8 @@ export function EditorWrapper({
   );
 
   React.useEffect(() => {
-    lastLoadedContentRef.current = serializeEditorValue(initialContent);
+    lastLoadedSemanticContentRef.current =
+      serializeRichTextForComparison(initialContent);
   }, [initialContent]);
 
   const loadThreads = React.useCallback(async () => {
@@ -252,7 +256,10 @@ export function EditorWrapper({
       >
         <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold truncate max-w-[300px]">
+            <h2
+              id={editorLabelId}
+              className="text-sm font-semibold truncate max-w-[300px]"
+            >
               {title || t('workspace.untitledDocument')}
             </h2>
             <Badge
@@ -309,7 +316,13 @@ export function EditorWrapper({
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <ScrollArea className="min-h-0 min-w-0 flex-1">
+          <ScrollArea
+            className="min-h-0 min-w-0 flex-1"
+            viewportProps={{
+              'aria-labelledby': editorLabelId,
+              tabIndex: 0,
+            }}
+          >
             {documentId ? (
               <Plate
                 editor={editor}
@@ -318,14 +331,18 @@ export function EditorWrapper({
                     return;
                   }
 
-                  const serialized = serializeEditorValue(value);
-                  if (serialized !== lastLoadedContentRef.current) {
+                  const serialized = serializeChangedRichTextValue(
+                    value,
+                    lastLoadedSemanticContentRef.current
+                  );
+                  if (serialized !== null) {
                     onContentChange(serialized);
                   }
                 }}
               >
                 <EditorContainer>
                 <Editor
+                  aria-labelledby={editorLabelId}
                   readOnly={isReadOnly}
                   placeholder={editorPlaceholder}
                 />

@@ -132,7 +132,7 @@ export const DELETE = defineRoute(async function DELETE(
   { params }: { params: Promise<{ workspaceId: string }> }
 ) {
   const actor = await getPlatformContextFromHeaders(req.headers);
-  await params; // consume params
+  const { workspaceId } = await params;
 
   const { searchParams } = new URL(req.url);
   const relationId = searchParams.get('id');
@@ -141,20 +141,23 @@ export const DELETE = defineRoute(async function DELETE(
     return NextResponse.json({ error: 'Relation id is required.' }, { status: 400 });
   }
 
-  const existing = await prisma.nodeRelation.findFirst({
+  const projectNodeScope = {
+    deletedAt: null,
+    organizationId: actor.organizationId,
+    OR: [{ id: workspaceId }, { projectId: workspaceId }],
+  };
+  const deleted = await prisma.nodeRelation.deleteMany({
     where: {
       id: relationId,
       organizationId: actor.organizationId,
+      sourceNode: projectNodeScope,
+      targetNode: projectNodeScope,
     },
   });
 
-  if (!existing) {
+  if (deleted.count === 0) {
     return NextResponse.json({ error: 'Relation not found.' }, { status: 404 });
   }
-
-  await prisma.nodeRelation.delete({
-    where: { id: relationId },
-  });
 
   return NextResponse.json({ ok: true });
 });

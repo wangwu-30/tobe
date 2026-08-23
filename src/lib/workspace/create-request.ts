@@ -7,7 +7,10 @@ import {
   type WorkspaceCreateIntentChoice,
 } from '@/lib/workspace/create-intent';
 import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
-import { buildWorkspaceRoute } from '@/lib/workspace/route';
+import {
+  buildWorkspaceRoute,
+  type WorkspaceAssistantTab,
+} from '@/lib/workspace/route';
 import { apiCallOrThrow, safeJsonParse } from '@/framework/resilience';
 
 
@@ -179,12 +182,14 @@ export function buildWorkspaceCreateRecovery(params: {
 }
 
 export function buildCreatedWorkspaceLocation(params: {
+  assistant?: WorkspaceAssistantTab | null;
   autoStartFirstPass?: boolean;
   conversationId: string;
   projectId?: string | null;
   workspaceId: string;
 }) {
   return buildWorkspaceRoute({
+    assistant: params.assistant,
     autoStartFirstPass: params.autoStartFirstPass,
     conversationId: params.conversationId,
     nodeId: params.workspaceId,

@@ -38,6 +38,8 @@ type SessionSeed = {
   sessionId: string;
 };
 
+const DELEGATION_COMMAND_ENV = 'DAO_ROOM_HOST_TEST_DELEGATION_COMMAND';
+
 test('two independent hosts race one pending delivery and only one responds', async () => {
   test.setTimeout(45_000);
   const fixture = await createFixture('claim-race');
@@ -122,6 +124,246 @@ test('two independent hosts race one pending delivery and only one responds', as
     expect(state.terminalEvents).toEqual([
       expect.objectContaining({ deliveryId: 'claim-delivery-1' }),
     ]);
+  } finally {
+    try {
+      await stopHosts(hosts);
+    } finally {
+      await fixture.dispose();
+    }
+  }
+});
+
+test('two hosts consume one durable delegation once and a crashed source replays without redelivery', async () => {
+  test.setTimeout(60_000);
+  const fixture = await createFixture('durable-delegation');
+  const hosts: HostProcess[] = [];
+  const sourceDeliveryId = 'delegation-source-delivery';
+  const invocationId = 'delegation-process-invocation';
+  const instruction = 'Verify the durable delegation exactly once.';
+  const sourceAgentId = 'delegation-source-agent';
+  const targetAgentId = 'delegation-target-agent';
+  try {
+    await seedRoom(fixture.database, [
+      {
+        agentId: sourceAgentId,
+        deliveries: [
+          {
+            deliveryId: sourceDeliveryId,
+            messageId: 'delegation-root-message',
+            text: '@delegator hand this off exactly once',
+          },
+        ],
+        handle: '@delegator',
+        sessionId: 'delegation-source-session',
+      },
+      {
+        agentId: targetAgentId,
+        deliveries: [],
+        handle: '@delegate',
+        sessionId: 'delegation-target-session',
+      },
+    ]);
+    await seedOnceDelegationGrant(fixture.database, {
+      fromAgentId: sourceAgentId,
+      grantId: 'delegation-once-grant',
+      rootMessageId: 'delegation-root-message',
+      targetAgentId,
+    });
+    const [configA, configB] = await Promise.all([
+      fixture.writeConfig('delegation-host-a', 1),
+      fixture.writeConfig('delegation-host-b', 1),
+    ]);
+    const delegationCommand = {
+      afterConsumeBarrierName: 'delegation-committed',
+      instruction,
+      invocationId,
+      sourceDeliveryId,
+      targetAgentId,
+      userId: USER_ID,
+    };
+    hosts.push(
+      startHost({
+        ...fixture.environment(configA, {
+          name: 'delegation-source-race',
+          participants: 2,
+          phase: 'claim',
+        }),
+        [DELEGATION_COMMAND_ENV]: JSON.stringify(delegationCommand),
+        DAO_ROOM_HOST_TEST_ONLY_SESSION_ID: 'delegation-source-session',
+      }),
+      startHost({
+        ...fixture.environment(configB, {
+          name: 'delegation-source-race',
+          participants: 2,
+          phase: 'claim',
+        }),
+        [DELEGATION_COMMAND_ENV]: JSON.stringify(delegationCommand),
+        DAO_ROOM_HOST_TEST_ONLY_SESSION_ID: 'delegation-source-session',
+      })
+    );
+    await Promise.all(hosts.map((host) => waitForStructuredEvent(host, 'ready')));
+
+    const racers = await waitForArrivals(
+      fixture.barrierDirectory,
+      'delegation-source-race',
+      2,
+      () => Promise.all(hosts.map(describeHost))
+    );
+    expect(new Set(racers.map(({ pid }) => pid))).toEqual(
+      new Set(hosts.map(({ pid }) => pid))
+    );
+    expect(new Set(racers.map(({ roomSessionId }) => roomSessionId))).toEqual(
+      new Set(['delegation-source-session'])
+    );
+    await releaseBarrier(fixture.barrierDirectory, 'delegation-source-race');
+
+    const [committed] = await waitForArrivals(
+      fixture.barrierDirectory,
+      'delegation-committed',
+      1,
+      async () => ({
+        hosts: await Promise.all(hosts.map(describeHost)),
+        state: await readDelegationState(fixture.database, invocationId),
+      })
+    );
+    expect(committed).toMatchObject({
+      delegationStatus: 'accepted',
+      invocationId,
+      roomSessionId: 'delegation-source-session',
+    });
+    const targetDeliveryId = requiredArrivalText(
+      committed.targetDeliveryId,
+      'targetDeliveryId'
+    );
+    const sourceHost = hosts.find(({ pid }) => pid === committed.pid);
+    const losingHost = hosts.find(({ pid }) => pid !== committed.pid);
+    expect(sourceHost).toBeTruthy();
+    expect(losingHost).toBeTruthy();
+    if (!sourceHost || !losingHost) throw new Error('Expected two live Host processes.');
+
+    sourceHost.kill('SIGKILL');
+    expect(await waitForExit(sourceHost, 3_000)).toBe(true);
+    losingHost.kill('SIGTERM');
+    expect(await waitForExit(losingHost, 3_000)).toBe(true);
+    expect(losingHost.exitCode).toBe(0);
+
+    await assertDelegationExactlyOnce(fixture.database, {
+      instruction,
+      invocationId,
+      sourceDeliveryId,
+      targetAgentId,
+      targetDeliveryId,
+    });
+
+    const restartConfig = await fixture.writeConfig('delegation-host-restarted', 1);
+    const restartInvocationId = `${invocationId}-after-restart`;
+    const restarted = startHost({
+      ...fixture.environmentWithoutBarrier(restartConfig),
+      DAO_ROOM_HOST_TEST_BARRIER_DIRECTORY: fixture.barrierDirectory,
+      DAO_ROOM_HOST_TEST_ONLY_SESSION_ID: 'delegation-source-session',
+      [DELEGATION_COMMAND_ENV]: JSON.stringify({
+        ...delegationCommand,
+        afterConsumeBarrierName: 'delegation-replayed',
+        beforeConsumeBarrierName: 'delegation-restart-claimed',
+        invocationId: restartInvocationId,
+      }),
+    });
+    hosts.push(restarted);
+    await waitForStructuredEvent(restarted, 'ready');
+    await waitForArrivals(
+      fixture.barrierDirectory,
+      'delegation-restart-claimed',
+      1,
+      async () => ({
+        restarted: await describeHost(restarted),
+        state: await readRoomState(fixture.database),
+      })
+    );
+    const replayInFlight = await readRoomState(fixture.database);
+    expect(replayInFlight.deliveries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          attempt: 2,
+          deliveryId: sourceDeliveryId,
+          status: 'claimed',
+        }),
+        expect.objectContaining({
+          attempt: 1,
+          deliveryId: targetDeliveryId,
+          status: 'pending',
+        }),
+      ])
+    );
+    await releaseBarrier(
+      fixture.barrierDirectory,
+      'delegation-restart-claimed'
+    );
+    const [replayed] = await waitForArrivals(
+      fixture.barrierDirectory,
+      'delegation-replayed',
+      1,
+      async () => ({
+        restarted: await describeHost(restarted),
+        state: await readDelegationState(fixture.database, invocationId),
+      })
+    );
+    expect(replayed).toMatchObject({
+      delegationStatus: 'blocked',
+      failureCode: 'duplicate-delegation',
+      invocationId: restartInvocationId,
+      pid: restarted.pid,
+    });
+    await assertDelegationExactlyOnce(fixture.database, {
+      instruction,
+      invocationId,
+      sourceDeliveryId,
+      targetAgentId,
+      targetDeliveryId,
+    });
+    const restartState = await readDelegationState(
+      fixture.database,
+      restartInvocationId
+    );
+    expect(restartState.invocations).toEqual([
+      expect.objectContaining({
+        failureCode: 'duplicate-delegation',
+        invocationId: restartInvocationId,
+        status: 'blocked',
+        targetDeliveryId: null,
+      }),
+    ]);
+    await releaseBarrier(fixture.barrierDirectory, 'delegation-replayed');
+    await waitForDeliveryStatuses(
+      fixture.database,
+      [[sourceDeliveryId, 'completed']],
+      async () => ({
+        restarted: await describeHost(restarted),
+        state: await readRoomState(fixture.database),
+      })
+    );
+    await assertDelegationExactlyOnce(fixture.database, {
+      instruction,
+      invocationId,
+      sourceDeliveryId,
+      targetAgentId,
+      targetDeliveryId,
+    });
+
+    const completed = await readRoomState(fixture.database);
+    expect(completed.sessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          generation: 2,
+          leaseOwnerId: null,
+          sessionId: 'delegation-source-session',
+        }),
+        expect.objectContaining({
+          generation: 1,
+          leaseOwnerId: null,
+          sessionId: 'delegation-target-session',
+        }),
+      ])
+    );
   } finally {
     try {
       await stopHosts(hosts);
@@ -327,6 +569,12 @@ async function createFixture(name: string) {
         DAO_ROOM_HOST_TEST_BARRIER_PHASE: barrier.phase,
       };
     },
+    environmentWithoutBarrier(configPath: string) {
+      return {
+        ...baseEnvironment,
+        DAO_ROOM_SESSION_HOST_CONFIG_PATH: configPath,
+      };
+    },
     async writeConfig(workerId: string, maxConcurrentSessions: number) {
       const configPath = path.join(temporaryRoot, `${workerId}.json`);
       await writeFile(
@@ -395,13 +643,17 @@ async function seedRoom(database: Client, sessions: SessionSeed[]) {
       },
       ...sessions.map((session) => ({
         sql: `INSERT INTO "AgentProfile"
-          ("id", "organizationId", "handle", "name", "description", "skillsJson", "enabled", "builtin", "createdAt", "updatedAt")
-          VALUES (?, ?, ?, ?, '', '[]', 1, 0, ?, ?)`,
+          ("id", "organizationId", "handle", "name", "description", "skillsJson", "configJson", "enabled", "builtin", "createdAt", "updatedAt")
+          VALUES (?, ?, ?, ?, '', '[]', ?, 1, 0, ?, ?)`,
         args: [
           session.agentId,
           ORGANIZATION_ID,
           session.handle,
           `Process ${session.agentId}`,
+          JSON.stringify({
+            schemaVersion: 1,
+            room: { configVersion: 1, runtimeId: RUNTIME_ID },
+          }),
           now,
           now,
         ],
@@ -499,6 +751,35 @@ async function seedRoom(database: Client, sessions: SessionSeed[]) {
   );
 }
 
+async function seedOnceDelegationGrant(
+  database: Client,
+  input: {
+    fromAgentId: string;
+    grantId: string;
+    rootMessageId: string;
+    targetAgentId: string;
+  }
+) {
+  const now = new Date();
+  await database.execute({
+    sql: `INSERT INTO "RoomDelegationGrant"
+      ("id", "organizationId", "roomId", "issuedByUserId", "fromAgentId", "targetAgentId", "scope", "status", "rootMessageId", "expiresAt", "hopLimit", "invocationLimit", "invocationCount", "createdAt", "updatedAt")
+      VALUES (?, ?, ?, ?, ?, ?, 'once', 'active', ?, ?, 3, 1, 0, ?, ?)`,
+    args: [
+      input.grantId,
+      ORGANIZATION_ID,
+      ROOM_ID,
+      USER_ID,
+      input.fromAgentId,
+      input.targetAgentId,
+      input.rootMessageId,
+      new Date(now.getTime() + 60_000).toISOString(),
+      now.toISOString(),
+      now.toISOString(),
+    ],
+  });
+}
+
 function messageSequenceFor(
   sessions: SessionSeed[],
   selected: SessionSeed,
@@ -548,10 +829,15 @@ async function waitForArrivals(
     return Promise.all(
       matching.map(async (file) =>
         JSON.parse(await readFile(path.join(directory, file), 'utf8')) as {
+          delegationStatus?: string;
           deliverySequence?: number;
+          deliveryId?: string;
+          failureCode?: string;
+          invocationId?: string;
           participantId: string;
           pid: number;
           roomSessionId: string;
+          targetDeliveryId?: string;
         }
       )
     );
@@ -666,6 +952,200 @@ async function readRoomState(database: Client) {
         deliverySequence: Number(row.deliverySequence),
       };
     }),
+  };
+}
+
+async function assertDelegationExactlyOnce(
+  database: Client,
+  input: {
+    instruction: string;
+    invocationId: string;
+    sourceDeliveryId: string;
+    targetAgentId: string;
+    targetDeliveryId: string;
+  }
+) {
+  const state = await readDelegationState(database, input.invocationId);
+  expect(state.grants).toEqual([
+    expect.objectContaining({
+      consumedByInvocationId: input.invocationId,
+      invocationCount: 1,
+      status: 'consumed',
+    }),
+  ]);
+  expect(state.rootBudgets).toEqual([
+    expect.objectContaining({ invocationCount: 1 }),
+  ]);
+  expect(state.invocations).toEqual([
+    expect.objectContaining({
+      invocationId: input.invocationId,
+      sourceDeliveryId: input.sourceDeliveryId,
+      status: 'accepted',
+      targetAgentId: input.targetAgentId,
+      targetDeliveryId: input.targetDeliveryId,
+    }),
+  ]);
+  expect(state.instructionMessages).toEqual([
+    expect.objectContaining({
+      actorId: 'delegation-source-agent',
+      correlationId: input.invocationId,
+      text: input.instruction,
+    }),
+  ]);
+  expect(state.targetDeliveries).toEqual([
+    expect.objectContaining({
+      attempt: 1,
+      deliveryId: input.targetDeliveryId,
+      status: 'pending',
+    }),
+  ]);
+  expect(state.targetResponses).toEqual([]);
+  expect(state.acceptedEvents).toEqual([
+    expect.objectContaining({ invocationId: input.invocationId }),
+  ]);
+  expect(state.targetTerminalEvents).toEqual([]);
+  expect(state.acceptedOutboxCount).toBe(1);
+}
+
+async function readDelegationState(database: Client, invocationId: string) {
+  const [
+    grants,
+    rootBudgets,
+    invocations,
+    instructionMessages,
+    targetDeliveries,
+    targetResponses,
+    acceptedEvents,
+    targetTerminalEvents,
+    acceptedOutbox,
+    sessionDiagnostics,
+  ] = await Promise.all([
+    database.execute({
+      sql: `SELECT "status", "consumedByInvocationId", "invocationCount"
+        FROM "RoomDelegationGrant" WHERE "roomId" = ?
+        ORDER BY "createdAt", "id"`,
+      args: [ROOM_ID],
+    }),
+    database.execute({
+      sql: `SELECT "rootMessageId", "invocationCount"
+        FROM "RoomDelegationRootBudget" WHERE "roomId" = ?
+        ORDER BY "rootMessageId"`,
+      args: [ROOM_ID],
+    }),
+    database.execute({
+      sql: `SELECT "invocationId", "status", "failureCode", "sourceDeliveryId", "targetAgentId", "targetDeliveryId"
+        FROM "RoomDelegationInvocation"
+        WHERE "roomId" = ? AND "invocationId" = ?`,
+      args: [ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT "actorId", "correlationId", "text" FROM "RoomMessage"
+        WHERE "roomId" = ? AND "correlationId" = ?
+        ORDER BY "sequence"`,
+      args: [ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT delivery."id", delivery."attempt", delivery."status"
+        FROM "RoomInboxDelivery" AS delivery
+        INNER JOIN "RoomDelegationInvocation" AS invocation
+          ON invocation."targetDeliveryId" = delivery."id"
+        WHERE invocation."roomId" = ? AND invocation."invocationId" = ?`,
+      args: [ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT "actorId", "correlationId", "text" FROM "RoomMessage"
+        WHERE "roomId" = ? AND "correlationId" = (
+          SELECT "targetDeliveryId" FROM "RoomDelegationInvocation"
+          WHERE "roomId" = ? AND "invocationId" = ?
+        ) ORDER BY "sequence"`,
+      args: [ROOM_ID, ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT event."id", invocation."invocationId"
+        FROM "RoomEvent" AS event
+        INNER JOIN "RoomDelegationInvocation" AS invocation
+          ON invocation."acceptedEventId" = event."id"
+        WHERE invocation."roomId" = ? AND invocation."invocationId" = ?
+          AND event."type" = 'delegation.accepted'`,
+      args: [ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT json_extract(event."dataJson", '$.deliveryId') AS "deliveryId"
+        FROM "RoomEvent" AS event
+        WHERE event."roomId" = ?
+          AND event."type" = 'room.delivery.completed'
+          AND json_extract(event."dataJson", '$.deliveryId') = (
+            SELECT "targetDeliveryId" FROM "RoomDelegationInvocation"
+            WHERE "roomId" = ? AND "invocationId" = ?
+          )`,
+      args: [ROOM_ID, ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT outbox."id" FROM "RoomOutbox" AS outbox
+        INNER JOIN "RoomDelegationInvocation" AS invocation
+          ON invocation."acceptedEventId" = outbox."dedupeKey"
+        WHERE invocation."roomId" = ? AND invocation."invocationId" = ?`,
+      args: [ROOM_ID, invocationId],
+    }),
+    database.execute({
+      sql: `SELECT "id", "runtimeId", "currentDeliveryId", "leaseOwnerId", "leaseExpiresAt", "status"
+        FROM "RoomAgentSession" WHERE "roomId" = ? ORDER BY "id"`,
+      args: [ROOM_ID],
+    }),
+  ]);
+  return {
+    grants: grants.rows.map((row) => ({
+      consumedByInvocationId:
+        row.consumedByInvocationId === null
+          ? null
+          : String(row.consumedByInvocationId),
+      invocationCount: Number(row.invocationCount),
+      status: String(row.status),
+    })),
+    rootBudgets: rootBudgets.rows.map((row) => ({
+      invocationCount: Number(row.invocationCount),
+      rootMessageId: String(row.rootMessageId),
+    })),
+    invocations: invocations.rows.map((row) => ({
+      failureCode: row.failureCode === null ? null : String(row.failureCode),
+      invocationId: String(row.invocationId),
+      sourceDeliveryId: String(row.sourceDeliveryId),
+      status: String(row.status),
+      targetAgentId: String(row.targetAgentId),
+      targetDeliveryId:
+        row.targetDeliveryId === null ? null : String(row.targetDeliveryId),
+    })),
+    instructionMessages: instructionMessages.rows.map((row) => ({
+      actorId: String(row.actorId),
+      correlationId: String(row.correlationId),
+      text: String(row.text),
+    })),
+    targetDeliveries: targetDeliveries.rows.map((row) => ({
+      attempt: Number(row.attempt),
+      deliveryId: String(row.id),
+      status: String(row.status),
+    })),
+    targetResponses: targetResponses.rows.map((row) => ({
+      actorId: String(row.actorId),
+      correlationId: String(row.correlationId),
+      text: String(row.text),
+    })),
+    acceptedEvents: acceptedEvents.rows.map((row) => ({
+      eventId: String(row.id),
+      invocationId: String(row.invocationId),
+    })),
+    targetTerminalEvents: targetTerminalEvents.rows.map((row) => ({
+      deliveryId: String(row.deliveryId),
+    })),
+    acceptedOutboxCount: acceptedOutbox.rows.length,
+    sessionDiagnostics: sessionDiagnostics.rows.map((row) => ({
+      currentDeliveryId: row.currentDeliveryId,
+      id: row.id,
+      leaseExpiresAt: row.leaseExpiresAt,
+      leaseOwnerId: row.leaseOwnerId,
+      runtimeId: row.runtimeId,
+      status: row.status,
+    })),
   };
 }
 
@@ -803,4 +1283,11 @@ function isSqliteBusy(error: unknown) {
 
 function safeFileSegment(value: string) {
   return value.replace(/[^a-zA-Z0-9_.-]/g, '_');
+}
+
+function requiredArrivalText(value: unknown, field: string) {
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`Barrier arrival did not include ${field}.`);
+  }
+  return value;
 }

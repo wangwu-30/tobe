@@ -453,13 +453,12 @@ export function createPrismaExecutionDaemonStore(
             retryOptions
           );
         }
-        if (!(await hasCurrentRecoveryLease(scopedActor, input))) {
-          return 'fenced';
-        }
         return await retrySqliteBusyV1(
           () => commands.resolveExecutionRecovery(scopedActor, {
             incidentId: input.incidentId,
             attemptId: input.attemptId,
+            workerId: input.workerId,
+            generation: input.generation,
             resolution: input.resolution,
           }),
           retryOptions

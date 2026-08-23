@@ -53,6 +53,7 @@ export function WorkspaceAssistantRail({
   reviewThreads,
   wikiId,
   workspaceId,
+  workspaceRevision,
   value,
 }: {
   activeAssistantRun: AssistantPanelProps['activeAssistantRun'];
@@ -92,6 +93,7 @@ export function WorkspaceAssistantRail({
   reviewThreads: ReviewPanelProps['threads'];
   wikiId: ContextPanelProps['wikiId'];
   workspaceId: string;
+  workspaceRevision: ReviewPanelProps['workspaceRevision'];
   value?: WorkspaceAssistantTab;
 }) {
   const reviewCount = reviewThreads.filter(
@@ -145,6 +147,7 @@ export function WorkspaceAssistantRail({
           refreshThreads={refreshThreads}
           threads={reviewThreads}
           versionId={versionId}
+          workspaceRevision={workspaceRevision}
         />
       }
       chat={

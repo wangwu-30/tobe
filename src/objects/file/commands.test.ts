@@ -7,6 +7,13 @@ import { promisify } from 'node:util';
 import { createClient, type Client } from '@libsql/client';
 import { expect, test } from '@playwright/test';
 import { prisma } from '@/lib/db/prisma';
+import {
+  buildCommentThreadRevisionFilters,
+  buildCommentVersionLineageFilter,
+  orderInheritedCommentThreadCandidates,
+  resolveCommentVersionLineageIds,
+} from '@/lib/comments/thread-query';
+import { bindDraftThreadsToVersion } from '@/lib/comments/version-binding';
 
 import {
   createWorkspaceFile,
@@ -235,6 +242,242 @@ test.describe.serial('ordinary workspace file draft revisions', () => {
     expect(Number(thread.rows[0]?.revision)).toBe(1);
     expect(session.rows[0]?.activeFileId).toBe(PRIMARY_FILE_ID);
   });
+
+  test('binds every active unbound thread through the snapshot revision', async () => {
+    const now = new Date('2026-08-23T09:00:00.000Z');
+    await client.execute({
+      sql: `INSERT INTO "Version"
+              ("id", "organizationId", "documentId", "versionNum", "content",
+               "title", "createdByUserId", "originDeviceId", "revision", "lockedAt")
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?, 1, ?)`,
+      args: [
+        'file-snapshot',
+        ACTOR.organizationId,
+        WORKSPACE_ID,
+        'snapshot content',
+        'File Snapshot',
+        ACTOR.userId,
+        ACTOR.deviceId,
+        now,
+      ],
+    });
+    for (const [id, draftRevision, status] of [
+      ['older-open-thread', 5, 'open'],
+      ['older-applied-thread', 6, 'applied'],
+      ['future-thread', 8, 'open'],
+      ['resolved-thread', 4, 'resolved'],
+    ] as const) {
+      await client.execute({
+        sql: `INSERT INTO "CommentThread"
+                ("id", "organizationId", "documentId", "fileId", "anchorText",
+                 "draftRevision", "status", "createdByUserId", "originDeviceId",
+                 "revision", "createdAt", "updatedAt")
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        args: [
+          id,
+          ACTOR.organizationId,
+          WORKSPACE_ID,
+          PRIMARY_FILE_ID,
+          id,
+          draftRevision,
+          status,
+          ACTOR.userId,
+          ACTOR.deviceId,
+          now,
+          now,
+        ],
+      });
+    }
+
+    await bindDraftThreadsToVersion(
+      WORKSPACE_ID,
+      'file-snapshot',
+      INITIAL_DRAFT_REVISION,
+      ACTOR.organizationId
+    );
+
+    const result = await client.execute({
+      sql: `SELECT "id", "revision", "versionId"
+            FROM "CommentThread"
+            ORDER BY "id" ASC`,
+    });
+    const threads = Object.fromEntries(
+      result.rows.map((row) => [
+        String(row.id),
+        { revision: Number(row.revision), versionId: row.versionId ?? null },
+      ])
+    );
+
+    expect(threads).toMatchObject({
+      'file-thread': { revision: 2, versionId: 'file-snapshot' },
+      'older-applied-thread': { revision: 2, versionId: 'file-snapshot' },
+      'older-open-thread': { revision: 2, versionId: 'file-snapshot' },
+      'future-thread': { revision: 1, versionId: null },
+      'resolved-thread': { revision: 1, versionId: null },
+    });
+  });
+});
+
+test.describe('comment thread draft revision query contract', () => {
+
+  test('keeps current direct threads separate from older draft candidates', () => {
+    expect(
+      buildCommentThreadRevisionFilters({
+        currentDraftRevision: 8,
+        draftOnly: true,
+        inheritedVersionIds: ['ancestor-version'],
+        versionId: null,
+      })
+    ).toEqual({
+      direct: { draftRevision: 8, versionId: null },
+      inheritedVersion: {
+        status: { in: ['open', 'applied'] },
+        versionId: { in: ['ancestor-version'] },
+      },
+      priorDraft: {
+        draftRevision: { lt: 8 },
+        status: { in: ['open', 'applied'] },
+        versionId: null,
+      },
+    });
+  });
+
+  test('keeps version views scoped to the selected version and supplied lineage', () => {
+    expect(
+      buildCommentThreadRevisionFilters({
+        currentDraftRevision: null,
+        draftOnly: false,
+        inheritedVersionIds: ['ancestor-version'],
+        versionId: 'selected-version',
+      })
+    ).toEqual({
+      direct: { versionId: 'selected-version' },
+      inheritedVersion: {
+        status: { in: ['open', 'applied'] },
+        versionId: { in: ['ancestor-version'] },
+      },
+      priorDraft: null,
+    });
+  });
+
+  test('orders newer prior drafts before older drafts and version lineage', () => {
+    const candidate = (
+      id: string,
+      draftRevision: number | null,
+      versionId: string | null,
+      updatedAt: string
+    ) => ({
+      createdAt: new Date('2026-08-22T09:00:00.000Z'),
+      draftRevision,
+      id,
+      updatedAt: new Date(updatedAt),
+      versionId,
+    });
+
+    const ordered = orderInheritedCommentThreadCandidates({
+      inheritedVersionIds: ['parent-version', 'grandparent-version'],
+      priorDraftThreads: [
+        candidate('draft-6', 6, null, '2026-08-22T11:00:00.000Z'),
+        candidate('draft-7', 7, null, '2026-08-22T10:00:00.000Z'),
+      ],
+      versionThreads: [
+        candidate('grandparent', null, 'grandparent-version', '2026-08-22T12:00:00.000Z'),
+        candidate('parent', null, 'parent-version', '2026-08-22T09:30:00.000Z'),
+      ],
+    });
+
+    expect(ordered.map((thread) => thread.id)).toEqual([
+      'draft-7',
+      'draft-6',
+      'parent',
+      'grandparent',
+    ]);
+  });
+
+  test('uses thread id as the final deterministic candidate ordering key', () => {
+    const timestamp = new Date('2026-08-23T10:00:00.000Z');
+    const ordered = orderInheritedCommentThreadCandidates({
+      inheritedVersionIds: ['parent-version'],
+      priorDraftThreads: [
+        {
+          createdAt: timestamp,
+          draftRevision: 7,
+          id: 'draft-z',
+          updatedAt: timestamp,
+          versionId: null,
+        },
+        {
+          createdAt: timestamp,
+          draftRevision: 7,
+          id: 'draft-a',
+          updatedAt: timestamp,
+          versionId: null,
+        },
+      ],
+      versionThreads: [
+        {
+          createdAt: timestamp,
+          draftRevision: null,
+          id: 'version-z',
+          updatedAt: timestamp,
+          versionId: 'parent-version',
+        },
+        {
+          createdAt: timestamp,
+          draftRevision: null,
+          id: 'version-a',
+          updatedAt: timestamp,
+          versionId: 'parent-version',
+        },
+      ],
+    });
+
+    expect(ordered.map((thread) => thread.id)).toEqual([
+      'draft-a',
+      'draft-z',
+      'version-a',
+      'version-z',
+    ]);
+  });
+
+  test('keeps lineage inside the workspace and fails closed on missing parents or cycles', () => {
+    expect(
+      buildCommentVersionLineageFilter({
+        organizationId: 'file-org',
+        workspaceId: 'file-workspace',
+      })
+    ).toEqual({
+      deletedAt: null,
+      documentId: 'file-workspace',
+      organizationId: 'file-org',
+    });
+
+    const versions = [
+      { id: 'selected', parentVersionId: 'parent' },
+      { id: 'parent', parentVersionId: 'root' },
+      { id: 'root', parentVersionId: null },
+      { id: 'sibling', parentVersionId: 'root' },
+    ];
+    expect(
+      resolveCommentVersionLineageIds({ startVersionId: 'selected', versions })
+    ).toEqual(['selected', 'parent', 'root']);
+    expect(
+      resolveCommentVersionLineageIds({
+        startVersionId: 'selected',
+        versions: versions.filter((version) => version.id !== 'parent'),
+      })
+    ).toEqual([]);
+    expect(
+      resolveCommentVersionLineageIds({
+        startVersionId: 'cycle-a',
+        versions: [
+          { id: 'cycle-a', parentVersionId: 'cycle-b' },
+          { id: 'cycle-b', parentVersionId: 'cycle-a' },
+        ],
+      })
+    ).toEqual([]);
+  });
+
 });
 
 async function rejectDraftRevisionUpdates() {

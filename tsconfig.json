@@ -44,6 +44,7 @@
     "vite.room-backend-test.config.mts",
     "vite.room-session-host.config.mts",
     "vite.room-tool-confirmation-test.config.mts",
+    "vite.staged-changes-test.config.mts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     ".tmp/iteration-regression/next-dist/types/**/*.ts",

@@ -17,6 +17,7 @@ type CommentAgentTextareaProps = Omit<
 > & {
   agents: CommentAgentConfigData[];
   onChange: (value: string) => void;
+  suggestionsPlacement?: 'above' | 'below';
   value: string;
 };
 
@@ -47,7 +48,15 @@ export const CommentAgentTextarea = React.forwardRef<
   HTMLTextAreaElement,
   CommentAgentTextareaProps
 >(function CommentAgentTextarea(
-  { agents, className, onChange, onKeyDown, value, ...props },
+  {
+    agents,
+    className,
+    onChange,
+    onKeyDown,
+    suggestionsPlacement = 'below',
+    value,
+    ...props
+  },
   forwardedRef
 ) {
   const innerRef = React.useRef<HTMLTextAreaElement | null>(null);
@@ -164,7 +173,12 @@ export const CommentAgentTextarea = React.forwardRef<
       {mentionState && visibleAgents.length > 0 ? (
         <div
           aria-label="Comment agent suggestions"
-          className="absolute left-0 right-0 top-full z-20 mt-2 overflow-hidden rounded-2xl border border-border/80 bg-background shadow-xl"
+          className={cn(
+            'absolute left-0 right-0 z-20 overflow-hidden rounded-2xl border border-border/80 bg-background shadow-xl',
+            suggestionsPlacement === 'above'
+              ? 'bottom-full mb-2'
+              : 'top-full mt-2'
+          )}
           id={listboxId}
           role="listbox"
         >

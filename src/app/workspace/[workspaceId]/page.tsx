@@ -126,6 +126,12 @@ function WorkspacePageContent() {
     error: { detail: string; message: string; retryable: boolean; kind: string };
     retryFn?: () => void;
   } | null>(null);
+  const handleChatErrorChange = React.useCallback((
+    error: { detail: string; message: string; retryable: boolean; kind: string } | null,
+    retryFn?: () => void
+  ) => {
+    setChatError(error ? { error, retryFn } : null);
+  }, []);
   const promptedRecoveryPointRef = React.useRef<string | null>(null);
   const autoStartedFirstPassRef = React.useRef<string | null>(null);
 
@@ -147,6 +153,7 @@ function WorkspacePageContent() {
   } = useWorkspaceGoalDialogController({
     activeWorkflowPlaybookId:
       routeWorkspaceView?.workspacePlan?.activeWorkflowPlaybookId || null,
+    assistant: requestedAssistantTab,
     currentConversationId:
       routeWorkspaceView?.currentConversation?.id || requestedConversationId || null,
     currentProject,
@@ -694,7 +701,7 @@ function WorkspacePageContent() {
       onApplyWorkflow={workspaceId ? applyWorkflowPlaybook : undefined}
       onBranchConversation={branchFromMessage}
       onBusyChange={setIsAssistantBusy}
-      onChatErrorChange={(error, retryFn) => setChatError(error ? { error, retryFn } : null)}
+      onChatErrorChange={handleChatErrorChange}
       onConversationComplete={handleConversationComplete}
       onCreateNextDeliverable={createNextDeliverableWithWorkflow}
       onOpenFile={handleOpenWorkspaceFile}
@@ -730,6 +737,7 @@ function WorkspacePageContent() {
       reviewThreads={reviewThreads}
       wikiId={workspaceId}
       workspaceId={workspaceId}
+      workspaceRevision={currentWorkspace?.revision || null}
       value={requestedAssistantTab}
     />
   );

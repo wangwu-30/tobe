@@ -81,32 +81,6 @@ export async function createWorkspaceVersion(
   const files = await ensureWorkspaceFiles(actor.organizationId, workspace.id);
   const mappedFiles = files.map(mapWorkspaceFile);
   const primaryFile = resolvePrimaryFile(files);
-  const [latestVersion, latestVisibleVersion] = await Promise.all([
-    prisma.version.findFirst({
-      where: {
-        deletedAt: null,
-        documentId: workspace.id,
-        organizationId: actor.organizationId,
-      },
-      orderBy: { versionNum: 'desc' },
-    }),
-    isRecovery
-      ? Promise.resolve(null)
-      : prisma.version.findFirst({
-          where: {
-            deletedAt: null,
-            documentId: workspace.id,
-            organizationId: actor.organizationId,
-            labels: {
-              some: {
-                deletedAt: null,
-                kind: 'milestone',
-              },
-            },
-          },
-          orderBy: { versionNum: 'desc' },
-        }),
-  ]);
   const versionTitle = input.title?.trim() || workspace.title;
 
   const nextVersion = workspace.currentVersion + 1;
@@ -116,6 +90,23 @@ export async function createWorkspaceVersion(
   });
 
   const version = await prisma.$transaction(async (tx) => {
+    let parentVersionId: string | null = null;
+    if (workspace.draftBaseVersionId) {
+      const draftBaseVersion = await tx.version.findFirst({
+        where: {
+          deletedAt: null,
+          documentId: workspace.id,
+          id: workspace.draftBaseVersionId,
+          organizationId: actor.organizationId,
+        },
+        select: { id: true },
+      });
+      if (!draftBaseVersion) {
+        throw new Error('Workspace draft base version not found.');
+      }
+      parentVersionId = draftBaseVersion.id;
+    }
+
     const created = await tx.version.create({
       data: {
         organizationId: actor.organizationId,
@@ -123,10 +114,7 @@ export async function createWorkspaceVersion(
         versionNum: nextVersion,
         content: versionContent,
         title: versionTitle,
-        parentVersionId:
-          isRecovery
-            ? latestVersion?.id || null
-            : latestVisibleVersion?.id || null,
+        parentVersionId,
         sourceSessionId: input.sourceConversationId || null,
         sourceMessageId: input.sourceMessageId || null,
         createdByUserId: actor.userId,
@@ -135,13 +123,13 @@ export async function createWorkspaceVersion(
     });
 
     if (!isRecovery) {
-      if (latestVisibleVersion?.id) {
+      if (parentVersionId) {
         await tx.label.updateMany({
           where: {
             deletedAt: null,
             kind: 'head',
             organizationId: actor.organizationId,
-            versionId: latestVisibleVersion.id,
+            versionId: parentVersionId,
           },
           data: {
             deletedAt: new Date(),
@@ -188,8 +176,16 @@ export async function createWorkspaceVersion(
       });
     }
 
-    await tx.document.update({
-      where: { id: workspace.id },
+    const documentUpdate = await tx.document.updateMany({
+      where: {
+        currentVersion: workspace.currentVersion,
+        deletedAt: null,
+        draftBaseVersionId: workspace.draftBaseVersionId,
+        draftRevision: workspace.draftRevision,
+        id: workspace.id,
+        organizationId: actor.organizationId,
+        revision: workspace.revision,
+      },
       data: {
         currentVersion: nextVersion,
         draftRevision: {
@@ -203,17 +199,22 @@ export async function createWorkspaceVersion(
         ...(isRecovery ? {} : { draftBaseVersionId: created.id }),
       },
     });
+    if (documentUpdate.count !== 1) {
+      throw new Error('Workspace changed while creating the version.');
+    }
+
+    if (shouldBindDraftThreads) {
+      await deps.bindDraftThreadsToVersion(
+        workspace.id,
+        created.id,
+        workspace.draftRevision,
+        actor.organizationId,
+        tx
+      );
+    }
 
     return created;
   });
-
-  if (shouldBindDraftThreads) {
-    await deps.bindDraftThreadsToVersion(
-      workspace.id,
-      version.id,
-      workspace.draftRevision
-    );
-  }
 
   await deps.recordSyncEvent({
     actorUserId: actor.userId,
@@ -444,6 +445,7 @@ export async function restoreWorkspaceVersion(
   const draftBaseVersionId = await resolveDraftBaseVersionIdForVersion({
     organizationId: actor.organizationId,
     versionId: version.id,
+    workspaceId: input.workspaceId,
   });
   const safetyCheckpoint = await createWorkspaceVersion(
     actor,

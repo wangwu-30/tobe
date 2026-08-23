@@ -1,7 +1,10 @@
 import type { Api, Model } from '@mariozechner/pi-ai';
 
 import type { AgentTool } from '@mariozechner/pi-agent-core';
-import type { RoomAgentToolIdentityPortV1 } from '@/agent/tools/room-tools';
+import type {
+  RoomAgentDelegationSourceFenceV1,
+  RoomAgentToolIdentityPortV1,
+} from '@/agent/tools/room-tools';
 import type { AgentToolConfirmationAuthority } from '@/agent/tool-policy';
 import { PiRoomSessionRuntimeAdapterV1 } from '@/agent/room-runtime/adapters/pi-agent-core';
 
@@ -14,6 +17,9 @@ type PiRoomRuntimeDependenciesV1 = {
     session: Parameters<RoomAgentToolIdentityPortV1['resolve']>[0];
   }) => AgentToolConfirmationAuthority;
   identity?: RoomAgentToolIdentityPortV1;
+  resolveSourceFence?: (
+    session: Parameters<RoomAgentToolIdentityPortV1['resolve']>[0]
+  ) => Promise<RoomAgentDelegationSourceFenceV1>;
   resolveApiKey?: (providerId: string) => Promise<string | undefined>;
   resolveModel?: (providerId: string, modelId: string) => Model<Api>;
   createTools?: (input: {
@@ -52,7 +58,9 @@ export function createConfiguredPiRoomRuntimeV1(
       const createTools =
         dependencies.createTools ??
         (await import('@/agent/tools/room-tools')).createRoomAgentToolsV1;
-      const sourceFence = await resolveRoomAgentToolSourceFenceV1(session);
+      const sourceFence = await (
+        dependencies.resolveSourceFence ?? resolveRoomAgentToolSourceFenceV1
+      )(session);
       const confirmationAuthority =
         dependencies.confirmationAuthority ??
         (dependencies.createConfirmationAuthority

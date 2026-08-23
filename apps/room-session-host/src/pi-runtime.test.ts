@@ -21,6 +21,7 @@ const MODEL: Model<Api> = {
 };
 
 test('production Pi composition resolves credentials and attaches only Room tools', async () => {
+  let sourceFenceSession: ReturnType<typeof openInput>['session'] | undefined;
   const runtime = createConfiguredPiRoomRuntimeV1(
     {
       driver: 'pi-agent-core',
@@ -51,6 +52,10 @@ test('production Pi composition resolves credentials and attaches only Room tool
       },
       resolveApiKey: async (provider) => `key-for-${provider}`,
       resolveModel: () => MODEL,
+      resolveSourceFence: async (session) => {
+        sourceFenceSession = session;
+        return { generation: 1, workerId: 'worker-1' };
+      },
       createConfirmationAuthority: () => ({
         consumeConfirmation: () => false,
       }),
@@ -71,6 +76,7 @@ test('production Pi composition resolves credentials and attaches only Room tool
 
   await runtime.open(openInput());
 
+  expect(sourceFenceSession).toEqual(openInput().session);
   const initialState = options?.initialState;
   expect(initialState).toBeDefined();
   if (!initialState) throw new Error('Expected Pi initial state.');
@@ -126,6 +132,10 @@ test('production Pi composition creates a confirmation authority from trusted se
       },
       resolveApiKey: async () => 'test-key',
       resolveModel: () => MODEL,
+      resolveSourceFence: async () => ({
+        generation: 1,
+        workerId: 'worker-1',
+      }),
       createConfirmationAuthority(input) {
         factoryInput = input;
         return { consumeConfirmation: () => true };

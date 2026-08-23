@@ -84,7 +84,9 @@ test.describe('Agent management', () => {
       'must stay enabled'
     );
     await expect(builtinDialog.getByLabel('Handle')).toHaveAttribute('readonly', '');
-    await expect(builtinDialog.getByRole('switch', { name: /Availability Enabled/ })).toBeDisabled();
+    await expect(
+      builtinDialog.getByRole('switch', { name: 'Availability', exact: true })
+    ).toBeDisabled();
     await builtinDialog.getByRole('button', { name: 'Cancel' }).click();
 
     await page.getByTestId('create-agent-button').click();
@@ -202,7 +204,7 @@ test.describe('Agent management', () => {
     );
     await expect(builtinDialog.getByLabel('Handle')).toHaveAttribute('readonly', '');
     await expect(
-      builtinDialog.getByRole('switch', { name: /Availability Enabled/ })
+      builtinDialog.getByRole('switch', { name: 'Availability', exact: true })
     ).toBeDisabled();
     await builtinDialog.getByRole('button', { name: 'Cancel' }).click();
 
@@ -428,7 +430,9 @@ test.describe('Agent management', () => {
       expect(confirmation.message()).toBe('You have unsaved agent changes. Discard them?');
       await confirmation.dismiss();
     });
-    await page.getByRole('link', { name: 'Knowledge' }).click();
+    await page.locator('a[href="/knowledge"]').evaluate((link: HTMLAnchorElement) => {
+      link.click();
+    });
     await expect(page).toHaveURL(/\/agents$/);
     await expect(dialog).toBeVisible();
 
@@ -440,11 +444,19 @@ test.describe('Agent management', () => {
   test('contains long runtime identifiers and exposes only one loading status source', async ({
     page,
   }) => {
-    await mockAgentApi(page);
+    const api = await mockAgentApi(page, { deferInitialList: true });
     await primeClientState(page);
     await page.goto('/agents');
 
-    await expect(page.locator('[role="status"]', { hasText: 'Loading agents.' })).toHaveCount(1);
+    await api.initialListRequested;
+    try {
+      const loadingStatus = page.locator('[role="status"]', { hasText: 'Loading agents.' });
+      await expect(loadingStatus).toHaveCount(1);
+      await expect(page.getByTestId('agent-list-status')).toHaveText('Loading agents.');
+    } finally {
+      api.releaseInitialList();
+    }
+    await expect(page.getByTestId('create-agent-button')).toBeVisible();
     await page.getByTestId('create-agent-button').click();
     const dialog = page.getByTestId('agent-editor-dialog');
     await dialog.getByTestId('agent-runtime-details').click();
@@ -457,7 +469,10 @@ test.describe('Agent management', () => {
   });
 });
 
-async function mockAgentApi(page: Page) {
+async function mockAgentApi(
+  page: Page,
+  options?: { deferInitialList?: boolean }
+) {
   const now = '2026-08-21T12:00:00.000Z';
   const agents: Agent[] = [
     {
@@ -481,12 +496,26 @@ async function mockAgentApi(page: Page) {
   ];
   const listUrls: string[] = [];
   const mutations: Array<{ method: string; pathname: string; payload: Record<string, unknown> }> = [];
+  let markInitialListRequested!: () => void;
+  let releaseInitialList!: () => void;
+  const initialListRequested = new Promise<void>((resolve) => {
+    markInitialListRequested = resolve;
+  });
+  const initialListGate = new Promise<void>((resolve) => {
+    releaseInitialList = resolve;
+  });
 
   await page.route('**/api/agents**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
     if (request.method() === 'GET' && url.pathname === '/api/agents') {
       listUrls.push(url.toString());
+      if (listUrls.length === 1) {
+        markInitialListRequested();
+        if (options?.deferInitialList) {
+          await initialListGate;
+        }
+      }
       await json(route, 200, {
         agents,
         permissions: { canManage: true },
@@ -532,7 +561,7 @@ async function mockAgentApi(page: Page) {
     await route.fallback();
   });
 
-  return { agents, listUrls, mutations };
+  return { agents, initialListRequested, listUrls, mutations, releaseInitialList };
 }
 
 function fromMutation(

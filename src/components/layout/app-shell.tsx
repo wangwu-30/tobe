@@ -354,7 +354,13 @@ function WorkspaceSidebar({
           )}
         </div>
 
-        <ScrollArea className="min-h-0 w-full flex-1 overflow-hidden">
+        <ScrollArea
+          className="min-h-0 w-full flex-1 overflow-hidden"
+          viewportProps={{
+            'aria-label': t('sidebar.projects'),
+            tabIndex: 0,
+          }}
+        >
           {collapsed ? (
             <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-3">
               {isLoading ? (
@@ -417,7 +423,7 @@ function WorkspaceSidebar({
                             <div className="truncate text-sm font-medium leading-5">
                               {project.title}
                             </div>
-                            <div className="truncate text-[11px] text-muted-foreground/80">
+                            <div className="truncate text-[11px] text-muted-foreground">
                               {currentWorkspaceId
                                 ? formatProjectListMeta(project, t)
                                 : `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`}

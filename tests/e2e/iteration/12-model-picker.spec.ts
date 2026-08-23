@@ -57,26 +57,25 @@ test('ChatInput compact ModelPicker renders the current selection inside the wor
 
   const comboboxes = composer.getByRole('combobox');
   await expect(comboboxes).toHaveCount(2);
-  const providerCombobox = comboboxes.first();
-  const modelCombobox = comboboxes.nth(1);
+  const providerCombobox = composer.getByRole('combobox', {
+    name: 'Provider',
+    exact: true,
+  });
+  const modelCombobox = composer.getByRole('combobox', { name: /模型|Model/ });
 
   await expect(providerCombobox).toBeVisible();
   await expect(modelCombobox).toBeVisible();
   await expect(providerCombobox).toHaveAccessibleName(/Provider/);
   await expect(modelCombobox).toHaveAccessibleName(/模型|Model/);
-  await expect(composer.locator('select[name="chatModelProvider"]')).toHaveAttribute(
-    'autocomplete',
-    'off'
-  );
-  await expect(composer.locator('select[name="chatModelModel"]')).toHaveAttribute(
-    'autocomplete',
-    'off'
-  );
+  await expect(providerCombobox).toHaveAttribute('aria-autocomplete', 'none');
+  await expect(modelCombobox).toHaveAttribute('aria-autocomplete', 'none');
   const researchButton = page.getByRole('button', { name: /深度研究|Deep Research/ });
   await expect(researchButton).toBeVisible();
   await expect(researchButton).toHaveAttribute('aria-pressed', 'false');
   await researchButton.click();
   await expect(researchButton).toHaveAttribute('aria-pressed', 'true');
+  await researchButton.click();
+  await expect(researchButton).toHaveAttribute('aria-pressed', 'false');
 
   const messageInput = composer.getByRole('textbox', {
     name: /给 Agent 发消息|Message Agent/,

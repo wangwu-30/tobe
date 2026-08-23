@@ -6,6 +6,84 @@ import {
   iterationGateSteps,
   runIterationGate,
 } from './verify-iteration.mjs';
+import { runStaticGate, staticGateSteps } from './verify-iteration-static.mjs';
+
+test('static gate builds generated test modules before TypeScript in fail-closed order', async () => {
+  assert.deepEqual(
+    staticGateSteps.map(({ id }) => id),
+    [
+      'web-interface-guidelines',
+      'prisma',
+      'clear-next-types',
+      'typegen',
+      'build:room-backend-test',
+      'build:room-tool-confirmation-test',
+      'tsc',
+      'eslint',
+    ]
+  );
+  assert.deepEqual(
+    staticGateSteps.find(({ id }) => id === 'web-interface-guidelines')
+      ?.command,
+    ['node', 'scripts/check-web-interface-guidelines.mjs']
+  );
+  assert.deepEqual(
+    staticGateSteps.find(({ id }) => id === 'build:room-backend-test')
+      ?.command,
+    [
+      'npx',
+      'vite',
+      'build',
+      '--config',
+      'vite.room-backend-test.config.mts',
+    ]
+  );
+  assert.deepEqual(
+    staticGateSteps.find(
+      ({ id }) => id === 'build:room-tool-confirmation-test'
+    )?.command,
+    [
+      'npx',
+      'vite',
+      'build',
+      '--config',
+      'vite.room-tool-confirmation-test.config.mts',
+    ]
+  );
+
+  const executed = [];
+  await runStaticGate({
+    clearGeneratedNextTypes: async () => {
+      executed.push('clear-next-types');
+    },
+    runStep: async (id) => {
+      executed.push(id);
+    },
+  });
+  assert.deepEqual(
+    executed,
+    staticGateSteps.map(({ id }) => id)
+  );
+});
+
+test('static gate stops immediately when the Web interface scan fails', async () => {
+  const executed = [];
+  await assert.rejects(
+    runStaticGate({
+      clearGeneratedNextTypes: async () => {
+        executed.push('clear-next-types');
+      },
+      runStep: async (id) => {
+        executed.push(id);
+        if (id === 'web-interface-guidelines') {
+          throw new Error('Web interface anti-pattern found');
+        }
+      },
+    }),
+    /Web interface anti-pattern found/u
+  );
+  assert.deepEqual(executed, ['web-interface-guidelines']);
+});
 
 test('iteration gate includes every release stage in fail-closed order', () => {
   assert.deepEqual(

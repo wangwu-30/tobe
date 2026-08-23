@@ -245,6 +245,9 @@ function buildWhere(where: Record<string, unknown>, values: InValue[]): string {
         clauses.push(inClause(column, value.in, values, false));
       } else if (Array.isArray(value.notIn)) {
         clauses.push(inClause(column, value.notIn, values, true));
+      } else if (typeof value.lte === 'number') {
+        values.push(value.lte);
+        clauses.push(quote(column) + ' <= ?');
       } else if (value.not !== undefined) {
         values.push(normalizeWriteValue(value.not));
         clauses.push(quote(column) + ' <> ?');

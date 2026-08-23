@@ -1,11 +1,14 @@
 # Agent Room 与持久执行落地追踪器
 
-更新时间：2026-08-22
-状态：paused handoff snapshot（未通过最终门禁）
+更新时间：2026-08-23（closure commit 推送前）
+状态：implementation、四项终审 blocker、产品验收与 Project Room 对比度竞态修复已完成；精确 closure commit 门禁待执行
 
-交接入口：[2026-08-22 Web Agent Collaboration Handoff](./HANDOFF-2026-08-22.md)。当前快照保留了
-未完成的 execution recovery 测试契约、Team Tasks UI 收口和 Room delegation 测试修复，且最新 TypeScript
-门禁失败；不得把本页历史专项通过记录解读为当前 release-ready。
+交接入口：[2026-08-22 Web Agent Collaboration Handoff](./HANDOFF-2026-08-22.md)。原快照中的
+execution recovery 测试契约、Team Tasks UI 和 Room delegation 测试 blocker 已关闭，后续四项终审 blocker
+也已完成代码修复并纳入 01:51 结束的 post-fix 完整门禁。01:15、01:51 与 02:05 的门禁仍只证明各自
+fingerprint；之后发现并修复了 Project Room disabled-to-enabled opacity 对比度竞态。修复后的完整门禁于
+11:51 通过。当前用户已授权 commit/push handoff 分支，但未授权创建 PR 或 merge；推送前必须让精确、
+clean 的 closure commit 再次通过同一完整门禁，本地 gate PASS 也不等于 release。
 
 相关文档：[系统契约](../SYSTEM.md) · [产品 brief](./briefs/team-document-agent-marketplace.md) · [Runtime 调研](./agent-runtime-architecture-research.md)
 
@@ -18,8 +21,10 @@ attempt、等待输入、取消与恢复，两者不共享状态机或容量。
 
 代码与生产组合点已经覆盖 Room/API/Host/UI、bounded context、Execution 产品面、HTTP running cancel、
 三段 cleanup crash recovery、durable quarantine/recovery UI、人工 review、trusted Git CAS merge 和
-index-ready snapshot。tracker 当前暂停并交接，完成判定仍以本页交付矩阵、验收标准和 dated verification
-record 为准，不能从“代码存在”或单个 targeted suite 推导完整门禁结论。
+index-ready snapshot。implementation scope 与 review-blocker 修复已完成，post-fix 完整 gate 已通过；delivery
+closure 取决于文档冻结后的同树复跑。结论必须区分 implementation、产品验收、历史 gate、post-fix gate 和
+待确认的最终冻结树证据，并且不外推为
+production multi-user identity、多节点数据库或未实现 adapter 的交付。
 
 明确 non-goal：区块链栈；Postgres/Redis/多地域和容器级多租户硬化；语音视频；production identity
 provider、登录/session/JWT integration、成员邀请/provisioning 与完整企业 SSO；
@@ -57,6 +62,14 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
   safe local libSQL adapter。
   adapter 对本地连接设置 busy timeout、串行化访问并确保 terminal transaction cleanup；明确识别的
   `SQLITE_BUSY` 只在可幂等重放的完整 durable command 边界做有限重试。
+- Web Interface Guidelines review 是 repo-local skill；可静态确定的高置信反模式由同树 scanner fail closed，
+  动态 accessibility、contrast、overflow 与完整交互继续由 axe、真实 Chromium 和人工 review 验证。
+- 已发布 migration 不回写。Canvas 缺表通过 forward migration 补齐，bootstrap 验证 exact columns、named
+  indexes、uniqueness 与 foreign-key actions，partial/lookalike schema fail closed。
+- Agent proposal 与 comment-source apply 共用 staged-change review/apply seam。comment apply 的 proposal、
+  checkpoint、file/document CAS 与 thread transition 必须处于同一个事务。
+- prior-draft/inherited comment 只有 review-context authority；source mutation authority 只属于 exact current
+  draft、open、同 source file 且 workspace/file/thread revisions 全部匹配的 thread。
 
 ## 当前实现事实
 
@@ -81,6 +94,10 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
   truncation；production source 重验 live lease、Agent enabled、项目/文档可见性、knowledge binding 与 ready
   snapshot digest。Host 当前通过 compatibility bridge 把 rich blocks 送入 Runtime，runtime wire contract
   本身不宣称已原生承载全部 metadata。
+- 真实双 Host 子进程证据覆盖同 delivery 单响应、delegation exactly-once、winner crash 后 source reclaim
+  且 target 不重投、duplicate invocation durable block，以及跨 session 并行和单 session FIFO。
+- Pi production Room tools 从 live session lease 解析 `workerId + generation` source fence；该 authority
+  不扩展到 durable Execution、文档 apply 或 knowledge merge。
 
 ### Execution 与恢复
 
@@ -99,6 +116,23 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
   本文沿用 `workspace` 作为 lifecycle 通称：当前 Git port 实际创建 `git clone --no-hardlinks` 的 attempt
   专属 isolated clone，移除 origin 后 checkout deterministic proposal branch；它不是 `git worktree add`
   产生的 registered worktree。
+- production-required recovery port 已同步到 daemon/coordinator/store test composition；验证覆盖 inspect、
+  exact durable receipt recovery、mismatched recovered receipt fail closed 与 quarantined discard forwarding。
+
+### Document proposal、comment apply 与 lineage
+
+- Agent proposal 只记录 pending review，不修改 live draft。
+- Human apply 对 multi-file update/create/delete、checkpoint、Document/WorkspaceFile revisions 和 proposal
+  transition 使用单事务 CAS；late failure 全量 rollback。
+- comment-source apply 在同一事务内创建并应用 canonical staged change、生成 recovery checkpoint、推进
+  draft/file revisions 并迁移 thread；workspace/file/thread drift 均无副作用 conflict。mirror refresh 是 commit 后
+  best-effort projection，不包含在数据库原子性声明中。
+- direct draft comments 只查询 exact current revision；较早 active unbound drafts 作为 inherited candidates，
+  按 draft revision 新到旧排序并排在 formal version lineage 前。
+- snapshot 绑定 `draftRevision <= snapshotRevision` 的 active unbound threads；future/resolved threads 不动。
+  lineage 缺失或循环 fail closed，兄弟分支不泄漏。checkpoint 和正式版本使用当前 formal draft base 作为 parent，
+  不以最近创建版本替代 lineage。
+- inherited thread 可以作为 actionable/stale/superseded review context 展示，但不能直接取得 source mutation authority。
 
 ### Knowledge review 与 ready snapshot
 
@@ -121,7 +155,9 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 | Knowledge review | review API、trusted worker、Git CAS、index builder、ready activation | configuration、diff、review、merge/conflict/index 状态 | same-base conflict、replay、index fail/retry、execution-to-ready browser path | 生产闭环已接入 |
 | Recovery | durable incident、capacity release、inspect/retry/discard commands | Job-detail recovery panel 与 audit history | dirty/partial fail-closed、owner/admin policy、verified discard、三 cleanup crash stages | 生产组合已接入 |
 | SQLite durability | WAL bootstrap、safe Prisma/libSQL adapter、bounded busy retry | 无独立产品入口 | WAL assertion、bootstrap/script contracts、Room/daemon/merge-worker concurrency paths | 单机 SQLite 边界已接入；不代表多节点数据库能力 |
-| Delivery gate | deterministic inventory、三个 Node build/suites、Web build、browser preflight | production browser E2E | static + control-plane + bootstrap + build + preflight + E2E | 以最新 dated verification record 为准 |
+| Document review | proposal-only append、atomic staged apply、comment-source same-transaction apply、formal lineage binding | diff/review/apply 与 inherited review context | multi-file/CAS/rollback/delete/replay/prior-draft/branch browser | 生产闭环、专项证据与 11:51 完整 gate 已完成；精确 closure commit 待复跑 |
+| Web guideline governance | repo-local skill、deterministic scanner、fail-closed static ordering | audited Web surfaces | scanner contracts + axe + real Chromium + manual boundary | 项目级 skill/scanner/浏览器证据已纳入 11:51 gate；对比度竞态已修复；不宣称完整 compliance |
+| Delivery gate | deterministic inventory、三个 Node build/suites、Web build、browser preflight | production browser E2E | static + control-plane + bootstrap + build + preflight + E2E | 01:15/01:51/02:05 为历史 PASS；11:51 stabilization gate PASS；精确 clean closure commit 待复跑 |
 
 任何一行都必须同时具备代码、production composition 与相应测试证据；完整交付结论还必须来自同一次
 `npm run verify:iteration`。targeted test、历史记录或 browser spec 的存在不能替代该结论。
@@ -142,6 +178,9 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
   激活 snapshot，只有 ready snapshot 对普通 Agent 可见。
 - SQLite bootstrap 实际返回 `journal_mode=wal`；safe adapter 在 commit 失败等 terminal path 释放 native
   transaction，busy contention 的 bounded retry 不吞掉 lease/CAS conflict 或其他数据库错误。
+- Canvas forward migration `20260822010000_add_canvas_tables` 能从 legacy canvas metadata 向前补齐
+  `NodeRelation` / `ProjectCanvasLayout`，并覆盖 partial schema fail-closed 与 successful second-run inert。
+- 真实尾部 `@` mention overlay 在编辑器末端仍保持可见、可定位和可操作。
 - `npm run test:control-plane` 构建并测试 execution daemon、Room Session Host、knowledge merge worker；
   `npm run verify:iteration` 还必须完成 production Web build、browser preflight 与完整 browser E2E。
 
@@ -154,6 +193,35 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 - **Gate**：按 static → control-plane → bootstrap → production build → browser preflight → browser E2E 执行。
 - **Tracker**：只按 repository facts 更新矩阵，区分 code、composition、targeted test 与 full gate。
 - **Artifacts**：记录隔离 app-data、logs/report/trace 路径；dated record 写明命令、精确结果和环境边界。
+
+### 15 requirements pre-push status
+
+Items 1-14 describe implemented scope and accumulated evidence. The 11:51 accessibility-stabilized gate covers them;
+item 15 becomes final local delivery evidence only after the exact clean closure commit passes without later tree edits.
+
+1. **Web-only、team-first、Project Room default**：production build 与 home/workspace Chromium journey 通过。
+2. **Initial goal 是第一条 human Room message**：workspace create API、persistence 与 browser assertion 纳入完整门禁。
+3. **Host default 与 typed mentions/replies**：atomic router、raw `@text` boundary、Room persistence/process/browser 通过。
+4. **Room Session 与 durable Job 生命周期分离**：独立 Host/daemon、live Room source fence、process restart evidence 通过。
+5. **Bounded ACL/provenance-aware context**：预算、排序、撤权/篡改/invalidation evidence 通过；rich metadata 仍经 compatibility bridge。
+6. **Immutable visible alignment gates Jobs**：admission 与 atomicity evidence 通过，draft/prompt 不替代 aligned fact。
+7. **Open runtime 与 OpenHands fail-closed**：`generic-cli | external-module` production seam 通过；OpenHands 仍 disabled/offline/capacity-zero。
+8. **Per-attempt isolated Git workspace**：real lifecycle、dirty/quarantine 与 exact-receipt recovery evidence 通过。
+9. **Agent/team knowledge 与 human-only merge**：real diff、CAS、index retry、ready snapshot evidence 通过。
+10. **Agent proposal 与 human atomic apply**：proposal non-mutation、multi-file/delete/replay、comment apply、checkpoint、CAS 和 injected rollback 通过。
+11. **Durable delegation expiry/replay/fencing/budgets**：two-Host race、winner crash/restart、duplicate block、parallel/FIFO 通过。
+12. **Job success 只把 TeamTask 推到 review**：projection、rollback/idempotency 与 UI journey 通过。
+13. **SQLite durability**：WAL、terminal cleanup、second writer 与 Canvas forward migration/bootstrap evidence 通过。
+14. **Web Interface Guidelines governance**：repo-local skill、fail-closed scanner、axe 和 real Chromium 通过；不宣称 fully compliant。
+15. **Same-tree release gate**：01:15、01:51 与 02:05 均为历史 PASS；对比度稳定化后的 11:51 gate 为 control-plane `508 passed`、Chromium `134/134 passed (3.4m)`。本记录进入 closure commit 后，该 clean commit 必须无后续编辑地再次通过同一命令，才允许 push。
+
+## 产品验收记录
+
+2026-08-23 的只读产品验收覆盖首页、文档工作区、Web 工作区和设置页：P0 `0`、P1 `0`、
+P2 `1`、P3 `0`；无横向溢出、4xx/5xx、console error/warning 或 page error。唯一 P2 为 Home Canvas
+的 tldraw production-license watermark，属于发布前 license/产品决策，不是本轮功能 blocker；不得通过
+CSS、DOM patch 或测试分支隐藏。该验收不替代 iteration gate，ignored artifacts 位于
+`.tmp/product-acceptance/`。
 
 ## 历史验证记录
 
@@ -170,7 +238,67 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
   Chromium 启动缺少 `libgbm.so.1`，未进入产品断言；Execution control-plane production API `11/11`
   通过。完整门禁因此仍未通过，需在具备 Playwright 系统依赖的环境重跑。
 
-## 本轮最终 gate 记录
+## 首次完整 gate 历史记录（非当前最终证据）
 
-由本轮最终 gate 补录：在同一条 `npm run verify:iteration` 实际结束后记录时间、命令、各阶段精确结果、
-失败边界与 artifact 路径。在补录前，本节不产生新的 pass/fail 结论，以上历史快照也不代表当前工作树。
+- 时间：`2026-08-23 01:15 +08:00`
+- base HEAD：`b53e5bee8becff2d3b110cd2b45331ed1bbd280d`
+- pre-document working-tree fingerprint：`sha256:1cfa5cb56f47493b3d42e4959bb89066daf0e810e4af99b601811e2c3ed1edc4`
+- 命令：`LD_LIBRARY_PATH=/tmp/tobe-browser-libs/usr/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/data00/home/wangjiaheng.555/dev/tobe/.tmp/playwright-browsers npm run verify:iteration`
+- Web guideline scanner：PASS。
+- Prisma / typegen / generated test builds / TypeScript / ESLint：PASS。
+- control-plane inventory：`69/69`，每个 test file 恰好匹配一次。
+- script contracts：`41 passed`。
+- control-plane Playwright：`461 passed`：core `267`、execution daemon `24`、Room Host `28`、knowledge worker `6`、state `7`、file `11`、execution job `68`、recovery `6`、knowledge `22`、Room `15`、confirmation `7`。
+- control-plane 总计：`502 passed`（script contracts `41` + Playwright suites `461`）。
+- fresh DB bootstrap：PASS，包含 `20260822010000_add_canvas_tables`。
+- production Web build：PASS；仅保留既有 runtime-plugin-loader dynamic dependency warning。
+- browser preflight：PASS。
+- Chromium：`133 passed (3.4m)`。
+- artifacts：`.tmp/iteration-regression/artifacts`。
+- 结论：仅对上述 fingerprint `PASS`；不是当前工作树的最终结论。
+
+后续终审修复已改变工作树，因此本记录只能证明上述 fingerprint。新的门禁事实另列于下节，不覆盖本历史
+记录。该历史门禁完成时 Git delivery 状态为未 commit、未 push、未创建 PR、未 merge；任何本地 gate 都
+不应被解释为 release、远端检查通过或 fully Web Interface
+Guidelines compliant。
+
+## Post-fix 完整 gate 历史记录（已被后续源码修复取代）
+
+- 结束时间：`2026-08-23 01:51 +08:00`
+- base HEAD：`b53e5bee8becff2d3b110cd2b45331ed1bbd280d`
+- post-fix pre-record working-tree fingerprint：`sha256:c90374c82dd396b91be7626887e4d7f532a9094ea3db6efe31e83dc193daf758`
+- 命令：`LD_LIBRARY_PATH=/tmp/tobe-browser-libs/usr/lib/x86_64-linux-gnu PLAYWRIGHT_BROWSERS_PATH=/data00/home/wangjiaheng.555/dev/tobe/.tmp/playwright-browsers npm run verify:iteration`
+- Web guideline scanner：PASS。
+- Prisma / typegen / generated test builds / TypeScript / ESLint：PASS。
+- control-plane inventory：`69/69`，每个 test file 恰好匹配一次。
+- script contracts：`46 passed`。
+- control-plane Playwright：`462 passed`：core `267`、execution daemon `24`、Room Host `28`、knowledge worker `6`、state `7`、file `11`、execution job `68`、recovery `7`、knowledge `22`、Room `15`、confirmation `7`。
+- control-plane 总计：`508 passed`（script contracts `46` + Playwright suites `462`）。
+- fresh DB bootstrap：PASS，包含 `20260822010000_add_canvas_tables`。
+- production Web build：PASS；仅保留既有 runtime-plugin-loader dynamic dependency warning。
+- browser preflight：PASS。
+- Chromium：`134 passed (3.4m)`，包含 Canvas ACL 与 workspace-scoped relation DELETE 回归。
+- artifacts：`.tmp/iteration-regression/artifacts`。
+
+本次门禁中的 `403`、`400`、`404`、`409` 与故意触发的 `500` 均来自拒绝/容错负向路径，其归属断言
+全部通过。三份文档写入后曾对当时的冻结工作树复跑同一
+门禁：`2026-08-23 02:05 +08:00` 结束，fingerprint
+`sha256:c4dcce3c3399ba8ffb087abab8769da26434826b63974407bbbeda92e5281afe`，各阶段计数不变，browser report
+为 `status: passed`，端口 `3216` 正常关闭。该门禁完成时 Git delivery 状态为未 commit、未 push、未创建
+PR、未 merge；后续经授权的 commit/push 不等于 PR、merge、远端 CI、release 或 fully Web Interface
+Guidelines compliant。之后的源码和测试修复已改变工作树，因此该记录不再是最终 delivery evidence。
+
+## 对比度稳定化完整 gate 记录（pre-record 证据）
+
+- 结束时间：`2026-08-23 11:51 +08:00`
+- base HEAD：`b53e5bee8becff2d3b110cd2b45331ed1bbd280d`
+- 原因：Project Room canonical route 切换会同时解除五个 header 控件的 `disabled`；共享 Button 原先动画
+  `opacity`，使 axe 可能在语义已启用、视觉仍半透明的短窗口扫描并报低对比度。
+- 修复：disabled 仍使用 `opacity-50`，但 opacity 不再跨状态动画；WCAG 用例等待 canonical `node` query 和
+  代表性 header action enabled 后再扫描，不使用固定 sleep。
+- static、Prisma/typegen/build、TypeScript、ESLint、fresh bootstrap、production build、browser preflight：PASS。
+- control-plane inventory：`69/69`；script contracts：`46 passed`；Playwright suites：`462 passed`；总计：
+  `508 passed`。
+- Chromium：`134/134 passed (3.4m)`；Project Room WCAG A/AA 与 team Web surfaces WCAG A/AA 均通过。
+- 结论：证明文档更新前的稳定化源码/测试。最终 delivery 以本记录进入 closure commit 后，对该 clean commit
+  无编辑复跑同一完整门禁并核对远端 SHA 为准。

@@ -14,17 +14,18 @@ import { buildCommentMessageAgentState } from '@/objects/comment/agent-bindings'
 import {
   getCurrentDraftRevisionForDocument,
 } from '@/lib/comments/version-binding';
+import {
+  buildCommentThreadRevisionFilters,
+  buildCommentVersionLineageFilter,
+  markCommentThreadInherited,
+  orderInheritedCommentThreadCandidates,
+  resolveCommentVersionLineageIds,
+} from '@/lib/comments/thread-query';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { mapCommentThread } from '@/objects/comment/view';
 import { parseVersionFiles } from '@/objects/file/schema';
-import type {
-  CommentThreadData,
-  CommentThreadInheritanceState,
-} from '@/types';
 import { defineRoute } from '@/framework/resilience';
 
-
-type ThreadRecord = Parameters<typeof mapCommentThread>[0];
 
 export const GET = defineRoute(async function GET(req: NextRequest) {
   const actor = await getPlatformContextFromHeaders(req.headers);
@@ -44,13 +45,18 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
     draftOnly && !versionId
       ? await getCurrentDraftRevisionForDocument(actor.organizationId, workspaceId)
       : null;
-
-  const directWhere =
-    versionId
-      ? { versionId }
-      : draftOnly
-        ? { versionId: null, draftRevision: currentDraftRevision }
-        : {};
+  const inheritedVersionIds = await resolveInheritedVersionIds({
+    draftOnly,
+    organizationId: actor.organizationId,
+    versionId,
+    workspaceId,
+  });
+  const revisionFilters = buildCommentThreadRevisionFilters({
+    currentDraftRevision,
+    draftOnly,
+    inheritedVersionIds,
+    versionId,
+  });
 
   const directThreads = await prisma.commentThread.findMany({
     where: {
@@ -58,7 +64,7 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
       documentId: workspaceId,
       ...(fileId ? { fileId } : {}),
       organizationId: actor.organizationId,
-      ...directWhere,
+      ...revisionFilters.direct,
     },
     include: {
       messages: {
@@ -76,27 +82,42 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   });
 
-  const inheritedVersionIds = await resolveInheritedVersionIds({
-    draftOnly,
-    organizationId: actor.organizationId,
-    versionId,
-    workspaceId,
-  });
-
-  const inheritedThreads =
-    inheritedVersionIds.length > 0
+  const priorDraftThreads =
+    revisionFilters.priorDraft
       ? await prisma.commentThread.findMany({
           where: {
             deletedAt: null,
             documentId: workspaceId,
             ...(fileId ? { fileId } : {}),
             organizationId: actor.organizationId,
-            status: {
-              in: ['open', 'applied'],
+            ...revisionFilters.priorDraft,
+          },
+          include: {
+            messages: {
+              where: { deletedAt: null },
+              orderBy: { createdAt: 'asc' },
             },
-            versionId: {
-              in: inheritedVersionIds,
+            version: {
+              include: {
+                labels: {
+                  where: { deletedAt: null },
+                },
+              },
             },
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : [];
+
+  const inheritedThreads =
+    revisionFilters.inheritedVersion
+      ? await prisma.commentThread.findMany({
+          where: {
+            deletedAt: null,
+            documentId: workspaceId,
+            ...(fileId ? { fileId } : {}),
+            organizationId: actor.organizationId,
+            ...revisionFilters.inheritedVersion,
           },
           include: {
             messages: {
@@ -134,7 +155,6 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
   );
   const seenInheritedFingerprints = new Set<string>();
   const seenInheritedIdentityCandidates = new Set<string>();
-  const versionRank = new Map(inheritedVersionIds.map((id, index) => [id, index]));
   const surfaceFilesById = new Map(
     surfaceFiles
       .filter((file): file is CommentThreadSurfaceFile & { id: string } => Boolean(file.id))
@@ -142,20 +162,11 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
   );
   const combinedSurfaceText = buildCommentSurfaceText(surfaceFiles);
 
-  const mappedInheritedThreads = [...inheritedThreads]
-    .sort((left, right) => {
-      const leftRank = versionRank.get(left.versionId || '') ?? Number.MAX_SAFE_INTEGER;
-      const rightRank = versionRank.get(right.versionId || '') ?? Number.MAX_SAFE_INTEGER;
-      if (leftRank !== rightRank) {
-        return leftRank - rightRank;
-      }
-      const updatedDelta =
-        new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-      if (updatedDelta !== 0) {
-        return updatedDelta;
-      }
-      return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
-    })
+  const mappedInheritedThreads = orderInheritedCommentThreadCandidates({
+    inheritedVersionIds,
+    priorDraftThreads,
+    versionThreads: inheritedThreads,
+  })
     .map((thread) => {
       const mapped = mapCommentThread(thread);
       const state = classifyInheritedCommentThread({
@@ -175,7 +186,7 @@ export const GET = defineRoute(async function GET(req: NextRequest) {
         });
       }
 
-      return mapThreadResponse(thread, state);
+      return markCommentThreadInherited(mapped, state);
     });
 
   return NextResponse.json([...mappedDirectThreads, ...mappedInheritedThreads]);
@@ -244,23 +255,6 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
   return NextResponse.json(mapCommentThread(thread));
 });
 
-function mapThreadResponse(
-  thread: ThreadRecord,
-  inheritanceState: CommentThreadInheritanceState
-): CommentThreadData {
-  const mapped = mapCommentThread(thread);
-
-  return {
-    ...mapped,
-    sourceVersionId: mapped.versionId,
-    scope: 'inherited',
-    inheritanceState,
-    inheritedFromVersionId: mapped.versionId,
-    inheritedFromVersionTitle: mapped.version?.title || null,
-    isInherited: true,
-  };
-}
-
 async function resolveSurfaceFiles(params: {
   organizationId: string;
   versionId: string | null;
@@ -309,7 +303,12 @@ async function resolveInheritedVersionIds(params: {
   workspaceId: string;
 }) {
   if (params.versionId) {
-    return listAncestorVersionIds(params.organizationId, params.versionId);
+    const lineageIds = await listVersionLineageIds({
+      organizationId: params.organizationId,
+      versionId: params.versionId,
+      workspaceId: params.workspaceId,
+    });
+    return lineageIds.slice(1);
   }
 
   if (!params.draftOnly) {
@@ -341,12 +340,11 @@ async function resolveInheritedVersionIds(params: {
     });
 
     if (persistedDraftBase) {
-      const ancestorIds = await listAncestorVersionIds(
-        params.organizationId,
-        persistedDraftBase.id
-      );
-
-      return [persistedDraftBase.id, ...ancestorIds];
+      return listVersionLineageIds({
+        organizationId: params.organizationId,
+        versionId: persistedDraftBase.id,
+        workspaceId: params.workspaceId,
+      });
     }
   }
 
@@ -370,38 +368,28 @@ async function resolveInheritedVersionIds(params: {
     return [];
   }
 
-  const ancestorIds = await listAncestorVersionIds(
-    params.organizationId,
-    latestVisibleVersion.id
-  );
-
-  return [latestVisibleVersion.id, ...ancestorIds];
+  return listVersionLineageIds({
+    organizationId: params.organizationId,
+    versionId: latestVisibleVersion.id,
+    workspaceId: params.workspaceId,
+  });
 }
 
-async function listAncestorVersionIds(organizationId: string, versionId: string) {
-  const ids: string[] = [];
-  let currentVersionId: string | null = versionId;
+async function listVersionLineageIds(params: {
+  organizationId: string;
+  versionId: string;
+  workspaceId: string;
+}) {
+  const versions = await prisma.version.findMany({
+    where: buildCommentVersionLineageFilter(params),
+    select: {
+      id: true,
+      parentVersionId: true,
+    },
+  });
 
-  while (currentVersionId) {
-    const current: { parentVersionId: string | null } | null =
-      await prisma.version.findFirst({
-        where: {
-          deletedAt: null,
-          id: currentVersionId,
-          organizationId,
-        },
-        select: {
-          parentVersionId: true,
-        },
-      });
-
-    if (!current?.parentVersionId) {
-      break;
-    }
-
-    ids.push(current.parentVersionId);
-    currentVersionId = current.parentVersionId;
-  }
-
-  return ids;
+  return resolveCommentVersionLineageIds({
+    startVersionId: params.versionId,
+    versions,
+  });
 }

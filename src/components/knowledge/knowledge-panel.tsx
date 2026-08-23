@@ -618,7 +618,13 @@ export function KnowledgePanel({
         </div>
       ) : null}
 
-      <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]]:touch-pan-y [&_[data-slot=scroll-area-viewport]]:overscroll-contain">
+      <ScrollArea
+        className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]]:touch-pan-y [&_[data-slot=scroll-area-viewport]]:overscroll-contain"
+        viewportProps={{
+          'aria-label': t('context.knowledge'),
+          tabIndex: 0,
+        }}
+      >
         <div className="space-y-4 p-4">
           <ContextSection
             count={knowledgeNotes.length}

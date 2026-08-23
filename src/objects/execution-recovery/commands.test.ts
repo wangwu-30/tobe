@@ -46,6 +46,7 @@ test.describe.serial('durable execution workspace recovery', () => {
         ...executionRows('partial', now),
         ...executionRows('fenced', now, { generation: 2 }),
         ...executionRows('unreserved', now, { capacityReserved: false }),
+        ...executionRows('reclaimed', now),
         ...executionRows('repeated', now),
       ],
       'write'
@@ -199,6 +200,7 @@ test.describe.serial('durable execution workspace recovery', () => {
       capacityReserved: 0,
       capacityUsed: 4,
     });
+    await claimForRecoveryRetry('retry');
 
     await expect(
       resolveExecutionRecovery(
@@ -206,6 +208,8 @@ test.describe.serial('durable execution workspace recovery', () => {
         {
           incidentId: requested.id,
           attemptId: requested.attemptId,
+          workerId: 'recovery-retry',
+          generation: 2,
           resolution: 'retried',
         }
       )
@@ -221,6 +225,74 @@ test.describe.serial('durable execution workspace recovery', () => {
       resolution: 'retried',
       revision: 3,
     });
+  });
+
+  test('fences retry resolution when a checked lease is reclaimed by a new generation', async () => {
+    const incident = await quarantineExecutionWorkspaceRecovery(
+      { organizationId: ORG },
+      {
+        attemptId: 'attempt-reclaimed',
+        workerId: 'worker-reclaimed',
+        generation: 1,
+        stage: 'prepare',
+        reasonCode: 'worktree-state-changed',
+        classification: 'prepared-dirty',
+        discardable: true,
+      }
+    );
+    const requested = await requestExecutionRecoveryAction(
+      { organizationId: ORG, userId: USER },
+      'job-reclaimed',
+      { incidentId: incident.id, action: 'retry', expectedRevision: 1 }
+    );
+    await claimForRecoveryRetry('reclaimed');
+    expect(
+      await hasRecoveryLease('reclaimed', 'recovery-reclaimed', 2)
+    ).toBe(true);
+
+    await reclaimRecoveryLease('reclaimed', {
+      previousGeneration: 2,
+      previousWorkerId: 'recovery-reclaimed',
+      workerId: 'replacement-reclaimed',
+    });
+
+    await expect(
+      resolveExecutionRecovery(
+        { organizationId: ORG },
+        {
+          incidentId: requested.id,
+          attemptId: requested.attemptId,
+          workerId: 'recovery-reclaimed',
+          generation: 2,
+          resolution: 'retried',
+        }
+      )
+    ).resolves.toBe('fenced');
+    const stillRequested = await inspectExecutionRecoveryIncidents(
+      { organizationId: ORG, userId: USER },
+      'job-reclaimed'
+    );
+    expect(stillRequested.current).toMatchObject({
+      id: requested.id,
+      status: 'action_requested',
+      requestedAction: 'retry',
+      resolution: null,
+      resolvedAt: null,
+      revision: 2,
+    });
+
+    await expect(
+      resolveExecutionRecovery(
+        { organizationId: ORG },
+        {
+          incidentId: requested.id,
+          attemptId: requested.attemptId,
+          workerId: 'replacement-reclaimed',
+          generation: 3,
+          resolution: 'retried',
+        }
+      )
+    ).resolves.toBe('resolved');
   });
 
   test('allows discard only for a verified discardable workspace', async () => {
@@ -388,6 +460,70 @@ async function claimForRecoveryRetry(suffix: string) {
     ],
     'write'
   );
+}
+
+async function hasRecoveryLease(
+  suffix: string,
+  workerId: string,
+  generation: number
+) {
+  const result = await client.execute({
+    sql: `SELECT "id" FROM "ExecutionAttempt"
+      WHERE "id" = ? AND "organizationId" = ?
+        AND "status" = 'running' AND "generation" = ?
+        AND "leaseOwnerId" = ? AND "leaseExpiresAt" > ?
+        AND "capacityReserved" = TRUE`,
+    args: [`attempt-${suffix}`, ORG, generation, workerId, new Date()],
+  });
+  return result.rows.length === 1;
+}
+
+async function reclaimRecoveryLease(
+  suffix: string,
+  input: {
+    previousGeneration: number;
+    previousWorkerId: string;
+    workerId: string;
+  }
+) {
+  const now = new Date();
+  const results = await client.batch(
+    [
+      {
+        sql: `UPDATE "ExecutionAttempt" SET "leaseExpiresAt" = ?
+          WHERE "id" = ? AND "organizationId" = ?
+            AND "generation" = ? AND "leaseOwnerId" = ?`,
+        args: [
+          new Date(now.valueOf() - 1),
+          `attempt-${suffix}`,
+          ORG,
+          input.previousGeneration,
+          input.previousWorkerId,
+        ],
+      },
+      {
+        sql: `UPDATE "ExecutionAttempt"
+          SET "generation" = "generation" + 1, "leaseOwnerId" = ?,
+            "leaseExpiresAt" = ?, "updatedAt" = ?
+          WHERE "id" = ? AND "organizationId" = ?
+            AND "status" = 'running' AND "generation" = ?
+            AND "leaseOwnerId" = ? AND "leaseExpiresAt" <= ?
+            AND "capacityReserved" = TRUE`,
+        args: [
+          input.workerId,
+          new Date(now.valueOf() + 60_000),
+          now,
+          `attempt-${suffix}`,
+          ORG,
+          input.previousGeneration,
+          input.previousWorkerId,
+          now,
+        ],
+      },
+    ],
+    'write'
+  );
+  expect(results.map((result) => result.rowsAffected)).toEqual([1, 1]);
 }
 
 const SCHEMA = `

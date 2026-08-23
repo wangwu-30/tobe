@@ -1,5 +1,24 @@
 import { prisma } from '@/lib/db/prisma';
 
+export type DraftThreadBindingDb = {
+  commentThread: {
+    updateMany(args: {
+      data: {
+        revision: { increment: number };
+        versionId: string;
+      };
+      where: {
+        deletedAt: null;
+        documentId: string;
+        draftRevision: { lte: number };
+        organizationId: string;
+        status: { in: string[] };
+        versionId: null;
+      };
+    }): Promise<unknown>;
+  };
+};
+
 export async function getBoundVersionIdForWiki(wikiId: string) {
   const wiki = await prisma.document.findUnique({
     where: { id: wikiId },
@@ -27,14 +46,19 @@ export async function getBoundVersionIdForWiki(wikiId: string) {
 export async function bindDraftThreadsToVersion(
   wikiId: string,
   versionId: string,
-  draftRevision: number
+  snapshotDraftRevision: number,
+  organizationId: string,
+  db: DraftThreadBindingDb = prisma
 ) {
-  await prisma.commentThread.updateMany({
+  await db.commentThread.updateMany({
     where: {
       deletedAt: null,
       documentId: wikiId,
+      organizationId,
       versionId: null,
-      draftRevision,
+      draftRevision: {
+        lte: snapshotDraftRevision,
+      },
       status: {
         in: ['open', 'applied'],
       },

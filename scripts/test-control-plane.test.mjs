@@ -117,6 +117,7 @@ test('control-plane gate builds and executes every standalone process suite', ()
   assert.deepEqual(scriptTests, [
     'scripts/bootstrap-local-db.test.mjs',
     'scripts/browser-preflight.test.mjs',
+    'scripts/check-web-interface-guidelines.test.mjs',
     'scripts/test-ai-inspector.test.mjs',
     'scripts/test-control-plane.test.mjs',
     'scripts/verify-iteration.test.mjs',

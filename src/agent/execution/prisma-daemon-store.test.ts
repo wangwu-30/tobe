@@ -5,6 +5,7 @@ import type {
   ExecutionAttemptDtoV1,
   ExecutionJobDtoV1,
 } from '@/objects/execution-job/schema';
+import type { ExecutionRecoveryIncidentDtoV1 } from '@/objects/execution-recovery/schema';
 
 import type { RuntimeEventV1 } from './driver';
 import type { WorkspaceLifecycleV1 } from './workspace-lifecycle';
@@ -200,6 +201,10 @@ test('retries exact daemon commands after raw and Prisma-wrapped SQLite busy err
       if (remember('complete', input) === 1) throw prismaSqliteBusy();
       return { schemaVersion: 1, attempt: attempt(), job: job() };
     },
+    async resolveExecutionRecovery(_actor, input) {
+      if (remember('recovery-resolution', input) === 1) throw rawSqliteBusy();
+      return 'resolved';
+    },
   });
   const store = createPrismaExecutionDaemonStore(
     { organizationId: 'test-org' },
@@ -234,6 +239,15 @@ test('retries exact daemon commands after raw and Prisma-wrapped SQLite busy err
   await expect(
     store.createKnowledgeChangeRequest(changeRequestInput())
   ).resolves.not.toBe('fenced');
+  await expect(
+    store.resolveRecoveryAction?.({
+      incidentId: 'recovery-1',
+      attemptId: 'attempt-1',
+      workerId: 'worker-1',
+      generation: 2,
+      resolution: 'retried',
+    })
+  ).resolves.toBe('resolved');
   await expect(store.complete(completionInput())).resolves.toBe('completed');
 
   for (const [operation, inputs] of calls) {
@@ -556,7 +570,39 @@ function commandsWith(
         replayed: false,
       };
     },
+    async quarantineExecutionWorkspaceRecovery() {
+      return recoveryIncident();
+    },
+    async getRequestedExecutionRecoveryAction() {
+      return null;
+    },
+    async resolveExecutionRecovery() {
+      return 'resolved' as const;
+    },
     ...overrides,
+  };
+}
+
+function recoveryIncident(): ExecutionRecoveryIncidentDtoV1 {
+  return {
+    schemaVersion: 1,
+    id: 'recovery-1',
+    jobId: 'job-1',
+    attemptId: 'attempt-1',
+    generation: 2,
+    stage: 'prepare',
+    reasonCode: 'workspace-state-changed',
+    classification: 'prepared-dirty',
+    discardable: true,
+    status: 'open',
+    requestedAction: null,
+    resolution: null,
+    actionRequestedAt: null,
+    actionRequestedById: null,
+    resolvedAt: null,
+    revision: 1,
+    createdAt: '2026-08-21T00:00:00.000Z',
+    updatedAt: '2026-08-21T00:00:00.000Z',
   };
 }
 

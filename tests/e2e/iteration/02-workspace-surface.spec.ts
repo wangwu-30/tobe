@@ -1,21 +1,25 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { apiRequest, primeClientState, readSeedState } from './helpers';
 
-test('workspace opens in Room and switching to Chat preserves the legacy request conversation', async ({
+test('workspace deep-links to Chat and switching to Room preserves the legacy request conversation', async ({
   page,
 }) => {
   const workspace = readSeedState().branchVersionWorkspace;
 
   await primeClientState(page);
   await page.goto('/');
-  await page.goto(
-    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=chat`
-  );
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'chat',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
 
   const roomTab = page.getByTestId('assistant-tab-room');
   await expect(roomTab).toBeVisible();
   const chatTab = page.getByTestId('assistant-tab-chat');
-  await expect(chatTab).toHaveAttribute('data-state', 'active');
+  await expect(chatTab).toHaveAttribute('aria-selected', 'true');
   await expect(page).toHaveURL(/(?:\?|&)assistant=chat(?:&|$)/);
   await expect(page.getByTestId('chat-composer')).toBeVisible();
   await expect(
@@ -27,7 +31,7 @@ test('workspace opens in Room and switching to Chat preserves the legacy request
 
   await roomTab.click();
   await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
-  await expect(roomTab).toHaveAttribute('data-state', 'active');
+  await expect(roomTab).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('project-room-surface')).toBeVisible();
 
   await page.goBack();
@@ -58,13 +62,16 @@ test('outline jump keeps the target heading near the top and status stays visibl
   const workspace = seedState.baseWorkspace;
 
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
-  );
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'status',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
 
   const statusTab = page.getByTestId('assistant-tab-status');
-  await statusTab.click();
-  await expect(statusTab).toHaveAttribute('data-state', 'active');
+  await expect(page).toHaveURL(/(?:\?|&)assistant=status(?:&|$)/);
+  await expect(statusTab).toHaveAttribute('aria-selected', 'true');
 
   await expect(
     page.getByText('这个工作区用于验证大纲跳转、状态面板和主交付物表面。')

@@ -6,7 +6,6 @@ import { promisify } from 'node:util';
 
 import { expect, test } from '@playwright/test';
 import type { Prisma } from '@/generated/prisma/client';
-import { ConflictError } from '@/framework/resilience/app-error';
 
 import {
   consumeRoomDelegationGrant,
@@ -411,7 +410,12 @@ test.describe.serial('Project Room persistence and atomic router', () => {
         ...command,
         instruction: 'A changed replay payload.',
       })
-    ).rejects.toBeInstanceOf(ConflictError);
+    ).rejects.toMatchObject({
+      kind: 'conflict',
+      message: 'Delegation invocation parameters changed on replay.',
+      name: 'ConflictError',
+      statusCode: 409,
+    });
     expect(
       await prisma.roomDelegationInvocation.count({
         where: { invocationId: command.invocationId },
@@ -541,11 +545,10 @@ test.describe.serial('Project Room persistence and atomic router', () => {
     const secondRoot = await postRoomMessage(ORG_A, roomId, {
       text: 'A second root for a revoked grant.',
     });
-    const source = await claimDeliveryForDelegation(secondRoot.messageId, hostAgentId);
-
-    const secondRoot = await postRoomMessage(ORG_A, roomId, {
-      text: 'A second root for a revoked grant.',
-    });
+    const source = await claimDeliveryForDelegation(
+      secondRoot.messageId,
+      hostAgentId
+    );
     const revocable = await issueRoomDelegationGrant(ORG_A, roomId, {
       fromAgentId: hostAgentId,
       rootMessageId: secondRoot.messageId,
@@ -558,17 +561,30 @@ test.describe.serial('Project Room persistence and atomic router', () => {
       revocable.id
     );
     expect(revoked.status).toBe('revoked');
-    const blocked = await consumeRoomDelegationGrant(ORG_A, roomId, {
+    const command = {
       instruction: 'This revoked request must be blocked.',
       invocationId: 'room-revoked-invocation',
       source,
       targetAgentId: 'room-reviewer-a',
+    };
+    const blocked = await consumeRoomDelegationGrant(ORG_A, roomId, command);
+    expect(blocked).toMatchObject({
+      code: 'grant-required',
+      invocationId: command.invocationId,
+      status: 'blocked',
     });
-    expect(blocked.status).toBe('blocked');
     expect(blocked.event.type).toBe('delegation_blocked');
+    expect(
+      await consumeRoomDelegationGrant(ORG_A, roomId, command)
+    ).toEqual(blocked);
     expect(
       await prisma.roomEvent.count({
         where: { id: blocked.event.eventId, type: 'delegation_blocked' },
+      })
+    ).toBe(1);
+    expect(
+      await prisma.roomDelegationInvocation.count({
+        where: { invocationId: command.invocationId },
       })
     ).toBe(1);
   });
