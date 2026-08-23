@@ -27,7 +27,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). No `.env` file or AI credential is required to start the application and explore its local, non-AI workspace features.
 
-`npm run dev` automatically runs the local database bootstrap before Next.js starts. It creates or upgrades `dev.db` in the repository root, applies the local migrations, and enables SQLite WAL mode. To keep runtime data outside the checkout, use an absolute app-data directory:
+`npm ci` generates the ignored Prisma Client, and `npm run dev` regenerates it before automatically running the local database bootstrap. The bootstrap creates or upgrades `dev.db` in the repository root, applies the local migrations, and enables SQLite WAL mode. To keep runtime data outside the checkout, use an absolute app-data directory:
 
 ```bash
 DAO_APP_DATA_ROOT=/absolute/path/to/tobe-data npm run dev

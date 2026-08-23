@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import test from 'node:test';
 
 import {
@@ -7,6 +8,20 @@ import {
   runIterationGate,
 } from './verify-iteration.mjs';
 import { runStaticGate, staticGateSteps } from './verify-iteration-static.mjs';
+
+test('install, development, and production build generate the ignored Prisma client', async () => {
+  const packageJson = JSON.parse(
+    await fs.readFile(new URL('../package.json', import.meta.url), 'utf8')
+  );
+
+  assert.equal(packageJson.scripts['db:generate'], 'prisma generate');
+  assert.equal(packageJson.scripts.postinstall, 'npm run db:generate');
+  assert.equal(
+    packageJson.scripts.predev,
+    'npm run db:generate && npm run db:bootstrap:local'
+  );
+  assert.equal(packageJson.scripts.prebuild, 'npm run db:generate');
+});
 
 test('static gate builds generated test modules before TypeScript in fail-closed order', async () => {
   assert.deepEqual(
