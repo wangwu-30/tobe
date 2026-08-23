@@ -12,7 +12,7 @@ import type {
   DeepResearchPlanProposalData,
   ResearchProgressData,
 } from '@/types';
-import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
+import type { Api, Model as PiModel } from '@earendil-works/pi-ai';
 
 type AnyPiModel = PiModel<Api>;
 

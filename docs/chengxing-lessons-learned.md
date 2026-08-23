@@ -1112,6 +1112,24 @@
 - 为什么：属性解除后控件已可聚焦、可点击，若视觉仍停留在半透明中间帧，用户会看到低对比度的已启用控件，自动化无障碍扫描也会稳定捕获这个真实竞态。
 - 默认做法：disabled 视觉状态可以立即切换；测试等待业务稳定信号（例如 canonical URL 与代表性动作 enabled）后扫描，不使用固定 sleep 掩盖竞态。
 
+### 45. Provider SDK 升级是运行时契约迁移，不是只替换 package namespace
+
+- 结论：模型 SDK 从弃用 namespace 迁到后继包时，必须把 Node engine、模型目录、Agent 构造参数、流状态字段、工具 schema 实现和构建 target 视为同一份契约。
+- 为什么：新 Pi SDK 除了包名变化，还要求 Node `>=22.19.0`、显式 `streamFn`，并调整了 Agent state API；它与工具定义使用同一代 TypeBox。只改 import 会留下能安装但无法构建、能构建但运行时 schema 不兼容，或本地与 CI Node 版本不一致的半迁移状态。
+- 默认做法：锁定同一版本的 `pi-ai` / `pi-agent-core`，用 `.node-version`、`package.json#engines` 和所有 Node bundle target 统一运行时；全仓扫描旧 namespace/API，并用 TypeScript、adapter contract、production composition build 和完整 iteration gate 一起验收。
+
+### 46. OAuth refresh、登录脚本与 Web runtime 必须共享同一个跨进程 CredentialStore 写路径
+
+- 结论：只在 Web 进程内串行化 OAuth refresh 不够；CLI 登录、Room Host 和 Web runtime 都必须复用同一个文件锁与原子写 helper。
+- 为什么：SDK 的 refresh 是 read-modify-write。若登录脚本仍直接覆盖 `auth.json`，它会与另一个进程刚刷新的 token 或其他 provider 写入互相丢更新；单进程 mutex 也挡不住多 Host。
+- 默认做法：所有 mutation 都在同一个跨进程锁内重读 credential map，通过同目录临时文件加 rename 原子替换；legacy credential 只作为兼容读源，刷新后写入 canonical `auth.json`。并发测试必须证明不同 provider 写入不丢失，删除与 legacy cleanup 也处于同一锁域。
+
+### 47. 自动依赖更新只负责提出变更，不能替代人工评审与完整门禁
+
+- 结论：SDK 可以由 Dependabot 定期检查并自动开 PR，但不应让机器人直推或自动合并默认分支。
+- 为什么：模型 SDK 更新会同时触及 provider auth、模型目录、Agent state 和工具 schema；semver 可安装不代表产品契约仍成立。真实 provider secret 也不应暴露给不可信依赖 PR。
+- 默认做法：耦合 SDK 放进同一个 Dependabot update group；PR 只运行不含真实 provider secret 的完整 iteration gate，合并前要求人工 review。GitHub ruleset 将该 gate 设为 required，Dependabot 不得进入 bypass list。
+
 ## 最新验证状态
 
 - **Web Agent Collaboration pre-push closure 2026-08-23**：项目级 Web guideline skill 与 fail-closed scanner、Canvas forward migration、atomic proposal/comment apply、prior-draft 与 formal lineage semantics、dual-Host delegation crash/restart、Execution recovery contract、真实尾部 `@` overlay，以及 Canvas layout ACL、workspace-scoped relation delete、retry recovery lease CAS、Canvas bootstrap column contract 四项终审 blocker 均已完成实现修复。01:15、01:51 与 02:05 的 `npm run verify:iteration` 保留为各自旧 fingerprint 的历史 PASS。后续发现 Project Room disabled -> enabled opacity 动画会产生可被 axe 捕获的低对比度中间帧；移除 opacity transition 并按 canonical route/控件 enabled 同步测试后，11:51 完整门禁通过：inventory `69/69`、script contracts `46`、control-plane Playwright `462`、总计 `508`、Chromium `134/134 passed (3.4m)`，两个 WCAG A/AA 用例均通过。只读产品验收结果为 P0 `0`、P1 `0`、P2 `1`、P3 `0`；唯一 P2 是 tldraw production-license watermark，需在正式发布前配置合法 license 或明确接受。最终 delivery 必须在本记录进入 closure commit 后，对精确 clean commit 无编辑复跑完整门禁，再 push 并核对远端 SHA；未授权创建 PR、merge 或 release，也不宣称 fully Web Interface Guidelines compliant。

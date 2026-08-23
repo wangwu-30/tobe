@@ -35,7 +35,7 @@ import { useT } from '@/components/providers/language-provider';
 import { apiCall, apiCallOrThrow } from '@/framework/resilience';
 import { shouldHydrateChatMessages } from '@/lib/chat/message-hydration';
 
-const DEFAULT_CHAT_MODEL_KEY = 'openai-codex::gpt-5.2-codex';
+const DEFAULT_CHAT_MODEL_KEY = 'openai-codex::gpt-5.4';
 const INTERNAL_FIRST_PASS_PREFIX = 'Take the first author pass for this deliverable.';
 
 export function ChatPanel({

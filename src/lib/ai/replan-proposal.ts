@@ -1,4 +1,4 @@
-import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
+import type { Api, Model as PiModel } from '@earendil-works/pi-ai';
 import { completeWithPi, extractTextContent } from '@/lib/ai/pi-runtime';
 import { safeJsonParse } from '@/framework/resilience';
 import { generatePlanStepsWithAI } from '@/lib/ai/plan-generator';

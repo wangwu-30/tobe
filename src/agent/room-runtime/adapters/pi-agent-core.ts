@@ -8,8 +8,8 @@ import type {
   AgentTool,
   StreamFn,
   ThinkingLevel,
-} from '@mariozechner/pi-agent-core';
-import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
+} from '@earendil-works/pi-agent-core';
+import type { Api, Model as PiModel } from '@earendil-works/pi-ai';
 import type {
   AgentToolPendingConfirmationDescriptorV1,
   AgentToolPendingConfirmationSourceV1,
@@ -40,7 +40,7 @@ import {
 } from '../contracts';
 
 export const PI_ROOM_RUNTIME_ID_V1 = 'pi-agent-core';
-export const PI_ROOM_RUNTIME_VERSION_V1 = '0.57.1';
+export const PI_ROOM_RUNTIME_VERSION_V1 = '0.84.2';
 
 const PI_ROOM_CHECKPOINT_KIND_V1 = 'pi-agent-core.fresh-replay';
 const PI_ROOM_CHECKPOINT_STATE_VERSION_V1 = 1;
@@ -50,7 +50,7 @@ type AnyPiModel = PiModel<Api>;
 export type PiRoomAgentConfigV1 = {
   getApiKey?: AgentOptions['getApiKey'];
   model: AnyPiModel;
-  streamFn?: StreamFn;
+  streamFn: StreamFn;
   systemPrompt: string;
   thinkingLevel?: ThinkingLevel;
   tools?: readonly AgentTool[];
@@ -71,13 +71,14 @@ export type PiRoomAgentConfigResolverV1 = (
 export type PiRoomAgentV1 = {
   readonly state: Pick<
     AgentState,
-    'error' | 'isStreaming' | 'messages' | 'streamMessage'
+    'errorMessage' | 'isStreaming' | 'messages' | 'streamingMessage'
   >;
   abort(): void;
-  appendMessage(message: AgentMessage): void;
   continue(): Promise<void>;
   prompt(message: AgentMessage | AgentMessage[]): Promise<void>;
-  subscribe(listener: (event: AgentEvent) => void): () => void;
+  subscribe(
+    listener: (event: AgentEvent, signal: AbortSignal) => Promise<void> | void
+  ): () => void;
   waitForIdle(): Promise<void>;
 };
 
@@ -134,7 +135,7 @@ type PiRoomCheckpointStateV1 = {
 
 const DEFAULT_DEPENDENCIES: PiRoomSessionRuntimeDependenciesV1 = {
   createAgent: async (options) => {
-    const { Agent: PiAgent } = await import('@mariozechner/pi-agent-core');
+    const { Agent: PiAgent } = await import('@earendil-works/pi-agent-core');
     return new PiAgent(options);
   },
   createId: (kind) => `${kind}-${randomUUID()}`,
@@ -383,6 +384,7 @@ export class PiRoomSessionRuntimeAdapterV1
         runtimeSessionId,
       ].join(':'),
       streamFn: config.streamFn,
+      toolExecution: 'sequential',
     });
     const state: PiRoomSessionStateV1 = {
       agent,
@@ -431,13 +433,14 @@ export class PiRoomSessionRuntimeAdapterV1
     input: HandleRoomDeliveryInputV1
   ): RoomRuntimeEventEnvelopeV1 {
     if (!state.contextMessageIds.has(input.delivery.message.messageId)) {
-      state.agent.appendMessage(
+      state.agent.state.messages = [
+        ...state.agent.state.messages,
         toPiMessage(
           input.delivery.message,
           state.handle.session,
           state.model
-        )
-      );
+        ),
+      ];
       state.contextMessageIds.add(input.delivery.message.messageId);
     }
     state.contextThroughMessageSequence = Math.max(
@@ -603,7 +606,7 @@ export class PiRoomSessionRuntimeAdapterV1
 
         const finalMessage = findLastAssistantMessage(state.agent.state.messages);
         const failed =
-          state.agent.state.error ||
+          state.agent.state.errorMessage ||
           finalMessage?.stopReason === 'error' ||
           finalMessage?.stopReason === 'aborted';
 
@@ -617,7 +620,7 @@ export class PiRoomSessionRuntimeAdapterV1
                   : 'pi-request-failed',
               message:
                 finalMessage?.errorMessage ||
-                state.agent.state.error ||
+                state.agent.state.errorMessage ||
                 'Pi agent request failed.',
               retryable: finalMessage?.stopReason !== 'aborted',
             })

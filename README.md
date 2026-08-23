@@ -24,7 +24,7 @@ The current deployment model is a trusted local, single-user MVP built with Next
 
 ## Quickstart
 
-Prerequisites: Node.js 20.9 or newer and a modern npm version.
+Prerequisites: Node.js 22.19 or newer (but below Node.js 23) and a modern npm version.
 
 From a repository checkout:
 
@@ -61,7 +61,7 @@ For OpenAI Codex OAuth:
 npm run auth:openai-oauth
 ```
 
-OAuth credentials are stored under the active app-data root in `.oauth/openai-codex.json` and `.oauth/auth.json`. If you set `DAO_APP_DATA_ROOT` for the Web app, use the same value for this command.
+OAuth credentials are stored under the active app-data root in `.oauth/auth.json`. Existing `.oauth/openai-codex.json` credentials remain readable and are migrated on the next successful refresh. If you set `DAO_APP_DATA_ROOT` for the Web app, use the same value for this command.
 
 Without a provider credential, the application still starts, but model-backed Chat, AI editing, comment replies, memory extraction, and Room Agent reasoning are unavailable.
 

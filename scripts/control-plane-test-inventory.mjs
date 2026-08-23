@@ -28,6 +28,7 @@ export const controlPlaneTestGroups = [
       'src/derive/thread-classify.test.ts',
       'src/lib/execution/client.test.ts',
       'src/lib/execution/room-events.test.ts',
+      'src/lib/ai/providers.test.ts',
       'src/lib/db/prisma-libsql-adapter.test.ts',
       'src/lib/room/activity.test.ts',
       'src/lib/room/client.test.ts',

@@ -24,7 +24,7 @@ export default defineConfig({
     },
     outDir: '.tmp/room-tool-confirmation-test',
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
   },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
 });

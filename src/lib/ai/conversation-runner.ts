@@ -1,11 +1,11 @@
-import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
+import type { Api, Model as PiModel } from '@earendil-works/pi-ai';
 import { prisma } from '@/lib/db/prisma';
 import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
 import { buildReplyLanguageInstruction } from '@/lib/ai/language';
 import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
 import { safeJsonParse } from '@/framework/resilience';
-import { resolvePiProviderApiKey } from '@/framework/agent/run';
+import { hasConfiguredPiProviderAuth } from '@/lib/ai/providers';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
 import {
@@ -400,12 +400,12 @@ export async function streamWorkspaceAssistantRun(
     throw new Error('Onboarding assistant runs cannot target a workspace.');
   }
 
-  const providerApiKey = await resolvePiProviderApiKey({
-    provider: params.model.provider,
-    settings: params.settings,
-  });
+  const hasProviderAuth = await hasConfiguredPiProviderAuth(
+    params.settings,
+    params.model.provider
+  );
 
-  if (process.env.DAO_E2E === '1' && !providerApiKey) {
+  if (process.env.DAO_E2E === '1' && !hasProviderAuth) {
     return streamE2EWorkspaceAssistantRun(params);
   }
 

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 
 import {
   AgentToolConfirmationRequiredError,

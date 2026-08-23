@@ -1,6 +1,6 @@
 # 严格迭代回归门禁
 
-更新时间：2026-08-21
+更新时间：2026-08-24
 
 ## 何时必须执行
 
@@ -166,3 +166,16 @@ browser operator / blackbox acceptance 不属于日常 `verify:iteration`，而�
 - 精确 pass/fail 数字、环境阻塞与 artifact 路径只追加到 active tracker 的 dated verification record，
   不覆盖历史记录，也不把旧运行结果写成当前状态
 - 本轮完整结果由本轮最终 gate 补录；补录前不得写“全绿”“通过”或等价结论
+
+## GitHub 托管门禁与依赖更新
+
+- `.github/workflows/iteration-gate.yml` 会在每个 pull request 以及 `main` 分支的 push 上运行，
+  使用 `.node-version` 固定的 Node.js 22.23.2，依次执行 `npm ci`、安装 Chromium 与宿主依赖、
+  `npm run verify:iteration`。门禁失败时上传 `.tmp/iteration-regression/artifacts/` 供排查。
+- Dependabot 每周检查 npm 与 GitHub Actions 更新；`@earendil-works/pi-ai` 和
+  `@earendil-works/pi-agent-core` 必须放在同一更新组中。Dependabot 只负责创建 pull request，
+  不自动合并；依赖更新仍须经过代码审查和完整 `iteration-gate`。
+- 仓库管理员必须在 GitHub 的 `Settings > Rules > Rulesets` 中为默认分支 `main` 手工配置规则集，
+  将状态检查 `iteration-gate` 设为 required。工作流文件本身不能代替这项仓库设置。
+- 规则集的 bypass 列表不得包含 Dependabot（包括 `dependabot[bot]` 或 Dependabot GitHub App）；
+  不得允许 Dependabot 绕过 required status check，也不得为其启用自动合并。

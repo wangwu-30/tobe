@@ -1,10 +1,9 @@
-import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
-import type { Settings } from '@/lib/ai/providers';
+import { Agent } from '@earendil-works/pi-agent-core';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
+import { createPiStreamFn, type Settings } from '@/lib/ai/providers';
 import { AI_STREAM_HEARTBEAT_TOKEN } from '@/lib/ai/stream-protocol';
 import {
   getLastAssistantMessageText,
-  resolvePiProviderApiKey,
   toPiRunMessages,
   type AgentRunMessage,
   type AnyPiModel,
@@ -49,11 +48,8 @@ export async function streamPiAgentChat({
       thinkingLevel: 'low',
     },
     sessionId,
-    getApiKey: async (provider) =>
-      resolvePiProviderApiKey({
-        provider,
-        settings,
-      }),
+    streamFn: createPiStreamFn(settings),
+    toolExecution: 'sequential',
   });
 
   const stream = new ReadableStream({
@@ -106,13 +102,17 @@ export async function streamPiAgentChat({
       heartbeatId = setInterval(() => {
         enqueueChunk(encoder.encode(AI_STREAM_HEARTBEAT_TOKEN));
       }, STREAM_HEARTBEAT_INTERVAL_MS);
-      unsubscribe = agent.subscribe((event) => {
+      unsubscribe = agent.subscribe(async (event, signal) => {
         if (
           event.type === 'message_update' &&
           event.assistantMessageEvent.type === 'text_delta'
         ) {
           if (!firstTextTransition) {
             firstTextTransition = Promise.resolve(onFirstText?.());
+          }
+          await firstTextTransition;
+          if (signal.aborted || isStreamSettled) {
+            return;
           }
           streamedText += event.assistantMessageEvent.delta;
           enqueueChunk(encoder.encode(event.assistantMessageEvent.delta));
@@ -122,7 +122,17 @@ export async function streamPiAgentChat({
       try {
         await agent.continue();
         await firstTextTransition;
-        const finalText = getLastAssistantMessageText(agent.state.messages) || streamedText;
+        if (agent.state.errorMessage) {
+          throw new Error(agent.state.errorMessage);
+        }
+        const finalText =
+          getLastAssistantMessageText(
+            agent.state.messages.filter((message) =>
+              message.role === 'assistant' ||
+              message.role === 'user' ||
+              message.role === 'toolResult'
+            )
+          ) || streamedText;
         await onFinish?.({ text: finalText });
         settleStream('close');
       } catch (error) {

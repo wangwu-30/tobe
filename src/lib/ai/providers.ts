@@ -1,6 +1,12 @@
-import { getModel as getPiModel, getModels, getProviders } from '@mariozechner/pi-ai';
-import type { Api, Model as PiModel, Provider as PiProvider } from '@mariozechner/pi-ai';
+import type { Api, Model as PiModel, MutableModels } from '@earendil-works/pi-ai';
+import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { safeJsonParse } from '@/framework/resilience/safe-data';
+import { oauthCredentialStore } from '@/lib/ai/auth-store';
+import {
+  DEFAULT_MODEL_KEY,
+  buildModelKey,
+  parseModelKey,
+} from '@/lib/ai/model-selection';
 import { normalizeAppLanguage, type AppLanguage } from '@/lib/i18n/language';
 import { translate } from '@/lib/i18n/copy';
 import { normalizeCommentAgents } from '@/lib/comments/agents';
@@ -43,32 +49,42 @@ export type AIModel = ModelOptionData & {
   provider: string;
 };
 
-const DEFAULT_MODEL_KEY = buildModelKey('openai-codex', 'gpt-5.2-codex');
+let piModels: MutableModels | undefined;
 
-const PROVIDER_LABELS: Partial<Record<PiProvider, string>> = {
-  anthropic: 'Anthropic',
-  'azure-openai-responses': 'Azure OpenAI',
-  cerebras: 'Cerebras',
-  'github-copilot': 'GitHub Copilot',
-  google: 'Google',
-  'google-antigravity': 'Google Antigravity',
-  'google-gemini-cli': 'Google Gemini CLI',
-  'google-vertex': 'Vertex AI',
-  groq: 'Groq',
-  huggingface: 'Hugging Face',
-  minimax: 'MiniMax',
-  'minimax-cn': 'MiniMax CN',
-  mistral: 'Mistral',
-  opencode: 'OpenCode',
-  'opencode-go': 'OpenCode Go',
-  openai: 'OpenAI',
-  'openai-codex': 'OpenAI Codex',
-  openrouter: 'OpenRouter',
-  'vercel-ai-gateway': 'Vercel AI Gateway',
-  xai: 'xAI',
-  zai: 'z.ai',
-  'kimi-coding': 'Kimi Coding',
-};
+export { buildModelKey, parseModelKey };
+
+export function getPiModels(): MutableModels {
+  piModels ??= builtinModels({ credentials: oauthCredentialStore });
+  return piModels;
+}
+
+export function createPiStreamFn(settings: Settings) {
+  const models = getPiModels();
+  return (
+    model: PiModel<Api>,
+    context: Parameters<MutableModels['streamSimple']>[1],
+    options?: Parameters<MutableModels['streamSimple']>[2]
+  ) => {
+    // A request-scoped key explicitly configured in the UI wins. When it is
+    // absent, Models resolves the persistent credential or provider-specific
+    // environment itself, including OAuth refresh under the store lock.
+    const apiKey = settings.providerApiKeys?.[model.provider]?.trim();
+    return models.streamSimple(model, context, {
+      ...options,
+      ...(apiKey ? { apiKey } : {}),
+    });
+  };
+}
+
+export async function hasConfiguredPiProviderAuth(
+  settings: Settings,
+  providerId: string
+) {
+  if (settings.providerApiKeys?.[providerId]?.trim()) {
+    return true;
+  }
+  return Boolean(await getPiModels().checkAuth(providerId));
+}
 
 const AVAILABLE_MODELS = buildAvailableModels();
 const DEFAULT_MODEL_SELECTION = parseModelKey(DEFAULT_MODEL_KEY);
@@ -227,7 +243,7 @@ export function normalizeSettings(input: unknown): Settings {
     }
   }
 
-  const defaultModel = normalizeModelKey(asString(raw.defaultModel)) || DEFAULT_MODEL_KEY;
+  const defaultModel = parseModelKey(asString(raw.defaultModel)).key;
   const language = normalizeAppLanguage(asString(raw.language));
   const commentAgents = normalizeCommentAgents(raw.commentAgents, language);
 
@@ -236,29 +252,6 @@ export function normalizeSettings(input: unknown): Settings {
     language,
     commentAgents,
     providerApiKeys,
-  };
-}
-
-export function buildModelKey(providerId: string, modelId: string) {
-  return `${providerId}::${modelId}`;
-}
-
-export function parseModelKey(modelKey: string) {
-  const normalized = normalizeModelKey(modelKey) || DEFAULT_MODEL_KEY;
-  const separatorIndex = normalized.indexOf('::');
-
-  if (separatorIndex === -1) {
-    return {
-      providerId: 'openai-codex',
-      modelId: 'gpt-5.2-codex',
-      key: DEFAULT_MODEL_KEY,
-    };
-  }
-
-  return {
-    providerId: normalized.slice(0, separatorIndex),
-    modelId: normalized.slice(separatorIndex + 2),
-    key: normalized,
   };
 }
 
@@ -271,13 +264,21 @@ export function getSelectedModel(settings: Settings, modelOverride?: string) {
   const { providerId, modelId, key } = parseModelKey(
     modelOverride || settings.defaultModel || DEFAULT_MODEL_KEY
   );
+  const models = getPiModels();
+  const model = models.getModel(providerId, modelId);
+
+  if (!model) {
+    throw new Error(
+      `The configured Pi model is not available: ${providerId}::${modelId}`
+    );
+  }
 
   return {
     settings,
     modelKey: key,
-    providerId,
-    modelId,
-    model: getPiModel(providerId as never, modelId as never) as PiModel<Api>,
+    providerId: model.provider,
+    modelId: model.id,
+    model: model as PiModel<Api>,
   };
 }
 
@@ -297,15 +298,15 @@ export function resolveConfiguredApiKey(settings: Settings, providerId: string) 
     cerebras: process.env.CEREBRAS_API_KEY,
     openrouter: process.env.OPENROUTER_API_KEY,
     'vercel-ai-gateway': process.env.AI_GATEWAY_API_KEY,
-    google: process.env.GOOGLE_API_KEY,
-    'google-vertex': process.env.GOOGLE_VERTEX_API_KEY,
+    google: process.env.GEMINI_API_KEY,
+    'google-vertex': process.env.GOOGLE_CLOUD_API_KEY,
     minimax: process.env.MINIMAX_API_KEY,
-    'minimax-cn': process.env.MINIMAX_API_KEY,
-    huggingface: process.env.HUGGINGFACE_API_KEY,
+    'minimax-cn': process.env.MINIMAX_CN_API_KEY,
+    huggingface: process.env.HF_TOKEN,
     zai: process.env.ZAI_API_KEY,
     opencode: process.env.OPENCODE_API_KEY,
-    'opencode-go': process.env.OPENCODE_GO_API_KEY,
-    'kimi-coding': process.env.KIMI_CODING_API_KEY,
+    'opencode-go': process.env.OPENCODE_API_KEY,
+    'kimi-coding': process.env.KIMI_API_KEY,
   };
 
   return envKeyMap[providerId];
@@ -314,15 +315,15 @@ export function resolveConfiguredApiKey(settings: Settings, providerId: string) 
 function buildAvailableModels() {
   const models = new Map<string, AIModel>();
 
-  for (const providerId of getProviders()) {
-    for (const model of getModels(providerId)) {
-      const key = buildModelKey(providerId, model.id);
+  for (const provider of getPiModels().getProviders()) {
+    for (const model of provider.getModels()) {
+      const key = buildModelKey(provider.id, model.id);
       const nextModel = {
         key,
         id: model.id,
         name: model.name || model.id,
-        provider: PROVIDER_LABELS[providerId] || providerId,
-        providerId,
+        provider: provider.name,
+        providerId: provider.id,
       };
 
       const existing = models.get(key);
@@ -378,34 +379,6 @@ function groupModelsByProvider() {
       models: [...provider.models].sort((left, right) => left.name.localeCompare(right.name)),
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
-}
-
-function normalizeModelKey(modelKey?: string | null) {
-  if (!modelKey) {
-    return null;
-  }
-
-  if (modelKey.includes('::')) {
-    return modelKey;
-  }
-
-  if (modelKey.startsWith('anthropic/')) {
-    return buildModelKey('anthropic', modelKey.slice('anthropic/'.length));
-  }
-
-  if (modelKey.startsWith('openai/')) {
-    return buildModelKey('openai', modelKey.slice('openai/'.length));
-  }
-
-  if (modelKey.startsWith('claude-')) {
-    return buildModelKey('anthropic', modelKey);
-  }
-
-  if (modelKey.startsWith('gpt-') || modelKey.startsWith('o1') || modelKey.startsWith('codex-')) {
-    return buildModelKey('openai', modelKey);
-  }
-
-  return null;
 }
 
 function asString(value: unknown) {

@@ -232,7 +232,7 @@ function piRuntimeConfig() {
   return {
     driver: 'pi-agent-core' as const,
     runtimeId: 'pi-agent-core' as const,
-    runtimeVersion: '0.57.1',
+    runtimeVersion: '0.84.2',
     providerId: 'openai',
     modelId: 'gpt-5.2',
     systemPrompt: 'Coordinate this Project Room.',

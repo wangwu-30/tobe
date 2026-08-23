@@ -234,6 +234,35 @@ P2 `1`、P3 `0`；无横向溢出、4xx/5xx、console error/warning 或 page err
 CSS、DOM patch 或测试分支隐藏。该验收不替代 iteration gate，ignored artifacts 位于
 `.tmp/product-acceptance/`。
 
+## Pi SDK 0.84.2 迁移与自动更新记录（2026-08-24）
+
+- npm registry 已核对：弃用的 `@mariozechner/pi-ai` / `pi-agent-core` 明确指向
+  `@earendil-works/*`；迁移时后继包最新版本均为 `0.84.2`。仓库已切换到
+  `@earendil-works/pi-ai` / `pi-agent-core@^0.84.2`，并移除未使用的 Vercel AI SDK、旧 Pi namespace
+  和旧 TypeBox 依赖。
+- 新 SDK 的 Node 下限已统一为 `>=22.19.0 <23`，`.node-version` 固定 `22.23.2`，Node 服务与测试
+  bundle target 统一为 `node22`；工具 schema 统一使用 `typebox@1.3.7`，避免 SDK 与应用各持一份不兼容的
+  schema runtime。
+- provider 接线改为共享 `Models` collection；Agent 与 Room runtime 显式注入 `streamFn`，适配
+  `errorMessage` / `streamingMessage` 和 state setter。默认模型为 `openai-codex::gpt-5.4`；只对历史默认
+  `openai-codex::gpt-5.2-codex` 做显式迁移，其他不存在的模型 fail closed，不跨 provider 静默回退。
+- OAuth canonical store 为 `.oauth/auth.json`。Web、Room Host 和 `npm run auth:openai-oauth` 共用同一
+  `proper-lockfile` 跨进程锁、锁内 read-modify-write 与临时文件 rename；legacy
+  `.oauth/openai-codex.json` 只保留兼容读取，并在后续刷新时进入 canonical store。
+- 自动更新由 `.github/dependabot.yml` 每周发起 PR，两个 Pi package 同组；GitHub Actions 在 PR 上执行
+  完整 `iteration-gate`。不启用自动合并，不向不可信依赖 PR 提供真实 provider secret；`main` 的 required
+  check、reviewer 和 Dependabot no-bypass 仍须仓库管理员在 GitHub ruleset 中启用。
+- 冻结前定向验证：Node `22.23.2` 下 `npm ci`、TypeScript、迁移范围 ESLint、OAuth credential helper
+  `2/2`、Pi Room adapter `11/11`、Room Host Pi composition `3/3`、Room Host production build 和
+  `git diff --check` 均通过。`npm audit` 为 `33`（3 low / 7 moderate / 23 high / 0 critical）；没有使用
+  `npm audit fix --force`，剩余项由后续依赖 PR 分批审阅。
+- 本次冻结工作树已在 `2026-08-24 03:32 +08:00` 完成完整 `npm run verify:iteration`：Web guideline
+  scanner、Prisma/typegen、generated test builds、TypeScript、ESLint、fresh DB bootstrap、production Web build
+  和 browser preflight 均通过；inventory `72/72`，script contracts `53 passed`，control-plane Playwright
+  `474 passed`，Chromium `148/148 passed (3.6m)`。pre-record fingerprint 为
+  `sha256:df27d79608233055508cba113ee1ab6a0c83e48e10ec441b14feada5c3475643`。文档记录进入
+  closure commit 后，仍需在该 clean commit 上无编辑复跑同一门禁，再推送并核对远端 SHA。
+
 ## 历史验证记录
 
 以下是各次运行当时的原始快照；保留其数字和边界，不把它们外推为当前代码或本轮完整门禁结果。
