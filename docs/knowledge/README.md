@@ -1,6 +1,6 @@
 # 成形通用知识索引
 
-更新时间：2026-03-22
+更新时间：2026-08-21
 状态：当前 canonical knowledge sink
 
 ## 目的
@@ -13,10 +13,10 @@
 
 - [Playwright 迭代回归](./playwright-iteration-regression.md)
 - [Prisma schema 与 object seam 演进](./prisma-schema-and-object-seams.md)
-- [Desktop 与 preview runtime](./desktop-preview-runtime.md)
+- [Web Preview Runtime](./desktop-preview-runtime.md)
 
 ## 使用方式
 
 - 做功能或 bug 修复时，先看对应主题文档，再落代码和门禁。
-- 需要项目事实、phase 边界或验收账本时，回到 [`../chengxing-v-next-execution-tracker.md`](../chengxing-v-next-execution-tracker.md) 和 [`../chengxing-lessons-learned.md`](../chengxing-lessons-learned.md)。
+- 需要当前系统事实或执行状态时，回到 [`../../SYSTEM.md`](../../SYSTEM.md) 和 [`../agent-room-execution-workstream.md`](../agent-room-execution-workstream.md)；需要追溯历史阶段与经验时，再查看 [`../chengxing-v-next-execution-tracker.md`](../chengxing-v-next-execution-tracker.md) 和 [`../chengxing-lessons-learned.md`](../chengxing-lessons-learned.md)。
 - 文档内容若再次被新迭代验证或推翻，应先更新这里，再关闭相关 thread。

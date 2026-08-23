@@ -49,6 +49,7 @@
 }
 
 :root {
+  color-scheme: light;
   --font-geist-sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
     "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-geist-mono: "SFMono-Regular", "JetBrains Mono", Menlo, Monaco,
@@ -89,6 +90,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -127,8 +129,12 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    scroll-behavior: smooth;
+  }
   body {
     @apply overflow-hidden bg-background text-foreground;
+    -webkit-tap-highlight-color: transparent;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled),
@@ -141,6 +147,7 @@
   [data-slot="popover-trigger"]:not([data-disabled]),
   [data-slot="switch"]:not([data-disabled]) {
     cursor: pointer;
+    touch-action: manipulation;
   }
   input:not(:disabled),
   textarea:not(:disabled),
@@ -154,5 +161,23 @@
   select:disabled,
   [aria-disabled="true"] {
     cursor: not-allowed;
+  }
+  :where(button, [role="button"], a[href], input, textarea, select, summary):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

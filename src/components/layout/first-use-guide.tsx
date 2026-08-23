@@ -57,7 +57,7 @@ export function FirstUseGuide({
       >
         <div className="flex items-start gap-2.5">
           <div className="mt-0.5 rounded-full bg-primary/10 p-1.5 text-primary">
-            <Sparkles className="h-3.5 w-3.5" />
+            <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -73,7 +73,7 @@ export function FirstUseGuide({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-2 text-[11px]"
+                  className="min-h-10 px-3 text-[11px] sm:min-h-6 sm:px-2"
                   onClick={handleDismiss}
                 >
                   {t('common.gotIt')}
@@ -96,7 +96,7 @@ export function FirstUseGuide({
     >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 rounded-full bg-primary/10 p-2 text-primary">
-          <Sparkles className="h-4 w-4" />
+          <Sparkles aria-hidden="true" className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium text-foreground">{title}</div>
@@ -107,7 +107,7 @@ export function FirstUseGuide({
               type="button"
               size="sm"
               variant="ghost"
-              className="h-7 px-2 text-xs"
+              className="min-h-10 px-3 text-xs sm:min-h-7 sm:px-2"
               onClick={handleDismiss}
             >
               {t('common.gotIt')}

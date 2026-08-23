@@ -11,8 +11,8 @@ const ProjectCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas...
+      <div aria-live="polite" className="flex h-full w-full items-center justify-center text-muted-foreground" role="status">
+        Loading canvas…
       </div>
     ),
   }
@@ -81,7 +81,7 @@ export function ProjectCanvasLoader({
 
   if (error) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+      <div className="flex h-full w-full items-center justify-center text-destructive" role="alert">
         {error}
       </div>
     );
@@ -89,8 +89,8 @@ export function ProjectCanvasLoader({
 
   if (!catalog) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading...
+      <div aria-live="polite" className="flex h-full w-full items-center justify-center text-muted-foreground" role="status">
+        Loading…
       </div>
     );
   }

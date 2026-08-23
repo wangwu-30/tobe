@@ -6,7 +6,9 @@ import { AssistantRail } from '@/components/workspace/assistant-rail';
 import { AssistantPanelSurface } from '@/surfaces/assistant-panel/assistant-panel';
 import { ContextPanelSurface } from '@/surfaces/context-panel/context-panel';
 import { ReviewPanelSurface } from '@/surfaces/review-panel/review-panel';
+import { ProjectRoomSurface } from '@/surfaces/room';
 import { StatusPanelSurface } from '@/surfaces/status-panel/status-panel';
+import type { WorkspaceAssistantTab } from '@/lib/workspace/route';
 
 type AssistantPanelProps = React.ComponentProps<typeof AssistantPanelSurface>;
 type ContextPanelProps = React.ComponentProps<typeof ContextPanelSurface>;
@@ -44,12 +46,15 @@ export function WorkspaceAssistantRail({
   onSelectConversation,
   onSourceContentApplied,
   onWorkspaceChange,
+  onValueChange,
   plan,
   queuedPrompt,
   refreshThreads,
   reviewThreads,
   wikiId,
   workspaceId,
+  workspaceRevision,
+  value,
 }: {
   activeAssistantRun: AssistantPanelProps['activeAssistantRun'];
   activeFileId: AssistantPanelProps['activeFileId'];
@@ -81,22 +86,44 @@ export function WorkspaceAssistantRail({
   onSelectConversation: AssistantPanelProps['onSelectConversation'];
   onSourceContentApplied: ReviewPanelProps['onSourceContentApplied'];
   onWorkspaceChange: AssistantPanelProps['onWorkspaceChange'];
+  onValueChange?: (value: WorkspaceAssistantTab) => void;
   plan: StatusPanelProps['plan'];
   queuedPrompt: AssistantPanelProps['queuedPrompt'];
   refreshThreads: ReviewPanelProps['refreshThreads'];
   reviewThreads: ReviewPanelProps['threads'];
   wikiId: ContextPanelProps['wikiId'];
   workspaceId: string;
+  workspaceRevision: ReviewPanelProps['workspaceRevision'];
+  value?: WorkspaceAssistantTab;
 }) {
   const reviewCount = reviewThreads.filter(
     (thread) =>
       (thread.status === 'open' || thread.status === 'applied') &&
-      (thread.scope === 'direct' || thread.inheritanceState === 'actionable')
+      (thread.scope === 'direct' || thread.inheritanceState === 'actionable'),
   ).length;
 
   return (
     <AssistantRail
+      onValueChange={onValueChange}
       reviewCount={reviewCount}
+      value={value}
+      room={
+        currentProjectId ? (
+          <ProjectRoomSurface
+            className="border-0"
+            projectId={currentProjectId}
+            showPresence={false}
+          />
+        ) : (
+          <div
+            className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground"
+            data-testid="project-room-loading"
+            role="status"
+          >
+            正在准备 Project Room…
+          </div>
+        )
+      }
       status={
         <StatusPanelSurface
           currentDraftBranchTitle={currentDraftBranchTitle}
@@ -120,6 +147,7 @@ export function WorkspaceAssistantRail({
           refreshThreads={refreshThreads}
           threads={reviewThreads}
           versionId={versionId}
+          workspaceRevision={workspaceRevision}
         />
       }
       chat={

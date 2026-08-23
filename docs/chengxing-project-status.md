@@ -1,5 +1,7 @@
 # 成形项目状态
 
+> **Historical / completed snapshot（2026-08-21）**：本文保留当时的项目事实与验收记录，不代表当前状态。当前入口见 [README](../README.md)、[SYSTEM](../SYSTEM.md) 与 [Agent Room 与持久执行落地追踪器](./agent-room-execution-workstream.md)。
+
 更新时间：2026-03-21
 状态：终版收口完成，进入严格迭代验收维护
 对应规划：[产品落地计划](./chengxing-rollout-plan.md)

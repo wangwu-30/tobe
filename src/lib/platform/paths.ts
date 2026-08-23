@@ -14,10 +14,6 @@ const DEFAULT_LOGS_DIR_NAME = 'logs';
 const DEFAULT_OAUTH_DIR_NAME = '.oauth';
 const DEFAULT_WORKSPACE_MIRROR_DIR_NAME = 'workspace-mirror';
 
-export function isDesktopRuntime() {
-  return process.env.DAO_PLATFORM === 'desktop';
-}
-
 export function getPlatformPaths(): PlatformPaths {
   const appDataRoot = resolveAppDataRoot();
 

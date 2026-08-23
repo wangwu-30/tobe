@@ -267,11 +267,10 @@ async function spawnWorkspaceProcess(params: {
 
   let child: ChildProcessWithoutNullStreams;
   if (params.command === STATIC_PREVIEW_COMMAND) {
-    const runtimeRoot = process.env.DAO_DESKTOP_RUNTIME_ROOT?.trim() || process.cwd();
     child = spawn(
       process.execPath,
       [
-        path.join(runtimeRoot, 'scripts', 'static-preview-server.mjs'),
+        path.join(process.cwd(), 'scripts', 'static-preview-server.mjs'),
         params.cwd,
         String(params.port),
       ],

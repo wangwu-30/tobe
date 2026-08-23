@@ -1,7 +1,13 @@
 'use client';
 
 import * as React from 'react';
-import { BookOpen, MessageSquare, Sparkles, MessagesSquare } from 'lucide-react';
+import {
+  BookOpen,
+  MessageSquare,
+  MessagesSquare,
+  Sparkles,
+  Users,
+} from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { COMMENT_THREAD_FOCUS_EVENT } from '@/lib/comments/constants';
@@ -9,26 +15,51 @@ import { OPEN_MANUAL_COMMENT_COMPOSER_EVENT } from '@/lib/comments/constants';
 import { cn } from '@/lib/utils';
 import { useT } from '@/components/providers/language-provider';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
+import { OPEN_AGENT_COMPOSER_EVENT } from '@/agent/events';
+import type { WorkspaceAssistantTab } from '@/lib/workspace/route';
 
 export function AssistantRail({
   chat,
   context,
-  defaultTab = 'status',
+  defaultTab = 'room',
+  onValueChange,
+  room,
   review,
   reviewCount = 0,
   status,
+  value,
 }: {
   chat: React.ReactNode;
   context: React.ReactNode;
-  defaultTab?: 'status' | 'review' | 'chat' | 'context';
+  defaultTab?: WorkspaceAssistantTab;
+  onValueChange?: (value: WorkspaceAssistantTab) => void;
+  room: React.ReactNode;
   review: React.ReactNode;
   reviewCount?: number;
   status: React.ReactNode;
+  value?: WorkspaceAssistantTab;
 }) {
   const t = useT();
-  const [tab, setTab] = React.useState(defaultTab);
+  const [uncontrolledTab, setUncontrolledTab] = React.useState(defaultTab);
+  const tab = value ?? uncontrolledTab;
+  const selectTab = React.useCallback(
+    (nextTab: WorkspaceAssistantTab) => {
+      if (value === undefined) {
+        setUncontrolledTab(nextTab);
+      }
+      onValueChange?.(nextTab);
+    },
+    [onValueChange, value],
+  );
   const tabMeta = React.useMemo(
     () => ({
+      room: {
+        title: t('assistant.room'),
+        description: t('assistant.roomDescription'),
+        guideTitle: '',
+        guideDescription: '',
+        testId: 'project-room-surface',
+      },
       status: {
         title: t('assistant.status'),
         description: t('assistant.statusDescription'),
@@ -58,32 +89,52 @@ export function AssistantRail({
         testId: 'first-use-guide-context',
       },
     }),
-    [t]
+    [t],
   );
   const currentTabMeta = tabMeta[tab];
 
   React.useEffect(() => {
     const handleFocus = () => {
-      setTab('review');
+      selectTab('review');
     };
 
     window.addEventListener(COMMENT_THREAD_FOCUS_EVENT, handleFocus);
     window.addEventListener(OPEN_MANUAL_COMMENT_COMPOSER_EVENT, handleFocus);
     return () => {
       window.removeEventListener(COMMENT_THREAD_FOCUS_EVENT, handleFocus);
-      window.removeEventListener(OPEN_MANUAL_COMMENT_COMPOSER_EVENT, handleFocus);
+      window.removeEventListener(
+        OPEN_MANUAL_COMMENT_COMPOSER_EVENT,
+        handleFocus,
+      );
     };
-  }, []);
+  }, [selectTab]);
+
+  React.useEffect(() => {
+    const handleAgentComposerOpen = () => {
+      selectTab('chat');
+    };
+
+    window.addEventListener(OPEN_AGENT_COMPOSER_EVENT, handleAgentComposerOpen);
+    return () => {
+      window.removeEventListener(
+        OPEN_AGENT_COMPOSER_EVENT,
+        handleAgentComposerOpen,
+      );
+    };
+  }, [selectTab]);
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-border bg-background">
       <Tabs
         value={tab}
-        onValueChange={(value) =>
-          setTab(
-            value === 'review' || value === 'chat' || value === 'context'
-              ? value
-              : 'status'
+        onValueChange={(nextValue) =>
+          selectTab(
+            nextValue === 'status' ||
+              nextValue === 'review' ||
+              nextValue === 'chat' ||
+              nextValue === 'context'
+              ? nextValue
+              : 'room',
           )
         }
         className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
@@ -104,25 +155,52 @@ export function AssistantRail({
               {currentTabMeta.description}
             </p>
           </div>
-          <TabsList className="mt-3 grid w-full grid-cols-4">
-            <TabsTrigger value="status" className="text-xs" data-testid="assistant-tab-status">
+          <TabsList className="mt-3 grid w-full grid-cols-5">
+            <TabsTrigger
+              value="room"
+              className="text-xs"
+              data-testid="assistant-tab-room"
+            >
+              <Users className="h-3.5 w-3.5" />
+              {t('assistant.room')}
+            </TabsTrigger>
+            <TabsTrigger
+              value="status"
+              className="text-xs"
+              data-testid="assistant-tab-status"
+            >
               <Sparkles className="h-3.5 w-3.5" />
               {t('assistant.status')}
             </TabsTrigger>
-            <TabsTrigger value="review" className="text-xs" data-testid="assistant-tab-review">
+            <TabsTrigger
+              value="review"
+              className="text-xs"
+              data-testid="assistant-tab-review"
+            >
               <MessageSquare className="h-3.5 w-3.5" />
               {t('assistant.review')}
               {reviewCount > 0 && tab !== 'review' ? (
-                <Badge variant="secondary" className="ml-1 px-1 py-0 text-[10px]">
+                <Badge
+                  variant="secondary"
+                  className="ml-1 px-1 py-0 text-[10px]"
+                >
                   {reviewCount}
                 </Badge>
               ) : null}
             </TabsTrigger>
-            <TabsTrigger value="chat" className="text-xs" data-testid="assistant-tab-chat">
+            <TabsTrigger
+              value="chat"
+              className="text-xs"
+              data-testid="assistant-tab-chat"
+            >
               <MessagesSquare className="h-3.5 w-3.5" />
               {t('assistant.chat')}
             </TabsTrigger>
-            <TabsTrigger value="context" className="text-xs" data-testid="assistant-tab-context">
+            <TabsTrigger
+              value="context"
+              className="text-xs"
+              data-testid="assistant-tab-context"
+            >
               <BookOpen className="h-3.5 w-3.5" />
               {t('assistant.context')}
             </TabsTrigger>
@@ -131,8 +209,21 @@ export function AssistantRail({
 
         <TabsContent
           forceMount
+          value="room"
+          className={cn(
+            'mt-0 min-h-0 flex-1 overflow-hidden',
+            tab !== 'room' && 'hidden',
+          )}
+        >
+          {room}
+        </TabsContent>
+        <TabsContent
+          forceMount
           value="status"
-          className={cn('mt-0 min-h-0 flex-1 overflow-hidden', tab !== 'status' && 'hidden')}
+          className={cn(
+            'mt-0 min-h-0 flex-1 overflow-hidden',
+            tab !== 'status' && 'hidden',
+          )}
         >
           <GuidedAssistantContent
             description={tabMeta.status.guideDescription}
@@ -146,7 +237,10 @@ export function AssistantRail({
         <TabsContent
           forceMount
           value="review"
-          className={cn('mt-0 min-h-0 flex-1 overflow-hidden', tab !== 'review' && 'hidden')}
+          className={cn(
+            'mt-0 min-h-0 flex-1 overflow-hidden',
+            tab !== 'review' && 'hidden',
+          )}
         >
           <GuidedAssistantContent
             description={tabMeta.review.guideDescription}
@@ -160,7 +254,10 @@ export function AssistantRail({
         <TabsContent
           forceMount
           value="chat"
-          className={cn('mt-0 min-h-0 flex-1 overflow-hidden', tab !== 'chat' && 'hidden')}
+          className={cn(
+            'mt-0 min-h-0 flex-1 overflow-hidden',
+            tab !== 'chat' && 'hidden',
+          )}
         >
           <GuidedAssistantContent
             description={tabMeta.chat.guideDescription}
@@ -174,7 +271,10 @@ export function AssistantRail({
         <TabsContent
           forceMount
           value="context"
-          className={cn('mt-0 min-h-0 flex-1 overflow-hidden', tab !== 'context' && 'hidden')}
+          className={cn(
+            'mt-0 min-h-0 flex-1 overflow-hidden',
+            tab !== 'context' && 'hidden',
+          )}
         >
           <GuidedAssistantContent
             description={tabMeta.context.guideDescription}

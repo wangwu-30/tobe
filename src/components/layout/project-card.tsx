@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { ArrowRight, FolderClosed, Plus } from 'lucide-react';
 
 import { useAppLanguage, useT } from '@/components/providers/language-provider';
@@ -13,12 +14,12 @@ import { formatProjectDeliverableCount } from '@/lib/workspace/project-summary';
 import type { ProjectSummaryData } from '@/types';
 
 export function ProjectCard({
-  onContinueCurrent,
-  onContinueNext,
+  currentHref,
+  nextHref,
   project,
 }: {
-  onContinueCurrent: (project: ProjectSummaryData) => void;
-  onContinueNext: (project: ProjectSummaryData) => void;
+  currentHref: string;
+  nextHref: string;
   project: ProjectSummaryData;
 }) {
   const t = useT();
@@ -39,13 +40,12 @@ export function ProjectCard({
       className="overflow-hidden rounded-[28px] border-border/70 bg-background/80 py-0 shadow-sm"
       data-testid={`home-project-card-${project.id}`}
     >
-      <button
-        type="button"
+      <Link
+        href={currentHref}
         className={cn(
-          'group flex w-full flex-col gap-5 px-5 py-5 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+          'group flex w-full touch-manipulation flex-col gap-5 px-5 py-5 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none'
         )}
         data-testid={`home-project-open-${project.id}`}
-        onClick={() => onContinueCurrent(project)}
       >
         <div className="flex min-w-0 items-start gap-3">
           <div className="shrink-0 rounded-2xl bg-foreground/5 p-2.5 ring-1 ring-border/40">
@@ -54,13 +54,18 @@ export function ProjectCard({
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-base font-semibold leading-6">{project.title}</div>
+                <div
+                  className="line-clamp-2 break-words text-base font-semibold leading-6"
+                  title={project.title}
+                >
+                  {project.title}
+                </div>
                 <div className="mt-1 text-xs text-muted-foreground">
                   {formatProjectDeliverableCount(project.deliverableCount, t)}
                 </div>
               </div>
               <div
-                className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-muted-foreground"
+                className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] text-foreground/70"
                 title={formatStableDateTime(project.updatedAt)}
               >
                 {relativeUpdatedAt}
@@ -80,19 +85,20 @@ export function ProjectCard({
 
         <div className="flex items-center justify-between text-sm font-medium text-foreground">
           <span>{t('home.projectCardOpen')}</span>
-          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          <ArrowRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
         </div>
-      </button>
+      </Link>
 
       <div className="border-t border-border/60 px-5 py-4">
         <Button
+          asChild
           variant="outline"
           className="w-full justify-between rounded-xl"
-          data-testid={`home-project-next-${project.id}`}
-          onClick={() => onContinueNext(project)}
         >
-          <span>{t('home.projectCardNewItem')}</span>
-          <Plus className="h-4 w-4" />
+          <Link data-testid={`home-project-next-${project.id}`} href={nextHref}>
+            <span>{t('home.projectCardNewItem')}</span>
+            <Plus aria-hidden="true" className="h-4 w-4" />
+          </Link>
         </Button>
       </div>
     </Card>

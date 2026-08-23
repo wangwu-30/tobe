@@ -1,5 +1,7 @@
 # ADR：成形商业模型
 
+> **Historical / superseded（2026-08-21）**：本文仅保留决策历史，不代表当前产品、架构或实施状态。当前入口见 [README](../../README.md)、[SYSTEM](../../SYSTEM.md) 与 [Agent Room 与持久执行落地追踪器](../agent-room-execution-workstream.md)。
+
 > 日期：2026-03-23
 > 状态：讨论稿
 > 关联：[内容生态愿景](./content-ecosystem-vision.md) · [迭代路线](./iteration-roadmap.md)

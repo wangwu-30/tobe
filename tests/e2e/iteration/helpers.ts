@@ -121,11 +121,24 @@ export async function apiRequest<T>(
     method: init?.method || 'GET',
   });
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
+    const responseExcerpt = text.slice(0, 1_000);
     throw new Error(
-      `API ${init?.method || 'GET'} ${pathname} failed with ${response.status}: ${text}`
+      `API ${init?.method || 'GET'} ${pathname} failed with ${response.status}: ${responseExcerpt}`
+    );
+  }
+
+  if (!text) {
+    return null as T;
+  }
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error(
+      `API ${init?.method || 'GET'} ${pathname} returned non-JSON content (${response.headers.get('content-type') || 'unknown'}): ${text.slice(0, 1_000)}`
     );
   }
 
@@ -169,8 +182,6 @@ export async function primeClientState(
   page: Page,
   options?: {
     commentAgents?: CommentAgentConfigData[];
-    isDesktop?: boolean;
-    projectRoot?: string;
   }
 ) {
   await page.addInitScript((payload) => {
@@ -181,28 +192,11 @@ export async function primeClientState(
         : {}),
     };
 
-    Object.defineProperty(window, 'daoDesktop', {
-      configurable: true,
-      value: payload.isDesktop
-        ? {
-            isDesktop: true,
-            projects: {
-              pickLocation: async () => payload.projectRoot,
-            },
-          }
-        : {
-            isDesktop: false,
-          },
-      writable: true,
-    });
-
     if (!window.localStorage.getItem('ai-settings')) {
       window.localStorage.setItem('ai-settings', JSON.stringify(aiSettings));
     }
   }, {
     commentAgents: options?.commentAgents || [],
-    isDesktop: options?.isDesktop ?? false,
-    projectRoot: options?.projectRoot || resolveIterationProjectsRoot(),
   });
 }
 

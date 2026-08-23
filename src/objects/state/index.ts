@@ -1,4 +1,5 @@
 export {
+  alignWorkspaceVersion,
   createWorkspaceVersion,
   pruneWorkspaceRecoveryCheckpoints,
   replaceWorkspaceDraftWithVersionFiles,
@@ -8,6 +9,7 @@ export {
 } from './commands';
 export {
   deriveWorkspaceStateSemantics,
+  hasAlignedStateLabel,
   hasPinnedStateLabel,
   hasRecoveryStateLabel,
   hasStateLabelKind,

@@ -1,5 +1,7 @@
 # 成形统一 Agent 入口方案
 
+> **Historical / superseded（2026-08-21）**：本文仅保留决策历史，不代表当前产品、架构或实施状态。当前入口见 [README](../../README.md)、[SYSTEM](../../SYSTEM.md) 与 [Agent Room 与持久执行落地追踪器](../agent-room-execution-workstream.md)。
+
 > 变更类型：产品方向
 > 日期：2026-03-22
 > 状态：讨论稿

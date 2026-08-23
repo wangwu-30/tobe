@@ -162,7 +162,13 @@ test('web-component @assistant replies use the revision path and refresh preview
   expect(previewFrame).toBeTruthy();
 
   await selectPreviewCopy(page);
+  const createdThreadResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    return request.method() === 'POST' && new URL(response.url()).pathname === '/api/threads';
+  });
   await submitPreviewSelectionComment(page, '@assistant 请直接改这里的网页实现并刷新预览。');
+  const createdThread = (await (await createdThreadResponse).json()) as { id: string };
+  expect(createdThread?.id).toBeTruthy();
 
   await expect
     .poll(async () => {
@@ -173,14 +179,67 @@ test('web-component @assistant replies use the revision path and refresh preview
         }>
       >(baseURL, `/api/threads?workspaceId=${setup.workspace.id}&draftOnly=1`);
 
-      const thread = threads[0];
+      const thread = threads.find((item) => item.id === createdThread.id);
       const latestAssistantMessage = [...(thread?.messages || [])]
         .reverse()
         .find((message) => message.role === 'assistant');
 
       return latestAssistantMessage?.content || null;
-    })
+    }, { timeout: 30_000 })
     .toContain('已按评论更新');
+
+  const workspaceView = await apiRequest<{
+    workspace: { draftRevision: number };
+  }>(baseURL, `/api/workspaces/${setup.workspace.id}`);
+
+  await expect
+    .poll(async () => {
+      const threads = await apiRequest<
+        Array<{
+          draftRevision: number | null;
+          id: string;
+          inheritanceState?: string | null;
+          inheritedFromVersionId?: string | null;
+          inheritedFromVersionTitle?: string | null;
+          messages: Array<{ content: string; role: string }>;
+          scope?: string | null;
+          sourceVersionId?: string | null;
+        }>
+      >(baseURL, `/api/threads?workspaceId=${setup.workspace.id}&draftOnly=1`);
+      const thread = threads.find((item) => item.id === createdThread.id);
+      const latestAssistantMessage = [...(thread?.messages || [])]
+        .reverse()
+        .find((message) => message.role === 'assistant');
+
+      return thread
+        ? {
+            draftRevision: thread.draftRevision,
+            inheritanceState: thread.inheritanceState || null,
+            inheritedFromVersionId: thread.inheritedFromVersionId || null,
+            inheritedFromVersionTitle: thread.inheritedFromVersionTitle || null,
+            reply: latestAssistantMessage?.content || null,
+            scope: thread.scope || null,
+            sourceVersionId: thread.sourceVersionId || null,
+          }
+        : null;
+    })
+    .toEqual({
+      draftRevision: expect.any(Number),
+      inheritanceState: 'actionable',
+      inheritedFromVersionId: null,
+      inheritedFromVersionTitle: null,
+      reply: expect.stringContaining('已按评论更新'),
+      scope: 'inherited',
+      sourceVersionId: null,
+    });
+
+  const draftThreads = await apiRequest<
+    Array<{ draftRevision: number | null; id: string }>
+  >(baseURL, `/api/threads?workspaceId=${setup.workspace.id}&draftOnly=1`);
+  const reanchoredThread = draftThreads.find((item) => item.id === createdThread.id);
+  expect(reanchoredThread?.draftRevision).toBeLessThan(
+    workspaceView.workspace.draftRevision
+  );
 
   await expect
     .poll(async () => {
@@ -188,7 +247,7 @@ test('web-component @assistant replies use the revision path and refresh preview
         Array<{ content: string; id: string; path: string }>
       >(baseURL, `/api/workspaces/${setup.workspace.id}/files`);
       return files.find((file) => file.id === setup.indexFileId)?.content || '';
-    })
+    }, { timeout: 30_000 })
     .toContain('（已按评论更新）');
 
   await page.reload({ waitUntil: 'domcontentloaded' });

@@ -1,12 +1,16 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
+  Bot,
   FilePlus2,
   FileText,
   FolderClosed,
   FolderPlus,
+  GitBranch,
   History,
+  ListTodo,
   MessagesSquare,
   Plus,
   Settings,
@@ -27,6 +31,10 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { useAppPathname, useAppRouter } from '@/lib/app-router';
 import { formatStableDate } from '@/lib/time';
 import { cn } from '@/lib/utils';
+import {
+  useGuardedRouter,
+  useNavigationGuardRuntime,
+} from '@/lib/navigation/navigation-guard';
 import { formatProjectListMeta } from '@/lib/workspace/project-summary';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { apiFetch } from '@/framework/resilience';
@@ -83,6 +91,7 @@ export function AppShell({
   title: string;
   titleNode?: React.ReactNode;
 }) {
+  useNavigationGuardRuntime();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(false);
   const sidebarStorageKey = currentWorkspaceId
@@ -104,6 +113,12 @@ export function AppShell({
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      <a
+        className="fixed left-3 top-3 z-[100] -translate-y-24 rounded-md bg-background px-4 py-2 text-sm font-medium shadow-lg ring-2 ring-ring transition-transform focus-visible:translate-y-0 focus-visible:outline-none motion-reduce:transition-none"
+        href="#main-content"
+      >
+        Skip to main content
+      </a>
       {renderSidebar ? (
         <div className="hidden md:flex">
           {renderSidebar({ collapsed: sidebarCollapsed })}
@@ -150,7 +165,13 @@ export function AppShell({
           onOpenSidebar={() => setSidebarOpen(true)}
           onToggleSidebarCollapsed={toggleSidebarCollapsed}
         />
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
+        <div
+          className="min-h-0 min-w-0 flex-1 overflow-hidden"
+          id="main-content"
+          tabIndex={-1}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -174,6 +195,7 @@ function WorkspaceSidebar({
   const t = useT();
   const pathname = useAppPathname();
   const router = useAppRouter();
+  const guardedRouter = useGuardedRouter();
   const [isLoading, setIsLoading] = React.useState(true);
   const [projects, setProjects] = React.useState<ProjectSummaryData[]>([]);
 
@@ -197,9 +219,11 @@ function WorkspaceSidebar({
   }, [loadProjects, pathname]);
 
   const handleCreateWorkspace = React.useCallback(async () => {
-    onNavigate?.();
-    router.push('/?newWorkspace=1');
-  }, [onNavigate, router]);
+    guardedRouter.push('/?newWorkspace=1', () => {
+      onNavigate?.();
+      router.push('/?newWorkspace=1');
+    });
+  }, [guardedRouter, onNavigate, router]);
 
   const handleDeleteWorkspace = React.useCallback(
     async (projectId: string, event: React.MouseEvent) => {
@@ -222,42 +246,55 @@ function WorkspaceSidebar({
         );
 
         if (deletedCurrentProject) {
-          onNavigate?.();
-          router.push('/');
+          guardedRouter.push('/', () => {
+            onNavigate?.();
+            router.push('/');
+          });
         }
       }
 
       await loadProjects();
     },
-    [currentWorkspaceId, loadProjects, onNavigate, projects, router, sidebarActions, t]
+    [currentWorkspaceId, guardedRouter, loadProjects, onNavigate, projects, router, sidebarActions, t]
   );
 
   const openProject = React.useCallback(
     (project: ProjectSummaryData) => {
-      onNavigate?.();
       if (sidebarActions?.onOpenWorkspace) {
-        sidebarActions.onOpenWorkspace(project.workspaceId);
-        return;
-      }
-      router.push(
-        buildWorkspaceRoute({
+        const href = buildWorkspaceRoute({
           nodeId: project.workspaceId,
           projectId: project.id,
-        })
-      );
+        });
+        guardedRouter.push(href, () => {
+          onNavigate?.();
+          sidebarActions.onOpenWorkspace?.(project.workspaceId);
+        });
+        return;
+      }
+      const href = buildWorkspaceRoute({
+        nodeId: project.workspaceId,
+        projectId: project.id,
+      });
+      guardedRouter.push(href, () => {
+        onNavigate?.();
+        router.push(href);
+      });
     },
-    [onNavigate, router, sidebarActions]
+    [guardedRouter, onNavigate, router, sidebarActions]
   );
   const openProjectNextDeliverable = React.useCallback(
     (project: ProjectSummaryData) => {
-      onNavigate?.();
       const params = new URLSearchParams({
         newDeliverableProjectId: project.id,
         newDeliverableProjectTitle: project.title,
       });
-      router.push(`/?${params.toString()}`);
+      const href = `/?${params.toString()}`;
+      guardedRouter.push(href, () => {
+        onNavigate?.();
+        router.push(href);
+      });
     },
-    [onNavigate, router]
+    [guardedRouter, onNavigate, router]
   );
 
   return (
@@ -275,19 +312,16 @@ function WorkspaceSidebar({
             collapsed ? 'px-2 py-3' : 'px-3 py-3'
           )}
         >
-          <button
+          <Link
             className={cn(
-              'flex max-w-full items-center rounded-xl text-left transition-colors hover:bg-accent',
+              'flex max-w-full items-center rounded-xl text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
               collapsed
                 ? 'mx-auto h-11 w-11 justify-center px-0 py-0'
                 : 'w-full min-w-0 gap-2 px-2 py-2'
             )}
-            onClick={() => {
-              onNavigate?.();
-              router.push('/');
-            }}
+            href="/"
+            onClick={onNavigate}
             aria-label={t('common.home')}
-            type="button"
           >
             <div className="rounded-lg bg-background p-2 shadow-sm">
               <FileText className="h-4 w-4 text-primary" />
@@ -300,7 +334,7 @@ function WorkspaceSidebar({
                 </div>
               </div>
             ) : null}
-          </button>
+          </Link>
 
           {collapsed ? (
             <SidebarIconButton
@@ -320,11 +354,17 @@ function WorkspaceSidebar({
           )}
         </div>
 
-        <ScrollArea className="min-h-0 w-full flex-1 overflow-hidden">
+        <ScrollArea
+          className="min-h-0 w-full flex-1 overflow-hidden"
+          viewportProps={{
+            'aria-label': t('sidebar.projects'),
+            tabIndex: 0,
+          }}
+        >
           {collapsed ? (
             <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-3">
               {isLoading ? (
-                <SidebarInfo compact text="..." />
+                <SidebarInfo compact text="…" />
               ) : projects.length === 0 ? (
                 <SidebarInfo compact text="-" />
               ) : (
@@ -345,6 +385,7 @@ function WorkspaceSidebar({
                 title={t('sidebar.projects')}
                 action={
                   <Button
+                    aria-label={t('sidebar.newProject')}
                     size="icon"
                     variant="ghost"
                     className="h-7 w-7 shrink-0"
@@ -382,7 +423,7 @@ function WorkspaceSidebar({
                             <div className="truncate text-sm font-medium leading-5">
                               {project.title}
                             </div>
-                            <div className="truncate text-[11px] text-muted-foreground/80">
+                            <div className="truncate text-[11px] text-muted-foreground">
                               {currentWorkspaceId
                                 ? formatProjectListMeta(project, t)
                                 : `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`}
@@ -407,6 +448,7 @@ function WorkspaceSidebar({
                             </Button>
                           ) : null}
                           <Button
+                            aria-label={t('sidebar.deleteProject')}
                             size="icon"
                             variant="ghost"
                             className={cn(
@@ -436,6 +478,7 @@ function WorkspaceSidebar({
                     action={
                       <div className="flex shrink-0 items-center gap-1">
                         <Button
+                          aria-label={t('sidebar.newSupportNote')}
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7"
@@ -445,6 +488,7 @@ function WorkspaceSidebar({
                           <FilePlus2 className="h-3.5 w-3.5" />
                         </Button>
                         <Button
+                          aria-label={t('sidebar.newSupportFolder')}
                           size="icon"
                           variant="ghost"
                           className="h-7 w-7"
@@ -502,29 +546,128 @@ function WorkspaceSidebar({
             collapsed ? 'px-2 py-3' : 'p-3'
           )}
         >
-          {collapsed ? (
-            <SidebarIconButton
-              active={pathname === '/settings'}
-              icon={<Settings className="h-4 w-4" />}
-              label={t('common.settings')}
-              onClick={() => {
-                onNavigate?.();
-                router.push('/settings');
-              }}
-            />
-          ) : (
-            <Button
-              variant={pathname === '/settings' ? 'secondary' : 'ghost'}
-              className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-              onClick={() => {
-                onNavigate?.();
-                router.push('/settings');
-              }}
-            >
-              <Settings className="h-4 w-4 shrink-0" />
-              <span className="truncate">{t('common.settings')}</span>
-            </Button>
-          )}
+          <div className={cn('flex min-w-0', collapsed ? 'flex-col gap-2' : 'flex-col gap-1')}>
+            {collapsed ? (
+              <SidebarIconButton
+                active={pathname.startsWith('/knowledge')}
+                icon={<GitBranch className="h-4 w-4" />}
+                label="Knowledge"
+                onClick={() => {
+                  guardedRouter.push('/knowledge', () => {
+                    onNavigate?.();
+                    router.push('/knowledge');
+                  });
+                }}
+              />
+            ) : (
+              <Button
+                asChild
+                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                variant={pathname.startsWith('/knowledge') ? 'secondary' : 'ghost'}
+              >
+                <Link href="/knowledge" onClick={onNavigate}>
+                  <GitBranch className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Knowledge</span>
+                </Link>
+              </Button>
+            )}
+            {collapsed ? (
+              <SidebarIconButton
+                active={pathname.startsWith('/tasks')}
+                icon={<ListTodo className="h-4 w-4" />}
+                label={t('sidebar.teamTasks')}
+                onClick={() => {
+                  guardedRouter.push('/tasks', () => {
+                    onNavigate?.();
+                    router.push('/tasks');
+                  });
+                }}
+              />
+            ) : (
+              <Button
+                asChild
+                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                variant={pathname.startsWith('/tasks') ? 'secondary' : 'ghost'}
+              >
+                <Link href="/tasks" onClick={onNavigate}>
+                  <ListTodo className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t('sidebar.teamTasks')}</span>
+                </Link>
+              </Button>
+            )}
+            {collapsed ? (
+              <SidebarIconButton
+                active={pathname.startsWith('/agents')}
+                icon={<Bot className="h-4 w-4" />}
+                label="Agents"
+                onClick={() => {
+                  guardedRouter.push('/agents', () => {
+                    onNavigate?.();
+                    router.push('/agents');
+                  });
+                }}
+              />
+            ) : (
+              <Button
+                asChild
+                variant={pathname.startsWith('/agents') ? 'secondary' : 'ghost'}
+                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+              >
+                <Link href="/agents" onClick={onNavigate}>
+                  <Bot className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Agents</span>
+                </Link>
+              </Button>
+            )}
+            {collapsed ? (
+              <SidebarIconButton
+                active={pathname.startsWith('/jobs')}
+                icon={<History className="h-4 w-4" />}
+                label={t('sidebar.jobs')}
+                onClick={() => {
+                  guardedRouter.push('/jobs', () => {
+                    onNavigate?.();
+                    router.push('/jobs');
+                  });
+                }}
+              />
+            ) : (
+              <Button
+                asChild
+                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                variant={pathname.startsWith('/jobs') ? 'secondary' : 'ghost'}
+              >
+                <Link href="/jobs" onClick={onNavigate}>
+                  <History className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t('sidebar.jobs')}</span>
+                </Link>
+              </Button>
+            )}
+            {collapsed ? (
+              <SidebarIconButton
+                active={pathname === '/settings'}
+                icon={<Settings className="h-4 w-4" />}
+                label={t('common.settings')}
+                onClick={() => {
+                  guardedRouter.push('/settings', () => {
+                    onNavigate?.();
+                    router.push('/settings');
+                  });
+                }}
+              />
+            ) : (
+              <Button
+                asChild
+                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                variant={pathname === '/settings' ? 'secondary' : 'ghost'}
+              >
+                <Link href="/settings" onClick={onNavigate}>
+                  <Settings className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t('common.settings')}</span>
+                </Link>
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </aside>
@@ -574,7 +717,7 @@ function FileTreeNode({
       <button
         type="button"
         className={cn(
-          'flex min-w-0 w-full max-w-full items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+          'flex min-w-0 w-full max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
           isActive && 'bg-background shadow-sm ring-1 ring-border'
         )}
         style={{ paddingLeft: `${node.depth * 16 + 8}px` }}
@@ -650,7 +793,7 @@ function ConversationTreeNode({
       <button
         type="button"
         className={cn(
-          'flex min-w-0 w-full max-w-full items-start gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+          'flex min-w-0 w-full max-w-full touch-manipulation items-start gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
           currentConversationId === item.id &&
             'bg-background shadow-sm ring-1 ring-border'
         )}
@@ -730,7 +873,7 @@ function VersionList({
       <button
         type="button"
         className={cn(
-          'flex min-w-0 w-full max-w-full items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+          'flex min-w-0 w-full max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
           !currentVersionId && 'bg-background shadow-sm ring-1 ring-border'
         )}
         onClick={() => onOpenVersion?.(null)}
@@ -744,7 +887,7 @@ function VersionList({
           key={version.id}
           type="button"
           className={cn(
-            'flex min-w-0 w-full max-w-full items-start gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+            'flex min-w-0 w-full max-w-full touch-manipulation items-start gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
             currentVersionId === version.id &&
               'bg-background shadow-sm ring-1 ring-border'
           )}

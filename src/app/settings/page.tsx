@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { LoaderCircle, Plus, Save, Trash2 } from 'lucide-react';
+import { Plus, Save, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,7 @@ import {
 import { useAppLanguage, useT } from '@/components/providers/language-provider';
 import { APP_LANGUAGE_OPTIONS, type AppLanguage } from '@/lib/i18n/language';
 import { ModelPicker } from '@/components/ai/model-picker';
+import { useNavigationBlocker } from '@/lib/navigation/navigation-guard';
 import {
   apiFetch,
   safeJsonParse,
@@ -110,18 +111,26 @@ export default function SettingsPage() {
     OAUTH_CONNECTIONS[0]?.providerId || ''
   );
   const [platformStatus, setPlatformStatus] = React.useState<PlatformStatusData | null>(null);
+  const [isDirty, setIsDirty] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
-  const [diagnosticsNotice, setDiagnosticsNotice] = React.useState<string | null>(null);
-  const [diagnosticsError, setDiagnosticsError] = React.useState<string | null>(null);
-  const [isExportingDiagnostics, setIsExportingDiagnostics] = React.useState(false);
-  const [oauthNotice, setOauthNotice] = React.useState<string | null>(null);
-  const [oauthError, setOauthError] = React.useState<string | null>(null);
-  const [isConnectingProviderId, setIsConnectingProviderId] = React.useState<string | null>(null);
-  const [isDisconnectingProviderId, setIsDisconnectingProviderId] = React.useState<
-    string | null
-  >(null);
+  const savedTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLoadingSearchProviders, setIsLoadingSearchProviders] = React.useState(false);
   const [searchProvidersError, setSearchProvidersError] = React.useState<string | null>(null);
+
+  useNavigationBlocker(isDirty, t('settings.unsavedChangesConfirm'));
+
+  const markDirty = React.useCallback(() => {
+    if (savedTimerRef.current) {
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = null;
+    }
+    setSaved(false);
+    setIsDirty(true);
+  }, []);
+
+  React.useEffect(() => () => {
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+  }, []);
 
   React.useEffect(() => {
     setAppLanguage(language);
@@ -272,12 +281,6 @@ export default function SettingsPage() {
     };
 
     const loadPlatformStatus = async () => {
-      const desktopGetStatus = window.daoDesktop?.platform?.getStatus;
-      if (desktopGetStatus) {
-        setPlatformStatus(await desktopGetStatus() as PlatformStatusData);
-        return;
-      }
-
       const response = await apiFetch('/api/platform/status');
       if (!response.ok) return;
 
@@ -372,8 +375,13 @@ export default function SettingsPage() {
 
     setStoredAISettings(settings);
     void loadModels();
+    setIsDirty(false);
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => {
+      setSaved(false);
+      savedTimerRef.current = null;
+    }, 2000);
   };
 
   const handleAppLanguageChange = React.useCallback((value: string) => {
@@ -383,6 +391,7 @@ export default function SettingsPage() {
   }, []);
 
   const addProviderKey = () => {
+    markDirty();
     setProviderKeyRows(rows => [
       ...rows,
       {
@@ -394,16 +403,28 @@ export default function SettingsPage() {
   };
 
   const updateProviderKey = (rowId: string, updates: Partial<ProviderKeyRow>) => {
+    markDirty();
     setProviderKeyRows(rows =>
       rows.map(row => (row.id === rowId ? { ...row, ...updates } : row))
     );
   };
 
   const removeProviderKey = (rowId: string) => {
+    const row = providerKeyRows.find((candidate) => candidate.id === rowId);
+    if (!row) return;
+
+    const provider =
+      providerOptions.find((option) => option.providerId === row.providerId)?.label ||
+      row.providerId ||
+      t('settings.provider');
+    if (!window.confirm(t('settings.removeProviderKeyConfirm', { provider }))) return;
+
+    markDirty();
     setProviderKeyRows(rows => rows.filter(row => row.id !== rowId));
   };
 
   const addCommentAgent = () => {
+    markDirty();
     const agentId = `agent-${Date.now().toString(36)}`;
     setCommentAgents((current) => [
       ...current,
@@ -422,6 +443,7 @@ export default function SettingsPage() {
     agentId: string,
     updates: Partial<CommentAgentConfigData>
   ) => {
+    markDirty();
     setCommentAgents((current) =>
       current.map((agent) =>
         agent.id === agentId
@@ -435,115 +457,20 @@ export default function SettingsPage() {
   };
 
   const removeCommentAgent = (agentId: string) => {
+    const agent = commentAgents.find((candidate) => candidate.id === agentId);
+    if (!agent || agent.builtin) return;
+    if (
+      !window.confirm(
+        t('settings.removeCommentAgentConfirm', {
+          agent: agent.name || agent.handle,
+        })
+      )
+    ) return;
+
+    markDirty();
     setCommentAgents((current) =>
       current.filter((agent) => agent.id !== agentId || agent.builtin)
     );
-  };
-
-  const handleConnectOAuth = async (providerId: string) => {
-    setOauthError(null);
-    setOauthNotice(null);
-
-    const oauthLogin = window.daoDesktop?.oauthLogin;
-    if (!oauthLogin) {
-      setOauthError(t('settings.oauthLoginUnavailable'));
-      return;
-    }
-
-    setIsConnectingProviderId(providerId);
-    try {
-      setOauthNotice(
-        t('settings.oauthOpening', { provider: providerLabel(providerId) })
-      );
-      const result = await oauthLogin(providerId);
-      await loadOAuthStatus();
-      setOauthNotice(
-        result?.savedAt
-          ? t('settings.connectedAt', {
-              provider: providerLabel(providerId),
-              savedAt: formatStableDateTime(result.savedAt),
-            })
-          : t('settings.connectedNow', { provider: providerLabel(providerId) })
-      );
-    } catch (error) {
-      setOauthError(error instanceof Error ? error.message : t('settings.oauthLoginFailed'));
-    } finally {
-      setIsConnectingProviderId(null);
-    }
-  };
-
-  const handleDisconnectOAuth = async (providerId: string) => {
-    if (!window.confirm(t('settings.oauthDisconnectConfirm', { provider: providerLabel(providerId) }))) {
-      return;
-    }
-
-    setOauthError(null);
-    setOauthNotice(null);
-    setIsDisconnectingProviderId(providerId);
-
-    try {
-      const response = await apiFetch('/api/auth/openai-oauth', {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || t('settings.oauthDisconnectFailed'));
-      }
-
-      await loadOAuthStatus();
-      setOauthNotice(t('settings.notConnectedYet'));
-    } catch (error) {
-      setOauthError(error instanceof Error ? error.message : t('settings.oauthDisconnectFailed'));
-    } finally {
-      setIsDisconnectingProviderId(null);
-    }
-  };
-
-  const handleOpenLogs = async () => {
-    setDiagnosticsError(null);
-    setDiagnosticsNotice(null);
-
-    try {
-      const openLogsDirectory = window.daoDesktop?.diagnostics?.openLogsDirectory;
-      await openLogsDirectory?.();
-    } catch (error) {
-      setDiagnosticsError(error instanceof Error ? error.message : t('settings.exportDiagnosticsFailed'));
-    }
-  };
-
-  const handleExportDiagnostics = async () => {
-    setDiagnosticsError(null);
-    setDiagnosticsNotice(null);
-    setIsExportingDiagnostics(true);
-
-    try {
-      const exportBundle = window.daoDesktop?.diagnostics?.exportBundle;
-      const result = await exportBundle?.();
-      if (result?.path) {
-        setDiagnosticsNotice(
-          t('settings.exportDiagnosticsSaved', { path: result.path })
-        );
-      }
-    } catch (error) {
-      setDiagnosticsError(
-        error instanceof Error ? error.message : t('settings.exportDiagnosticsFailed')
-      );
-    } finally {
-      setIsExportingDiagnostics(false);
-    }
-  };
-
-  const handleCopyDeviceId = async () => {
-    setDiagnosticsError(null);
-    setDiagnosticsNotice(null);
-
-    try {
-      await navigator.clipboard.writeText(platformStatus?.deviceId || '');
-      setDiagnosticsNotice(t('settings.copyDeviceIdSuccess'));
-    } catch {
-      setDiagnosticsError(t('settings.copyDeviceIdFailed'));
-    }
   };
 
   return (
@@ -551,12 +478,21 @@ export default function SettingsPage() {
       title={t('settings.title')}
       subtitle={t('settings.modelsSearchProviders')}
     >
-      <main className="mx-auto h-full w-full max-w-3xl overflow-y-auto px-6 py-8 space-y-6">
+      <main className="mx-auto h-full w-full max-w-3xl space-y-6 overflow-x-hidden overflow-y-auto overscroll-contain px-6 py-8">
         <SettingsBoundary zone="language">
-          <Card className="p-6 space-y-4" data-testid="settings-language-card">
-            <h2 className="text-sm font-semibold">{t('settings.languageSection')}</h2>
-            <Select value={appLanguage} onValueChange={handleAppLanguageChange}>
-              <SelectTrigger>
+          <Card className="min-w-0 space-y-4 p-6" data-testid="settings-language-card">
+            <h2 className="scroll-mt-4 text-balance text-sm font-semibold">
+              {t('settings.languageSection')}
+            </h2>
+            <Select
+              name="appLanguage"
+              value={appLanguage}
+              onValueChange={handleAppLanguageChange}
+            >
+              <SelectTrigger
+                aria-label={t('settings.language')}
+                className="w-full min-w-0"
+              >
                 <SelectValue placeholder={t('settings.selectLanguage')} />
               </SelectTrigger>
               <SelectContent>
@@ -569,155 +505,120 @@ export default function SettingsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
+            <p className="break-words text-xs text-muted-foreground">
               {t('settings.languageDescription')}
             </p>
           </Card>
         </SettingsBoundary>
 
         <SettingsBoundary zone="default-model">
-          <Card className="p-6 space-y-4" data-testid="settings-default-model-card">
-            <h2 className="text-sm font-semibold">{t('settings.defaultModel')}</h2>
+          <Card className="min-w-0 space-y-4 p-6" data-testid="settings-default-model-card">
+            <h2 className="scroll-mt-4 text-balance text-sm font-semibold">
+              {t('settings.defaultModel')}
+            </h2>
             <ModelPicker
               catalog={modelCatalog}
               value={defaultModelSelection}
-              onChange={setDefaultModelSelection}
+              onChange={(selection) => {
+                setDefaultModelSelection(selection);
+                markDirty();
+              }}
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="break-words text-xs text-muted-foreground">
               {t('settings.defaultModelDescription')}
             </p>
           </Card>
         </SettingsBoundary>
 
         <SettingsBoundary zone="oauth">
-          <Card className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold">{t('settings.oauthConnections')}</h2>
-          <p className="text-xs text-muted-foreground">
-            {t('settings.oauthDescription')}
-          </p>
-          <div className="space-y-2">
-            <Label className="text-xs">{t('settings.provider')}</Label>
-            <Select value={selectedOAuthProviderId} onValueChange={setSelectedOAuthProviderId}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('settings.provider')} />
-              </SelectTrigger>
-              <SelectContent>
-                {OAUTH_CONNECTIONS.map((connection) => (
-                  <SelectItem key={connection.providerId} value={connection.providerId}>
-                    {connection.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Card className="min-w-0 space-y-4 p-6">
+            <h2 className="scroll-mt-4 text-balance text-sm font-semibold">
+              {t('settings.oauthConnections')}
+            </h2>
+            <p className="break-words text-xs text-muted-foreground">
+              {t('settings.oauthDescription')}
+            </p>
+            <div className="space-y-2">
+              <Label className="text-xs" htmlFor="oauth-provider">{t('settings.provider')}</Label>
+              <Select
+                name="oauthProvider"
+                value={selectedOAuthProviderId}
+                onValueChange={setSelectedOAuthProviderId}
+              >
+                <SelectTrigger className="w-full min-w-0" id="oauth-provider">
+                  <SelectValue placeholder={t('settings.provider')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {OAUTH_CONNECTIONS.map((connection) => (
+                    <SelectItem key={connection.providerId} value={connection.providerId}>
+                      {connection.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          {selectedOAuthConnection ? (
-            <div className="flex items-start justify-between gap-4 rounded-xl border border-border px-4 py-4">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">{selectedOAuthConnection.label}</div>
-                <div className="mt-1 text-xs leading-5 text-muted-foreground">
-                  {t('settings.openaiCodexDescription')}
+            {selectedOAuthConnection ? (
+              <div className="space-y-4 rounded-xl border border-border px-4 py-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-medium" translate="no">
+                      {selectedOAuthConnection.label}
+                    </div>
+                    <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">
+                      {t('settings.openaiCodexDescription')}
+                    </div>
+                  </div>
+                  <div
+                    aria-atomic="true"
+                    aria-live="polite"
+                    className="max-w-full shrink-0 break-words rounded-full border border-border px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                    role="status"
+                  >
+                    {selectedOAuthStatus?.savedAt
+                      ? t('settings.connectedShort', {
+                          savedAt: formatStableDateTime(selectedOAuthStatus.savedAt),
+                        })
+                      : t('settings.notConnectedYet')}
+                  </div>
                 </div>
-                <div className="mt-2 text-xs text-muted-foreground">
-                  {selectedOAuthStatus?.savedAt
-                    ? t('settings.connectedShort', {
-                        savedAt: formatStableDateTime(selectedOAuthStatus.savedAt),
-                      })
-                    : t('settings.notConnectedYet')}
-                </div>
+
                 {selectedOAuthStatus?.email ? (
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="break-all rounded-md border border-border bg-muted/15 px-3 py-3 text-xs leading-5 text-muted-foreground">
                     {selectedOAuthStatus.email}
                     {selectedOAuthStatus.planType ? ` · ${selectedOAuthStatus.planType}` : ''}
                   </div>
                 ) : null}
-              </div>
 
-              {platformStatus?.isDesktop ? (
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant={selectedOAuthStatus?.savedAt ? 'outline' : 'default'}
-                    className="h-8"
-                    onClick={() => void handleConnectOAuth(selectedOAuthConnection.providerId)}
-                    disabled={
-                      isConnectingProviderId === selectedOAuthConnection.providerId ||
-                      isDisconnectingProviderId === selectedOAuthConnection.providerId
-                    }
-                  >
-                    {isConnectingProviderId === selectedOAuthConnection.providerId ? (
-                      <>
-                        <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        {t('settings.waiting')}
-                      </>
-                    ) : selectedOAuthStatus?.savedAt ? (
-                      t('settings.reconnectInBrowser')
-                    ) : (
-                      t('settings.connectInBrowser')
-                    )}
-                  </Button>
-                  {selectedOAuthStatus?.savedAt ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8"
-                      onClick={() => void handleDisconnectOAuth(selectedOAuthConnection.providerId)}
-                      disabled={isDisconnectingProviderId === selectedOAuthConnection.providerId}
-                    >
-                      {isDisconnectingProviderId === selectedOAuthConnection.providerId ? (
-                        <>
-                          <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                          {t('settings.disconnecting')}
-                        </>
-                      ) : (
-                        t('settings.disconnect')
-                      )}
-                    </Button>
-                  ) : null}
+                <div className="break-words rounded-md border border-border bg-muted/15 px-3 py-3 text-xs leading-5 text-muted-foreground">
+                  {t('settings.oauthWebAdminCli')}
                 </div>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 shrink-0"
-                  disabled
-                >
-                  {t('settings.desktopRequired')}
-                </Button>
-              )}
-            </div>
-          ) : null}
+              </div>
+            ) : null}
 
-          {oauthNotice ? (
-            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700">
-              {oauthNotice}
+            <div className="break-words rounded-md border border-border px-3 py-3 text-xs leading-5 text-muted-foreground">
+              {t('settings.oauthWebCredentialsNote')}
             </div>
-          ) : null}
-          {oauthError ? (
-            <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {oauthError}
-            </div>
-          ) : null}
-
-          <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-            {t('settings.credentialsNote', {
-              oauthDir: platformStatus?.paths.oauthDir || '.oauth',
-            })}
-          </div>
           </Card>
         </SettingsBoundary>
 
         <SettingsBoundary zone="search">
-          <Card className="p-6 space-y-4">
-          <h2 className="text-sm font-semibold">{t('settings.webSearch')}</h2>
+          <Card className="min-w-0 space-y-4 p-6">
+          <h2 className="scroll-mt-4 text-balance text-sm font-semibold">
+            {t('settings.webSearch')}
+          </h2>
           <div className="space-y-2">
-            <Label className="text-xs">{t('settings.defaultSearchProvider')}</Label>
+            <Label className="text-xs" htmlFor="search-provider">{t('settings.defaultSearchProvider')}</Label>
             <Select
+              name="searchProvider"
               value={searchProviderId}
-              onValueChange={setSearchProviderId}
+              onValueChange={(value) => {
+                setSearchProviderId(value);
+                markDirty();
+              }}
               disabled={isLoadingSearchProviders || availableSearchProviders.length === 0}
             >
-              <SelectTrigger>
+              <SelectTrigger className="w-full min-w-0" id="search-provider">
                 <SelectValue
                   placeholder={
                     isLoadingSearchProviders
@@ -735,21 +636,29 @@ export default function SettingsPage() {
               </SelectContent>
             </Select>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="break-words text-xs text-muted-foreground">
             {t('settings.searchDescription')}
           </p>
-          {searchProvidersError ? (
-            <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-              {searchProvidersError}
-            </div>
-          ) : null}
+          <div
+            aria-atomic="true"
+            aria-live="polite"
+            className={
+              searchProvidersError
+                ? 'break-words rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive'
+                : 'sr-only'
+            }
+            data-testid="settings-search-provider-status"
+            role="status"
+          >
+            {searchProvidersError || (isLoadingSearchProviders ? t('common.loading') : '')}
+          </div>
           <div className="rounded-xl border border-border px-4 py-4 space-y-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
-                <div className="text-sm font-medium">
+                <div className="break-words text-sm font-medium" translate="no">
                   {selectedSearchProvider?.label || searchProviderId}
                 </div>
-                <div className="mt-1 text-xs leading-5 text-muted-foreground">
+                <div className="mt-1 break-words text-xs leading-5 text-muted-foreground">
                   {selectedSearchProvider?.description || t('settings.searchProviderConfigDescription')}
                 </div>
               </div>
@@ -765,19 +674,28 @@ export default function SettingsPage() {
             <div className="grid gap-4 md:grid-cols-2">
               {selectedSearchProviderRequiresApiKey ? (
                 <div className="space-y-2">
-                  <Label className="text-xs">
+                  <Label className="text-xs" htmlFor="search-provider-key">
                     {t('settings.searchProviderApiKey', {
                       provider: selectedSearchProvider?.label || searchProviderId,
                     })}
                   </Label>
                   <Input
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    id="search-provider-key"
+                    inputMode="text"
+                    name="searchProviderApiKey"
+                    spellCheck={false}
                     type="password"
                     value={selectedSearchProviderApiKey}
                     onChange={(event) =>
-                      setSearchProviderApiKeys((current) => ({
-                        ...current,
-                        [searchProviderId]: event.target.value,
-                      }))
+                      {
+                        setSearchProviderApiKeys((current) => ({
+                          ...current,
+                          [searchProviderId]: event.target.value,
+                        }));
+                        markDirty();
+                      }
                     }
                     placeholder={t('settings.apiKeyPlaceholder')}
                   />
@@ -785,21 +703,31 @@ export default function SettingsPage() {
               ) : null}
 
               <div className="space-y-2">
-                <Label className="text-xs">{t('settings.searchEndpoint')}</Label>
+                <Label className="text-xs" htmlFor="search-endpoint">{t('settings.searchEndpoint')}</Label>
                 <Input
+                  autoCapitalize="none"
+                  autoComplete="off"
+                  id="search-endpoint"
+                  inputMode="url"
+                  name="searchEndpoint"
+                  spellCheck={false}
+                  type="url"
                   value={selectedSearchProviderEndpoint}
                   onChange={(event) =>
-                    setSearchProviderEndpoints((current) => ({
-                      ...current,
-                      [searchProviderId]: event.target.value,
-                    }))
+                    {
+                      setSearchProviderEndpoints((current) => ({
+                        ...current,
+                        [searchProviderId]: event.target.value,
+                      }));
+                      markDirty();
+                    }
                   }
                   placeholder={t('settings.searchEndpointPlaceholder')}
                 />
               </div>
             </div>
 
-            <p className="text-xs leading-5 text-muted-foreground">
+            <p className="break-words text-xs leading-5 text-muted-foreground">
               {selectedSearchProviderMode === 'browser'
                 ? t('settings.searchProviderConfigDescriptionBrowser')
                 : searchProviderId === BRAVE_SEARCH_PROVIDER_ID
@@ -816,10 +744,18 @@ export default function SettingsPage() {
 
         <SettingsBoundary zone="provider-api-keys">
           <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">{t('settings.providerApiKeys')}</h2>
-            <Button size="sm" variant="outline" onClick={addProviderKey} className="h-7 text-xs">
-              <Plus className="h-3 w-3 mr-1" />
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <h2 className="min-w-0 text-balance text-sm font-semibold">
+              {t('settings.providerApiKeys')}
+            </h2>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={addProviderKey}
+              className="h-7 text-xs"
+              data-testid="settings-provider-key-add"
+            >
+              <Plus aria-hidden="true" className="mr-1 h-3 w-3" />
               {t('settings.addProvider')}
             </Button>
           </div>
@@ -831,15 +767,20 @@ export default function SettingsPage() {
           )}
 
           {providerKeyRows.map(row => (
-            <Card key={row.id} className="p-5 space-y-4">
-              <div className="grid gap-4 md:grid-cols-[220px_1fr_auto]">
+            <Card
+              key={row.id}
+              className="p-5 space-y-4"
+              data-testid={`settings-provider-key-card-${row.id}`}
+            >
+              <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)_auto]">
                 <div className="space-y-2">
-                  <Label className="text-xs">{t('settings.provider')}</Label>
+                  <Label className="text-xs" htmlFor={`provider-${row.id}`}>{t('settings.provider')}</Label>
                   <Select
+                    name={`provider[${row.id}]`}
                     value={row.providerId}
                     onValueChange={(value) => updateProviderKey(row.id, { providerId: value })}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="w-full min-w-0" id={`provider-${row.id}`}>
                       <SelectValue placeholder={t('settings.provider')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -853,8 +794,14 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-xs">{t('settings.apiKey')}</Label>
+                  <Label className="text-xs" htmlFor={`api-key-${row.id}`}>{t('settings.apiKey')}</Label>
                   <Input
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    id={`api-key-${row.id}`}
+                    inputMode="text"
+                    name={`providerApiKey-${row.id}`}
+                    spellCheck={false}
                     type="password"
                     value={row.apiKey}
                     onChange={(event) =>
@@ -869,9 +816,15 @@ export default function SettingsPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
+                    aria-label={t('settings.removeProviderKey', {
+                      provider:
+                        providerOptions.find((option) => option.providerId === row.providerId)?.label ||
+                        row.providerId ||
+                        t('settings.provider'),
+                    })}
                     onClick={() => removeProviderKey(row.id)}
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 aria-hidden="true" className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -881,11 +834,11 @@ export default function SettingsPage() {
         </SettingsBoundary>
 
         <SettingsBoundary zone="comment-agents">
-          <Card className="space-y-4 p-6">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Comment Agents</h2>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          <Card className="min-w-0 space-y-4 p-6">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-balance text-sm font-semibold">Comment Agents</h2>
+              <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
                 评论区里输入 `@角色` 时，会从这里读取角色定义。内置 `@assistant`
                 始终可用；自定义角色仅保存在当前设备。
               </p>
@@ -897,7 +850,7 @@ export default function SettingsPage() {
               onClick={addCommentAgent}
               data-testid="comment-agent-add"
             >
-              <Plus className="mr-1.5 h-3.5 w-3.5" />
+              <Plus aria-hidden="true" className="mr-1.5 h-3.5 w-3.5" />
               新增角色
             </Button>
           </div>
@@ -909,29 +862,39 @@ export default function SettingsPage() {
                 data-testid={`comment-agent-card-${agent.id}`}
                 className="space-y-4 rounded-2xl border border-border/70 bg-muted/15 px-4 py-4"
               >
-                <div className="grid gap-4 md:grid-cols-[1fr_180px_auto]">
+                <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,180px)_auto]">
                   <div className="space-y-2">
-                    <Label className="text-xs">角色名称</Label>
+                    <Label className="text-xs" htmlFor={`agent-name-${agent.id}`}>角色名称</Label>
                     <Input
-                      aria-label="角色名称"
+                      autoComplete="off"
+                      id={`agent-name-${agent.id}`}
+                      inputMode="text"
+                      name={`agentName-${agent.id}`}
+                      type="text"
                       value={agent.name}
                       onChange={(event) =>
                         updateCommentAgent(agent.id, { name: event.target.value })
                       }
                       disabled={agent.builtin}
-                      placeholder="例如：审校、写手、结构顾问"
+                      placeholder="例如：审校、写手、结构顾问…"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs">@句柄</Label>
+                    <Label className="text-xs" htmlFor={`agent-handle-${agent.id}`}>@句柄</Label>
                     <Input
-                      aria-label="@句柄"
+                      autoCapitalize="none"
+                      autoComplete="off"
+                      id={`agent-handle-${agent.id}`}
+                      inputMode="text"
+                      name={`agentHandle-${agent.id}`}
+                      spellCheck={false}
+                      type="text"
                       value={agent.handle}
                       onChange={(event) =>
                         updateCommentAgent(agent.id, { handle: event.target.value })
                       }
                       disabled={agent.builtin}
-                      placeholder="@assistant"
+                      placeholder="例如：@assistant…"
                     />
                   </div>
                   <div className="flex items-end justify-end gap-2">
@@ -940,26 +903,31 @@ export default function SettingsPage() {
                         type="button"
                         variant="ghost"
                         size="icon"
+                        aria-label={t('settings.removeCommentAgent', {
+                          agent: agent.name || agent.handle,
+                        })}
                         onClick={() => removeCommentAgent(agent.id)}
                         data-testid={`comment-agent-delete-${agent.id}`}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 aria-hidden="true" className="h-4 w-4" />
                       </Button>
                     ) : null}
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+                <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
                   <div className="space-y-2">
-                    <Label className="text-xs">角色提示词</Label>
+                    <Label className="text-xs" htmlFor={`agent-prompt-${agent.id}`}>角色提示词</Label>
                     <Textarea
-                      aria-label="角色提示词"
+                      autoComplete="off"
+                      id={`agent-prompt-${agent.id}`}
+                      name={`agentPrompt-${agent.id}`}
                       value={agent.systemPrompt}
                       onChange={(event) =>
                         updateCommentAgent(agent.id, { systemPrompt: event.target.value })
                       }
                       disabled={agent.builtin}
-                      placeholder="说明这个角色在评论线程中应该怎样回复。"
+                      placeholder="例如：先总结问题，再给出可执行建议…"
                       className="min-h-[104px]"
                     />
                   </div>
@@ -989,15 +957,15 @@ export default function SettingsPage() {
         </SettingsBoundary>
 
         <SettingsBoundary zone="advanced-tools">
-          <details className="rounded-3xl border border-border/70 bg-muted/15">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-4">
-            <div>
-              <div className="text-sm font-semibold">{t('settings.advancedTools')}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
+          <details className="min-w-0 rounded-3xl border border-border/70 bg-muted/15">
+          <summary className="flex cursor-pointer touch-manipulation list-none items-center justify-between gap-4 rounded-3xl px-6 py-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
+            <div className="min-w-0">
+              <div className="text-balance text-sm font-semibold">{t('settings.advancedTools')}</div>
+              <div className="mt-1 break-words text-xs text-muted-foreground">
                 {t('settings.advancedToolsDescription')}
               </div>
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="shrink-0 text-xs text-muted-foreground">
               {t('settings.expandAdvanced')}
             </div>
           </summary>
@@ -1011,15 +979,13 @@ export default function SettingsPage() {
                     {t('settings.mode')}
                   </div>
                   <div className="mt-1 font-medium">
-                    {platformStatus?.isDesktop
-                      ? t('settings.runtimeDesktop')
-                      : t('settings.runtimeWeb')}
+                    {t('settings.runtimeWebServer')}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 break-all text-xs text-muted-foreground tabular-nums">
                     {t('settings.platformVersion')}: {platformStatus?.appVersion || '0.1.0'}
                     {platformStatus?.channel ? ` · ${platformStatus.channel}` : ''}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 break-all text-xs text-muted-foreground" translate="no">
                     {t('settings.device', {
                       deviceId: platformStatus?.deviceId || 'local-device',
                     })}
@@ -1030,10 +996,10 @@ export default function SettingsPage() {
                   <div className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
                     {t('settings.storageRoot')}
                   </div>
-                  <div className="mt-1 break-all font-medium">
+                  <div className="mt-1 break-all font-medium" translate="no">
                     {platformStatus?.paths.appDataRoot || t('common.loading')}
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 break-all text-xs text-muted-foreground" translate="no">
                     {t('settings.database', {
                       path: platformStatus?.paths.dbFilePath || t('common.loading'),
                     })}
@@ -1041,90 +1007,38 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="rounded-md border border-border px-3 py-3 text-xs text-muted-foreground">
-                {t('settings.oauthPath', {
-                  path: platformStatus?.paths.oauthDir || t('common.loading'),
-                })}
-                <br />
-                {t('settings.mirror', {
-                  path: platformStatus?.paths.workspaceMirrorRoot || t('common.loading'),
-                })}
-                <br />
-                {t('settings.logs', {
-                  path: platformStatus?.paths.logsRoot || t('common.loading'),
-                })}
+              <div className="break-all rounded-md border border-border px-3 py-3 text-xs leading-5 text-muted-foreground" translate="no">
+                <div>{t('settings.oauthPath', { path: platformStatus?.paths.oauthDir || t('common.loading') })}</div>
+                <div>{t('settings.mirror', { path: platformStatus?.paths.workspaceMirrorRoot || t('common.loading') })}</div>
+                <div>{t('settings.logs', { path: platformStatus?.paths.logsRoot || t('common.loading') })}</div>
+              </div>
+
+              <div className="break-words rounded-md border border-border px-3 py-3 text-xs leading-5 text-muted-foreground">
+                {t('settings.webRuntimeAdminNote')}
               </div>
             </div>
-
-            {platformStatus?.diagnosticsEnabled ? (
-              <div className="space-y-4">
-                <h2 className="text-sm font-semibold">{t('settings.diagnostics')}</h2>
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.diagnosticsDescription')}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => void handleOpenLogs()}
-                  >
-                    {t('settings.openLogs')}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8"
-                    onClick={() => void handleCopyDeviceId()}
-                  >
-                    {t('settings.copyDeviceId')}
-                  </Button>
-                  <Button
-                    type="button"
-                    className="h-8"
-                    disabled={isExportingDiagnostics}
-                    onClick={() => void handleExportDiagnostics()}
-                  >
-                    {isExportingDiagnostics ? (
-                      <>
-                        <LoaderCircle className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                        {t('settings.waiting')}
-                      </>
-                    ) : (
-                      t('settings.exportDiagnostics')
-                    )}
-                  </Button>
-                </div>
-                {diagnosticsNotice ? (
-                  <div className="rounded-md border border-border px-3 py-2 text-xs text-muted-foreground">
-                    {diagnosticsNotice}
-                  </div>
-                ) : null}
-                {diagnosticsError ? (
-                  <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                    {diagnosticsError}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
           </div>
           </details>
         </SettingsBoundary>
 
         <div className="flex items-center gap-3">
-          <Button onClick={handleSave}>
-            <Save className="h-4 w-4 mr-2" />
+          <Button disabled={!isDirty} onClick={handleSave}>
+            <Save aria-hidden="true" className="mr-2 h-4 w-4" />
             {t('common.save')}
           </Button>
-          {saved && <span className="text-sm text-muted-foreground">{t('common.saved')}</span>}
+          <span
+            aria-atomic="true"
+            aria-live="polite"
+            className="text-sm text-muted-foreground"
+            data-testid="settings-save-status"
+            role="status"
+          >
+            {saved ? t('common.saved') : null}
+          </span>
         </div>
       </main>
     </AppShell>
   );
-}
-
-function providerLabel(providerId: string) {
-  return OAUTH_CONNECTIONS.find((provider) => provider.providerId === providerId)?.label || providerId;
 }
 
 function SettingsBoundary({

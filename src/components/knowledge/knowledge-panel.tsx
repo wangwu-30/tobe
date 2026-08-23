@@ -4,6 +4,7 @@ import * as React from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -95,6 +96,15 @@ export function KnowledgePanel({
   const [workflowDraftWarnings, setWorkflowDraftWarnings] = React.useState<
     WorkflowPlaybookDraftWarningKey[]
   >([]);
+  const [knowledgeNotice, setKnowledgeNotice] = React.useState<{
+    tone: 'error' | 'info';
+    text: string;
+  } | null>(null);
+  const knowledgeTitleId = React.useId();
+  const knowledgeContentId = React.useId();
+  const workflowTitleId = React.useId();
+  const workflowSummaryId = React.useId();
+  const workflowNotesId = React.useId();
   const knowledgeScopeOptions = React.useMemo(() => {
     const options: NoteScope[] = [];
     if (wikiId) {
@@ -165,22 +175,34 @@ export function KnowledgePanel({
 
   const submitKnowledgeItem = async () => {
     if (!canSubmitKnowledge) return;
-    const res = await apiFetch('/api/notes', {
-      method: editingKnowledgeId ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...(editingKnowledgeId ? { id: editingKnowledgeId } : {}),
-        content: newContent,
-        kind: 'knowledge',
-        scope: knowledgeScope,
-        ...(knowledgeScopeId ? { scopeId: knowledgeScopeId } : {}),
-        ...(editingKnowledgeId ? {} : { source: 'manual' }),
-        title: newTitle,
-      }),
-    });
-    if (res.ok) {
+    const isEditing = Boolean(editingKnowledgeId);
+    setKnowledgeNotice(null);
+    try {
+      const res = await apiFetch('/api/notes', {
+        method: isEditing ? 'PATCH' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(editingKnowledgeId ? { id: editingKnowledgeId } : {}),
+          content: newContent,
+          kind: 'knowledge',
+          scope: knowledgeScope,
+          ...(knowledgeScopeId ? { scopeId: knowledgeScopeId } : {}),
+          ...(editingKnowledgeId ? {} : { source: 'manual' }),
+          title: newTitle,
+        }),
+      });
+      if (!res.ok) {
+        setKnowledgeNotice({ tone: 'error', text: 'Knowledge could not be saved.' });
+        return;
+      }
       resetKnowledgeComposer();
-      loadData();
+      setKnowledgeNotice({
+        tone: 'info',
+        text: isEditing ? 'Knowledge updated.' : 'Knowledge added.',
+      });
+      await loadData();
+    } catch {
+      setKnowledgeNotice({ tone: 'error', text: 'Knowledge could not be saved.' });
     }
   };
 
@@ -192,25 +214,63 @@ export function KnowledgePanel({
   }, []);
 
   const deleteKnowledgeItem = async (id: string) => {
-    await apiFetch(`/api/notes?id=${id}`, { method: 'DELETE' });
-    if (editingKnowledgeId === id) {
-      resetKnowledgeComposer();
+    const item = notes.find((note) => note.id === id);
+    if (!window.confirm(`Delete “${item?.title || 'this knowledge item'}”? This cannot be undone.`)) {
+      return;
     }
-    loadData();
+    setKnowledgeNotice(null);
+    try {
+      const response = await apiFetch(`/api/notes?id=${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        setKnowledgeNotice({ tone: 'error', text: 'Knowledge could not be deleted.' });
+        return;
+      }
+      if (editingKnowledgeId === id) {
+        resetKnowledgeComposer();
+      }
+      setKnowledgeNotice({ tone: 'info', text: 'Knowledge deleted.' });
+      await loadData();
+    } catch {
+      setKnowledgeNotice({ tone: 'error', text: 'Knowledge could not be deleted.' });
+    }
   };
 
   const toggleMemory = async (id: string, active: boolean) => {
-    await apiFetch('/api/notes', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, active }),
-    });
-    loadData();
+    setKnowledgeNotice(null);
+    try {
+      const response = await apiFetch('/api/notes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, active }),
+      });
+      if (!response.ok) {
+        setKnowledgeNotice({ tone: 'error', text: 'Memory could not be updated.' });
+        return;
+      }
+      setKnowledgeNotice({ tone: 'info', text: active ? 'Memory enabled.' : 'Memory disabled.' });
+      await loadData();
+    } catch {
+      setKnowledgeNotice({ tone: 'error', text: 'Memory could not be updated.' });
+    }
   };
 
   const deleteMemory = async (id: string) => {
-    await apiFetch(`/api/notes?id=${id}`, { method: 'DELETE' });
-    loadData();
+    const memory = notes.find((note) => note.id === id);
+    if (!window.confirm(`Delete “${memory?.title || 'this memory'}”? This cannot be undone.`)) {
+      return;
+    }
+    setKnowledgeNotice(null);
+    try {
+      const response = await apiFetch(`/api/notes?id=${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        setKnowledgeNotice({ tone: 'error', text: 'Memory could not be deleted.' });
+        return;
+      }
+      setKnowledgeNotice({ tone: 'info', text: 'Memory deleted.' });
+      await loadData();
+    } catch {
+      setKnowledgeNotice({ tone: 'error', text: 'Memory could not be deleted.' });
+    }
   };
 
   const addWorkflowPlaybook = async () => {
@@ -289,11 +349,25 @@ export function KnowledgePanel({
   };
 
   const deleteWorkflowPlaybook = async (id: string) => {
-    await apiFetch(`/api/workflows?id=${id}`, { method: 'DELETE' });
-    if (activeWorkflowPlaybookId === id) {
-      await onApplyWorkflow?.(null);
+    const workflow = workflowPlaybooks.find((item) => item.id === id);
+    if (!window.confirm(`Delete “${workflow?.title || 'this workflow'}”? This cannot be undone.`)) {
+      return;
     }
-    loadData();
+    setWorkflowNotice(null);
+    try {
+      const response = await apiFetch(`/api/workflows?id=${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        setWorkflowNotice({ tone: 'error', text: 'Workflow could not be deleted.' });
+        return;
+      }
+      if (activeWorkflowPlaybookId === id) {
+        await onApplyWorkflow?.(null);
+      }
+      setWorkflowNotice({ tone: 'info', text: 'Workflow deleted.' });
+      await loadData();
+    } catch {
+      setWorkflowNotice({ tone: 'error', text: 'Workflow could not be deleted.' });
+    }
   };
 
   const duplicateWorkflowPlaybook = async (workflow: WorkflowPlaybookData) => {
@@ -529,7 +603,7 @@ export function KnowledgePanel({
         <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <BookOpen className="h-4 w-4" />
+              <BookOpen aria-hidden="true" className="h-4 w-4" />
               {t('assistant.context')}
             </h2>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
@@ -537,25 +611,37 @@ export function KnowledgePanel({
             </p>
           </div>
           {!embedded ? (
-            <Button size="icon" variant="ghost" onClick={onClose} className="h-7 w-7 shrink-0">
-              <X className="h-4 w-4" />
+            <Button aria-label="Close knowledge panel" size="icon" variant="ghost" onClick={onClose} className="h-7 w-7 shrink-0">
+              <X aria-hidden="true" className="h-4 w-4" />
             </Button>
           ) : null}
         </div>
       ) : null}
 
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea
+        className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]]:touch-pan-y [&_[data-slot=scroll-area-viewport]]:overscroll-contain"
+        viewportProps={{
+          'aria-label': t('context.knowledge'),
+          tabIndex: 0,
+        }}
+      >
         <div className="space-y-4 p-4">
           <ContextSection
             count={knowledgeNotes.length}
-            icon={<BookOpen className="h-4 w-4" />}
+            icon={<BookOpen aria-hidden="true" className="h-4 w-4" />}
             title={t('context.knowledge')}
           >
-            <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
-              <div className="space-y-1">
-                <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+            <form
+              className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submitKnowledgeItem();
+              }}
+            >
+              <fieldset className="space-y-1">
+                <legend className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
                   {t('context.knowledgeScopeLabel')}
-                </div>
+                </legend>
                 <div
                   className={cn(
                     'grid gap-1',
@@ -574,23 +660,37 @@ export function KnowledgePanel({
                       variant={knowledgeScope === scope ? 'default' : 'outline'}
                       className="h-7 text-xs"
                       data-testid={`context-knowledge-scope-${scope}`}
+                      aria-pressed={knowledgeScope === scope}
                       onClick={() => setKnowledgeScope(scope)}
                     >
                       {t(getNoteScopeCopyKey(scope))}
                     </Button>
                   ))}
                 </div>
-              </div>
+              </fieldset>
+              <Label className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground" htmlFor={knowledgeTitleId}>
+                {t('context.knowledgeTitlePlaceholder')}
+              </Label>
               <Input
+                autoComplete="off"
                 data-testid="context-knowledge-title"
-                placeholder={t('context.knowledgeTitlePlaceholder')}
+                id={knowledgeTitleId}
+                name="knowledgeTitle"
+                placeholder={withUnicodeEllipsis(t('context.knowledgeTitlePlaceholder'))}
+                type="text"
                 value={newTitle}
                 onChange={(event) => setNewTitle(event.target.value)}
                 className="h-8 text-xs"
               />
+              <Label className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground" htmlFor={knowledgeContentId}>
+                {t('context.knowledgeContentPlaceholder')}
+              </Label>
               <Textarea
+                autoComplete="off"
                 data-testid="context-knowledge-content"
-                placeholder={t('context.knowledgeContentPlaceholder')}
+                id={knowledgeContentId}
+                name="knowledgeContent"
+                placeholder={withUnicodeEllipsis(t('context.knowledgeContentPlaceholder'))}
                 value={newContent}
                 onChange={(event) => setNewContent(event.target.value)}
                 className="min-h-[72px] resize-none text-xs"
@@ -603,16 +703,16 @@ export function KnowledgePanel({
                 )}
               >
                 <Button
+                  type="submit"
                   size="sm"
                   className="h-7 w-full text-xs"
                   data-testid="context-save-knowledge"
-                  onClick={submitKnowledgeItem}
                   disabled={!canSubmitKnowledge}
                 >
                   {editingKnowledgeId ? (
-                    <Pencil className="mr-1 h-3 w-3" />
+                    <Pencil aria-hidden="true" className="mr-1 h-3 w-3" />
                   ) : (
-                    <Plus className="mr-1 h-3 w-3" />
+                    <Plus aria-hidden="true" className="mr-1 h-3 w-3" />
                   )}
                   {t(editingKnowledgeId ? 'context.updateKnowledge' : 'context.addKnowledge')}
                 </Button>
@@ -639,12 +739,27 @@ export function KnowledgePanel({
                   }
                 )}
               </p>
-            </div>
+              {knowledgeNotice ? (
+                <div
+                  aria-atomic="true"
+                  aria-live={knowledgeNotice.tone === 'error' ? 'assertive' : 'polite'}
+                  className={cn(
+                    'rounded-md px-2 py-1.5 text-[11px] leading-relaxed',
+                    knowledgeNotice.tone === 'error'
+                      ? 'bg-destructive/10 text-destructive'
+                      : 'bg-muted/60 text-muted-foreground'
+                  )}
+                  role={knowledgeNotice.tone === 'error' ? 'alert' : 'status'}
+                >
+                  {knowledgeNotice.text}
+                </div>
+              ) : null}
+            </form>
 
             {knowledgeNotes.length === 0 ? (
               <ContextEmptyState
                 description={t('context.noKnowledgeDescription')}
-                icon={<BookOpen className="h-6 w-6" />}
+                icon={<BookOpen aria-hidden="true" className="h-6 w-6" />}
                 title={t('context.noKnowledgeTitle')}
               />
             ) : (
@@ -658,13 +773,13 @@ export function KnowledgePanel({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <h4 className="font-medium">
+                          <h4 className="break-words font-medium [overflow-wrap:anywhere]">
                             {item.title || t('context.knowledgeUntitled')}
                           </h4>
                           <NoteScopeBadge noteId={item.id} scope={item.scope} />
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
+                      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
@@ -672,22 +787,22 @@ export function KnowledgePanel({
                           data-testid={`context-edit-knowledge-${item.id}`}
                           onClick={() => editKnowledgeItem(item)}
                         >
-                          <Pencil className="h-3 w-3" />
+                          <Pencil aria-hidden="true" className="h-3 w-3" />
                           {t('context.editKnowledgeAction')}
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          className="h-6 gap-1 px-2 text-[11px]"
                           data-testid={`context-delete-knowledge-${item.id}`}
                           onClick={() => deleteKnowledgeItem(item.id)}
+                          className="h-6 gap-1 px-2 text-[11px] text-destructive"
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 aria-hidden="true" className="h-3 w-3" />
                           {t('context.deleteKnowledgeAction')}
                         </Button>
                       </div>
                     </div>
-                    <p className="mt-1 leading-relaxed text-muted-foreground">
+                    <p className="mt-1 whitespace-pre-wrap break-words leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                       {item.content}
                     </p>
                   </div>
@@ -698,13 +813,13 @@ export function KnowledgePanel({
 
           <ContextSection
             count={memoryNotes.length}
-            icon={<Brain className="h-4 w-4" />}
+            icon={<Brain aria-hidden="true" className="h-4 w-4" />}
             title={t('context.memories')}
           >
             {memoryNotes.length === 0 ? (
               <ContextEmptyState
                 description={t('context.noMemoriesDescription')}
-                icon={<Brain className="h-6 w-6" />}
+                icon={<Brain aria-hidden="true" className="h-6 w-6" />}
                 title={t('context.noMemoriesTitle')}
               />
             ) : (
@@ -719,7 +834,7 @@ export function KnowledgePanel({
                     data-testid={`context-note-${memory.id}`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <div className="mb-1 flex flex-wrap items-center gap-1.5">
                           <Badge
                             className={cn(
@@ -731,21 +846,23 @@ export function KnowledgePanel({
                           </Badge>
                           <NoteScopeBadge noteId={memory.id} scope={memory.scope} />
                         </div>
-                        <p className="leading-relaxed">{memory.content}</p>
+                        <p className="whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{memory.content}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         <Switch
+                          aria-label={`Set ${memory.title || 'memory'} active`}
                           checked={memory.active}
                           onCheckedChange={(checked) => toggleMemory(memory.id, checked)}
                           className="scale-75"
                         />
                         <Button
+                          aria-label={`Delete ${memory.title || 'memory'}`}
                           size="icon"
                           variant="ghost"
                           className="h-5 w-5"
                           onClick={() => deleteMemory(memory.id)}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 aria-hidden="true" className="h-3 w-3" />
                         </Button>
                       </div>
                     </div>
@@ -757,7 +874,7 @@ export function KnowledgePanel({
 
           <ContextSection
             count={workflowPlaybooks.length}
-            icon={<Workflow className="h-4 w-4" />}
+            icon={<Workflow aria-hidden="true" className="h-4 w-4" />}
             title={t('context.workflow')}
           >
             <FirstUseGuide
@@ -780,17 +897,29 @@ export function KnowledgePanel({
                   {t('context.buildWorkflowDraft')}
                 </Button>
               ) : null}
+              <Label className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground" htmlFor={workflowTitleId}>
+                {t('context.workflowTitlePlaceholder')}
+              </Label>
               <Input
-                placeholder={t('context.workflowTitlePlaceholder')}
-                aria-label={t('context.workflowTitlePlaceholder')}
+                autoComplete="off"
+                id={workflowTitleId}
+                name="workflowTitle"
+                placeholder={withUnicodeEllipsis(t('context.workflowTitlePlaceholder'))}
+                type="text"
                 value={newWorkflowTitle}
                 onChange={(event) => setNewWorkflowTitle(event.target.value)}
                 className="h-8 text-xs"
                 disabled={isSavingWorkflow}
               />
+              <Label className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground" htmlFor={workflowSummaryId}>
+                {t('context.workflowOverviewPlaceholder')}
+              </Label>
               <Input
-                placeholder={t('context.workflowOverviewPlaceholder')}
-                aria-label={t('context.workflowOverviewPlaceholder')}
+                autoComplete="off"
+                id={workflowSummaryId}
+                name="workflowSummary"
+                placeholder={withUnicodeEllipsis(t('context.workflowOverviewPlaceholder'))}
+                type="text"
                 value={newWorkflowSummary}
                 onChange={(event) => setNewWorkflowSummary(event.target.value)}
                 className="h-8 text-xs"
@@ -799,6 +928,7 @@ export function KnowledgePanel({
               <WorkflowField
                 disabled={isSavingWorkflow}
                 label={t('context.workflowStepsLabel')}
+                name="workflowSteps"
                 placeholder={t('context.workflowStepsPlaceholder')}
                 rows={4}
                 value={newWorkflowSteps}
@@ -807,6 +937,7 @@ export function KnowledgePanel({
               <WorkflowField
                 disabled={isSavingWorkflow}
                 label={t('context.workflowConstraintsLabel')}
+                name="workflowConstraints"
                 placeholder={t('context.workflowConstraintsPlaceholder')}
                 rows={3}
                 value={newWorkflowConstraints}
@@ -815,6 +946,7 @@ export function KnowledgePanel({
               <WorkflowField
                 disabled={isSavingWorkflow}
                 label={t('context.workflowChecklistLabel')}
+                name="workflowChecklist"
                 placeholder={t('context.workflowChecklistPlaceholder')}
                 rows={3}
                 value={newWorkflowChecklist}
@@ -823,6 +955,7 @@ export function KnowledgePanel({
               <WorkflowField
                 disabled={isSavingWorkflow}
                 label={t('context.workflowExtensionTools')}
+                name="workflowTools"
                 placeholder={t('context.workflowExtensionToolsPlaceholder')}
                 rows={2}
                 value={newWorkflowToolsHint}
@@ -831,6 +964,7 @@ export function KnowledgePanel({
               <WorkflowField
                 disabled={isSavingWorkflow}
                 label={t('context.workflowExtensionMcp')}
+                name="workflowMcp"
                 placeholder={t('context.workflowExtensionMcpPlaceholder')}
                 rows={2}
                 value={newWorkflowMcpHint}
@@ -839,17 +973,20 @@ export function KnowledgePanel({
               <WorkflowField
                 disabled={isSavingWorkflow}
                 label={t('context.workflowExtensionSkills')}
+                name="workflowSkills"
                 placeholder={t('context.workflowExtensionSkillsPlaceholder')}
                 rows={2}
                 value={newWorkflowSkillsHint}
                 onChange={setNewWorkflowSkillsHint}
               />
-              <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+              <Label className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground" htmlFor={workflowNotesId}>
                 {t('context.workflowNotesLabel')}
-              </div>
+              </Label>
               <Textarea
-                placeholder={t('context.workflowContentPlaceholder')}
-                aria-label={t('context.workflowNotesLabel')}
+                autoComplete="off"
+                id={workflowNotesId}
+                name="workflowNotes"
+                placeholder={withUnicodeEllipsis(t('context.workflowContentPlaceholder'))}
                 value={newWorkflowContent}
                 onChange={(event) => setNewWorkflowContent(event.target.value)}
                 className="min-h-[88px] resize-none text-xs"
@@ -871,7 +1008,7 @@ export function KnowledgePanel({
                   )
                 }
               >
-                <Plus className="mr-1 h-3 w-3" />
+                <Plus aria-hidden="true" className="mr-1 h-3 w-3" />
                 {t(editingWorkflowId ? 'context.updateWorkflow' : 'context.addWorkflow')}
               </Button>
               {editingWorkflowId ? (
@@ -887,6 +1024,8 @@ export function KnowledgePanel({
               ) : null}
               {workflowNotice ? (
                 <div
+                  aria-atomic="true"
+                  aria-live={workflowNotice.tone === 'error' ? 'assertive' : 'polite'}
                   data-testid="context-workflow-notice"
                   className={cn(
                     'rounded-md px-2 py-1.5 text-[11px] leading-relaxed',
@@ -894,6 +1033,7 @@ export function KnowledgePanel({
                       ? 'bg-destructive/10 text-destructive'
                       : 'bg-muted/60 text-muted-foreground'
                   )}
+                  role={workflowNotice.tone === 'error' ? 'alert' : 'status'}
                 >
                   {workflowNotice.text}
                 </div>
@@ -915,7 +1055,7 @@ export function KnowledgePanel({
             {workflowPlaybooks.length === 0 ? (
               <ContextEmptyState
                 description={t('context.noWorkflowsDescription')}
-                icon={<Workflow className="h-6 w-6" />}
+                icon={<Workflow aria-hidden="true" className="h-6 w-6" />}
                 title={t('context.noWorkflowsTitle')}
               />
             ) : (
@@ -931,14 +1071,14 @@ export function KnowledgePanel({
                       <div key={workflow.id} className="rounded-lg border p-3 text-xs">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium">{workflow.title}</h4>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <h4 className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{workflow.title}</h4>
                               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                                 {t('context.workflowBuiltinBadge')}
                               </Badge>
                             </div>
                             {workflow.summary ? (
-                              <p className="mt-1 leading-relaxed text-muted-foreground">
+                              <p className="mt-1 break-words leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                                 {workflow.summary}
                               </p>
                             ) : null}
@@ -972,20 +1112,21 @@ export function KnowledgePanel({
                       <div key={workflow.id} className="rounded-lg border p-3 text-xs">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium">{workflow.title}</h4>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <h4 className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{workflow.title}</h4>
                               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                                 {t('context.workflowDraftBadge')}
                               </Badge>
                             </div>
                             {workflow.summary ? (
-                              <p className="mt-1 leading-relaxed text-muted-foreground">
+                              <p className="mt-1 break-words leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                                 {workflow.summary}
                               </p>
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <Button
+                              aria-label={`Activate ${workflow.title}`}
                               size="sm"
                               variant="outline"
                               className="h-6 px-2 text-[11px]"
@@ -994,36 +1135,40 @@ export function KnowledgePanel({
                               {t('context.activateWorkflow')}
                             </Button>
                             <Button
+                              aria-label={`Edit ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => editWorkflowPlaybook(workflow)}
                             >
-                              <Pencil className="h-3 w-3" />
+                              <Pencil aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Duplicate ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => duplicateWorkflowPlaybook(workflow)}
                             >
-                              <Copy className="h-3 w-3" />
+                              <Copy aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Archive ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => void updateWorkflowLifecycle(workflow, 'archived')}
                             >
-                              <Archive className="h-3 w-3" />
+                              <Archive aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Delete ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => deleteWorkflowPlaybook(workflow.id)}
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Trash2 aria-hidden="true" className="h-3 w-3" />
                             </Button>
                           </div>
                         </div>
@@ -1043,8 +1188,8 @@ export function KnowledgePanel({
                       <div key={workflow.id} className="rounded-lg border p-3 text-xs">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium">{workflow.title}</h4>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <h4 className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{workflow.title}</h4>
                               {activeWorkflowPlaybookId === workflow.id ? (
                                 <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
                                   {t('context.workflowActive')}
@@ -1055,7 +1200,7 @@ export function KnowledgePanel({
                               </Badge>
                             </div>
                             {workflow.summary ? (
-                              <p className="mt-1 leading-relaxed text-muted-foreground">
+                              <p className="mt-1 break-words leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                                 {workflow.summary}
                               </p>
                             ) : null}
@@ -1080,36 +1225,40 @@ export function KnowledgePanel({
                               </Button>
                             ) : null}
                             <Button
+                              aria-label={`Duplicate ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => duplicateWorkflowPlaybook(workflow)}
                             >
-                              <Copy className="h-3 w-3" />
+                              <Copy aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Edit ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => editWorkflowPlaybook(workflow)}
                             >
-                              <Pencil className="h-3 w-3" />
+                              <Pencil aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Archive ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => void updateWorkflowLifecycle(workflow, 'archived')}
                             >
-                              <Archive className="h-3 w-3" />
+                              <Archive aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Delete ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => deleteWorkflowPlaybook(workflow.id)}
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Trash2 aria-hidden="true" className="h-3 w-3" />
                             </Button>
                           </div>
                         </div>
@@ -1129,42 +1278,45 @@ export function KnowledgePanel({
                       <div key={workflow.id} className="rounded-lg border p-3 text-xs opacity-80">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-medium">{workflow.title}</h4>
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                              <h4 className="min-w-0 break-words font-medium [overflow-wrap:anywhere]">{workflow.title}</h4>
                               <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
                                 {t('context.workflowArchivedBadge')}
                               </Badge>
                             </div>
                             {workflow.summary ? (
-                              <p className="mt-1 leading-relaxed text-muted-foreground">
+                              <p className="mt-1 break-words leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                                 {workflow.summary}
                               </p>
                             ) : null}
                           </div>
                           <div className="flex shrink-0 items-center gap-1">
                             <Button
+                              aria-label={`Restore ${workflow.title} to draft`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => void updateWorkflowLifecycle(workflow, 'draft')}
                             >
-                              <RotateCcw className="h-3 w-3" />
+                              <RotateCcw aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Duplicate ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => duplicateWorkflowPlaybook(workflow)}
                             >
-                              <Copy className="h-3 w-3" />
+                              <Copy aria-hidden="true" className="h-3 w-3" />
                             </Button>
                             <Button
+                              aria-label={`Delete ${workflow.title}`}
                               size="icon"
                               variant="ghost"
                               className="h-5 w-5 shrink-0"
                               onClick={() => deleteWorkflowPlaybook(workflow.id)}
                             >
-                              <Trash2 className="h-3 w-3" />
+                              <Trash2 aria-hidden="true" className="h-3 w-3" />
                             </Button>
                           </div>
                         </div>
@@ -1217,6 +1369,7 @@ function getWorkflowExtensionHintValue(
 function WorkflowField({
   disabled = false,
   label,
+  name,
   onChange,
   placeholder,
   rows,
@@ -1224,19 +1377,24 @@ function WorkflowField({
 }: {
   disabled?: boolean;
   label: string;
+  name: string;
   onChange: (value: string) => void;
   placeholder: string;
   rows: number;
   value: string;
 }) {
+  const id = React.useId();
+
   return (
     <div className="space-y-1">
-      <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+      <Label className="text-[11px] font-medium uppercase tracking-[0.12em] text-muted-foreground" htmlFor={id}>
         {label}
-      </div>
+      </Label>
       <Textarea
-        placeholder={placeholder}
-        aria-label={label}
+        autoComplete="off"
+        id={id}
+        name={name}
+        placeholder={withUnicodeEllipsis(placeholder)}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         disabled={disabled}
@@ -1277,7 +1435,7 @@ function WorkflowPlaybookPreview({
         />
       ) : null}
       {workflow.content ? (
-        <div className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+        <div className="rounded-md bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed whitespace-pre-wrap break-words text-muted-foreground [overflow-wrap:anywhere]">
           {workflow.content}
         </div>
       ) : null}
@@ -1301,7 +1459,7 @@ function WorkflowPreviewSection({
       </div>
       <div className="mt-1 space-y-1 text-[11px] leading-relaxed text-muted-foreground">
         {items.map((item, index) => (
-          <p key={`${title}-${index}`}>
+          <p className="break-words [overflow-wrap:anywhere]" key={`${title}-${index}`}>
             {ordered ? `${index + 1}. ${item}` : `- ${item}`}
           </p>
         ))}
@@ -1350,10 +1508,10 @@ function ContextSection({
   title: string;
 }) {
   return (
-    <section className="space-y-3 rounded-xl border bg-background/80 p-3">
+    <section className="min-w-0 space-y-3 rounded-xl border bg-background/80 p-3">
       <div className="flex items-center gap-2">
-        <div className="text-muted-foreground">{icon}</div>
-        <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <div aria-hidden="true" className="shrink-0 text-muted-foreground">{icon}</div>
+        <h3 className="min-w-0 break-words text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground [overflow-wrap:anywhere]">
           {title}
         </h3>
         {count !== undefined ? (
@@ -1377,12 +1535,12 @@ function ContextEmptyState({
   title: string;
 }) {
   return (
-    <div className="py-6 text-center text-xs text-muted-foreground">
-      <div className="mx-auto mb-2 flex h-8 w-8 items-center justify-center opacity-40">
+    <div className="min-w-0 py-6 text-center text-xs text-muted-foreground">
+      <div aria-hidden="true" className="mx-auto mb-2 flex h-8 w-8 items-center justify-center opacity-40">
         {icon}
       </div>
-      <p>{title}</p>
-      <p className="mt-1 opacity-70">{description}</p>
+      <p className="break-words [overflow-wrap:anywhere]">{title}</p>
+      <p className="mt-1 break-words opacity-70 [overflow-wrap:anywhere]">{description}</p>
     </div>
   );
 }
@@ -1455,4 +1613,8 @@ function mergeNotes(notes: NoteData[]) {
     (left, right) =>
       new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   );
+}
+
+function withUnicodeEllipsis(value: string) {
+  return value.replaceAll('...', '…');
 }

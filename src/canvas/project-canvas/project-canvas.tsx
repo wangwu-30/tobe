@@ -165,7 +165,9 @@ function CanvasContextMenu({
   return (
     <div
       ref={ref}
-      className="fixed z-50 min-w-[160px] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
+      aria-label="画布操作"
+      className="fixed z-50 min-w-[160px] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none"
+      role="menu"
       style={{ left: menu.x, top: menu.y }}
       data-testid="canvas-context-menu"
     >
@@ -177,13 +179,14 @@ function CanvasContextMenu({
             key={i}
             type="button"
             className={cn(
-              'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent',
+              'flex min-h-10 w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:min-h-8',
               'danger' in item && item.danger && 'text-destructive hover:text-destructive'
             )}
             onClick={'onClick' in item ? item.onClick : undefined}
+            role="menuitem"
           >
             {'icon' in item && item.icon ? (
-              <item.icon className="h-4 w-4" />
+            <item.icon aria-hidden="true" className="h-4 w-4" />
             ) : null}
             {'label' in item ? item.label : null}
           </button>
@@ -227,12 +230,16 @@ function RenameOverlay({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-[2px]">
-      <div className="w-80 rounded-lg border bg-popover p-4 shadow-lg">
-        <p className="mb-2 text-sm font-medium">重命名</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-[2px]">
+      <div aria-labelledby="canvas-rename-title" aria-modal="true" className="w-full max-w-80 rounded-lg border bg-popover p-4 shadow-lg" role="dialog">
+        <p className="mb-2 text-sm font-medium" id="canvas-rename-title">重命名</p>
+        <label className="sr-only" htmlFor="canvas-rename-input">新名称</label>
         <input
+          autoComplete="off"
+          id="canvas-rename-input"
+          name="canvasNodeTitle"
           ref={inputRef}
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+          className="min-h-11 w-full rounded-md border bg-background px-3 py-2 text-base outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:text-sm"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
@@ -243,14 +250,14 @@ function RenameOverlay({
         <div className="mt-3 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+            className="min-h-10 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
             onClick={onCancel}
           >
             取消
           </button>
           <button
             type="button"
-            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90"
+            className="min-h-10 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
             onClick={handleSubmit}
           >
             确认
@@ -486,6 +493,7 @@ export function ProjectCanvas({
   const editorRef = React.useRef<Editor | null>(null);
   const canvasMetaRef = React.useRef<CanvasMetaMap>({});
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [canvasEditor, setCanvasEditor] = React.useState<Editor | null>(null);
   const [ready, setReady] = React.useState(false);
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>({ kind: 'closed' });
   const [rename, setRename] = React.useState<RenameState>(null);
@@ -538,6 +546,7 @@ export function ProjectCanvas({
   const handleMount = React.useCallback(
     (editor: Editor) => {
       editorRef.current = editor;
+      setCanvasEditor(editor);
       const meta = canvasMetaRef.current;
 
       // Create shapes from nodes
@@ -692,6 +701,11 @@ export function ProjectCanvas({
 
   const handleDeleteNode = React.useCallback(
     (nodeId: string) => {
+      const title = nodes.find((node) => node.id === nodeId)?.title || '该内容';
+      if (!window.confirm(`删除“${title}”？此操作不可撤销。`)) {
+        return;
+      }
+
       if (onDeleteNode) {
         onDeleteNode(nodeId);
       }
@@ -702,7 +716,7 @@ export function ProjectCanvas({
         editor.deleteShapes([shapeId]);
       }
     },
-    [onDeleteNode]
+    [nodes, onDeleteNode]
   );
 
   const handleRenameConfirm = React.useCallback(
@@ -783,8 +797,7 @@ export function ProjectCanvas({
 
   // Compute screen-space edge positions from tldraw camera
   const screenEdges = React.useMemo(() => {
-    const editor = editorRef.current;
-    if (!editor || edges.length === 0) return [];
+    if (!canvasEditor || edges.length === 0) return [];
 
     return edges
       .map((edge) => {
@@ -792,8 +805,8 @@ export function ProjectCanvas({
         const tgt = edgePositions[edge.targetNodeId];
         if (!src || !tgt) return null;
 
-        const srcScreen = editor.pageToViewport(src);
-        const tgtScreen = editor.pageToViewport(tgt);
+        const srcScreen = canvasEditor.pageToViewport(src);
+        const tgtScreen = canvasEditor.pageToViewport(tgt);
 
         return {
           id: edge.id,
@@ -804,12 +817,12 @@ export function ProjectCanvas({
         };
       })
       .filter(Boolean) as Array<{ id: string; x1: number; y1: number; x2: number; y2: number }>;
-  }, [edges, edgePositions]);
+  }, [canvasEditor, edges, edgePositions]);
 
   if (!ready) {
     return (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas...
+      <div aria-live="polite" className="flex h-full w-full items-center justify-center text-muted-foreground" role="status">
+        Loading canvas…
       </div>
     );
   }
@@ -820,11 +833,15 @@ export function ProjectCanvas({
         {projectTitle}
       </div>
       {connectSourceId && (
-        <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md bg-primary/90 px-4 py-1.5 text-sm font-medium text-primary-foreground shadow-lg">
+        <div
+          aria-live="polite"
+          className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md bg-primary/90 px-4 py-1.5 text-sm font-medium text-primary-foreground shadow-lg"
+          role="status"
+        >
           点击目标节点完成连接…
           <button
             type="button"
-            className="ml-3 text-xs underline opacity-80 hover:opacity-100"
+            className="ml-3 min-h-10 rounded-sm px-2 text-xs underline opacity-80 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground sm:min-h-8"
             onClick={() => setConnectSourceId(null)}
           >
             取消
@@ -863,6 +880,7 @@ export function ProjectCanvas({
       {/* SVG edge overlay */}
       {screenEdges.length > 0 && (
         <svg
+          aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-[5]"
           width="100%"
           height="100%"

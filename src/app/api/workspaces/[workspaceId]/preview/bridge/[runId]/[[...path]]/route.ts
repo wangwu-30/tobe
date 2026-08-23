@@ -145,7 +145,7 @@ function buildPreviewRetryShellHtml() {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Starting preview...</title>
+    <title>Starting preview…</title>
     <style>
       :root {
         color-scheme: light;
@@ -201,12 +201,18 @@ function buildPreviewRetryShellHtml() {
           transform: rotate(360deg);
         }
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        .spinner {
+          animation: none;
+        }
+      }
     </style>
   </head>
   <body>
-    <main>
+    <main aria-busy="true" aria-live="polite">
       <div class="spinner" aria-hidden="true"></div>
-      <h1>Starting preview...</h1>
+      <h1>Starting preview…</h1>
       <p>The preview runtime is still warming up. This page will retry automatically.</p>
     </main>
     <script>

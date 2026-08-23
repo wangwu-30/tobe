@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import {
   apiRequest,
   primeClientState,
@@ -528,8 +529,16 @@ test('context panel shows deliverable, project, and user scope notes together', 
   });
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByTestId('assistant-tab-context').click();
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'context',
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId,
+  }));
+  await expect(page.getByTestId('assistant-tab-context')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
 
   await expect(page.getByTestId(`context-note-${deliverableNote.id}`)).toContainText(
     deliverableKnowledge
@@ -583,10 +592,16 @@ test('context panel can create scoped knowledge and edit existing knowledge scop
   });
 
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${seededKnowledge.id}?conversationId=${seededKnowledge.conversationId}`
+  await page.goto(buildWorkspaceRoute({
+    assistant: 'context',
+    conversationId: seededKnowledge.conversationId,
+    nodeId: seededKnowledge.id,
+    projectId,
+  }));
+  await expect(page.getByTestId('assistant-tab-context')).toHaveAttribute(
+    'aria-selected',
+    'true'
   );
-  await page.getByTestId('assistant-tab-context').click();
 
   await expect(page.getByTestId(`context-edit-knowledge-${seedNote.id}`)).toBeVisible();
   await expect(page.getByTestId(`context-delete-knowledge-${seedNote.id}`)).toBeVisible();

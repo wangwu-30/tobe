@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { primeClientState, readSeedState } from './helpers';
 
 test('support material create, rename, delete, and URL sync stay aligned', async ({
@@ -8,16 +9,20 @@ test('support material create, rename, delete, and URL sync stay aligned', async
   const workspace = seedState.supportWorkspace;
 
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
-  );
+  await page.goto(buildWorkspaceRoute({
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
 
   await expect(page.getByTestId('support-tree-empty')).toBeVisible();
 
   const supportAddTrigger = page.getByTestId('support-tree-add-trigger');
   await supportAddTrigger.focus();
   await page.keyboard.press('Enter');
-  await page.keyboard.press('Enter');
+  await page
+    .getByRole('menuitem', { name: /新建资料笔记|New support note/ })
+    .click();
 
   await expect(page).toHaveURL(/fileId=/);
   const fileId = new URL(page.url()).searchParams.get('fileId');
@@ -55,9 +60,11 @@ test('workspace sidebar keeps support material visible even if the global sideba
     window.localStorage.removeItem('dao-workspace-sidebar-collapsed');
   });
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
-  );
+  await page.goto(buildWorkspaceRoute({
+    conversationId: workspace.conversationId,
+    nodeId: workspace.id,
+    projectId: workspace.id,
+  }));
 
   await expect(page.getByTestId('support-tree-add-trigger')).toBeVisible();
   await expect(page.getByTestId('support-tree-empty')).toBeVisible();

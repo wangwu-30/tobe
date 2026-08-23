@@ -7,7 +7,10 @@ import {
   type WorkspaceCreateIntentChoice,
 } from '@/lib/workspace/create-intent';
 import { normalizeStoredDeliverableType } from '@/lib/workspace/deliverable-types';
-import { buildWorkspaceRoute } from '@/lib/workspace/route';
+import {
+  buildWorkspaceRoute,
+  type WorkspaceAssistantTab,
+} from '@/lib/workspace/route';
 import { apiCallOrThrow, safeJsonParse } from '@/framework/resilience';
 
 
@@ -42,6 +45,12 @@ export type WorkspaceCreateRecovery = {
 
 export type WorkspaceCreateResult = {
   conversation: { id: string };
+  initialRoomMessageReceipt: {
+    messageId: string;
+    roomId: string;
+    status: 'accepted';
+  } | null;
+  room: { id: string; projectId: string | null };
   workspace: { id: string; projectId?: string | null };
 };
 
@@ -173,12 +182,14 @@ export function buildWorkspaceCreateRecovery(params: {
 }
 
 export function buildCreatedWorkspaceLocation(params: {
+  assistant?: WorkspaceAssistantTab | null;
   autoStartFirstPass?: boolean;
   conversationId: string;
   projectId?: string | null;
   workspaceId: string;
 }) {
   return buildWorkspaceRoute({
+    assistant: params.assistant,
     autoStartFirstPass: params.autoStartFirstPass,
     conversationId: params.conversationId,
     nodeId: params.workspaceId,
@@ -212,7 +223,13 @@ export async function submitWorkspaceCreateRequest(params: {
     }
   );
 
-  if (!payload?.workspace?.id || !payload?.conversation?.id) {
+  if (
+    !payload?.workspace?.id ||
+    !payload?.conversation?.id ||
+    !payload?.room?.id ||
+    (params.values.goal.trim() &&
+      payload.initialRoomMessageReceipt?.status !== 'accepted')
+  ) {
     throw new WorkspaceCreateActionError(params.errorMessage);
   }
 

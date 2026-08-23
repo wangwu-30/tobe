@@ -11,9 +11,19 @@ type WorkspaceStateSemanticsSource = {
   labels?: StateLabelLike[] | null;
 };
 
+type WorkspaceVersionLineageNode = WorkspaceStateSemanticsSource & {
+  id: string;
+  parentVersionId: string | null;
+};
+
 type WorkspaceStateSemantics = Pick<
   WorkspaceVersionData,
-  'pinned' | 'recoveryKind' | 'restorable' | 'versionType' | 'visible'
+  | 'aligned'
+  | 'pinned'
+  | 'recoveryKind'
+  | 'restorable'
+  | 'versionType'
+  | 'visible'
 >;
 
 export function hasStateLabelKind(
@@ -35,6 +45,10 @@ export function hasPinnedStateLabel(labels?: StateLabelLike[] | null) {
   return hasStateLabelKind(labels, 'pinned');
 }
 
+export function hasAlignedStateLabel(labels?: StateLabelLike[] | null) {
+  return hasStateLabelKind(labels, 'aligned');
+}
+
 export function deriveWorkspaceStateSemantics(
   source: WorkspaceStateSemanticsSource
 ): WorkspaceStateSemantics {
@@ -43,6 +57,10 @@ export function deriveWorkspaceStateSemantics(
   const versionType = visible ? 'manual' : pinned ? 'checkpoint_pinned' : 'checkpoint';
 
   return {
+    // Alignment is effective only for a visible immutable state. This keeps
+    // malformed legacy recovery points fail-closed even if they carry an
+    // orphaned aligned label.
+    aligned: visible && hasAlignedStateLabel(source.labels),
     versionType,
     visible,
     restorable: true,
@@ -57,4 +75,32 @@ export function isVisibleWorkspaceState(source: WorkspaceStateSemanticsSource) {
 
 export function isRecoveryWorkspaceState(source: WorkspaceStateSemanticsSource) {
   return !deriveWorkspaceStateSemantics(source).visible;
+}
+
+export function resolveDraftBaseVersionIdFromLineage(params: {
+  startVersionId: string | null;
+  versions: WorkspaceVersionLineageNode[];
+}) {
+  const byId = new Map(params.versions.map((version) => [version.id, version]));
+  const visited = new Set<string>();
+  let currentVersionId = params.startVersionId;
+
+  while (currentVersionId) {
+    if (visited.has(currentVersionId)) {
+      return null;
+    }
+    visited.add(currentVersionId);
+
+    const version = byId.get(currentVersionId);
+    if (!version) {
+      return null;
+    }
+    if (!isRecoveryWorkspaceState(version)) {
+      return version.id;
+    }
+
+    currentVersionId = version.parentVersionId;
+  }
+
+  return null;
 }

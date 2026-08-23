@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getOAuthApiKey } from '@mariozechner/pi-ai/oauth';
-import { safeJsonParse } from '@/framework/resilience';
+import { safeJsonParse } from '@/framework/resilience/safe-data';
 import { ensurePlatformDirectories, getPlatformPaths } from '@/lib/platform/paths';
 
 function getOAuthPaths() {

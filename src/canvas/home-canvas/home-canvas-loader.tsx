@@ -10,8 +10,8 @@ const HomeCanvas = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas...
+      <div aria-live="polite" className="flex h-full w-full items-center justify-center text-muted-foreground" role="status">
+        Loading canvas…
       </div>
     ),
   }

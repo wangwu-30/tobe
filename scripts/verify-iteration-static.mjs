@@ -2,47 +2,97 @@ import fs from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = process.cwd();
+const nextDistDir =
+  process.env.NEXT_DIST_DIR?.trim() || '.next';
+const typeScriptProject =
+  process.env.NEXT_TSCONFIG_PATH?.trim() || 'tsconfig.json';
 
-async function main() {
-  await runStep('prisma', ['npx', 'prisma', 'generate']);
-  await clearGeneratedNextTypes();
-  await runStep('typegen', ['npx', 'next', 'typegen']);
-  await runStep('tsc', ['npx', 'tsc', '--noEmit']);
-  await runStep('eslint', [
-    'npx',
-    'eslint',
-    '--rule',
-    '@typescript-eslint/no-explicit-any: off',
-    '--rule',
-    '@typescript-eslint/no-require-imports: off',
-    '--rule',
-    '@typescript-eslint/no-unused-vars: off',
-    '--ignore-pattern',
-    'apps/desktop/src/renderer/.vite/**',
-    '--ignore-pattern',
-    'src/generated/prisma/**',
-    'src/app',
-    'src/components',
-    'src/hooks',
-    'src/lib',
-    'src/types',
-    'apps/desktop/src',
-    'apps/desktop/scripts',
-    'scripts',
-    'tests',
-    'eslint.config.mjs',
-    'forge.config.js',
-    'next.config.ts',
-    'playwright.config.ts',
-    'postcss.config.mjs',
-    'prisma.config.ts',
-    'vite.backend.config.mts',
-    'vite.main.config.mts',
-    'vite.preload.config.mts',
-    'vite.renderer.config.mts',
-  ]);
+export const staticGateSteps = [
+  {
+    id: 'web-interface-guidelines',
+    command: ['node', 'scripts/check-web-interface-guidelines.mjs'],
+  },
+  { id: 'prisma', command: ['npx', 'prisma', 'generate'] },
+  { id: 'clear-next-types' },
+  { id: 'typegen', command: ['npx', 'next', 'typegen'] },
+  {
+    id: 'build:room-backend-test',
+    command: [
+      'npx',
+      'vite',
+      'build',
+      '--config',
+      'vite.room-backend-test.config.mts',
+    ],
+  },
+  {
+    id: 'build:room-tool-confirmation-test',
+    command: [
+      'npx',
+      'vite',
+      'build',
+      '--config',
+      'vite.room-tool-confirmation-test.config.mts',
+    ],
+  },
+  {
+    id: 'tsc',
+    command: ['npx', 'tsc', '--noEmit', '--project', typeScriptProject],
+  },
+  {
+    id: 'eslint',
+    command: [
+      'npx',
+      'eslint',
+      '--rule',
+      '@typescript-eslint/no-explicit-any: off',
+      '--rule',
+      '@typescript-eslint/no-require-imports: off',
+      '--rule',
+      '@typescript-eslint/no-unused-vars: off',
+      '--ignore-pattern',
+      'src/generated/prisma/**',
+      'src/app',
+      'src/agent',
+      'src/components',
+      'src/hooks',
+      'src/lib',
+      'src/objects',
+      'src/types',
+      'apps/execution-daemon/src',
+      'apps/knowledge-merge-worker/src',
+      'apps/room-session-host/src',
+      'scripts',
+      'tests',
+      'eslint.config.mjs',
+      'next.config.ts',
+      'playwright.config.ts',
+      'playwright.control-plane.config.ts',
+      'postcss.config.mjs',
+      'prisma.config.ts',
+      'vite.execution-daemon.config.mts',
+      'vite.knowledge-merge-worker.config.mts',
+      'vite.room-session-host.config.mts',
+      'vite.staged-changes-test.config.mts',
+    ],
+  },
+];
+
+export async function runStaticGate(options = {}) {
+  const clearTypes =
+    options.clearGeneratedNextTypes || clearGeneratedNextTypes;
+  const run = options.runStep || runStep;
+
+  for (const step of staticGateSteps) {
+    if (!step.command) {
+      await clearTypes();
+      continue;
+    }
+    await run(step.id, step.command);
+  }
 }
 
 function runStep(label, command) {
@@ -51,8 +101,12 @@ function runStep(label, command) {
 }
 
 async function clearGeneratedNextTypes() {
-  await fs.rm(path.join(repoRoot, '.next', 'types'), { force: true, recursive: true });
-  await fs.rm(path.join(repoRoot, '.next', 'dev', 'types'), { force: true, recursive: true });
+  const outputRoot = path.resolve(repoRoot, nextDistDir);
+  await fs.rm(path.join(outputRoot, 'types'), { force: true, recursive: true });
+  await fs.rm(path.join(outputRoot, 'dev', 'types'), {
+    force: true,
+    recursive: true,
+  });
 }
 
 function runCommand(command) {
@@ -79,7 +133,12 @@ function runCommand(command) {
   });
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  runStaticGate().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

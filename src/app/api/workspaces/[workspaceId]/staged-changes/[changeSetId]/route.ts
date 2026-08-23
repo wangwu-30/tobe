@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { mapStagedChangeSet } from '@/lib/workspace/planning';
+import { ValidationError } from '@/framework/resilience';
 import { WorkspaceLockConflictError } from '@/objects/workspace/commands';
 import {
   applyStagedChangeSet,
@@ -41,7 +42,13 @@ export const PATCH = defineRoute(async function PATCH(
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { changeSetId, workspaceId } = await params;
   const body = await req.json().catch(() => ({}));
-  const action = body.action === 'discard' ? 'discard' : 'apply';
+  if (body.action !== 'apply' && body.action !== 'discard') {
+    throw new ValidationError('action must be apply or discard.');
+  }
+  if (!Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 1) {
+    throw new ValidationError('expectedRevision must be a positive integer.');
+  }
+  const action: 'apply' | 'discard' = body.action;
 
   const changeSet = await prisma.stagedChangeSet.findFirst({
     where: {
@@ -59,6 +66,7 @@ export const PATCH = defineRoute(async function PATCH(
   if (action === 'discard') {
     const discarded = await discardStagedChangeSet(actor, {
       changeSetId,
+      expectedRevision: body.expectedRevision,
       workspaceId,
     });
     return NextResponse.json(discarded);
@@ -68,6 +76,7 @@ export const PATCH = defineRoute(async function PATCH(
     const applied = await applyStagedChangeSet(actor, {
       changeSetId,
       checkpointTitle: body.checkpointTitle,
+      expectedRevision: body.expectedRevision,
       workspaceId,
     });
 

@@ -1,4 +1,4 @@
-# 成形本地全功能启动
+# 成形本地 Web 全功能启动
 
 ## 目标
 
@@ -22,7 +22,7 @@
 - `Document already exists`
 - 其它已有表重复创建失败
 
-所以本地开发和 desktop runtime 现在统一走成形自己的 bootstrap 路径：
+所以本地 Web 开发现在走成形自己的 bootstrap 路径：
 
 - 优先识别“这条迁移的结果是否已经存在”
 - 已存在就记为已应用
@@ -31,7 +31,6 @@
 ## 关键文件
 
 - 本地开发 bootstrap: `scripts/bootstrap-local-db.mjs`
-- desktop runtime bootstrap: `apps/desktop/src/backend/bootstrap.ts`
 - 本地数据库：`dev.db`
 
 ## 当前保证

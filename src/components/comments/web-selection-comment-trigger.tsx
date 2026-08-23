@@ -392,6 +392,9 @@ export function WebSelectionCommentTrigger({
           </div>
           <CommentAgentTextarea
             agents={commentAgents}
+            aria-label={t('comments.manualCommentLabel')}
+            autoComplete="off"
+            name="web-selection-comment"
             ref={textareaRef}
             value={commentText}
             onChange={setCommentText}
@@ -403,7 +406,7 @@ export function WebSelectionCommentTrigger({
               ? t('comments.deepResearchHint')
               : t('comments.agentMentionHint')}
           </p>
-          {error ? <div className="mt-2 text-xs text-destructive">{error}</div> : null}
+          {error ? <div aria-live="assertive" className="mt-2 text-xs text-destructive" role="alert">{error}</div> : null}
           <div className="mt-3 flex items-center justify-end gap-2">
             <Button
               type="button"

@@ -1,18 +1,22 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
   ArrowDown,
   ArrowUp,
+  Bot,
   FilePlus2,
   FileText,
   FolderClosed,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   List,
   MoreHorizontal,
   Pencil,
   Plus,
+  ListTodo,
   Search,
   Settings,
   Sparkles,
@@ -53,6 +57,7 @@ import {
 import { SidebarSearch } from '@/components/layout/sidebar-search';
 import { useT } from '@/components/providers/language-provider';
 import { useAppPathname, useAppRouter } from '@/lib/app-router';
+import { useGuardedRouter } from '@/lib/navigation/navigation-guard';
 import { cn } from '@/lib/utils';
 import { getWorkspaceFileDisplayName } from '@/lib/workspace/file-presentation';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
@@ -197,6 +202,7 @@ export function DeliverableSidebar({
   const t = useT();
   const pathname = useAppPathname();
   const router = useAppRouter();
+  const guardedRouter = useGuardedRouter();
   const [isLoading, setIsLoading] = React.useState(true);
   const [isLoadingMounts, setIsLoadingMounts] = React.useState(false);
   const [projects, setProjects] = React.useState<ProjectSummaryData[]>([]);
@@ -412,59 +418,79 @@ export function DeliverableSidebar({
           return;
         }
         if (projectId === currentProjectId) {
-          router.push('/');
+          guardedRouter.push('/', () => router.push('/'));
         }
       }
       await loadProjects();
     },
-    [currentProjectId, loadProjects, onDeleteWorkspace, router, t]
+    [currentProjectId, guardedRouter, loadProjects, onDeleteWorkspace, router, t]
   );
 
   const openProject = React.useCallback(
     (project: ProjectSummaryData) => {
-      onNavigate?.();
+      const href = buildWorkspaceRoute({
+        nodeId: project.workspaceId,
+        projectId: project.id,
+      });
       if (onOpenWorkspace && project.id === currentProjectId) {
-        onOpenWorkspace(project.workspaceId);
+        guardedRouter.push(href, () => {
+          onNavigate?.();
+          onOpenWorkspace(project.workspaceId);
+        });
         return;
       }
-      router.push(
-        buildWorkspaceRoute({
-          nodeId: project.workspaceId,
-          projectId: project.id,
-        })
-      );
+      guardedRouter.push(href, () => {
+        onNavigate?.();
+        router.push(href);
+      });
     },
-    [currentProjectId, onNavigate, onOpenWorkspace, router]
+    [currentProjectId, guardedRouter, onNavigate, onOpenWorkspace, router]
   );
   const openProjectNextDeliverable = React.useCallback(
     (project: ProjectSummaryData) => {
-      onNavigate?.();
       const params = new URLSearchParams({
         newDeliverableProjectId: project.id,
         newDeliverableProjectTitle: project.title,
       });
-      router.push(`/?${params.toString()}`);
+      const href = `/?${params.toString()}`;
+      guardedRouter.push(href, () => {
+        onNavigate?.();
+        router.push(href);
+      });
     },
-    [onNavigate, router]
+    [guardedRouter, onNavigate, router]
   );
   const openSupportFile = React.useCallback(
     (fileId: string) => {
-      onNavigate?.();
-      if (onOpenSupportFile) {
-        onOpenSupportFile(fileId);
-        return;
-      }
-      if (currentWorkspaceId) {
-        router.push(
-          buildWorkspaceRoute({
+      const href = currentWorkspaceId
+        ? buildWorkspaceRoute({
             fileId,
             nodeId: currentWorkspaceId,
             projectId: currentProjectId || currentWorkspaceId,
           })
-        );
+        : null;
+      if (onOpenSupportFile) {
+        guardedRouter.push(href || window.location.href, () => {
+          onNavigate?.();
+          onOpenSupportFile(fileId);
+        });
+        return;
+      }
+      if (href) {
+        guardedRouter.push(href, () => {
+          onNavigate?.();
+          router.push(href);
+        });
       }
     },
-    [currentProjectId, currentWorkspaceId, onNavigate, onOpenSupportFile, router]
+    [
+      currentProjectId,
+      currentWorkspaceId,
+      guardedRouter,
+      onNavigate,
+      onOpenSupportFile,
+      router,
+    ]
   );
   const openRenameDialog = React.useCallback((project: ProjectSummaryData) => {
     setRenameWorkspaceId(project.id);
@@ -1213,18 +1239,16 @@ export function DeliverableSidebar({
               collapsed ? 'px-2 py-3' : 'px-3 py-3'
             )}
           >
-            <button
+            <Link
+              aria-label={t('common.home')}
               className={cn(
-                'flex max-w-full items-center rounded-xl text-left transition-colors hover:bg-accent',
+                'flex max-w-full touch-manipulation items-center rounded-xl text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
                 collapsed
                   ? 'mx-auto h-11 w-11 justify-center px-0 py-0'
                   : 'w-full min-w-0 gap-2 px-2 py-2'
               )}
-              onClick={() => {
-                onNavigate?.();
-                router.push('/');
-              }}
-              type="button"
+              href="/"
+              onClick={onNavigate}
             >
               <div className="rounded-lg bg-background p-2 shadow-sm">
                 <FileText className="h-4 w-4 text-primary" />
@@ -1237,7 +1261,7 @@ export function DeliverableSidebar({
                   </div>
                 </div>
               ) : null}
-            </button>
+            </Link>
 
             {collapsed ? (
               <SidebarIconButton
@@ -1257,7 +1281,13 @@ export function DeliverableSidebar({
             )}
           </div>
 
-          <ScrollArea className="min-h-0 w-full flex-1 overflow-hidden">
+          <ScrollArea
+            className="min-h-0 w-full flex-1 overflow-hidden"
+            viewportProps={{
+              'aria-label': t('sidebar.projectTree'),
+              tabIndex: 0,
+            }}
+          >
             {collapsed ? (
               <div className="flex min-w-0 flex-col items-center gap-2 px-2 py-3">
                 {currentWorkspaceId && currentProjectId ? (
@@ -1290,6 +1320,7 @@ export function DeliverableSidebar({
                   title={t('sidebar.projects')}
                   action={
                     <Button
+                      aria-label={t('sidebar.newProject')}
                       size="icon"
                       variant="ghost"
                       className="h-7 w-7 shrink-0"
@@ -1317,7 +1348,7 @@ export function DeliverableSidebar({
                         >
                           <button
                             type="button"
-                            className="flex min-w-0 w-full flex-1 items-center gap-2 overflow-hidden px-2 py-1.5 text-left"
+                            className="flex min-w-0 w-full flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                             onClick={() => openProject(project)}
                             data-testid={`sidebar-project-open-${project.id}`}
                           >
@@ -1328,7 +1359,7 @@ export function DeliverableSidebar({
                               <div className="truncate text-sm font-medium leading-5">
                                 {project.title}
                               </div>
-                              <div className="truncate text-[11px] text-muted-foreground/80">
+                              <div className="truncate text-[11px] text-muted-foreground">
                                 {!currentWorkspaceId
                                   ? `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`
                                   : currentProjectId === project.id && currentWorkspaceStatusLabel
@@ -1356,6 +1387,7 @@ export function DeliverableSidebar({
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
+                                  aria-label={`${t('sidebar.renameProject')}: ${project.title}`}
                                   size="icon"
                                   variant="ghost"
                                   className={cn(
@@ -1410,6 +1442,7 @@ export function DeliverableSidebar({
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
+                              aria-label={`${t('sidebar.newDeliverable')} / ${t('sidebar.newProjectFolder')}`}
                               size="icon"
                               variant="ghost"
                               className="h-7 w-7 shrink-0"
@@ -1468,7 +1501,7 @@ export function DeliverableSidebar({
                           })}
                         </div>
                         {currentProjectDeliverablePath ? (
-                          <div className="truncate text-[11px] text-muted-foreground/80">
+                          <div className="truncate text-[11px] text-muted-foreground">
                             {currentProjectDeliverablePath}
                           </div>
                         ) : null}
@@ -1563,6 +1596,7 @@ export function DeliverableSidebar({
                     title={t('sidebar.linkedProjects')}
                     action={
                       <Button
+                        aria-label={t('sidebar.addLinkedProject')}
                         type="button"
                         size="icon"
                         variant="ghost"
@@ -1643,7 +1677,7 @@ export function DeliverableSidebar({
                             data-testid={`outline-item-${item.id}`}
                             onClick={() => onOpenOutline?.(item.id)}
                             className={cn(
-                              'flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent',
+                              'flex w-full touch-manipulation items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
                               item.active && 'bg-background shadow-sm ring-1 ring-border'
                             )}
                             style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
@@ -1674,6 +1708,7 @@ export function DeliverableSidebar({
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
+                            aria-label={`${t('sidebar.newSupportNote')} / ${t('sidebar.newSupportFolder')}`}
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7 shrink-0"
@@ -1766,29 +1801,124 @@ export function DeliverableSidebar({
               collapsed ? 'px-2 py-3' : 'p-3'
             )}
           >
-            {collapsed ? (
-              <SidebarIconButton
-                active={pathname === '/settings'}
-                icon={<Settings className="h-4 w-4" />}
-                label={t('common.settings')}
-                onClick={() => {
-                  onNavigate?.();
-                  router.push('/settings');
-                }}
-              />
-            ) : (
-              <Button
-                variant={pathname === '/settings' ? 'secondary' : 'ghost'}
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-                onClick={() => {
-                  onNavigate?.();
-                  router.push('/settings');
-                }}
-              >
-                <Settings className="h-4 w-4 shrink-0" />
-                <span className="truncate">{t('common.settings')}</span>
-              </Button>
-            )}
+            <div className={cn('flex min-w-0', collapsed ? 'flex-col gap-2' : 'flex-col gap-1')}>
+              {collapsed ? (
+                <SidebarIconButton
+                  active={pathname.startsWith('/knowledge')}
+                  icon={<GitBranch className="h-4 w-4" />}
+                  label="Knowledge"
+                  onClick={() => {
+                    guardedRouter.push('/knowledge', () => {
+                      onNavigate?.();
+                      router.push('/knowledge');
+                    });
+                  }}
+                />
+              ) : (
+                <Button asChild
+                  variant={pathname.startsWith('/knowledge') ? 'secondary' : 'ghost'}
+                  className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                >
+                  <Link href="/knowledge" onClick={onNavigate}>
+                    <GitBranch className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Knowledge</span>
+                  </Link>
+                </Button>
+              )}
+              {collapsed ? (
+                <SidebarIconButton
+                  active={pathname.startsWith('/tasks')}
+                  icon={<ListTodo className="h-4 w-4" />}
+                  label={t('sidebar.teamTasks')}
+                  onClick={() => {
+                    guardedRouter.push('/tasks', () => {
+                      onNavigate?.();
+                      router.push('/tasks');
+                    });
+                  }}
+                />
+              ) : (
+                <Button asChild
+                  variant={pathname.startsWith('/tasks') ? 'secondary' : 'ghost'}
+                  className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                >
+                  <Link href="/tasks" onClick={onNavigate}>
+                    <ListTodo className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t('sidebar.teamTasks')}</span>
+                  </Link>
+                </Button>
+              )}
+              {collapsed ? (
+                <SidebarIconButton
+                  active={pathname.startsWith('/agents')}
+                  icon={<Bot className="h-4 w-4" />}
+                  label="Agents"
+                  onClick={() => {
+                    guardedRouter.push('/agents', () => {
+                      onNavigate?.();
+                      router.push('/agents');
+                    });
+                  }}
+                />
+              ) : (
+                <Button
+                  asChild
+                  variant={pathname.startsWith('/agents') ? 'secondary' : 'ghost'}
+                  className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                >
+                  <Link href="/agents" onClick={onNavigate}>
+                    <Bot className="h-4 w-4 shrink-0" />
+                    <span className="truncate">Agents</span>
+                  </Link>
+                </Button>
+              )}
+              {collapsed ? (
+                <SidebarIconButton
+                  active={pathname.startsWith('/jobs')}
+                  icon={<List className="h-4 w-4" />}
+                  label={t('sidebar.jobs')}
+                  onClick={() => {
+                    guardedRouter.push('/jobs', () => {
+                      onNavigate?.();
+                      router.push('/jobs');
+                    });
+                  }}
+                />
+              ) : (
+                <Button asChild
+                  variant={pathname.startsWith('/jobs') ? 'secondary' : 'ghost'}
+                  className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                >
+                  <Link href="/jobs" onClick={onNavigate}>
+                    <List className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t('sidebar.jobs')}</span>
+                  </Link>
+                </Button>
+              )}
+              {collapsed ? (
+                <SidebarIconButton
+                  active={pathname === '/settings'}
+                  icon={<Settings className="h-4 w-4" />}
+                  label={t('common.settings')}
+                  onClick={() => {
+                    guardedRouter.push('/settings', () => {
+                      onNavigate?.();
+                      router.push('/settings');
+                    });
+                  }}
+                />
+              ) : (
+                <Button asChild
+                  variant={pathname === '/settings' ? 'secondary' : 'ghost'}
+                  className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                >
+                  <Link href="/settings" onClick={onNavigate}>
+                    <Settings className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{t('common.settings')}</span>
+                  </Link>
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </aside>
@@ -2447,7 +2577,7 @@ function ProjectTreeNodeRow({
         {isFolder ? (
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
+            className="flex min-w-0 flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             onClick={() => setOpen((value) => !value)}
           >
             {open ? (
@@ -2460,7 +2590,7 @@ function ProjectTreeNodeRow({
         ) : (
           <button
             type="button"
-            className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left"
+            className="flex min-w-0 flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             data-testid={`sidebar-project-tree-open-${node.id}`}
             title={node.title}
             onClick={() => {
@@ -2529,6 +2659,7 @@ function ProjectTreeNodeRow({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
+                  aria-label={`${t('sidebar.projectTree')}: ${node.title}`}
                   size="icon-xs"
                   variant="ghost"
                   className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
@@ -2604,6 +2735,7 @@ function ProjectTreeNodeRow({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
+                aria-label={`${t('sidebar.projectDeliverables')}: ${node.title}`}
                 size="icon-xs"
                 variant="ghost"
                 className={cn(
@@ -3074,7 +3206,7 @@ function SupportMaterialTreeNode({
         <button
           type="button"
           data-testid={`support-tree-node-${file.id}`}
-          className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left text-sm"
+          className="flex min-w-0 flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-md text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => {
             if (isFolder) {
               setOpen((value) => !value);
@@ -3105,6 +3237,7 @@ function SupportMaterialTreeNode({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
+                aria-label={`${t('sidebar.uploads')}: ${getWorkspaceFileDisplayName(file)}`}
                 size="icon-xs"
                 variant="ghost"
                 className="h-7 w-7 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"

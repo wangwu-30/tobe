@@ -70,7 +70,7 @@ export function WorkspaceScreen({
       title={title}
       titleNode={titleNode}
     >
-      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <main className="flex h-full min-h-0 flex-col overflow-hidden">
         {workspaceNotice ? (
           <div
             className={cn(
@@ -143,7 +143,7 @@ export function WorkspaceScreen({
             )
           }
         />
-      </div>
+      </main>
 
       {goalDialog}
     </AppShell>

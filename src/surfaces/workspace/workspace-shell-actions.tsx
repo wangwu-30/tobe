@@ -112,7 +112,7 @@ export function WorkspaceShellActions({
               <>
                 <DropdownMenuItem onClick={onStopPreview} disabled={isStoppingPreview}>
                   {isStoppingPreview ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                   ) : (
                     <Square className="h-4 w-4" />
                   )}
@@ -128,7 +128,7 @@ export function WorkspaceShellActions({
             ) : (
               <DropdownMenuItem onClick={onStartPreview} disabled={isStartingPreview}>
                 {isStartingPreview ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                  <LoaderCircle className="h-4 w-4 animate-spin motion-reduce:animate-none" />
                 ) : (
                   <Play className="h-4 w-4" />
                 )}

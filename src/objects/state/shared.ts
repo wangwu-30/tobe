@@ -1,3 +1,4 @@
+import type { DraftThreadBindingDb } from '@/lib/comments/version-binding';
 import type { WorkspaceRunData } from '@/types';
 
 export type WorkspaceStateActorContext = {
@@ -10,7 +11,9 @@ export type CreateWorkspaceVersionDependencies = {
   bindDraftThreadsToVersion: (
     workspaceId: string,
     versionId: string,
-    draftRevision: number
+    draftRevision: number,
+    organizationId: string,
+    db: DraftThreadBindingDb
   ) => Promise<void>;
   ensureWorkspaceEditable: (
     actor: WorkspaceStateActorContext,

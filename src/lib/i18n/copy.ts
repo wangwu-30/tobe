@@ -2,6 +2,9 @@ import type { AppLanguage } from '@/lib/i18n/language';
 
 const COPY = {
   'en-US': {
+    'assistant.room': 'Room',
+    'assistant.roomDescription':
+      'Discuss the shared workspace with the coordinator and specialist Agents.',
     'assistant.chat': 'Chat',
     'assistant.chatDescription':
       'Use chat for broader task steering, conversation switching, and assistant runs around the current work.',
@@ -20,10 +23,16 @@ const COPY = {
       'Upload files, paste images, or paste long text. If the current model cannot read images directly, Dao stores them as support files for AI to load on demand.',
     'chat.attachmentImage': 'Image',
     'chat.attachmentText': 'Text',
+    'chat.addAttachments': 'Add attachments',
+    'chat.attachmentsLabel': 'Attachments',
+    'chat.messageLabel': 'Message Agent',
+    'chat.removeAttachment': 'Remove {name}',
+    'chat.sendMessage': 'Send message',
+    'chat.stopGenerating': 'Stop generating',
     'chat.askAiPlaceholder':
-      'Ask AI to revise the current content, explain a choice, or continue the current task...',
+      'Ask AI to revise the current content, explain a choice, or continue the current task…',
     'chat.askWithDeepResearchPlaceholder':
-      'Ask AI to propose a research plan, then run a deeper cited investigation...',
+      'Ask AI to propose a research plan, then run a deeper cited investigation…',
     'chat.baseCheckpointLabel': 'Based on recovery point: {title}',
     'chat.baseVersionLabel': 'Based on milestone: {title}',
     'chat.connecting': 'Connecting to AI…',
@@ -44,6 +53,8 @@ const COPY = {
     'chat.researchActionFailed': 'Could not update this research plan.',
     'chat.researchApproved': 'Approved',
     'chat.researchDismiss': 'Dismiss',
+    'chat.researchDismissConfirm':
+      'Dismiss this research plan? You will need to create a new plan to restart it.',
     'chat.researchDismissed': 'Dismissed',
     'chat.researchDismissing': 'Dismissing…',
     'chat.researchPending': 'Needs review',
@@ -84,6 +95,8 @@ const COPY = {
     'chat.replanGoal': 'Proposed Goal',
     'chat.replanKeeping': 'Keeping…',
     'chat.replanKeepCurrent': 'Keep Current Plan',
+    'chat.replanKeepCurrentConfirm':
+      'Keep the current plan and dismiss this proposal?',
     'chat.replanPending': 'Needs review',
     'chat.replanProposal': 'Proposed Plan',
     'chat.selectConversation': 'Select conversation',
@@ -98,6 +111,8 @@ const COPY = {
       'The model did not respond in time. Retry once; if it keeps happening, switch model or account in Settings.',
     'comments.aiReply': 'AI Reply',
     'comments.aiReplying': 'AI Replying',
+    'comments.acceptSuggestion': 'Accept Suggestion',
+    'comments.actions': 'Comment Actions',
     'comments.applyAnchorAmbiguous':
       'The original text appears multiple times. Narrow the selection before applying.',
     'comments.applyAnchorMissing':
@@ -108,6 +123,8 @@ const COPY = {
     'comments.applied': 'Applied',
     'comments.appliedToSource': 'Applied to the original file.',
     'comments.applyFailed': 'Could not apply this edit to the original file.',
+    'comments.applyRefreshFailed':
+      'The edit was applied, but this view could not refresh. Reload to see the latest draft.',
     'comments.applyLocating': 'Locating',
     'comments.applyStatusUpdateFailed':
       'Applied to source, but could not move this thread into pending verification.',
@@ -116,15 +133,17 @@ const COPY = {
     'comments.applyNoMaterialChange':
       'AI did not return a material edit for this selection.',
     'comments.applySummary': 'Apply the comment request to "{anchorText}".',
-    'comments.applyTargetMissing': 'Could not find the source file for this thread.',
+    'comments.applyTargetMissing':
+      'Could not find the source file for this thread.',
     'comments.applyTitle': 'Comment-driven edit',
     'comments.applyToSource': 'Apply to source',
-    'comments.commentPlaceholder': 'Tell AI what you want reviewed here...',
+    'comments.commentPlaceholder': 'Tell AI what you want reviewed here…',
     'comments.commentToAi': 'Comment to AI',
+    'comments.cancelEditing': 'Cancel Editing Comment',
     'comments.composerDescription':
       'This request will appear in the review sidebar and can trigger AI replies after you submit.',
     'comments.createFailed': 'Failed to create the comment thread.',
-    'comments.creatingComment': 'Commenting...',
+    'comments.creatingComment': 'Commenting…',
     'comments.continueConversationHint':
       'Keep the thread going. AI will keep the full context of this discussion.',
     'comments.description':
@@ -136,7 +155,8 @@ const COPY = {
     'comments.followUpFailed': 'Could not send the follow-up.',
     'comments.followUpNeedsMention':
       'Added to the thread. Mention one or more roles with @ if you want AI to continue from here.',
-    'comments.followUpPlaceholder': 'Tell AI what to change next, or keep asking here...',
+    'comments.followUpPlaceholder':
+      'Tell AI what to change next, or keep asking here…',
     'comments.followUpQueued':
       'Added to the thread. Mentioned roles are replying now and will keep listening for 3 more minutes.',
     'comments.agentBlocked':
@@ -169,6 +189,7 @@ const COPY = {
       'This thread was applied to source. Resolve it after you verify the change, or leave a follow-up to reopen it.',
     'comments.pendingVerificationThreads': 'Pending Verification ({count})',
     'comments.reopen': 'Needs Work',
+    'comments.rejectSuggestion': 'Reject Suggestion',
     'comments.resolvedMoveToHistory':
       'Resolved threads move into history for this version.',
     'comments.resolve': 'Resolve',
@@ -179,14 +200,15 @@ const COPY = {
     'comments.reopenedNotice': 'Thread moved back to open.',
     'comments.manualAnchorLabel': 'Scope',
     'comments.manualCommentLabel': 'Comment',
-    'comments.manualAnchorPlaceholder': 'What part of the current content is this about?',
-    'comments.manualCommentPlaceholder': 'Tell AI what needs attention...',
+    'comments.manualAnchorPlaceholder':
+      'What part of the current content is this about?',
+    'comments.manualCommentPlaceholder': 'Tell AI what needs attention…',
     'comments.manualComposerDescription':
       'Create a review thread even when inline selection is unavailable.',
     'comments.manualComposerTitle': 'General Comment',
     'comments.manualCreate': 'Create Comment',
     'comments.manualCreateFailed': 'Failed to create the comment thread.',
-    'comments.manualCreating': 'Creating...',
+    'comments.manualCreating': 'Creating…',
     'comments.manualDefaultAnchor': 'General feedback',
     'comments.manualOpenComposer': 'New Comment',
     'comments.researchActionFailed': 'Could not update this research request.',
@@ -227,30 +249,90 @@ const COPY = {
     'comments.reviewStateSupersededHint':
       'A newer thread already covers the same anchor, so this inherited thread is secondary context.',
     'comments.sendFollowUp': 'Send',
+    'comments.saveComment': 'Save Comment',
+    'comments.sendReply': 'Send Reply',
     'comments.sendingFollowUp': 'Sending…',
     'comments.stopListeningFailed': 'Could not stop this role from listening.',
-    'comments.selectionExpired': 'Selection expired. Please select the text again.',
-    'comments.thinkingThroughComment': 'Thinking through this comment...',
+    'comments.selectionExpired':
+      'Selection expired. Please select the text again.',
+    'comments.thinkingThroughComment': 'Thinking through this comment…',
     'comments.title': 'Comments',
     'comments.webSelectionUnavailable':
       'Inline text comments are only available when the preview can be inspected locally.',
+    'execution.acceptedDescription':
+      'The job now runs independently from chat. You can close this window without stopping it.',
+    'execution.acceptedTitle': 'Execution accepted',
+    'execution.aligned': 'Aligned version ready',
+    'execution.alignedHint':
+      'This immutable version is the source of truth and will be frozen into the job.',
+    'execution.aligning': 'Aligning…',
+    'execution.alignmentFailed': 'Could not align this document version.',
+    'execution.alignmentRequired':
+      'Select an immutable version and align it before starting execution.',
+    'execution.alignVersion': 'Align this version',
+    'execution.alignVersionHint':
+      'Explicitly confirm this immutable version as the source of truth before execution.',
+    'execution.blockedDescription':
+      'The job was created, but execution cannot proceed yet. Check the receipt details below.',
+    'execution.blockedTitle': 'Execution blocked',
+    'execution.close': 'Close',
+    'execution.createFailed': 'Could not start this execution job. Try again.',
+    'execution.description':
+      'Start a durable job from the current document without using the chat composer.',
+    'execution.createVersion': 'Create a version',
+    'execution.draftNotExecutable': 'Draft is not ready for execution',
+    'execution.draftRequiresVersion':
+      'Create and switch to an immutable version first. Drafts cannot be aligned or executed.',
+    'execution.document': 'Document',
+    'execution.goal': 'Goal',
+    'execution.goalPlaceholder':
+      'Describe the outcome the Agent should deliver…',
+    'execution.goalRequired': 'Enter an execution goal first.',
+    'execution.jobId': 'Job ID',
+    'execution.loadingRuntimes': 'Loading available runtimes…',
+    'execution.noRuntimes':
+      'No explicit runtime is available. Auto selection can still be used.',
+    'execution.notProvided': 'Not provided',
+    'execution.notAligned': 'Version not aligned',
+    'execution.receipt': 'Receipt',
+    'execution.receiptAccepted': 'Accepted',
+    'execution.receiptBlocked': 'Blocked',
+    'execution.refresh': 'Refresh',
+    'execution.refreshFailed': 'Could not refresh this job.',
+    'execution.refreshing': 'Refreshing',
+    'execution.runtime': 'Runtime',
+    'execution.runtimeAuto': 'Auto · Best available',
+    'execution.runtimeHint':
+      'Auto selects a compatible healthy runtime at launch.',
+    'execution.runtimeLoadFailed':
+      'Runtime choices could not be loaded. Auto selection is still available.',
+    'execution.runtimePending': 'Waiting for selection',
+    'execution.selectedRuntime': 'Selected runtime',
+    'execution.selectionReason': 'Selection reason',
+    'execution.snapshotHint':
+      'The server freezes the current document context when this job is created.',
+    'execution.start': 'Start execution',
+    'execution.startAnother': 'Start another',
+    'execution.starting': 'Starting',
+    'execution.status': 'Status',
+    'execution.title': 'Start Agent work',
     'common.cancel': 'Cancel',
     'common.comment': 'Comment',
     'common.draft': 'Draft',
     'common.history': 'History',
     'common.home': 'Home',
     'common.locked': 'Locked',
-    'common.loading': 'Loading...',
+    'common.loading': 'Loading…',
     'common.project': 'Project',
     'common.projects': 'Projects',
     'common.reviewing': 'Reviewing',
     'common.save': 'Save Settings',
     'common.saved': 'Saved.',
-    'common.saving': 'Saving...',
+    'common.saving': 'Saving…',
     'common.settings': 'Settings',
     'goal.constraints': 'Constraints',
     'goal.constraintsPlaceholder':
-      'Optional: word limit, must-cover topics, platform constraints, audience constraints...',
+      'Optional: word limit, must-cover topics, platform constraints, audience constraints…',
     'goal.createProject': 'Create Project',
     'goal.createDeliverable': 'Create Content',
     'goal.createProjectFailed': 'Could not create the project.',
@@ -260,9 +342,9 @@ const COPY = {
     'goal.createDeliverableRetryUnknown':
       'The creation result is still unclear. Retry once to check the same request instead of creating new content.',
     'goal.retryProjectCheck': 'Retry Same Request',
-    'goal.creatingProject': 'Creating project...',
-    'goal.creatingDeliverable': 'Creating content...',
-    'goal.resolvingIntent': 'Choosing the best result shape...',
+    'goal.creatingProject': 'Creating project…',
+    'goal.creatingDeliverable': 'Creating content…',
+    'goal.resolvingIntent': 'Choosing the best result shape…',
     'goal.chooseWorkspaceTitle': 'Choose a result shape',
     'goal.description':
       'Let AI take the first pass. You define the target; the project starts from a plan instead of a blank file.',
@@ -275,7 +357,7 @@ const COPY = {
     'goal.chooseProjectLocation': 'Choose Folder',
     'goal.changeProjectLocation': 'Change Folder',
     'goal.projectLocationUnavailable':
-      'This desktop build cannot open the folder picker yet.',
+      'This browser cannot choose a server-side folder. The project will use managed workspace storage.',
     'goal.document': 'Document',
     'goal.intentClarifyPrompt':
       'I want to understand the shape of the result a bit better so I can choose the best way to build it.',
@@ -289,8 +371,8 @@ const COPY = {
     'goal.intentOther': 'Other',
     'goal.intentOtherDescription':
       'Describe the result shape in your own words if none of these fit cleanly.',
-    'goal.intentOtherPlaceholder': 'Describe the result shape you expect...',
-    'goal.intentOptionalDetailPlaceholder': 'Optional details...',
+    'goal.intentOtherPlaceholder': 'Describe the result shape you expect…',
+    'goal.intentOptionalDetailPlaceholder': 'Optional details…',
     'goal.intentResolveFailed':
       'Could not determine the best result shape right now. Try once more.',
     'goal.intentSelect': 'Select',
@@ -333,7 +415,8 @@ const COPY = {
       'This run can start directly from the goal. Once the method feels stable, save it from Context and reuse it next time.',
     'goal.workflowDescription':
       'Optionally start from a saved local method instead of re-explaining the same working pattern.',
-    'goal.stylePlaceholder': 'Optional: concise, executive, technical, narrative...',
+    'goal.stylePlaceholder':
+      'Optional: concise, executive, technical, narrative…',
     'goal.styleTone': 'Style / Tone',
     'goal.webPage': 'Web Page',
     'goal.comingSoon': 'Coming Soon',
@@ -348,7 +431,7 @@ const COPY = {
       'New knowledge saved here goes to {scope}.',
     'context.knowledgeEditScopeHint':
       'Saving this knowledge will place it in {scope}.',
-    'context.knowledgeContentPlaceholder': 'Content...',
+    'context.knowledgeContentPlaceholder': 'Content…',
     'context.knowledgeScopeLabel': 'Save To',
     'context.knowledgeUntitled': 'Untitled knowledge',
     'context.knowledgeTitlePlaceholder': 'Title',
@@ -384,21 +467,23 @@ const COPY = {
     'context.workflowExtensionsLabel': 'Open Extensions',
     'context.workflowExtensionTools': 'Tools',
     'context.workflowExtensionToolsPlaceholder':
-      'Describe which tools should extend this workflow...',
+      'Describe which tools should extend this workflow…',
     'context.workflowExtensionMcp': 'MCP',
     'context.workflowExtensionMcpPlaceholder':
-      'Describe which MCP integrations should stay open...',
+      'Describe which MCP integrations should stay open…',
     'context.workflowExtensionSkills': 'Skills',
     'context.workflowExtensionSkillsPlaceholder':
-      'Describe which reusable skills or playbooks should support this workflow...',
+      'Describe which reusable skills or playbooks should support this workflow…',
     'context.workflowArchived': 'Workflow archived.',
     'context.workflowArchivedBadge': 'Archived',
     'context.workflowApplied': 'Workflow applied to the current task.',
     'context.workflowApplyFailed': 'Could not apply the workflow.',
     'context.workflowCleared': 'Workflow cleared from the current task.',
-    'context.workflowDraftFailed': 'Could not build a workflow draft from the current content.',
+    'context.workflowDraftFailed':
+      'Could not build a workflow draft from the current content.',
     'context.workflowDraftBadge': 'Draft',
-    'context.workflowDraftReady': 'Workflow draft filled from the latest milestone.',
+    'context.workflowDraftReady':
+      'Workflow draft filled from the latest milestone.',
     'context.workflowDraftWarningsTitle': 'Review before saving',
     'context.workflowDraftWarningDedupedSignals':
       'Repeated review signals were merged into one checklist item.',
@@ -426,12 +511,13 @@ const COPY = {
       'One review check per line. Example:\nConfirm the structure before saving a milestone',
     'context.workflowNotesLabel': 'Notes',
     'context.workflowContentPlaceholder':
-      'Optional notes, templates, or when-to-use guidance...',
+      'Optional notes, templates, or when-to-use guidance…',
     'context.workflowUpdated': 'Workflow updated.',
     'context.workflowOverviewPlaceholder': 'Short overview (optional)',
     'context.workflowTitlePlaceholder': 'Workflow title',
     'home.badge': 'AI Native Authoring',
-    'home.card1': 'The primary object is the outcome itself, not a pile of files.',
+    'home.card1':
+      'The primary object is the outcome itself, not a pile of files.',
     'home.card2':
       'Local comments are written to AI so revisions stay point-to-point and reviewable.',
     'home.card3':
@@ -447,8 +533,10 @@ const COPY = {
     'home.startWithGoal': 'Start with a Goal',
     'home.subtitle': 'Goal-driven creation',
     'home.title': 'Home',
-    'models.providerNeedsApiKey': 'Add an API key for {provider} before using it.',
-    'models.providerNeedsOauth': 'Connect {provider} in Settings before using it.',
+    'models.providerNeedsApiKey':
+      'Add an API key for {provider} before using it.',
+    'models.providerNeedsOauth':
+      'Connect {provider} in Settings before using it.',
     'onboarding.title': 'Start from a goal, then learn each surface in context',
     'onboarding.description':
       'The home page only sets direction. Once you enter a real workspace, Status, Review, Chat, Context, Workflow, and Version will each explain themselves the first time you open them.',
@@ -491,8 +579,16 @@ const COPY = {
       'Changes go straight into the live draft. Chengxing keeps 1 temporary recovery point for the latest pass, plus up to 3 pinned recovery points.',
     'plan.style': 'Style',
     'settings.addProvider': 'Add Provider',
+    'settings.removeProviderKey': 'Remove API key for {provider}',
+    'settings.removeProviderKeyConfirm':
+      'Remove the API key for {provider}? This change takes effect when you save settings.',
+    'settings.removeCommentAgent': 'Remove comment agent {agent}',
+    'settings.removeCommentAgentConfirm':
+      'Remove the comment agent {agent}? This change takes effect when you save settings.',
+    'settings.unsavedChangesConfirm':
+      'You have unsaved settings. Leave without saving them?',
     'settings.apiKey': 'API Key',
-    'settings.apiKeyPlaceholder': 'Paste provider API key',
+    'settings.apiKeyPlaceholder': 'Paste provider API key…',
     'settings.connectedAt':
       '{provider} connected at {savedAt}. Future model calls will reuse this account.',
     'settings.connectedNow':
@@ -509,7 +605,7 @@ const COPY = {
     'settings.diagnostics': 'Diagnostics',
     'settings.diagnosticsDescription':
       'Use the device ID and a local diagnostics bundle for beta crash triage.',
-    'settings.desktopRequired': 'Desktop app required',
+    'settings.desktopRequired': 'Deployment administrator required',
     'settings.device': 'Device: {deviceId}',
     'settings.disconnect': 'Disconnect',
     'settings.disconnecting': 'Disconnecting…',
@@ -523,7 +619,8 @@ const COPY = {
     'settings.openLogs': 'Reveal Logs',
     'settings.mirror': 'Mirror: {path}',
     'settings.mode': 'Mode',
-    'settings.modelsSearchProviders': 'Models, language, search, and provider access',
+    'settings.modelsSearchProviders':
+      'Models, language, search, and provider access',
     'settings.notConnectedYet': 'Not connected yet',
     'settings.oauthConnections': 'OAuth Connections',
     'settings.oauthDescription':
@@ -531,7 +628,12 @@ const COPY = {
     'settings.oauthDisconnectConfirm': 'Disconnect {provider} from this app?',
     'settings.oauthDisconnectFailed': 'OAuth disconnect failed.',
     'settings.oauthLoginFailed': 'OAuth login failed.',
-    'settings.oauthLoginUnavailable': 'OAuth login is only available in the desktop app.',
+    'settings.oauthLoginUnavailable':
+      'OAuth login is managed by the deployment administrator for this Web workspace.',
+    'settings.oauthWebAdminCli':
+      'OAuth sign-in is not available in this web UI. Ask your deployment administrator to run npm run auth:openai-oauth on the server.',
+    'settings.oauthWebCredentialsNote':
+      'OAuth credentials are managed on the server by the deployment administrator and are never exposed in this browser.',
     'settings.oauthOpening':
       'Opening your default browser for {provider} sign-in. Finish the flow there, then return to 成形.',
     'settings.oauthPath': 'OAuth: {path}',
@@ -551,12 +653,15 @@ const COPY = {
     'settings.providerKeysEmpty':
       'Add only model providers that still need direct API keys. Search providers are configured above, and OAuth-backed providers do not need a key row here once they are logged in.',
     'settings.reconnectInBrowser': 'Reconnect in Browser',
-    'settings.runtimeDesktop': 'Desktop (Electron)',
     'settings.runtimeWeb': 'Web',
+    'settings.runtimeWebServer': 'Web server',
+    'settings.webRuntimeAdminNote':
+      'Storage paths and diagnostics are managed by the deployment administrator on the web server.',
     'settings.searchDescription':
       'Chat uses this provider for manual web searches and agent-driven fresh-information lookups. Configure the selected search provider here instead of mixing it into the general provider-key list.',
     'settings.searchEndpoint': 'Search Endpoint',
-    'settings.searchEndpointPlaceholder': 'Override the provider endpoint only if needed',
+    'settings.searchEndpointPlaceholder':
+      'For example: https://api.example.com/search…',
     'settings.searchProviderApiKey': '{provider} API Key',
     'settings.searchProviderConfigDescription':
       'These settings apply to manual search in chat and to agent-driven fresh-information lookup.',
@@ -569,7 +674,8 @@ const COPY = {
     'settings.searchProviderModeApi': 'API mode',
     'settings.searchProviderModeBrowser': 'Browser mode',
     'settings.searchProviderModeNeedsApiKey': 'API key required',
-    'settings.searchProvidersLoadFailed': 'Could not load the search provider list.',
+    'settings.searchProvidersLoadFailed':
+      'Could not load the search provider list.',
     'settings.selectLanguage': 'Select a language',
     'settings.selectModelProvider': 'Select a provider',
     'settings.selectModel': 'Select a model',
@@ -579,11 +685,134 @@ const COPY = {
     'settings.title': 'Settings',
     'settings.expandAdvanced': 'Show details',
     'settings.exportDiagnostics': 'Export Diagnostics',
-    'settings.exportDiagnosticsFailed': 'Could not export the diagnostics bundle.',
+    'settings.exportDiagnosticsFailed':
+      'Could not export the diagnostics bundle.',
     'settings.exportDiagnosticsSaved': 'Diagnostics bundle saved to {path}.',
     'settings.waiting': 'Waiting…',
     'settings.webSearch': 'Web Search',
     'sidebar.aiNativeStudio': 'AI-native authoring studio',
+    'sidebar.jobs': 'Jobs',
+    'sidebar.teamTasks': 'Team Tasks',
+    'tasks.action.block': 'Mark Blocked',
+    'tasks.action.claim': 'Claim Task',
+    'tasks.action.done': 'Mark Done',
+    'tasks.action.resume': 'Resume Work',
+    'tasks.action.return': 'Return to Work',
+    'tasks.action.review': 'Submit for Review',
+    'tasks.action.start': 'Start Work',
+    'tasks.activityCount': '{count} updates',
+    'tasks.activity.assigned': 'assigned the task',
+    'tasks.activity.created': 'created the task',
+    'tasks.activity.statusChanged': 'changed the task status',
+    'tasks.activity.updated': 'updated the task',
+    'tasks.agentPrompt':
+      '@assistant The document is aligned. Use the current content as the only source of truth and start working. Explain the plan first, then update the workspace directly. If you hit something you cannot solve independently, publish a team help task.',
+    'tasks.blockedPrompt':
+      'Briefly describe what is blocking progress so the team can help.',
+    'tasks.board.help': 'On small screens, swipe sideways between columns.',
+    'tasks.board.closed': 'Closed',
+    'tasks.board.closedDescription': 'Recently archived',
+    'tasks.board.progress': 'In Progress',
+    'tasks.board.progressDescription': 'Moving forward or needs help',
+    'tasks.board.review': 'Review',
+    'tasks.board.reviewDescription': 'Waiting for confirmation',
+    'tasks.board.todo': 'To Do',
+    'tasks.board.todoDescription': 'Waiting for the team',
+    'tasks.centerDescription':
+      'Keep execution, help, and review work from people and Agents in one clear queue.',
+    'tasks.centerTitle': 'Team Task Center',
+    'tasks.clearFilters': 'Clear filters',
+    'tasks.completeConfirm.description':
+      '“{title}” will be moved to Completed. Completed tasks cannot be reopened.',
+    'tasks.completeConfirm.title': 'Complete this task?',
+    'tasks.composer.assignee': 'Assignee',
+    'tasks.composer.cancel': 'Cancel',
+    'tasks.composer.create': 'Create Task',
+    'tasks.composer.createFailed':
+      'Could not create the task. Try again later.',
+    'tasks.composer.creating': 'Creating',
+    'tasks.composer.description':
+      'Add execution work or a help request to the team queue for the right person or Agent.',
+    'tasks.composer.details': 'Details',
+    'tasks.composer.detailsPlaceholder':
+      'Add acceptance criteria, context, or the current blocker (optional)',
+    'tasks.composer.dueDate': 'Due Date',
+    'tasks.composer.executionDescription':
+      'A clear outcome that can move forward',
+    'tasks.composer.helpDescription': 'Needs support from the team',
+    'tasks.composer.kind': 'Task Type',
+    'tasks.composer.linkedDocument': 'Linked document',
+    'tasks.composer.priority': 'Priority',
+    'tasks.composer.taskTitle': 'Task Title',
+    'tasks.composer.title': 'New Team Task',
+    'tasks.composer.titlePlaceholder':
+      'For example: Complete access checks before launch',
+    'tasks.composer.titleRequired': 'Enter a clear task title first.',
+    'tasks.composer.unassigned': 'Leave unassigned',
+    'tasks.createdInfo': 'Creation details',
+    'tasks.createdNotice': 'Task added to the team queue.',
+    'tasks.createdTask': 'Created task',
+    'tasks.due': 'Due {date}',
+    'tasks.empty.description':
+      'Create the first execution or help task so the team knows what comes next.',
+    'tasks.empty.filteredDescription':
+      'Adjust the search or filters to see other tasks.',
+    'tasks.empty.filteredTitle': 'No matching tasks',
+    'tasks.empty.title': 'The team queue is empty',
+    'tasks.filter.active': 'Active',
+    'tasks.filter.assigneeLabel': 'Filter by assignee',
+    'tasks.filter.allAssignees': 'All assignees',
+    'tasks.filter.allKinds': 'All types',
+    'tasks.filter.allStatuses': 'All statuses',
+    'tasks.filter.kindLabel': 'Filter by type',
+    'tasks.filter.statusLabel': 'Filter by status',
+    'tasks.filter.unassigned': 'Unassigned',
+    'tasks.fromSource': 'From {title}',
+    'tasks.kind.execution': 'Execution',
+    'tasks.kind.executionTask': 'Execution task',
+    'tasks.kind.help': 'Help',
+    'tasks.kind.helpTask': 'Help task',
+    'tasks.list': 'Task list',
+    'tasks.loadFailed': 'Could not load team tasks. Try again later.',
+    'tasks.loading': 'Loading tasks',
+    'tasks.newTask': 'New Task',
+    'tasks.none': 'No tasks',
+    'tasks.overview': 'Task overview',
+    'tasks.priority.high': 'High priority',
+    'tasks.priority.highShort': 'High',
+    'tasks.priority.low': 'Low priority',
+    'tasks.priority.lowShort': 'Low',
+    'tasks.priority.normal': 'Normal priority',
+    'tasks.priority.normalShort': 'Normal',
+    'tasks.priority.urgent': 'Urgent',
+    'tasks.publishTask': 'Publish Task',
+    'tasks.recentlyUpdated': 'Recently updated',
+    'tasks.refresh': 'Refresh tasks',
+    'tasks.searchPlaceholder': 'Search tasks…',
+    'tasks.showingCount': 'Showing {shown} / {total} tasks',
+    'tasks.startAgent': '@Agent Start Working',
+    'tasks.stat.active': 'Active work',
+    'tasks.stat.blocked': 'Blocked',
+    'tasks.stat.done': 'Completed',
+    'tasks.stat.help': 'Needs help',
+    'tasks.stat.unassigned': 'Waiting to be claimed',
+    'tasks.status.blocked': 'Blocked',
+    'tasks.status.cancelled': 'Cancelled',
+    'tasks.status.claimed': 'Claimed',
+    'tasks.status.done': 'Completed',
+    'tasks.status.inProgress': 'In Progress',
+    'tasks.status.open': 'Open',
+    'tasks.status.review': 'In Review',
+    'tasks.syncing': 'Syncing team tasks',
+    'tasks.teamMember': 'Team member',
+    'tasks.teamwork': 'Teamwork',
+    'tasks.updateFailed': 'Could not update the task status. Try again.',
+    'tasks.updatedNotice': '“{title}” updated to {status}.',
+    'tasks.view.board': 'Board view',
+    'tasks.view.boardShort': 'Board',
+    'tasks.view.list': 'List view',
+    'tasks.view.listShort': 'List',
+    'tasks.view.label': 'Task view',
     'sidebar.deleteProjectConfirm':
       'Delete this project? The current draft, conversations, and recovery points will no longer appear in the workspace list.',
     'sidebar.deleteProject': 'Delete Project',
@@ -622,7 +851,8 @@ const COPY = {
     'sidebar.moveUp': 'Move Up',
     'sidebar.moveDown': 'Move Down',
     'sidebar.renameProjectFolder': 'Rename Folder',
-    'sidebar.renameProjectFolderDescription': 'Update the folder name shown in the project tree.',
+    'sidebar.renameProjectFolderDescription':
+      'Update the folder name shown in the project tree.',
     'sidebar.renameProjectFolderFailed': 'Could not rename this folder.',
     'sidebar.renameProjectFolderPlaceholder': 'Enter folder name',
     'sidebar.renameProjectFolderRequired': 'Enter a folder name.',
@@ -634,17 +864,20 @@ const COPY = {
     'sidebar.moveSupportMaterial': 'Move Support Material',
     'sidebar.moveSupportMaterialDescription':
       'Choose where "{title}" should appear in the support material tree.',
-    'sidebar.moveSupportMaterialFailed': 'Could not move this support material.',
+    'sidebar.moveSupportMaterialFailed':
+      'Could not move this support material.',
     'sidebar.moveSupportMaterialSuccess': 'Support material moved.',
     'sidebar.renameSupportMaterial': 'Rename Support Material',
     'sidebar.renameSupportMaterialDescription':
       'Update the name shown in the support material list.',
-    'sidebar.renameSupportMaterialFailed': 'Could not rename this support material.',
+    'sidebar.renameSupportMaterialFailed':
+      'Could not rename this support material.',
     'sidebar.renameSupportMaterialSuccess': 'Support material renamed.',
     'sidebar.renameSupportMaterialPlaceholder': 'Enter support material name',
     'sidebar.renameSupportMaterialRequired': 'Enter a support material name.',
     'sidebar.renameSupportMaterialSave': 'Save Name',
-    'sidebar.createSupportMaterialFailed': 'Could not create this support material.',
+    'sidebar.createSupportMaterialFailed':
+      'Could not create this support material.',
     'sidebar.createSupportMaterialSuccess': 'Support material created.',
     'sidebar.createProjectFolderFailed': 'Could not create this folder.',
     'sidebar.deleteDeliverable': 'Delete Content',
@@ -661,7 +894,8 @@ const COPY = {
     'sidebar.deleteSupportMaterial': 'Delete',
     'sidebar.deleteSupportMaterialConfirm':
       'Delete this support material? Nested items will also be removed.',
-    'sidebar.deleteSupportMaterialFailed': 'Could not delete this support material.',
+    'sidebar.deleteSupportMaterialFailed':
+      'Could not delete this support material.',
     'sidebar.deleteSupportMaterialSuccess': 'Support material deleted.',
     'sidebar.noFilesYet': 'No files yet.',
     'sidebar.noProjectsYet': 'No projects yet.',
@@ -676,15 +910,16 @@ const COPY = {
     'sidebar.searchProjectNodesPlaceholder': 'Search by title or content',
     'sidebar.searchProjectNodesHint':
       'Search the current project directly instead of scrolling the whole directory.',
-    'sidebar.searchProjectNodesLoading': 'Searching project content...',
+    'sidebar.searchProjectNodesLoading': 'Searching project content…',
     'sidebar.searchProjectNodesEmpty': 'No matching content in this project.',
     'sidebar.searchProjectNodesFailed': 'Could not search this project.',
     'sidebar.linkedProjects': 'Linked Projects',
     'sidebar.linkedProjectBadge': 'Linked',
-    'sidebar.loadingLinkedProjects': 'Loading linked projects...',
+    'sidebar.loadingLinkedProjects': 'Loading linked projects…',
     'sidebar.loadLinkedProjectsFailed': 'Could not load linked projects.',
     'sidebar.noLinkedProjectsYet': 'No linked projects yet.',
-    'sidebar.linkedProjectReferenceOnly': 'Available for on-demand project references.',
+    'sidebar.linkedProjectReferenceOnly':
+      'Available for on-demand project references.',
     'sidebar.openLinkedProject': 'Open',
     'sidebar.addLinkedProject': 'Add Linked Project',
     'sidebar.addLinkedProjectDescription':
@@ -704,7 +939,7 @@ const COPY = {
     'sidebar.projects': 'Projects',
     'sidebar.projectDeliverables': 'Project Content',
     'sidebar.projectTree': 'Directory',
-    'sidebar.loadingProjects': 'Loading projects...',
+    'sidebar.loadingProjects': 'Loading projects…',
     'sidebar.versions': 'Versions',
     'sidebar.threads': 'Threads',
     'sidebar.uploads': 'Support Material',
@@ -747,12 +982,15 @@ const COPY = {
     'version.branchWorkspaceDescription':
       'This branch view keeps its milestones and recovery points together, so you can inspect one lineage without global recovery noise.',
     'version.switchToBranch': 'Switch to This Branch',
-    'version.switchBranchSafetyCheckpointTitle': 'Safety Checkpoint before Switch',
-    'version.switchBranchFailed': 'Could not switch the current draft to this branch.',
+    'version.switchBranchSafetyCheckpointTitle':
+      'Safety Checkpoint before Switch',
+    'version.switchBranchFailed':
+      'Could not switch the current draft to this branch.',
     'version.switchBranchStarting': 'Switching…',
     'version.continueFailed': 'Could not continue from this point.',
     'version.continueFromVersionTitle': 'Continue from {title}',
-    'version.continueSafetyCheckpointTitle': 'Safety Checkpoint before Continue',
+    'version.continueSafetyCheckpointTitle':
+      'Safety Checkpoint before Continue',
     'version.continueHere': 'Continue from Here',
     'version.continueStarting': 'Starting…',
     'version.current': 'Current',
@@ -771,14 +1009,39 @@ const COPY = {
     'version.noPinnedRecoveryPoints': 'No pinned recovery points yet.',
     'version.noBranchRecoveryPoints': 'No recovery points on this branch yet.',
     'version.noRecoveryPoints': 'No recovery points right now.',
-    'version.noTemporaryRecoveryPoint': 'No temporary recovery point right now.',
+    'version.noTemporaryRecoveryPoint':
+      'No temporary recovery point right now.',
     'version.noVersions': 'No milestones yet.',
     'version.pin': 'Pin',
     'version.pinLimitReached': 'Pin slots full',
     'version.pinnedBadge': 'Pinned',
     'version.pinnedRecoveryPoints': 'Pinned Recovery Points',
     'version.globalPinnedRecoveryPoints': 'Global Pinned Recovery Points',
-    'version.pendingStagedChanges': 'Advanced: staged changes',
+    'version.pendingStagedChanges': 'Changes ready for review',
+    'version.reviewChanges': 'Review changes',
+    'version.stagedReviewAfter': 'Proposed result',
+    'version.stagedReviewApply': 'Apply to draft',
+    'version.stagedReviewApplying': 'Applying…',
+    'version.stagedReviewBefore': 'Before',
+    'version.stagedReviewBeforeBase': 'Base version',
+    'version.stagedReviewBeforeCurrent': 'Current draft',
+    'version.stagedReviewConflict':
+      'This proposal or draft changed while you were reviewing it. Refresh the page and review the latest version before deciding.',
+    'version.stagedReviewDescription':
+      'Inspect each proposed file change before deciding whether it can update the live draft.',
+    'version.stagedReviewDiscard': 'Discard proposal',
+    'version.stagedReviewDiscarding': 'Discarding…',
+    'version.stagedReviewEmpty': 'There are no changes waiting for review.',
+    'version.stagedReviewFiles': '{count} affected files',
+    'version.stagedReviewForbidden':
+      'Only an organization owner can approve or discard this proposal.',
+    'version.stagedReviewLocked':
+      'The draft is currently locked by another reviewer. Try again after their edit session ends.',
+    'version.stagedReviewPending': 'Pending review',
+    'version.stagedReviewQueue': 'Changes waiting for review',
+    'version.stagedReviewRevision': 'Proposal revision {revision}',
+    'version.stagedReviewSource': 'Prepared by {source}',
+    'version.stagedReviewTitle': 'Review proposed changes',
     'version.recoveryPoint': 'Recovery Point',
     'version.recoveryPointsStat': 'Recovery Points',
     'version.savedMilestonesStat': 'Saved Milestones',
@@ -823,11 +1086,12 @@ const COPY = {
     'workflow.stagedDraftReadyTitle': 'Review the prepared draft',
     'workspace.askAiGenerateDocument':
       'Ask AI to generate a document in the chat panel.',
-    'workspace.documentPlaceholder': 'Document content will appear here...',
+    'workspace.documentPlaceholder': 'Document content will appear here…',
     'workspace.noDocumentYet': 'No document yet',
     'workspace.openProjectToContinue': 'Open a project to continue',
     'workspace.openPreview': 'Open Preview',
-    'workspace.previewCouldNotStart': 'Preview could not be started for this content.',
+    'workspace.previewCouldNotStart':
+      'Preview could not be started for this content.',
     'workspace.previewCouldNotStop': 'Preview could not be stopped.',
     'workspace.previewUnavailableReason':
       'No preview target is available yet. Add an index.html file or a package.json with a dev script, then try preview again.',
@@ -844,7 +1108,8 @@ const COPY = {
     'workspace.switchedToVersionHead':
       'The live draft now follows the branch head based on "{title}".',
     'workspace.keepTemporary': 'Keep Temporary',
-    'workspace.recoveryPointActionFailed': 'Could not update the recovery point.',
+    'workspace.recoveryPointActionFailed':
+      'Could not update the recovery point.',
     'workspace.pinRecoveryPrompt':
       'Created temporary recovery point "{title}". Pin it to keep it beyond the temporary slot?',
     'workspace.pinRecoveryPromptFull':
@@ -897,7 +1162,11 @@ const COPY = {
   },
   'zh-CN': {
     'assistant.chat': '对话',
-    'assistant.chatDescription': '这里负责围绕当前内容的整体推进、对话切换和助手运行结果。',
+    'assistant.room': '协作室',
+    'assistant.roomDescription':
+      '与协调 Agent 和专业 Agent 围绕团队工作区共同讨论。',
+    'assistant.chatDescription':
+      '这里负责围绕当前内容的整体推进、对话切换和助手运行结果。',
     'assistant.context': '上下文',
     'assistant.contextDescription':
       '这里只放提炼后的知识、记忆和 Workflow 方法，原始素材继续留在支持资料区。',
@@ -906,21 +1175,31 @@ const COPY = {
     'assistant.statusDescription':
       '这里看当前内容处于什么状态、正在沿用什么方法，以及下一步最该做什么。',
     'assistant.review': '评审',
-    'assistant.reviewDescription': '这里处理局部修订线程。评审只管锚定修改，不负责泛化讨论。',
+    'assistant.reviewDescription':
+      '这里处理局部修订线程。评审只管锚定修改，不负责泛化讨论。',
     'chat.attachmentFile': '文件',
     'chat.attachmentHint':
       '支持上传文件、粘贴图片和长文本。当前模型如果不能直接看图，成形会把图片保存成支持资料供 AI 按需读取。',
     'chat.attachmentImage': '图片',
     'chat.attachmentText': '文本',
-    'chat.askAiPlaceholder': '让 AI 修改当前内容、解释一个选择，或继续推进当前任务……',
-    'chat.askWithDeepResearchPlaceholder': '先让 AI 生成研究计划，再进入更深入、带引用的联网调研……',
+    'chat.addAttachments': '添加附件',
+    'chat.attachmentsLabel': '附件',
+    'chat.messageLabel': '给 Agent 发消息',
+    'chat.removeAttachment': '移除 {name}',
+    'chat.sendMessage': '发送消息',
+    'chat.stopGenerating': '停止生成',
+    'chat.askAiPlaceholder':
+      '让 AI 修改当前内容、解释一个选择，或继续推进当前任务……',
+    'chat.askWithDeepResearchPlaceholder':
+      '先让 AI 生成研究计划，再进入更深入、带引用的联网调研……',
     'chat.baseCheckpointLabel': '当前对话基于回退点：{title}',
     'chat.baseVersionLabel': '当前对话基于里程碑：{title}',
     'chat.connecting': '正在连接 AI……',
     'chat.conversationPrefix': '对话：{title}',
     'chat.deepResearch': '深度研究',
     'chat.deepResearchEnabled': '深度研究已开启',
-    'chat.deepResearchInfo': '这一轮会先生成研究计划，确认后再进行更深入、带引用的联网调研。',
+    'chat.deepResearchInfo':
+      '这一轮会先生成研究计划，确认后再进行更深入、带引用的联网调研。',
     'chat.newConversation': '新对话',
     'chat.emptyDescription': '发起首稿、追问一个决策，或请求一次定向修改。',
     'chat.emptyTitle': '让 AI 推进当前草稿',
@@ -932,6 +1211,8 @@ const COPY = {
     'chat.researchActionFailed': '无法更新这份研究计划。',
     'chat.researchApproved': '已确认',
     'chat.researchDismiss': '取消',
+    'chat.researchDismissConfirm':
+      '要取消这份研究计划吗？如需重启，你需要重新创建计划。',
     'chat.researchDismissed': '已取消',
     'chat.researchDismissing': '取消中……',
     'chat.researchPending': '待确认',
@@ -944,7 +1225,8 @@ const COPY = {
     'chat.researchPlanning': '正在准备研究计划……',
     'chat.researchProgress': '研究进度',
     'chat.researchProposal': '研究计划',
-    'chat.researchProviderUnavailable': '联网研究当前不可用，请检查搜索 provider 设置。',
+    'chat.researchProviderUnavailable':
+      '联网研究当前不可用，请检查搜索 provider 设置。',
     'chat.researchStart': '开始研究',
     'chat.researchStarting': '正在开始研究……',
     'chat.researchStepProgress': '步骤 {current} / {total}',
@@ -969,27 +1251,37 @@ const COPY = {
     'chat.replanGoal': '提议的新目标',
     'chat.replanKeeping': '保留中……',
     'chat.replanKeepCurrent': '保留当前计划',
+    'chat.replanKeepCurrentConfirm': '要保留当前计划并放弃这份提案吗？',
     'chat.replanPending': '等待确认',
     'chat.replanProposal': '计划提案',
     'chat.selectConversation': '选择对话',
-    'chat.stillWaiting': '模型仍未开始返回内容。这通常是鉴权、额度或 provider 延迟导致的。',
+    'chat.stillWaiting':
+      '模型仍未开始返回内容。这通常是鉴权、额度或 provider 延迟导致的。',
     'chat.waitingForFirstPassDescription':
       '首稿请求已经发出。AI 可能需要 1 到 2 分钟后才会返回第一条可见内容。',
     'chat.waitingForFirstPassTitle': 'AI 仍在准备首稿',
-    'chat.timeoutDetail': '由于模型生成内容较长，遇到网络拥堵，已被系统保护断开，请重试。',
-    'chat.timeoutMessage': '模型响应超时。可以先重试一次；如果持续出现，请到设置里切换模型或账户。',
+    'chat.timeoutDetail':
+      '由于模型生成内容较长，遇到网络拥堵，已被系统保护断开，请重试。',
+    'chat.timeoutMessage':
+      '模型响应超时。可以先重试一次；如果持续出现，请到设置里切换模型或账户。',
     'comments.aiReply': 'AI 回复',
     'comments.aiReplying': 'AI 回复中',
+    'comments.acceptSuggestion': '接受建议',
+    'comments.actions': '评论操作',
     'comments.applyAnchorAmbiguous':
       '原文里出现了多处相同片段，暂时无法安全自动应用。请把选区收窄一些。',
     'comments.applyAnchorMissing': '暂时无法在原文件里安全定位这段原文。',
-    'comments.applyCrossBlockUnsupported': '跨段暂不支持直接应用，请先缩小到单段再试。',
+    'comments.applyCrossBlockUnsupported':
+      '跨段暂不支持直接应用，请先缩小到单段再试。',
     'comments.applyCheckpointTitle': '评论改动回退点',
     'comments.applied': '已应用',
     'comments.appliedToSource': '已经应用到原文件。',
     'comments.applyFailed': '无法把这次修改应用到原文件。',
+    'comments.applyRefreshFailed':
+      '修改已应用，但当前视图刷新失败。请重新加载以查看最新草稿。',
     'comments.applyLocating': '定位中',
-    'comments.applyStatusUpdateFailed': '已经应用到原文件，但无法把线程移到待确认区。',
+    'comments.applyStatusUpdateFailed':
+      '已经应用到原文件，但无法把线程移到待确认区。',
     'comments.applyingToSource': '应用中……',
     'comments.applyUnsafe': '无法安全定位',
     'comments.applyNoMaterialChange': 'AI 没有返回可直接落盘的有效改动。',
@@ -999,10 +1291,13 @@ const COPY = {
     'comments.applyToSource': '应用到原文件',
     'comments.commentPlaceholder': '告诉 AI 这里需要怎么处理……',
     'comments.commentToAi': '写给 AI 的评论',
-    'comments.composerDescription': '提交后，这条请求会进入评论侧栏，并可继续触发 AI 回复。',
+    'comments.cancelEditing': '取消编辑评论',
+    'comments.composerDescription':
+      '提交后，这条请求会进入评论侧栏，并可继续触发 AI 回复。',
     'comments.createFailed': '创建评论线程失败。',
     'comments.creatingComment': '提交中……',
-    'comments.continueConversationHint': '继续在这个线程里追问或补充，AI 会保留整段上下文。',
+    'comments.continueConversationHint':
+      '继续在这个线程里追问或补充，AI 会保留整段上下文。',
     'comments.description':
       '这里保留局部修订线程。用 @ 召唤一个或多个角色才会触发回复；不 @ 就只保留人工讨论。',
     'comments.draft': '草稿',
@@ -1012,7 +1307,8 @@ const COPY = {
     'comments.followUpFailed': '继续追问发送失败。',
     'comments.followUpNeedsMention':
       '已经追加到线程里。如需 AI 继续介入，请在消息里 @ 一个或多个角色。',
-    'comments.followUpPlaceholder': '继续告诉 AI 要怎么改，或者在这里接着追问……',
+    'comments.followUpPlaceholder':
+      '继续告诉 AI 要怎么改，或者在这里接着追问……',
     'comments.followUpQueued':
       '已经追加到线程里。被提到的角色会立刻回复，并继续监听 3 分钟。',
     'comments.agentBlocked': '这个角色现在无法回复，请检查角色设置或模型配置。',
@@ -1044,6 +1340,7 @@ const COPY = {
       '这条线程已经应用到原文件。确认修改无误后再解决；如果还要继续改，可以直接补一条追问重新打开它。',
     'comments.pendingVerificationThreads': '待确认（{count}）',
     'comments.reopen': '仍需修改',
+    'comments.rejectSuggestion': '拒绝建议',
     'comments.resolvedMoveToHistory': '已解决的线程会进入当前版本的历史记录。',
     'comments.resolve': '解决',
     'comments.resolveFailed': '无法解决这条线程。',
@@ -1055,7 +1352,8 @@ const COPY = {
     'comments.manualCommentLabel': '评论内容',
     'comments.manualAnchorPlaceholder': '这条评论主要针对当前内容的哪一部分？',
     'comments.manualCommentPlaceholder': '告诉 AI 这次需要重点看什么……',
-    'comments.manualComposerDescription': '即使当前没有可选区的表面，也可以先创建一条评论线程。',
+    'comments.manualComposerDescription':
+      '即使当前没有可选区的表面，也可以先创建一条评论线程。',
     'comments.manualComposerTitle': '通用评论',
     'comments.manualCreate': '创建评论',
     'comments.manualCreateFailed': '创建评论线程失败。',
@@ -1083,10 +1381,12 @@ const COPY = {
     'comments.researchPhaseSearching': '搜索中',
     'comments.researchPlanFailed': '无法生成研究计划。',
     'comments.researchPlanning': '规划中……',
-    'comments.researchPlanQueued': '研究计划已加入线程，请先确认再开始更深入的调研。',
+    'comments.researchPlanQueued':
+      '研究计划已加入线程，请先确认再开始更深入的调研。',
     'comments.researchProgress': '研究进度',
     'comments.researchProposal': '研究计划',
-    'comments.researchProviderUnavailable': '当前无法联网研究，请先检查搜索 provider 设置。',
+    'comments.researchProviderUnavailable':
+      '当前无法联网研究，请先检查搜索 provider 设置。',
     'comments.researchNeedsSingleAgent':
       '一次深度研究只能交给一个角色。请只 @ 一个角色，或先只保留一个角色在监听。',
     'comments.researchStart': '开始研究',
@@ -1098,12 +1398,62 @@ const COPY = {
     'comments.reviewStateSupersededHint':
       '更新的线程已经覆盖同一锚点，这条继承线程现在只作为次级上下文保留。',
     'comments.sendFollowUp': '发送',
+    'comments.saveComment': '保存评论',
+    'comments.sendReply': '发送回复',
     'comments.sendingFollowUp': '发送中……',
     'comments.stopListeningFailed': '无法停止这个角色的监听。',
     'comments.selectionExpired': '选区已失效，请重新选择内容。',
     'comments.thinkingThroughComment': '正在理解这条评论……',
     'comments.title': '评论',
-    'comments.webSelectionUnavailable': '只有本地可读的预览页面才支持画词评论。',
+    'comments.webSelectionUnavailable':
+      '只有本地可读的预览页面才支持画词评论。',
+    'execution.acceptedDescription':
+      '任务已脱离聊天独立运行。关闭这个窗口不会中止执行。',
+    'execution.acceptedTitle': '执行已受理',
+    'execution.aligned': '已对齐版本，可执行',
+    'execution.alignedHint': '这个不可变版本将作为事实源冻结到任务中。',
+    'execution.aligning': '对齐中……',
+    'execution.alignmentFailed': '无法对齐这个文档版本。',
+    'execution.alignmentRequired': '请先选择一个不可变版本并明确对齐，再开始执行。',
+    'execution.alignVersion': '对齐这个版本',
+    'execution.alignVersionHint': '请明确确认这个不可变版本是执行所使用的事实源。',
+    'execution.blockedDescription':
+      '任务已经创建，但暂时无法继续执行。请查看下方回执详情。',
+    'execution.blockedTitle': '执行受阻',
+    'execution.close': '关闭',
+    'execution.createFailed': '执行任务启动失败，请重试。',
+    'execution.description': '基于当前文档启动持久任务，不占用聊天输入框。',
+    'execution.createVersion': '创建版本',
+    'execution.draftNotExecutable': '草稿还不能用于执行',
+    'execution.draftRequiresVersion': '请先创建并切换到不可变版本。草稿不能被对齐或执行。',
+    'execution.document': '当前文档',
+    'execution.goal': '执行目标',
+    'execution.goalPlaceholder': '描述希望 Agent 交付的结果…',
+    'execution.goalRequired': '请先填写执行目标。',
+    'execution.jobId': 'Job ID',
+    'execution.loadingRuntimes': '正在加载可用 Runtime…',
+    'execution.noRuntimes': '暂无可显式选择的 Runtime，仍可使用 Auto。',
+    'execution.notProvided': '未提供',
+    'execution.notAligned': '版本尚未对齐',
+    'execution.receipt': '回执',
+    'execution.receiptAccepted': '已受理',
+    'execution.receiptBlocked': '受阻',
+    'execution.refresh': '刷新',
+    'execution.refreshFailed': '无法刷新任务状态。',
+    'execution.refreshing': '刷新中',
+    'execution.runtime': 'Runtime',
+    'execution.runtimeAuto': 'Auto · 自动选择最佳项',
+    'execution.runtimeHint': 'Auto 会在启动时选择兼容且健康的 Runtime。',
+    'execution.runtimeLoadFailed': 'Runtime 选项加载失败，仍可使用 Auto。',
+    'execution.runtimePending': '等待选择',
+    'execution.selectedRuntime': '已选 Runtime',
+    'execution.selectionReason': '选择原因',
+    'execution.snapshotHint': '创建任务时，服务端会冻结当前文档上下文。',
+    'execution.start': '开始执行',
+    'execution.startAnother': '再启动一个',
+    'execution.starting': '正在启动',
+    'execution.status': '状态',
+    'execution.title': '让 Agent 开始工作',
     'common.cancel': '取消',
     'common.comment': '评论',
     'common.draft': '草稿',
@@ -1119,7 +1469,8 @@ const COPY = {
     'common.saving': '保存中……',
     'common.settings': '设置',
     'goal.constraints': '约束',
-    'goal.constraintsPlaceholder': '可选：字数限制、必须覆盖的话题、平台限制、受众限制……',
+    'goal.constraintsPlaceholder':
+      '可选：字数限制、必须覆盖的话题、平台限制、受众限制……',
     'goal.createProject': '创建项目',
     'goal.createDeliverable': '创建内容',
     'goal.createProjectFailed': '创建项目失败。',
@@ -1133,17 +1484,21 @@ const COPY = {
     'goal.creatingDeliverable': '正在创建内容……',
     'goal.resolvingIntent': '正在判断最合适的结果形态……',
     'goal.chooseWorkspaceTitle': '先选择一种结果形态',
-    'goal.description': '让 AI 先起第一稿。你只需要定义目标，项目会从计划开始，而不是从空白文件开始。',
+    'goal.description':
+      '让 AI 先起第一稿。你只需要定义目标，项目会从计划开始，而不是从空白文件开始。',
     'goal.deliverableDescription':
       '让 AI 先起第一稿。你只需要定义目标，下一项内容会沿着“{projectTitle}”继续推进，从计划开始，而不是从空白文件开始。',
     'goal.projectLocation': '项目保存位置',
     'goal.projectLocationPlaceholder': '选择一个用于保存当前项目的文件夹',
-    'goal.projectLocationDescription': '请选择父目录，成形会在其中创建并管理一个项目子目录。',
+    'goal.projectLocationDescription':
+      '请选择父目录，成形会在其中创建并管理一个项目子目录。',
     'goal.chooseProjectLocation': '选择文件夹',
     'goal.changeProjectLocation': '更换文件夹',
-    'goal.projectLocationUnavailable': '当前桌面构建暂时无法打开文件夹选择器。',
+    'goal.projectLocationUnavailable':
+      '浏览器不能选择服务端目录，项目将使用受管的工作区存储。',
     'goal.document': '文档',
-    'goal.intentClarifyPrompt': '我想更了解你期望的结果形态，以便选择最合适的完成方式。',
+    'goal.intentClarifyPrompt':
+      '我想更了解你期望的结果形态，以便选择最合适的完成方式。',
     'goal.intentDocumentDescription':
       '适合阅读、发送和导出的内容，也可以继续投影成 PDF、Word 或幻灯片。',
     'goal.intentWebDescription':
@@ -1152,15 +1507,19 @@ const COPY = {
     'goal.intentBothDescription':
       '先完成文字化说明或需求，再在同一项目下生成配套的网页内容。',
     'goal.intentOther': '其他',
-    'goal.intentOtherDescription': '如果这些都不贴切，可以直接描述你想要的结果形态。',
+    'goal.intentOtherDescription':
+      '如果这些都不贴切，可以直接描述你想要的结果形态。',
     'goal.intentOtherPlaceholder': '描述你想要的结果形态……',
     'goal.intentOptionalDetailPlaceholder': '补充说明（可选）',
     'goal.intentResolveFailed': '暂时无法判断最合适的结果形态，请再试一次。',
     'goal.intentSelect': '选择',
     'goal.goal': '目标',
-    'goal.goalClarifyPrompt': '先补一点方向信息，我再开始，避免直接落成通用模板。',
-    'goal.goalClarifyDeliverableHint': '你到底想产出什么：网页、方案、报告，还是别的东西？',
-    'goal.goalClarifyAudienceHint': '它主要给谁看：客户、团队、管理层，还是其他受众？',
+    'goal.goalClarifyPrompt':
+      '先补一点方向信息，我再开始，避免直接落成通用模板。',
+    'goal.goalClarifyDeliverableHint':
+      '你到底想产出什么：网页、方案、报告，还是别的东西？',
+    'goal.goalClarifyAudienceHint':
+      '它主要给谁看：客户、团队、管理层，还是其他受众？',
     'goal.goalClarifyOutcomeHint':
       '它希望达成什么结果：介绍清楚、提高转化、统一认知、总结信息，还是支持决策？',
     'goal.goalPlaceholder': '描述你想做的内容、它面向谁，以及你期待的结果。',
@@ -1200,7 +1559,8 @@ const COPY = {
     'context.addWorkflow': '保存 Workflow',
     'context.buildWorkflowDraft': '从最近里程碑生成草稿',
     'context.clearWorkflow': '清除',
-    'context.description': '这里只有提炼后的知识、记忆和工作流方法，原始素材继续留在支持资料区。',
+    'context.description':
+      '这里只有提炼后的知识、记忆和工作流方法，原始素材继续留在支持资料区。',
     'context.knowledge': '知识',
     'context.knowledgeCreateScopeHint': '这里新建的知识会保存到{scope}。',
     'context.knowledgeEditScopeHint': '保存后这条知识会归到{scope}。',
@@ -1216,11 +1576,14 @@ const COPY = {
     'context.deleteKnowledgeAction': '删除',
     'context.editKnowledgeAction': '编辑',
     'context.updateKnowledge': '更新知识',
-    'context.noKnowledgeDescription': '把希望 AI 在当前内容里反复复用的稳定事实或参考写在这里。',
+    'context.noKnowledgeDescription':
+      '把希望 AI 在当前内容里反复复用的稳定事实或参考写在这里。',
     'context.noKnowledgeTitle': '暂无知识',
-    'context.noMemoriesDescription': '已解决的评审线程会在这里沉淀成可复用记忆。',
+    'context.noMemoriesDescription':
+      '已解决的评审线程会在这里沉淀成可复用记忆。',
     'context.noMemoriesTitle': '暂无记忆',
-    'context.noWorkflowsDescription': '可复用的本地工作流方法会在这里出现，当前还没有可用条目。',
+    'context.noWorkflowsDescription':
+      '可复用的本地工作流方法会在这里出现，当前还没有可用条目。',
     'context.noWorkflowsTitle': '暂无 Workflow',
     'context.builtinWorkflows': '内置 Workflow（{count}）',
     'context.activeWorkflows': '已激活 Workflow（{count}）',
@@ -1236,11 +1599,14 @@ const COPY = {
     'context.workflowBuiltinBadge': '内置',
     'context.workflowExtensionsLabel': '开放扩展',
     'context.workflowExtensionTools': 'Tools',
-    'context.workflowExtensionToolsPlaceholder': '说明这个 Workflow 需要哪些工具能力或扩展接口……',
+    'context.workflowExtensionToolsPlaceholder':
+      '说明这个 Workflow 需要哪些工具能力或扩展接口……',
     'context.workflowExtensionMcp': 'MCP',
-    'context.workflowExtensionMcpPlaceholder': '说明这个 Workflow 需要接入哪些 MCP 能力或外部系统……',
+    'context.workflowExtensionMcpPlaceholder':
+      '说明这个 Workflow 需要接入哪些 MCP 能力或外部系统……',
     'context.workflowExtensionSkills': 'Skills',
-    'context.workflowExtensionSkillsPlaceholder': '说明这个 Workflow 适合沉淀或复用哪些 skills……',
+    'context.workflowExtensionSkillsPlaceholder':
+      '说明这个 Workflow 适合沉淀或复用哪些 skills……',
     'context.workflowArchived': '已归档 Workflow。',
     'context.workflowArchivedBadge': '已归档',
     'context.workflowApplied': '已把 Workflow 应用到当前任务。',
@@ -1250,7 +1616,8 @@ const COPY = {
     'context.workflowDraftBadge': '草稿',
     'context.workflowDraftReady': '已用最近里程碑填好 Workflow 草稿。',
     'context.workflowDraftWarningsTitle': '保存前请先看这些提醒',
-    'context.workflowDraftWarningDedupedSignals': '重复的评审信号已经被合并成一条检查项。',
+    'context.workflowDraftWarningDedupedSignals':
+      '重复的评审信号已经被合并成一条检查项。',
     'context.workflowDraftWarningDefaultConstraints':
       '没有找到明确的计划约束，当前草稿里的约束段落使用的是通用兜底内容。',
     'context.workflowDraftWarningDefaultSteps':
@@ -1260,15 +1627,19 @@ const COPY = {
     'context.workflowSaveFailed': '保存 Workflow 失败。',
     'context.workflowSaved': '已保存 Workflow。',
     'context.workflowSaving': '正在保存 Workflow……',
-    'context.workflowActivationNeedsReview': '这个 Workflow 草稿还有提醒，仍然要激活吗？',
+    'context.workflowActivationNeedsReview':
+      '这个 Workflow 草稿还有提醒，仍然要激活吗？',
     'context.workflowRestored': '已恢复 Workflow。',
     'context.workflowRestoredToDraft': '已把 Workflow 恢复为草稿。',
     'context.workflowStepsLabel': '步骤',
-    'context.workflowStepsPlaceholder': '每行一步，例如：\n先澄清目标与验收标准',
+    'context.workflowStepsPlaceholder':
+      '每行一步，例如：\n先澄清目标与验收标准',
     'context.workflowConstraintsLabel': '约束',
-    'context.workflowConstraintsPlaceholder': '每行一条边界，例如：\n始终围绕当前目标输出',
+    'context.workflowConstraintsPlaceholder':
+      '每行一条边界，例如：\n始终围绕当前目标输出',
     'context.workflowChecklistLabel': '检查项',
-    'context.workflowChecklistPlaceholder': '每行一条检查，例如：\n保存里程碑前先确认结构完整',
+    'context.workflowChecklistPlaceholder':
+      '每行一条检查，例如：\n保存里程碑前先确认结构完整',
     'context.workflowNotesLabel': '备注',
     'context.workflowContentPlaceholder': '可选备注、模板片段或适用场景说明……',
     'context.workflowUpdated': '已更新 Workflow。',
@@ -1277,7 +1648,8 @@ const COPY = {
     'home.badge': 'AI 原生写作',
     'home.card1': '最重要的对象是结果本身，而不是一堆文件。',
     'home.card2': '本地评论直接写给 AI，让修改保持点对点、可审核。',
-    'home.card3': '计划、评审、对话和上下文始终在场，但产品不会退化成一个 IDE。',
+    'home.card3':
+      '计划、评审、对话和上下文始终在场，但产品不会退化成一个 IDE。',
     'home.configureModels': '配置模型',
     'home.projectCardLatestNode': '最近活跃内容',
     'home.projectCardNoRecentNode': '还没有活跃内容',
@@ -1297,7 +1669,8 @@ const COPY = {
     'onboarding.getStarted': '开始探索',
     'plan.aiDrafting': 'AI 起草中……',
     'plan.aiPlan': 'AI 计划',
-    'plan.alreadyPrepared': 'AI 已经准备了一版候选内容。先审阅当前结果，再发起下一轮修改。',
+    'plan.alreadyPrepared':
+      'AI 已经准备了一版候选内容。先审阅当前结果，再发起下一轮修改。',
     'plan.applying': '应用中……',
     'plan.apply': '应用',
     'plan.checkpoint': '里程碑',
@@ -1312,40 +1685,56 @@ const COPY = {
       '先确认目标和结果形态。等你手动启动后，AI 才会进入 live draft 的起草状态。',
     'plan.firstPassTitle': '先生成第一稿',
     'plan.generatingTitle': 'AI 正在生成计划',
-    'plan.generatingDescription': 'AI 正在把目标整理成分阶段计划，随后才会进入第一稿。',
+    'plan.generatingDescription':
+      'AI 正在把目标整理成分阶段计划，随后才会进入第一稿。',
     'plan.goal': '目标',
     'plan.nextDeliverableAction': '继续下一项内容',
-    'plan.nextDeliverableDescription': '把“{workflow}”继续带到当前项目的下一项内容。',
+    'plan.nextDeliverableDescription':
+      '把“{workflow}”继续带到当前项目的下一项内容。',
     'plan.nextDeliverableTitle': '从当前内容继续',
     'plan.workflow': 'Workflow',
     'plan.blockedTitle': '计划生成受阻',
     'plan.noPlanDescription': '从一个目标开始，AI 会把它转成分阶段的计划。',
     'plan.noPlanTitle': '还没有计划',
-    'plan.noStagedChanges': '还没有 staged changes。AI 产生的修改会先出现在这里，再决定是否进入草稿。',
+    'plan.noStagedChanges':
+      '还没有 staged changes。AI 产生的修改会先出现在这里，再决定是否进入草稿。',
     'plan.preparedLocalUpdate': '已准备一项本地内容更新。',
     'plan.stagedChanges': '待审修改',
-    'plan.stagedResultHint': '修改会直接进入当前草稿，并默认保留 1 个最新临时回退点，以及最多 3 个已 Pin 回退点。',
+    'plan.stagedResultHint':
+      '修改会直接进入当前草稿，并默认保留 1 个最新临时回退点，以及最多 3 个已 Pin 回退点。',
     'plan.style': '风格',
     'settings.addProvider': '新增 Provider',
+    'settings.removeProviderKey': '移除 {provider} 的 API Key',
+    'settings.removeProviderKeyConfirm':
+      '要移除 {provider} 的 API Key 吗？保存设置后这项更改才会生效。',
+    'settings.removeCommentAgent': '移除评论角色 {agent}',
+    'settings.removeCommentAgentConfirm':
+      '要移除评论角色 {agent} 吗？保存设置后这项更改才会生效。',
+    'settings.unsavedChangesConfirm': '设置尚未保存，确定要离开吗？',
     'settings.apiKey': 'API Key',
-    'settings.apiKeyPlaceholder': '粘贴 provider API key',
-    'settings.connectedAt': '{provider} 已于 {savedAt} 连接。后续模型请求会复用这个账户。',
+    'settings.apiKeyPlaceholder': '粘贴 provider API key…',
+    'settings.connectedAt':
+      '{provider} 已于 {savedAt} 连接。后续模型请求会复用这个账户。',
     'settings.connectedNow': '{provider} 已连接。后续模型请求会复用这个账户。',
     'settings.connectInBrowser': '在浏览器中连接',
     'settings.connectedShort': '已连接 {savedAt}',
-    'settings.credentialsNote': '凭证保存在 {oauthDir}，所有 AI 请求都会在服务端读取这些凭证。',
+    'settings.credentialsNote':
+      '凭证保存在 {oauthDir}，所有 AI 请求都会在服务端读取这些凭证。',
     'settings.database': '数据库：{path}',
     'settings.defaultModel': '默认模型',
-    'settings.defaultModelDescription': '先选 Provider，再选模型。聊天、评论回复、建议编辑和记忆提取都会复用这套默认选择。',
+    'settings.defaultModelDescription':
+      '先选 Provider，再选模型。聊天、评论回复、建议编辑和记忆提取都会复用这套默认选择。',
     'settings.defaultSearchProvider': '默认搜索 Provider',
     'settings.diagnostics': '诊断',
-    'settings.diagnosticsDescription': '内测崩溃排查统一使用 deviceId 和本地导出的诊断包。',
-    'settings.desktopRequired': '仅桌面端可用',
+    'settings.diagnosticsDescription':
+      '内测崩溃排查统一使用 deviceId 和本地导出的诊断包。',
+    'settings.desktopRequired': '需要部署管理员操作',
     'settings.device': '设备：{deviceId}',
     'settings.disconnect': '断开连接',
     'settings.disconnecting': '正在断开……',
     'settings.language': '语言',
-    'settings.languageDescription': '这个设置会同时切换 UI 文案和 AI 后续的对话/总结语言，但不会自动翻译内容本身。',
+    'settings.languageDescription':
+      '这个设置会同时切换 UI 文案和 AI 后续的对话/总结语言，但不会自动翻译内容本身。',
     'settings.languageEnglish': 'English',
     'settings.languageSection': '语言',
     'settings.languageSimplifiedChinese': '简体中文',
@@ -1356,12 +1745,19 @@ const COPY = {
     'settings.modelsSearchProviders': '模型、语言、搜索和 provider 接入',
     'settings.notConnectedYet': '尚未连接',
     'settings.oauthConnections': 'OAuth 连接',
-    'settings.oauthDescription': '只需在默认浏览器中登录一次。聊天、计划、评论和其他模型调用都会自动复用这份凭证。',
+    'settings.oauthDescription':
+      '只需在默认浏览器中登录一次。聊天、计划、评论和其他模型调用都会自动复用这份凭证。',
     'settings.oauthDisconnectConfirm': '要把 {provider} 从当前应用中断开吗？',
     'settings.oauthDisconnectFailed': 'OAuth 断开失败。',
     'settings.oauthLoginFailed': 'OAuth 登录失败。',
-    'settings.oauthLoginUnavailable': 'OAuth 登录仅在桌面应用中可用。',
-    'settings.oauthOpening': '正在为 {provider} 打开默认浏览器登录。请在浏览器中完成流程，然后回到成形。',
+    'settings.oauthLoginUnavailable':
+      '当前 Web 工作区的 OAuth 登录由部署管理员统一管理。',
+    'settings.oauthWebAdminCli':
+      '当前 Web 界面不提供 OAuth 登录。请联系部署管理员在服务器执行 npm run auth:openai-oauth 完成配置。',
+    'settings.oauthWebCredentialsNote':
+      'OAuth 凭证由部署管理员在服务端管理，不会暴露给当前浏览器。',
+    'settings.oauthOpening':
+      '正在为 {provider} 打开默认浏览器登录。请在浏览器中完成流程，然后回到成形。',
     'settings.oauthPath': 'OAuth：{path}',
     'settings.openaiCodexDescription':
       '使用你的 ChatGPT 账户在默认浏览器中登录，并在成形中复用这段 GPT-5 Codex 的 OAuth 会话。',
@@ -1373,17 +1769,23 @@ const COPY = {
     'settings.copyDeviceIdFailed': '复制 Device ID 失败。',
     'settings.copyDeviceIdSuccess': 'Device ID 已复制。',
     'settings.advancedTools': '高级 / 辅助',
-    'settings.advancedToolsDescription': '低频使用的运行时细节、存储路径和诊断入口统一收在这里。',
+    'settings.advancedToolsDescription':
+      '低频使用的运行时细节、存储路径和诊断入口统一收在这里。',
     'settings.model': '模型',
-    'settings.providerKeysEmpty': '这里只放仍然需要直连 API key 的模型 provider。搜索 provider 在上面的网页搜索区配置，已经通过 OAuth 连接的 provider 也不用再填。',
+    'settings.providerKeysEmpty':
+      '这里只放仍然需要直连 API key 的模型 provider。搜索 provider 在上面的网页搜索区配置，已经通过 OAuth 连接的 provider 也不用再填。',
     'settings.reconnectInBrowser': '重新在浏览器中连接',
-    'settings.runtimeDesktop': '桌面端（Electron）',
     'settings.runtimeWeb': 'Web',
-    'settings.searchDescription': '聊天会用这个 provider 进行手动网页搜索，以及 agent 驱动的最新信息检索。当前搜索 provider 的配置放在这里，不再混在通用 provider key 列表里。',
+    'settings.runtimeWebServer': 'Web 服务端',
+    'settings.webRuntimeAdminNote':
+      '存储路径与诊断能力由部署管理员在 Web 服务端统一管理。',
+    'settings.searchDescription':
+      '聊天会用这个 provider 进行手动网页搜索，以及 agent 驱动的最新信息检索。当前搜索 provider 的配置放在这里，不再混在通用 provider key 列表里。',
     'settings.searchEndpoint': '搜索 Endpoint',
-    'settings.searchEndpointPlaceholder': '只有在需要覆盖默认地址时才填写',
+    'settings.searchEndpointPlaceholder': '例如：https://api.example.com/search…',
     'settings.searchProviderApiKey': '{provider} API Key',
-    'settings.searchProviderConfigDescription': '这些配置会同时用于聊天里的手动搜索和 agent 发起的最新信息检索。',
+    'settings.searchProviderConfigDescription':
+      '这些配置会同时用于聊天里的手动搜索和 agent 发起的最新信息检索。',
     'settings.searchProviderConfigDescriptionBraveApi':
       '请求会直接走 Brave Search API，当前没有本地浏览器兜底。',
     'settings.searchProviderConfigDescriptionBrowser':
@@ -1408,7 +1810,125 @@ const COPY = {
     'settings.waiting': '等待中……',
     'settings.webSearch': '网页搜索',
     'sidebar.aiNativeStudio': 'AI 原生创作工作台',
-    'sidebar.deleteProjectConfirm': '确认删除这个项目吗？当前草稿、会话和回退点都会从项目列表中移除。',
+    'sidebar.jobs': '执行任务',
+    'sidebar.teamTasks': '团队任务',
+    'tasks.action.block': '标记受阻',
+    'tasks.action.claim': '领取任务',
+    'tasks.action.done': '标记完成',
+    'tasks.action.resume': '恢复执行',
+    'tasks.action.return': '退回执行',
+    'tasks.action.review': '提交评审',
+    'tasks.action.start': '开始执行',
+    'tasks.activityCount': '{count} 条动态',
+    'tasks.activity.assigned': '指派了任务',
+    'tasks.activity.created': '创建了任务',
+    'tasks.activity.statusChanged': '更新了任务状态',
+    'tasks.activity.updated': '更新了任务',
+    'tasks.agentPrompt':
+      '@assistant 文档已经对齐，请以当前内容为唯一事实源开始执行。先说明计划，再直接更新工作区；如果遇到无法独立解决的问题，请发布一条团队求助任务。',
+    'tasks.blockedPrompt': '请简要说明当前阻塞点，便于团队接手。',
+    'tasks.board.help': '在小屏幕上，可左右滑动查看各列。',
+    'tasks.board.closed': '已结束',
+    'tasks.board.closedDescription': '近期归档',
+    'tasks.board.progress': '进行中',
+    'tasks.board.progressDescription': '正在推进或需要解阻',
+    'tasks.board.review': '待评审',
+    'tasks.board.reviewDescription': '等待确认结果',
+    'tasks.board.todo': '待处理',
+    'tasks.board.todoDescription': '等待团队接手',
+    'tasks.centerDescription':
+      '集中查看人和 Agent 的执行、求助与评审，让下一步始终清楚。',
+    'tasks.centerTitle': '团队任务中心',
+    'tasks.clearFilters': '清除筛选',
+    'tasks.completeConfirm.description':
+      '“{title}”将移入已完成。已完成的任务无法重新打开。',
+    'tasks.completeConfirm.title': '确认完成这个任务？',
+    'tasks.composer.assignee': '负责人',
+    'tasks.composer.cancel': '取消',
+    'tasks.composer.create': '创建任务',
+    'tasks.composer.createFailed': '任务创建失败，请稍后重试。',
+    'tasks.composer.creating': '正在创建',
+    'tasks.composer.description':
+      '把待办或求助放到团队队列里，让合适的人或 Agent 接手。',
+    'tasks.composer.details': '补充说明',
+    'tasks.composer.detailsPlaceholder':
+      '写清完成标准、背景或当前阻塞点（可选）',
+    'tasks.composer.dueDate': '截止日期',
+    'tasks.composer.executionDescription': '有明确结果，可直接推进',
+    'tasks.composer.helpDescription': '遇到困难，需要团队支援',
+    'tasks.composer.kind': '任务类型',
+    'tasks.composer.linkedDocument': '关联文档',
+    'tasks.composer.priority': '优先级',
+    'tasks.composer.taskTitle': '任务标题',
+    'tasks.composer.title': '新建团队任务',
+    'tasks.composer.titlePlaceholder': '例如：补齐上线前的权限校验',
+    'tasks.composer.titleRequired': '请先写下一个清晰的任务标题。',
+    'tasks.composer.unassigned': '暂不指派',
+    'tasks.createdInfo': '创建信息',
+    'tasks.createdNotice': '任务已加入团队队列。',
+    'tasks.createdTask': '创建任务',
+    'tasks.due': '截止 {date}',
+    'tasks.empty.description':
+      '创建第一个执行任务或求助，让团队知道下一步要推进什么。',
+    'tasks.empty.filteredDescription': '调整关键词或筛选条件，再看看其他任务。',
+    'tasks.empty.filteredTitle': '没有符合条件的任务',
+    'tasks.empty.title': '团队队列还是空的',
+    'tasks.filter.active': '进行中',
+    'tasks.filter.assigneeLabel': '按负责人筛选',
+    'tasks.filter.allAssignees': '全部负责人',
+    'tasks.filter.allKinds': '全部类型',
+    'tasks.filter.allStatuses': '全部状态',
+    'tasks.filter.kindLabel': '按类型筛选',
+    'tasks.filter.statusLabel': '按状态筛选',
+    'tasks.filter.unassigned': '尚未指派',
+    'tasks.fromSource': '来自 {title}',
+    'tasks.kind.execution': '执行',
+    'tasks.kind.executionTask': '执行任务',
+    'tasks.kind.help': '求助',
+    'tasks.kind.helpTask': '求助任务',
+    'tasks.list': '任务列表',
+    'tasks.loadFailed': '团队任务加载失败，请稍后重试。',
+    'tasks.loading': '正在加载任务',
+    'tasks.newTask': '新建任务',
+    'tasks.none': '暂无任务',
+    'tasks.overview': '任务概览',
+    'tasks.priority.high': '高优先级',
+    'tasks.priority.highShort': '高',
+    'tasks.priority.low': '低优先级',
+    'tasks.priority.lowShort': '低',
+    'tasks.priority.normal': '普通优先级',
+    'tasks.priority.normalShort': '普通',
+    'tasks.priority.urgent': '紧急',
+    'tasks.publishTask': '发布任务',
+    'tasks.recentlyUpdated': '刚刚更新',
+    'tasks.refresh': '刷新任务',
+    'tasks.searchPlaceholder': '搜索任务…',
+    'tasks.showingCount': '显示 {shown} / {total} 个任务',
+    'tasks.startAgent': '@Agent 开始工作',
+    'tasks.stat.active': '进行中的工作',
+    'tasks.stat.blocked': '当前受阻',
+    'tasks.stat.done': '已完成',
+    'tasks.stat.help': '正在求助',
+    'tasks.stat.unassigned': '等待领取',
+    'tasks.status.blocked': '受阻',
+    'tasks.status.cancelled': '已取消',
+    'tasks.status.claimed': '已领取',
+    'tasks.status.done': '已完成',
+    'tasks.status.inProgress': '进行中',
+    'tasks.status.open': '待领取',
+    'tasks.status.review': '待评审',
+    'tasks.syncing': '正在同步团队任务',
+    'tasks.teamMember': '团队成员',
+    'tasks.teamwork': '团队协作',
+    'tasks.updateFailed': '任务状态更新失败，请重试。',
+    'tasks.updatedNotice': '“{title}”已更新为{status}。',
+    'tasks.view.board': '看板视图',
+    'tasks.view.boardShort': '看板',
+    'tasks.view.list': '列表视图',
+    'tasks.view.listShort': '列表',
+    'tasks.view.label': '任务视图',
+    'sidebar.deleteProjectConfirm':
+      '确认删除这个项目吗？当前草稿、会话和回退点都会从项目列表中移除。',
     'sidebar.deleteProject': '删除项目',
     'sidebar.deliverableOutline': '大纲',
     'sidebar.files': '文件',
@@ -1431,7 +1951,8 @@ const COPY = {
     'sidebar.renameProjectSave': '保存项目名称',
     'sidebar.continueCurrentDeliverable': '继续当前内容',
     'sidebar.renameDeliverable': '重命名内容',
-    'sidebar.renameDeliverableDescription': '更新项目树和顶部标题里显示的内容名称。',
+    'sidebar.renameDeliverableDescription':
+      '更新项目树和顶部标题里显示的内容名称。',
     'sidebar.renameDeliverableFailed': '无法重命名这项内容。',
     'sidebar.renameDeliverablePlaceholder': '输入内容名称',
     'sidebar.renameDeliverableRequired': '请输入内容名称。',
@@ -1451,11 +1972,13 @@ const COPY = {
     'sidebar.moveProjectFolderDescription': '选择“{title}”在项目树里的新位置。',
     'sidebar.moveProjectFolderFailed': '无法移动这个文件夹。',
     'sidebar.moveSupportMaterial': '移动资料',
-    'sidebar.moveSupportMaterialDescription': '选择“{title}”在支持资料树里的新位置。',
+    'sidebar.moveSupportMaterialDescription':
+      '选择“{title}”在支持资料树里的新位置。',
     'sidebar.moveSupportMaterialFailed': '无法移动这份支持资料。',
     'sidebar.moveSupportMaterialSuccess': '已移动支持资料。',
     'sidebar.renameSupportMaterial': '重命名资料',
-    'sidebar.renameSupportMaterialDescription': '更新支持资料列表里显示的名称。',
+    'sidebar.renameSupportMaterialDescription':
+      '更新支持资料列表里显示的名称。',
     'sidebar.renameSupportMaterialFailed': '无法重命名这份支持资料。',
     'sidebar.renameSupportMaterialSuccess': '已重命名支持资料。',
     'sidebar.renameSupportMaterialPlaceholder': '输入支持资料名称',
@@ -1465,16 +1988,19 @@ const COPY = {
     'sidebar.createSupportMaterialSuccess': '已创建支持资料。',
     'sidebar.createProjectFolderFailed': '无法创建这个文件夹。',
     'sidebar.deleteDeliverable': '删除内容',
-    'sidebar.deleteDeliverableConfirm': '确认删除这项内容吗？它的草稿、会话和回退点都会一起移除。',
+    'sidebar.deleteDeliverableConfirm':
+      '确认删除这项内容吗？它的草稿、会话和回退点都会一起移除。',
     'sidebar.deleteProjectFolder': '删除文件夹',
-    'sidebar.deleteProjectFolderConfirm': '确认删除这个文件夹吗？请先清空其中的子文件夹和内容。',
+    'sidebar.deleteProjectFolderConfirm':
+      '确认删除这个文件夹吗？请先清空其中的子文件夹和内容。',
     'sidebar.deleteProjectFolderFailed': '无法删除这个文件夹。',
     'sidebar.moveConfirm': '移动',
     'sidebar.moveDestination': '目标位置',
     'sidebar.moveToRoot': '项目根部',
     'sidebar.moveSupportToRoot': '资料根部',
     'sidebar.deleteSupportMaterial': '删除资料',
-    'sidebar.deleteSupportMaterialConfirm': '确认删除这份支持资料吗？其中的子项也会一起移除。',
+    'sidebar.deleteSupportMaterialConfirm':
+      '确认删除这份支持资料吗？其中的子项也会一起移除。',
     'sidebar.deleteSupportMaterialFailed': '无法删除这份支持资料。',
     'sidebar.deleteSupportMaterialSuccess': '已删除支持资料。',
     'sidebar.noFilesYet': '还没有文件。',
@@ -1488,7 +2014,8 @@ const COPY = {
     'sidebar.currentDeliverableMeta': '当前内容：{title}',
     'sidebar.searchProjectNodes': '项目内定位',
     'sidebar.searchProjectNodesPlaceholder': '按标题或内容搜索',
-    'sidebar.searchProjectNodesHint': '不用滚完整个目录，直接在当前项目里定位内容。',
+    'sidebar.searchProjectNodesHint':
+      '不用滚完整个目录，直接在当前项目里定位内容。',
     'sidebar.searchProjectNodesLoading': '正在搜索项目内容……',
     'sidebar.searchProjectNodesEmpty': '当前项目里没有匹配内容。',
     'sidebar.searchProjectNodesFailed': '无法搜索当前项目。',
@@ -1512,7 +2039,8 @@ const COPY = {
     'sidebar.noVersionsYet': '还没有版本。',
     'sidebar.noThreadsYet': '还没有线程。',
     'sidebar.noUploadsYet': '还没有支持资料。',
-    'sidebar.outlineEmpty': '当第一版结构准备好后，AI 会在这里生成当前内容的大纲。',
+    'sidebar.outlineEmpty':
+      '当第一版结构准备好后，AI 会在这里生成当前内容的大纲。',
     'sidebar.projects': '项目',
     'sidebar.projectDeliverables': '项目内容',
     'sidebar.projectTree': '目录',
@@ -1527,7 +2055,8 @@ const COPY = {
     'status.currentGoal': '当前目标',
     'status.currentPhase': '当前阶段',
     'status.milestones': '里程碑',
-    'status.noStatusDescription': '先启动第一稿，或让 AI 做一轮定向修改，状态面板会继续同步这里的进展。',
+    'status.noStatusDescription':
+      '先启动第一稿，或让 AI 做一轮定向修改，状态面板会继续同步这里的进展。',
     'status.noStatusTitle': '还没有共享状态',
     'status.pinnedRecoveryPoints': '已 Pin 回退点',
     'status.preview': '预览',
@@ -1537,7 +2066,8 @@ const COPY = {
     'status.previewRunning': '运行中',
     'status.temporaryRecoveryPoint': '临时回退点',
     'version.compare': '比较',
-    'version.compareDescription': '把任意可见版本与另一个可见版本或当前草稿做比较。',
+    'version.compareDescription':
+      '把任意可见版本与另一个可见版本或当前草稿做比较。',
     'version.branchCompareDescription':
       '默认先留在分支 {title} 里比较；只有明确需要时，再展开成跨分支比较。',
     'version.compareAcrossBranches': '跨分支比较',
@@ -1588,7 +2118,29 @@ const COPY = {
     'version.pinnedBadge': '已 Pin',
     'version.pinnedRecoveryPoints': '已 Pin 回退点',
     'version.globalPinnedRecoveryPoints': '全局已 Pin 回退点',
-    'version.pendingStagedChanges': '高级：staged changes',
+    'version.pendingStagedChanges': '待审修改',
+    'version.reviewChanges': '审阅修改',
+    'version.stagedReviewAfter': '修改后',
+    'version.stagedReviewApply': '应用到草稿',
+    'version.stagedReviewApplying': '正在应用……',
+    'version.stagedReviewBefore': '修改前',
+    'version.stagedReviewBeforeBase': '基准版本',
+    'version.stagedReviewBeforeCurrent': '当前草稿',
+    'version.stagedReviewConflict':
+      '审阅期间提案或草稿已经发生变化。请刷新页面，并根据最新内容重新确认。',
+    'version.stagedReviewDescription':
+      '逐项检查 AI 准备的文件修改，再决定是否更新当前草稿。',
+    'version.stagedReviewDiscard': '丢弃提案',
+    'version.stagedReviewDiscarding': '正在丢弃……',
+    'version.stagedReviewEmpty': '当前没有等待审阅的修改。',
+    'version.stagedReviewFiles': '涉及 {count} 个文件',
+    'version.stagedReviewForbidden': '只有组织所有者可以应用或丢弃这项提案。',
+    'version.stagedReviewLocked': '草稿正由其他审阅者锁定，请在对方结束编辑后重试。',
+    'version.stagedReviewPending': '等待审阅',
+    'version.stagedReviewQueue': '等待审阅的修改',
+    'version.stagedReviewRevision': '提案修订 {revision}',
+    'version.stagedReviewSource': '来源：{source}',
+    'version.stagedReviewTitle': '审阅待应用修改',
     'version.recoveryPoint': '回退点',
     'version.recoveryPointsStat': '回退点',
     'version.savedMilestonesStat': '正式里程碑',
@@ -1649,10 +2201,12 @@ const COPY = {
     'workspace.restoreFailed': '无法恢复当前草稿。',
     'workspace.restoredVersion': '已从“{title}”恢复 live draft。',
     'workspace.continuedFromVersion': '当前 live draft 已改为从“{title}”继续。',
-    'workspace.switchedToVersionHead': '当前 live draft 已切到基于“{title}”的分支 head。',
+    'workspace.switchedToVersionHead':
+      '当前 live draft 已切到基于“{title}”的分支 head。',
     'workspace.keepTemporary': '保持临时',
     'workspace.recoveryPointActionFailed': '无法更新这个回退点。',
-    'workspace.pinRecoveryPrompt': '已创建临时回退点“{title}”。要把它 Pin 住吗？',
+    'workspace.pinRecoveryPrompt':
+      '已创建临时回退点“{title}”。要把它 Pin 住吗？',
     'workspace.pinRecoveryPromptFull':
       '已创建临时回退点“{title}”。当前 Pin 位已满，如需长期保留，请先去版本树里取消一个 Pin。',
     'workspace.pinnedRecoveryPoint': '已将回退点“{title}”设为 Pin。',
@@ -1664,7 +2218,8 @@ const COPY = {
     'workspace.liveDraft': '当前草稿',
     'workspace.previewNotReady': '预览尚未就绪',
     'workspace.previewReadyTitle': '查看渲染后的结果',
-    'workspace.previewReadyDescription': '启动预览后，你可以直接针对可见页面区域评论，而不是先去编辑源码。',
+    'workspace.previewReadyDescription':
+      '启动预览后，你可以直接针对可见页面区域评论，而不是先去编辑源码。',
     'workspace.showDeliverable': '显示结果',
     'workspace.showImplementation': '显示实现',
     'workspace.slideResultBadge': '幻灯片视图',
@@ -1690,7 +2245,8 @@ const COPY = {
     'workspace.view': '视图',
     'workspace.showOverview': '项目总览',
     'workspace.showEditor': '返回编辑',
-    'workspace.aiPreparingFirstPass': 'AI 正在启动第一版 live draft，并准备回退点。',
+    'workspace.aiPreparingFirstPass':
+      'AI 正在启动第一版 live draft，并准备回退点。',
     'workspace.appliedStagedChanges': '已将 staged changes 应用到当前草稿。',
     'workspace.discardedStagedChanges': '已丢弃 staged changes。',
     'workspace.stagedChangesCouldNotApply': 'staged changes 无法应用。',
@@ -1703,7 +2259,7 @@ type CopyKey = keyof (typeof COPY)['en-US'];
 export function translate(
   language: AppLanguage,
   key: CopyKey,
-  params?: Record<string, string | number | null | undefined>
+  params?: Record<string, string | number | null | undefined>,
 ) {
   const template = COPY[language][key] || COPY['zh-CN'][key];
 

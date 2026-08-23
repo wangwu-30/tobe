@@ -5,7 +5,11 @@ import * as React from 'react';
 import { ZoneErrorBoundary } from '@/framework/resilience';
 
 export function ResilienceDebugPage() {
-  const [shouldCrash, setShouldCrash] = React.useState(true);
+  const [shouldCrash, setShouldCrash] = React.useState(false);
+
+  React.useEffect(() => {
+    setShouldCrash(true);
+  }, []);
 
   return (
     <main className="grid min-h-screen gap-6 bg-slate-50 p-8 md:grid-cols-2">

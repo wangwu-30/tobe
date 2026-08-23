@@ -12,12 +12,14 @@
 
 # testing
 /coverage
+/test-results/
+/src/**/test-results/
+/playwright-report/
 
 # next.js
 /.next/
 /out/
 /.vite/
-/apps/desktop/src/renderer/.vite/
 /dist/
 
 # production
@@ -48,9 +50,6 @@ next-env.d.ts
 /dev.db
 prisma/dev.db
 prisma/dev.db-journal
-/.dao-desktop/
-/.desktop-oauth-backup/
-/.desktop-runtime/
 /.oauth/
 /.tmp/
 /workspace-mirror/

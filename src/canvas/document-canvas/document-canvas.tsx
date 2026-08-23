@@ -718,16 +718,21 @@ function DeliverableActivityState({
   variant?: 'idle' | 'working';
 }) {
   return (
-    <div className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.06),_transparent_55%)] px-8 py-10">
+    <div
+      aria-busy={variant === 'working'}
+      aria-live="polite"
+      className="flex h-full items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.06),_transparent_55%)] px-4 py-8 sm:px-8 sm:py-10"
+      role="status"
+    >
       <div className="w-full max-w-2xl rounded-[32px] border border-primary/15 bg-background/95 p-8 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.45)]">
         <div className="flex flex-col items-center text-center">
           <div className="relative flex h-16 w-16 items-center justify-center">
             <div className="absolute inset-0 rounded-full border border-primary/15" />
             {variant === 'working' ? (
               <>
-                <div className="absolute inset-0 rounded-full border border-primary/25 animate-ping [animation-duration:2.8s]" />
-                <div className="absolute inset-2 rounded-full bg-primary/8 animate-pulse" />
-                <LoaderCircle className="relative h-7 w-7 animate-spin text-primary" />
+                <div aria-hidden="true" className="absolute inset-0 rounded-full border border-primary/25 animate-ping [animation-duration:2.8s] motion-reduce:animate-none" />
+                <div aria-hidden="true" className="absolute inset-2 rounded-full bg-primary/8 animate-pulse motion-reduce:animate-none" />
+                <LoaderCircle aria-hidden="true" className="relative h-7 w-7 animate-spin text-primary motion-reduce:animate-none" />
               </>
             ) : (
               <>
@@ -755,7 +760,7 @@ function DeliverableActivityState({
                 className={cn(
                   'h-2.5 rounded-full',
                   variant === 'working'
-                    ? 'bg-gradient-to-r from-primary/10 via-primary/30 to-primary/10 animate-pulse'
+                    ? 'bg-gradient-to-r from-primary/10 via-primary/30 to-primary/10 animate-pulse motion-reduce:animate-none'
                     : 'bg-muted-foreground/10'
                 )}
                 style={{
@@ -766,7 +771,7 @@ function DeliverableActivityState({
               <div
                 className={cn(
                   'mt-3 h-2 rounded-full bg-muted-foreground/10',
-                  variant === 'working' && 'animate-pulse'
+                  variant === 'working' && 'animate-pulse motion-reduce:animate-none'
                 )}
                 style={{
                   animationDelay: `${index * 220 + 120}ms`,

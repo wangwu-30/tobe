@@ -1,5 +1,8 @@
+import type { Prisma } from '@/generated/prisma/client';
+
 import { prisma } from '@/lib/db/prisma';
-import { safeJsonParse } from '@/framework/resilience';
+import { ConflictError } from '@/framework/resilience/app-error';
+import { safeJsonParse } from '@/framework/resilience/safe-data';
 
 const IDEMPOTENCY_WAIT_INTERVAL_MS = 150;
 const IDEMPOTENCY_WAIT_TIMEOUT_MS = 30_000;
@@ -22,15 +25,29 @@ type MutationRequestRow = {
 
 const INVALID_JSON = Symbol('invalid-json');
 
-export class IdempotencyConflictError extends Error {
+type IdempotencyDb = Prisma.TransactionClient | typeof prisma;
+
+type IdempotencyResource<T> = (result: T) => {
+  resourceId?: string | null;
+  resourceType?: string | null;
+};
+
+type AtomicIdempotencyResolution<T> =
+  | { kind: 'resolved'; result: T }
+  | { kind: 'retry' }
+  | { kind: 'wait' };
+
+export class IdempotencyConflictError extends ConflictError {
   constructor() {
     super('This request key is already being used for a different operation.');
+    this.name = new.target.name;
   }
 }
 
 export class IdempotencyInProgressError extends Error {
   constructor() {
     super('This request is still in progress.');
+    this.name = new.target.name;
   }
 }
 
@@ -110,6 +127,117 @@ export async function withIdempotency<T>(params: {
   throw new IdempotencyInProgressError();
 }
 
+/**
+ * Runs an idempotent mutation and its MutationRequest bookkeeping in one
+ * transaction. This is intentionally opt-in: existing callers of
+ * withIdempotency keep their current non-transactional action contract.
+ */
+export async function withAtomicIdempotency<T>(params: {
+  action: (db: Prisma.TransactionClient) => Promise<T>;
+  key?: string | null;
+  operation: string;
+  organizationId: string;
+  requestHash: string;
+  resource?: IdempotencyResource<T>;
+  userId: string;
+}): Promise<T> {
+  const requestKey = params.key?.trim();
+  if (!requestKey) {
+    return prisma.$transaction((db) => params.action(db));
+  }
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const resolution = await prisma.$transaction(
+      async (db): Promise<AtomicIdempotencyResolution<T>> => {
+        const created = await createMutationRequest(
+          {
+            operation: params.operation,
+            organizationId: params.organizationId,
+            requestHash: params.requestHash,
+            requestKey,
+            userId: params.userId,
+          },
+          db
+        );
+
+        if (created) {
+          const result = await executeOwnedAtomicMutation(
+            created.id,
+            params,
+            db
+          );
+          return { kind: 'resolved', result };
+        }
+
+        const existing = await getMutationRequest(
+          {
+            operation: params.operation,
+            organizationId: params.organizationId,
+            requestKey,
+            userId: params.userId,
+          },
+          db
+        );
+
+        if (!existing) {
+          return { kind: 'retry' };
+        }
+
+        assertMatchingHash(existing, params.requestHash);
+
+        if (existing.status === 'completed' && existing.responseJson) {
+          return {
+            kind: 'resolved',
+            result: parseStoredMutationResponse<T>(existing.responseJson),
+          };
+        }
+
+        if (existing.status === 'failed') {
+          const reclaimed = await reclaimFailedMutation(existing.id, db);
+          if (reclaimed) {
+            const result = await executeOwnedAtomicMutation(
+              existing.id,
+              params,
+              db
+            );
+            return { kind: 'resolved', result };
+          }
+
+          return { kind: 'retry' };
+        }
+
+        return { kind: 'wait' };
+      }
+    );
+
+    if (resolution.kind === 'resolved') {
+      return resolution.result;
+    }
+
+    if (resolution.kind === 'retry') {
+      continue;
+    }
+
+    const resolved = await waitForMutationRequest({
+      operation: params.operation,
+      organizationId: params.organizationId,
+      requestHash: params.requestHash,
+      requestKey,
+      userId: params.userId,
+    });
+
+    if (resolved?.status === 'completed' && resolved.responseJson) {
+      return parseStoredMutationResponse<T>(resolved.responseJson);
+    }
+
+    if (resolved?.status === 'failed') {
+      continue;
+    }
+  }
+
+  throw new IdempotencyInProgressError();
+}
+
 function parseStoredMutationResponse<T>(responseJson: string): T {
   const parsed = safeJsonParse<T | typeof INVALID_JSON>(responseJson, INVALID_JSON);
   if (parsed === INVALID_JSON) {
@@ -160,15 +288,45 @@ async function executeOwnedMutation<T>(
   }
 }
 
+async function executeOwnedAtomicMutation<T>(
+  mutationRequestId: string,
+  params: {
+    action: (db: Prisma.TransactionClient) => Promise<T>;
+    resource?: IdempotencyResource<T>;
+  },
+  db: Prisma.TransactionClient
+) {
+  const result = await params.action(db);
+  const resource = params.resource?.(result);
+  const updated = await db.$executeRaw`
+    UPDATE "MutationRequest"
+    SET
+      "status" = 'completed',
+      "responseJson" = ${JSON.stringify(result)},
+      "resourceType" = ${resource?.resourceType || null},
+      "resourceId" = ${resource?.resourceId || null},
+      "errorMessage" = NULL,
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "id" = ${mutationRequestId}
+      AND "status" = 'in_progress'
+  `;
+
+  if (updated !== 1) {
+    throw new Error('Owned mutation request could not be completed.');
+  }
+
+  return result;
+}
+
 async function createMutationRequest(params: {
   operation: string;
   organizationId: string;
   requestHash: string;
   requestKey: string;
   userId: string;
-}) {
+}, db: IdempotencyDb = prisma) {
   const id = crypto.randomUUID();
-  const inserted = await prisma.$executeRaw`
+  const inserted = await db.$executeRaw`
     INSERT OR IGNORE INTO "MutationRequest" (
       "id",
       "organizationId",
@@ -196,8 +354,11 @@ async function createMutationRequest(params: {
   return inserted > 0 ? { id } : null;
 }
 
-async function reclaimFailedMutation(id: string) {
-  const updated = await prisma.$executeRaw`
+async function reclaimFailedMutation(
+  id: string,
+  db: IdempotencyDb = prisma
+) {
+  const updated = await db.$executeRaw`
     UPDATE "MutationRequest"
     SET
       "status" = 'in_progress',
@@ -218,8 +379,8 @@ async function getMutationRequest(params: {
   organizationId: string;
   requestKey: string;
   userId: string;
-}) {
-  const rows = await prisma.$queryRaw<MutationRequestRow[]>`
+}, db: IdempotencyDb = prisma) {
+  const rows = await db.$queryRaw<MutationRequestRow[]>`
     SELECT
       "id",
       "organizationId",

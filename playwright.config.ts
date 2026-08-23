@@ -7,6 +7,11 @@ const iterationRoot =
 const artifactsRoot =
   process.env.ITERATION_ARTIFACTS_ROOT ||
   path.join(iterationRoot, 'artifacts');
+const nextDistDir =
+  process.env.NEXT_DIST_DIR ||
+  path.relative(repoRoot, path.join(iterationRoot, 'next-dist'));
+const serverMode =
+  process.env.PLAYWRIGHT_SERVER_MODE === 'production' ? 'production' : 'development';
 const port = Number(process.env.PORT || '3216');
 const baseURL = `http://127.0.0.1:${port}`;
 
@@ -37,7 +42,10 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: `./node_modules/.bin/next dev --webpack --hostname 127.0.0.1 --port ${port}`,
+    command:
+      serverMode === 'production'
+        ? `./node_modules/.bin/next start --hostname 127.0.0.1 --port ${port}`
+        : `./node_modules/.bin/next dev --webpack --hostname 127.0.0.1 --port ${port}`,
     env: {
       ...process.env,
       DAO_APP_DATA_ROOT:
@@ -51,6 +59,7 @@ export default defineConfig({
           'dev.db'
         )}`,
       HOSTNAME: '127.0.0.1',
+      NEXT_DIST_DIR: nextDistDir,
       PORT: String(port),
     },
     reuseExistingServer: false,

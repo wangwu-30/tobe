@@ -180,13 +180,17 @@ test('resilience A8: implementing workspaces still expose manual comment fallbac
   await expect(manualCommentButton).toBeVisible();
   await manualCommentButton.click();
 
-  await expect(page.getByTestId('assistant-tab-review')).toHaveAttribute('data-state', 'active');
+  await expect(page).toHaveURL(/(?:\?|&)assistant=review(?:&|$)/);
+  await expect(page.getByTestId('assistant-tab-review')).toHaveAttribute(
+    'aria-selected',
+    'true'
+  );
   const manualComposer = page.getByTestId('manual-comment-composer');
   await expect(manualComposer).toBeVisible();
   await expect(manualComposer.getByText('通用评论')).toBeVisible();
   await manualComposer.getByLabel('范围').fill('实现中的页面草稿');
   await manualComposer
-    .getByPlaceholder('告诉 AI 这次需要重点看什么……')
+    .getByRole('textbox', { name: '评论内容' })
     .fill('即使 AI 正在实现，也要允许我先记一条通用评论。');
   await manualComposer.getByRole('button', { name: '创建评论' }).click();
 
@@ -226,7 +230,7 @@ test('resilience A9: comment UI switches fully to English after changing the app
   const selectionComposer = page.getByTestId('web-selection-comment-composer');
   await expect(selectionComposer).toBeVisible();
   await expect(
-    selectionComposer.getByPlaceholder('Tell AI what you want reviewed here...')
+    selectionComposer.getByRole('textbox', { name: 'Comment' })
   ).toBeVisible();
   await expect(selectionComposer.getByRole('button', { name: 'Cancel' })).toBeVisible();
   await expect(

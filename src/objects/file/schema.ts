@@ -1,6 +1,6 @@
 import type { Value } from 'platejs';
 
-import { safeJsonParse } from '@/framework/resilience';
+import { safeJsonParse } from '@/framework/resilience/safe-data';
 import type {
   WorkspaceFileData,
   WorkspaceVersionFileData,

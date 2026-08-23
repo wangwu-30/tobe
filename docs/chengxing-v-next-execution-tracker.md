@@ -1,5 +1,7 @@
 # 成形 v-next 执行追踪器
 
+> **Historical / completed snapshot（2026-08-21）**：本文保留已完成 workstream 的阶段与验收记录，不代表当前状态。当前入口见 [README](../README.md)、[SYSTEM](../SYSTEM.md) 与 [Agent Room 与持久执行落地追踪器](./agent-room-execution-workstream.md)。
+
 更新时间：2026-03-22
 状态：done
 对应技能：`program-autopilot`

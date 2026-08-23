@@ -1,4 +1,5 @@
 import { Prisma } from '@/generated/prisma/client';
+import { ValidationError } from '@/framework/resilience';
 import { prisma } from '@/lib/db/prisma';
 import type { StateLabelData, StateLabelKind } from '@/types';
 
@@ -19,6 +20,11 @@ export async function createStateLabel(
   },
   db: Prisma.TransactionClient | typeof prisma = prisma
 ): Promise<StateLabelData> {
+  if (input.kind === 'aligned') {
+    throw new ValidationError(
+      'Aligned labels must be created through the workspace alignment command.'
+    );
+  }
   const name = input.name.trim();
   if (!name) {
     throw new Error('State label name is required.');

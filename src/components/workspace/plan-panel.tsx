@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,7 +16,6 @@ import {
 import type { WorkspacePlanData, WorkspaceWorkflowStatusData } from '@/types';
 import { useT } from '@/components/providers/language-provider';
 import { WorkflowExtensionHints } from '@/components/workflow/workflow-extension-hints';
-import { useAppRouter } from '@/lib/app-router';
 
 export function PlanPanel({
   currentDraftBranchTitle,
@@ -31,7 +31,6 @@ export function PlanPanel({
   plan?: WorkspacePlanData | null;
 }) {
   const t = useT();
-  const router = useAppRouter();
   const isPlanGenerating = !workflowStatus && plan?.status === 'generating';
   const isPlanBlocked = !workflowStatus && plan?.status === 'blocked';
   const isWorkflowBlocked = workflowStatus?.phase === 'blocked';
@@ -71,7 +70,13 @@ export function PlanPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea
+        className="min-h-0 flex-1"
+        viewportProps={{
+          'aria-label': t('assistant.status'),
+          tabIndex: 0,
+        }}
+      >
         <div className="space-y-4 p-4">
           <section className="rounded-2xl border border-border/70 bg-background px-4 py-4 shadow-sm">
             <div className="flex items-start justify-between gap-3">
@@ -84,7 +89,7 @@ export function PlanPanel({
                     {currentPhaseTitle}
                   </span>
                   {aiWorking ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+                    <LoaderCircle className="h-4 w-4 animate-spin text-primary motion-reduce:animate-none" />
                   ) : null}
                 </div>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
@@ -158,12 +163,12 @@ export function PlanPanel({
                 </div>
                 <div className="mt-3">
                   <Button
+                    asChild
                     size="sm"
                     variant="outline"
                     className="h-8"
-                    onClick={() => router.push('/settings')}
                   >
-                    {t('chat.openSettings')}
+                    <Link href="/settings">{t('chat.openSettings')}</Link>
                   </Button>
                 </div>
               </div>
@@ -248,7 +253,7 @@ function StageRow({
       <CheckCircle2 className="h-4 w-4 text-emerald-600" />
     ) : stage.status === 'in_progress' ? (
       animateActiveStage ? (
-        <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+        <LoaderCircle className="h-4 w-4 animate-spin text-primary motion-reduce:animate-none" />
       ) : (
         <CircleDot className="h-4 w-4 text-primary" />
       )

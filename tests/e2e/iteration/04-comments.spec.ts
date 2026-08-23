@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { apiRequest, primeClientState, readSeedState } from './helpers';
 
 test('D0: selecting document text exposes the inline comment trigger and creates an anchored thread', async ({
@@ -21,18 +22,25 @@ test('D0: selecting document text exposes the inline comment trigger and creates
   });
 
   await primeClientState(page);
-  await page.goto(
-    `/workspace/${created.workspace.id}?conversationId=${created.conversation.id}`
-  );
+  await page.goto(buildWorkspaceRoute({
+    conversationId: created.conversation.id,
+    nodeId: created.workspace.id,
+    projectId: created.workspace.id,
+  }));
 
   const editorRoot = page.locator('[data-slate-editor="true"]');
-  await expect(editorRoot).toBeVisible();
-  await expect(page.getByText(anchorText)).toBeVisible();
+  await expect(editorRoot).toBeVisible({ timeout: 60000 });
+  const anchorParagraph = editorRoot.getByText(anchorText, { exact: true });
+  await expect(anchorParagraph).toBeVisible({ timeout: 60000 });
   const trigger = page.getByTestId('selection-comment-trigger');
   await expect(async () => {
-    await editorRoot.selectText();
-    await expect(trigger).toBeVisible();
-  }).toPass({ timeout: 5000 });
+    await editorRoot.focus();
+    await anchorParagraph.selectText();
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event('selectionchange'));
+    });
+    await expect(trigger).toBeVisible({ timeout: 1000 });
+  }).toPass({ intervals: [100, 250, 500], timeout: 10000 });
   await trigger.click();
 
   const composer = page.getByTestId('selection-comment-composer');
@@ -57,8 +65,9 @@ test('D1: direct single-block comment can apply back to the source document', as
   const baseURL = String(testInfo.project.use.baseURL);
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=review`
+  );
 
   const thread = page.getByTestId(`comment-thread-${workspace.applyThreadId}`);
   await expect(thread).toBeVisible();
@@ -86,8 +95,9 @@ test('D2: cross-block comment shows a blocked reason before any apply attempt', 
   const workspace = seedState.commentsBlockedWorkspace;
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=review`
+  );
 
   const thread = page.getByTestId(`comment-thread-${workspace.blockedThreadId}`);
   await expect(thread).toBeVisible();
@@ -101,8 +111,9 @@ test('A1: new thread without @ only keeps manual discussion', async ({ page }, t
   const baseURL = String(testInfo.project.use.baseURL);
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=review`
+  );
 
   const thread = page.getByTestId(`comment-thread-${workspace.manualThreadId}`);
   await expect(thread).toBeVisible();
@@ -127,6 +138,13 @@ test('A2-A4, A8: Agent binding lifecycle in thread (binding, ordinary follow-up,
   const seedState = readSeedState();
   const workspace = seedState.commentsAgentWorkspace;
   const baseURL = String(testInfo.project.use.baseURL);
+  const ordinaryFollowUpText = '普通文字追问，不用带 @';
+  const repeatedMentionText = '@assistant 再次召唤';
+  const finalFollowUpText = '停止后再追加一条。';
+  const noBindingHint =
+    '想让 AI 介入时，请在消息里输入 @assistant 或其他角色句柄。';
+  const noBindingStatus =
+    '已经追加到线程里。如需 AI 继续介入，请在消息里 @ 一个或多个角色。';
 
   await page.route('**/api/agent/run', async (route) => {
     await route.fulfill({
@@ -137,11 +155,16 @@ test('A2-A4, A8: Agent binding lifecycle in thread (binding, ordinary follow-up,
   });
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
-  await page.getByRole('tab', { name: /评审|Review/ }).click();
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=review`
+  );
 
   const thread = page.getByTestId(`comment-thread-${workspace.waitingThreadId}`);
   const waitingChip = thread.getByTestId(`comment-agent-chip-${workspace.waitingThreadId}-assistant`);
+  const followUp = thread.getByPlaceholder(
+    /继续告诉我怎么改|继续告诉 AI 要怎么改/
+  );
+  const sendButton = thread.getByRole('button', { name: /发送|Send/ });
   await expect(thread).toBeVisible();
   
   // A2 check
@@ -150,24 +173,96 @@ test('A2-A4, A8: Agent binding lifecycle in thread (binding, ordinary follow-up,
   await expect(waitingChip).toContainText(/等待中|回复中/);
 
   // A3: follow-up without @ (assuming AI is not broken, it stays bound)
-  await thread.getByPlaceholder(/继续告诉我怎么改|继续告诉 AI 要怎么改/).fill('普通文字追问，不用带 @');
-  await thread.getByRole('button', { name: /发送|Send/ }).click({ force: true });
-  // We expect activeAgentId still points to assistant, without prompting "@ 角色"
-  await expect(waitingChip).toBeVisible();
+  await followUp.fill(ordinaryFollowUpText);
+  await sendButton.click();
+  await expect(followUp).toHaveValue('');
+  await expectUserMessageToPersist({
+    baseURL,
+    content: ordinaryFollowUpText,
+    threadId: workspace.waitingThreadId,
+  });
+  await expectAgentBindings({
+    agentIds: ['assistant'],
+    baseURL,
+    threadId: workspace.waitingThreadId,
+    workspaceId: workspace.id,
+  });
+  await expect(waitingChip).toHaveCount(1);
 
   // A4: Re-mentioning @assistant doesn't create duplicate bindings
-  await thread.getByPlaceholder(/继续告诉/).fill('@assistant 再次召唤');
-  await thread.getByRole('button', { name: /发送|Send/ }).click({ force: true });
-  await expect(waitingChip).toBeVisible(); // Still just one chip for assistant
+  await followUp.fill(repeatedMentionText);
+  await sendButton.click();
+  await expect(followUp).toHaveValue('');
+  await expectUserMessageToPersist({
+    baseURL,
+    content: repeatedMentionText,
+    threadId: workspace.waitingThreadId,
+  });
+  await expectAgentBindings({
+    agentIds: ['assistant'],
+    baseURL,
+    threadId: workspace.waitingThreadId,
+    workspaceId: workspace.id,
+  });
+  await expect(waitingChip).toHaveCount(1);
 
   // A8: Stop listening completely removes binding
   await thread.getByTestId(`comment-stop-agent-${workspace.waitingThreadId}-assistant`).click();
+  await expectAgentBindings({
+    agentIds: [],
+    baseURL,
+    threadId: workspace.waitingThreadId,
+    workspaceId: workspace.id,
+  });
   await expect(waitingChip).toHaveCount(0);
+  await expect(thread.getByText(noBindingHint, { exact: true })).toBeVisible();
 
-  const finalFollowUpText = '停止后再追加一条。';
-  await thread.getByPlaceholder(/继续告诉/).fill(finalFollowUpText);
-  await thread.getByRole('button', { name: /发送|Send/ }).click({ force: true });
+  await followUp.fill(finalFollowUpText);
+  await sendButton.click();
+  await expect(followUp).toHaveValue('');
+  await expectUserMessageToPersist({
+    baseURL,
+    content: finalFollowUpText,
+    threadId: workspace.waitingThreadId,
+  });
 
-  await expect(thread).toContainText(/如需 AI .*介入，请.*角色/);
+  await expect(
+    thread.locator('[role="status"]').filter({ hasText: noBindingStatus })
+  ).toHaveText(noBindingStatus);
   await expect(waitingChip).toHaveCount(0);
 });
+
+async function expectUserMessageToPersist(params: {
+  baseURL: string;
+  content: string;
+  threadId: string;
+}) {
+  await expect.poll(async () => {
+    const messages = await apiRequest<Array<{ content: string; role: string }>>(
+      params.baseURL,
+      `/api/threads/${params.threadId}/messages`
+    );
+    return messages.some(
+      (message) =>
+        message.role === 'user' && message.content === params.content
+    );
+  }).toBe(true);
+}
+
+async function expectAgentBindings(params: {
+  agentIds: string[];
+  baseURL: string;
+  threadId: string;
+  workspaceId: string;
+}) {
+  await expect.poll(async () => {
+    const threads = await apiRequest<
+      Array<{ agentBindings: Array<{ agentId: string }>; id: string }>
+    >(
+      params.baseURL,
+      `/api/threads?documentId=${params.workspaceId}&workspaceId=${params.workspaceId}`
+    );
+    const matchedThread = threads.find((thread) => thread.id === params.threadId);
+    return matchedThread?.agentBindings.map((binding) => binding.agentId) || [];
+  }).toEqual(params.agentIds);
+}

@@ -15,3 +15,17 @@ export {
   ensureAgentResponseOk,
   readAgentResponseError,
 } from './response';
+export { OPEN_AGENT_COMPOSER_EVENT, requestAgentComposerOpen } from './events';
+export type { OpenAgentComposerDetail } from './events';
+export type {
+  AgentToolConfirmationAuthority,
+  AgentToolConfirmationPolicy,
+  AgentToolConfirmationRequest,
+  AgentToolSafetyLevel,
+  AgentToolWritePolicy,
+  GovernedAgentTool,
+} from './tool-policy';
+export {
+  AgentToolConfirmationRequiredError,
+  enforceGovernedAgentTool,
+} from './tool-policy';

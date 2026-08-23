@@ -50,14 +50,6 @@ async function primeBlackboxBrowserState(
   await page.addInitScript(() => {
     const nextSettings = { language: 'zh-CN' };
 
-    Object.defineProperty(window, 'daoDesktop', {
-      configurable: true,
-      value: {
-        isDesktop: false,
-      },
-      writable: true,
-    });
-
     try {
       const existing = window.localStorage.getItem('ai-settings');
       const parsed =

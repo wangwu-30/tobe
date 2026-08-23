@@ -57,6 +57,66 @@ export type UserData = {
   updatedAt: Date | string;
 };
 
+export type TaskActorType = 'user' | 'agent';
+export type TeamTaskKind = 'execution' | 'help';
+export type TeamTaskPriority = 0 | 1 | 2 | 3;
+export type TeamTaskStatus =
+  | 'open'
+  | 'claimed'
+  | 'in_progress'
+  | 'blocked'
+  | 'review'
+  | 'done'
+  | 'cancelled';
+
+export type TaskActivityData = {
+  id: string;
+  taskId: string;
+  type: string;
+  message: string;
+  actorType: TaskActorType;
+  actorId: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date | string;
+};
+
+export type TeamTaskData = {
+  id: string;
+  organizationId: string;
+  title: string;
+  description: string;
+  kind: TeamTaskKind;
+  status: TeamTaskStatus;
+  priority: TeamTaskPriority;
+  revision: number;
+  projectId: string | null;
+  workspaceId: string | null;
+  threadId: string | null;
+  createdByType: TaskActorType;
+  createdById: string;
+  assigneeType: TaskActorType | null;
+  assigneeId: string | null;
+  blockedReason: string | null;
+  dueAt: Date | string | null;
+  completedAt: Date | string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  activities: TaskActivityData[];
+};
+
+export type AgentProfileData = {
+  id: string;
+  organizationId: string;
+  handle: string;
+  name: string;
+  description: string;
+  skills: string[];
+  enabled: boolean;
+  builtin: boolean;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+};
+
 export type SearchProvider = {
   id: string;
   label: string;
@@ -91,10 +151,7 @@ export type PlatformPathsData = {
 export type PlatformStatusData = {
   appVersion: string;
   channel: string;
-  diagnosticsEnabled: boolean;
   deviceId: string;
-  isDesktop: boolean;
-  mode: 'desktop' | 'web';
   organizationId: string;
   oauthProviders: Array<{
     email: string | null;
@@ -157,13 +214,20 @@ export type WorkspaceVersionData = {
   deletedAt: Date | string | null;
   lockedAt: Date | string;
   labels?: StateLabelData[];
+  /** Human-confirmed source-of-truth state for durable execution. */
+  aligned: boolean;
   visible: boolean;
   restorable: boolean;
   pinned: boolean;
   recoveryKind: 'temporary' | 'pinned' | null;
 };
 
-export type StateLabelKind = 'milestone' | 'head' | 'recovery' | 'pinned';
+export type StateLabelKind =
+  | 'milestone'
+  | 'head'
+  | 'recovery'
+  | 'pinned'
+  | 'aligned';
 
 export type StateLabelData = {
   id: string;
@@ -387,12 +451,22 @@ export type WorkspaceWorkflowStatusData = {
 export type WorkflowSummaryData = WorkspaceWorkflowStatusData;
 export type WorkflowPlaybookStatus = 'draft' | 'active' | 'archived';
 
+export type StagedChangeOperation = 'create' | 'update' | 'delete';
+
+export type StagedChangeFilePreimageData = {
+  content: string;
+  contentSha256: string;
+  revision: number;
+};
+
 export type StagedChangePatchData = {
+  operation: StagedChangeOperation;
   fileId: string | null;
   name: string;
   summary: string;
-  nextContent: string;
+  nextContent: string | null;
   kind: 'richtext' | 'markdown' | 'text' | 'code';
+  preimage: StagedChangeFilePreimageData | null;
 };
 
 export type StagedChangeSetData = {
@@ -401,6 +475,10 @@ export type StagedChangeSetData = {
   workspaceId: string;
   conversationId: string | null;
   baseVersionId: string | null;
+  baseVersionSha256: string | null;
+  baseDraftRevision: number | null;
+  patchSchemaVersion: number | null;
+  patchSha256: string | null;
   appliedCheckpointVersionId: string | null;
   title: string;
   summary: string;
@@ -411,6 +489,8 @@ export type StagedChangeSetData = {
   originDeviceId: string | null;
   appliedAt: Date | string | null;
   discardedAt: Date | string | null;
+  reviewedByUserId: string | null;
+  reviewedAt: Date | string | null;
   revision: number;
   deletedAt: Date | string | null;
   createdAt: Date | string;
