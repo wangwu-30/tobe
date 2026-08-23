@@ -8,7 +8,11 @@ import { ContextPanelSurface } from '@/surfaces/context-panel/context-panel';
 import { ReviewPanelSurface } from '@/surfaces/review-panel/review-panel';
 import { ProjectRoomSurface } from '@/surfaces/room';
 import { StatusPanelSurface } from '@/surfaces/status-panel/status-panel';
-import type { WorkspaceAssistantTab } from '@/lib/workspace/route';
+import { useAppPathname, useAppSearchParams } from '@/lib/app-router';
+import {
+  WORKSPACE_ASSISTANT_SEARCH_PARAM,
+  type WorkspaceAssistantTab,
+} from '@/lib/workspace/route';
 
 type AssistantPanelProps = React.ComponentProps<typeof AssistantPanelSurface>;
 type ContextPanelProps = React.ComponentProps<typeof ContextPanelSurface>;
@@ -96,6 +100,14 @@ export function WorkspaceAssistantRail({
   workspaceRevision: ReviewPanelProps['workspaceRevision'];
   value?: WorkspaceAssistantTab;
 }) {
+  const pathname = useAppPathname();
+  const searchParams = useAppSearchParams();
+  const chatHref = React.useMemo(() => {
+    const nextSearchParams = new URLSearchParams(searchParams.toString());
+    nextSearchParams.delete(WORKSPACE_ASSISTANT_SEARCH_PARAM);
+    const nextQuery = nextSearchParams.toString();
+    return `${pathname}${nextQuery ? `?${nextQuery}` : ''}`;
+  }, [pathname, searchParams]);
   const reviewCount = reviewThreads.filter(
     (thread) =>
       (thread.status === 'open' || thread.status === 'applied') &&
@@ -104,17 +116,18 @@ export function WorkspaceAssistantRail({
 
   return (
     <AssistantRail
+      chatHref={chatHref}
       onValueChange={onValueChange}
       reviewCount={reviewCount}
       value={value}
       room={
-        currentProjectId ? (
+        value === 'room' && currentProjectId ? (
           <ProjectRoomSurface
             className="border-0"
             projectId={currentProjectId}
             showPresence={false}
           />
-        ) : (
+        ) : value === 'room' ? (
           <div
             className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground"
             data-testid="project-room-loading"
@@ -122,7 +135,7 @@ export function WorkspaceAssistantRail({
           >
             正在准备 Project Room…
           </div>
-        )
+        ) : null
       }
       status={
         <StatusPanelSurface

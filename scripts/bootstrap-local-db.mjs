@@ -16,6 +16,247 @@ const DURABLE_ROOM_DELEGATION_LEDGER_MIGRATION =
 const DOCUMENT_PROPOSAL_CAS_MIGRATION =
   "20260821170000_document_proposal_cas";
 const CANVAS_TABLES_MIGRATION = "20260822010000_add_canvas_tables";
+const TEAM_SCOPED_CONVERSATIONS_MIGRATION =
+  "20260823010000_add_team_scoped_conversations";
+const TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN = {
+  name: "scopeKind",
+  type: "TEXT",
+  notNull: true,
+  defaultValue: "'wiki'",
+  primaryKeyPosition: 0,
+};
+const TEAM_SCOPED_CONVERSATION_LEGACY_DOCUMENT_COLUMN = {
+  name: "documentId",
+  type: "TEXT",
+  notNull: true,
+  defaultValue: null,
+  primaryKeyPosition: 0,
+};
+const TEAM_SCOPED_CONVERSATION_CURRENT_DOCUMENT_COLUMN = {
+  name: "documentId",
+  type: "TEXT",
+  notNull: false,
+  defaultValue: null,
+  primaryKeyPosition: 0,
+};
+const TEAM_SCOPED_CONVERSATION_SESSION_INDEX = {
+  table: "Session",
+  name: "Session_organizationId_scopeKind_updatedAt_idx",
+  columns: ["organizationId", "scopeKind", "updatedAt"],
+  unique: false,
+};
+const TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_INDEXES = [
+  {
+    table: "AssistantRun",
+    name: "AssistantRun_organizationId_startedAt_idx",
+    columns: ["organizationId", "startedAt"],
+    unique: false,
+  },
+  {
+    table: "AssistantRun",
+    name: "AssistantRun_organizationId_scopeKind_startedAt_idx",
+    columns: ["organizationId", "scopeKind", "startedAt"],
+    unique: false,
+  },
+  {
+    table: "AssistantRun",
+    name: "AssistantRun_sessionId_startedAt_idx",
+    columns: ["sessionId", "startedAt"],
+    unique: false,
+  },
+  {
+    table: "AssistantRun",
+    name: "AssistantRun_documentId_startedAt_idx",
+    columns: ["documentId", "startedAt"],
+    unique: false,
+  },
+  {
+    table: "AssistantRun",
+    name: "AssistantRun_status_startedAt_idx",
+    columns: ["status", "startedAt"],
+    unique: false,
+  },
+];
+const TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_FOREIGN_KEYS = [
+  {
+    column: "organizationId",
+    referencedColumn: "id",
+    referencedTable: "Organization",
+    onDelete: "CASCADE",
+    onUpdate: "CASCADE",
+  },
+  {
+    column: "sessionId",
+    referencedColumn: "id",
+    referencedTable: "Session",
+    onDelete: "CASCADE",
+    onUpdate: "CASCADE",
+  },
+  {
+    column: "documentId",
+    referencedColumn: "id",
+    referencedTable: "Document",
+    onDelete: "CASCADE",
+    onUpdate: "CASCADE",
+  },
+  {
+    column: "requestMessageId",
+    referencedColumn: "id",
+    referencedTable: "ChatMessage",
+    onDelete: "SET NULL",
+    onUpdate: "CASCADE",
+  },
+];
+const TEAM_SCOPED_CONVERSATION_STAGING_TABLE = {
+  name: "new_AssistantRun",
+  columns: [
+    {
+      name: "id",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 1,
+    },
+    {
+      name: "organizationId",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: "'local-org'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "sessionId",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "documentId",
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "scopeKind",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: "'wiki'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "requestMessageId",
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "mode",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: "'revision'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "title",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "status",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: "'queued'",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "summary",
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "payloadJson",
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "createdByUserId",
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "originDeviceId",
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "revision",
+      type: "INTEGER",
+      notNull: true,
+      defaultValue: "1",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "deletedAt",
+      type: "DATETIME",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "startedAt",
+      type: "DATETIME",
+      notNull: true,
+      defaultValue: "CURRENT_TIMESTAMP",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "finishedAt",
+      type: "DATETIME",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "createdAt",
+      type: "DATETIME",
+      notNull: true,
+      defaultValue: "CURRENT_TIMESTAMP",
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "updatedAt",
+      type: "DATETIME",
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+  ],
+  indexes: [],
+  foreignKeys: TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_FOREIGN_KEYS,
+  checks: [],
+};
+const TEAM_SCOPED_CONVERSATION_RESUME_SQL = `
+  DROP TABLE "AssistantRun";
+  ALTER TABLE "new_AssistantRun" RENAME TO "AssistantRun";
+  CREATE INDEX "AssistantRun_organizationId_startedAt_idx" ON "AssistantRun"("organizationId", "startedAt");
+  CREATE INDEX "AssistantRun_organizationId_scopeKind_startedAt_idx" ON "AssistantRun"("organizationId", "scopeKind", "startedAt");
+  CREATE INDEX "AssistantRun_sessionId_startedAt_idx" ON "AssistantRun"("sessionId", "startedAt");
+  CREATE INDEX "AssistantRun_documentId_startedAt_idx" ON "AssistantRun"("documentId", "startedAt");
+  CREATE INDEX "AssistantRun_status_startedAt_idx" ON "AssistantRun"("status", "startedAt");
+`;
 const CANVAS_TABLES = [
   {
     name: "NodeRelation",
@@ -1024,7 +1265,114 @@ export const MIGRATION_PROBES = {
         ),
       )
     ).every(Boolean),
+  [TEAM_SCOPED_CONVERSATIONS_MIGRATION]: async (inspector) =>
+    hasCompleteTeamScopedConversationSchema(inspector),
 };
+
+async function hasCompleteTeamScopedConversationSchema(inspector) {
+  const [sessionChecks, assistantRunChecks, lacksTemporaryAssistantRunTable] =
+    await Promise.all([
+      Promise.all([
+        inspector.hasColumnDefinition(
+          "Session",
+          TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN,
+        ),
+        inspector.hasNamedIndexOnColumns(
+          TEAM_SCOPED_CONVERSATION_SESSION_INDEX.table,
+          TEAM_SCOPED_CONVERSATION_SESSION_INDEX.name,
+          TEAM_SCOPED_CONVERSATION_SESSION_INDEX.columns,
+          TEAM_SCOPED_CONVERSATION_SESSION_INDEX.unique,
+        ),
+      ]),
+      Promise.all([
+        inspector.hasColumnDefinition(
+          "AssistantRun",
+          TEAM_SCOPED_CONVERSATION_CURRENT_DOCUMENT_COLUMN,
+        ),
+        inspector.hasColumnDefinition(
+          "AssistantRun",
+          TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN,
+        ),
+        ...TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_FOREIGN_KEYS.map(
+          (foreignKey) => inspector.hasForeignKey("AssistantRun", foreignKey),
+        ),
+        ...TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_INDEXES.map((index) =>
+          inspector.hasNamedIndexOnColumns(
+            index.table,
+            index.name,
+            index.columns,
+            index.unique,
+          ),
+        ),
+      ]),
+      inspector.lacksTable("new_AssistantRun"),
+    ]);
+
+  return (
+    lacksTemporaryAssistantRunTable &&
+    sessionChecks.every(Boolean) &&
+    assistantRunChecks.every(Boolean)
+  );
+}
+
+async function hasUntouchedLegacyTeamScopedConversationSchema(inspector) {
+  const [sessionChecks, assistantRunChecks] = await Promise.all([
+    Promise.all([
+      inspector.hasTable("Session"),
+      inspector.hasColumn("Session", TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN.name),
+      inspector.hasIndex(TEAM_SCOPED_CONVERSATION_SESSION_INDEX.name),
+    ]),
+    Promise.all([
+      inspector.hasTable("AssistantRun"),
+      inspector.hasColumnDefinition(
+        "AssistantRun",
+        TEAM_SCOPED_CONVERSATION_LEGACY_DOCUMENT_COLUMN,
+      ),
+      inspector.hasColumn(
+        "AssistantRun",
+        TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN.name,
+      ),
+      inspector.hasIndex("AssistantRun_organizationId_scopeKind_startedAt_idx"),
+      ...TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_FOREIGN_KEYS.map((foreignKey) =>
+        inspector.hasForeignKey("AssistantRun", foreignKey),
+      ),
+      ...TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_INDEXES
+        .filter(
+          (index) =>
+            index.name !== "AssistantRun_organizationId_scopeKind_startedAt_idx",
+        )
+        .map((index) =>
+          inspector.hasNamedIndexOnColumns(
+            index.table,
+            index.name,
+            index.columns,
+            index.unique,
+          ),
+        ),
+    ]),
+  ]);
+
+  const [hasSessionTable, hasSessionScopeColumn, hasSessionScopeIndex] =
+    sessionChecks;
+  const [
+    hasAssistantRunTable,
+    hasLegacyDocumentColumn,
+    hasAssistantRunScopeColumn,
+    hasAssistantRunScopeIndex,
+    ...assistantRunIntegrityChecks
+  ] = assistantRunChecks;
+
+  return (
+    hasSessionTable &&
+    hasAssistantRunTable &&
+    hasLegacyDocumentColumn &&
+    !hasSessionScopeColumn &&
+    !hasSessionScopeIndex &&
+    !hasAssistantRunScopeColumn &&
+    !hasAssistantRunScopeIndex &&
+    assistantRunIntegrityChecks.every(Boolean)
+  );
+}
 
 async function hasCompleteAgentProfileManagementSchema(inspector) {
   const [hasAgentProfileTable, hasRoomAgentSessionTable, ...columnPresence] =
@@ -1268,6 +1616,9 @@ async function resolveMigrationStrategy(migrationName, inspector) {
   if (migrationName === DOCUMENT_PROPOSAL_CAS_MIGRATION) {
     return resolveDocumentProposalCasStrategy(inspector);
   }
+  if (migrationName === TEAM_SCOPED_CONVERSATIONS_MIGRATION) {
+    return resolveTeamScopedConversationsStrategy(inspector);
+  }
 
   const probe = MIGRATION_PROBES[migrationName];
   if (probe && (await probe(inspector))) {
@@ -1483,6 +1834,202 @@ async function resolveDocumentProposalCasStrategy(inspector) {
   return { action: MIGRATION_ACTION_MARK };
 }
 
+async function inspectInterruptedTeamScopedConversationStage(inspector) {
+  const [
+    sessionHasCurrentScope,
+    sessionHasCurrentIndex,
+    assistantRunHasLegacyDocument,
+    assistantRunHasScopeColumn,
+    assistantRunHasScopeIndex,
+    assistantRunIntegrityChecks,
+  ] =
+    await Promise.all([
+      inspector.hasColumnDefinition("Session", TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN),
+      inspector.hasNamedIndexOnColumns(
+        TEAM_SCOPED_CONVERSATION_SESSION_INDEX.table,
+        TEAM_SCOPED_CONVERSATION_SESSION_INDEX.name,
+        TEAM_SCOPED_CONVERSATION_SESSION_INDEX.columns,
+        TEAM_SCOPED_CONVERSATION_SESSION_INDEX.unique,
+      ),
+      inspector.hasColumnDefinition(
+        "AssistantRun",
+        TEAM_SCOPED_CONVERSATION_LEGACY_DOCUMENT_COLUMN,
+      ),
+      inspector.hasColumn(
+        "AssistantRun",
+        TEAM_SCOPED_CONVERSATION_SCOPE_COLUMN.name,
+      ),
+      inspector.hasIndex("AssistantRun_organizationId_scopeKind_startedAt_idx"),
+      Promise.all([
+        ...TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_FOREIGN_KEYS.map((foreignKey) =>
+          inspector.hasForeignKey("AssistantRun", foreignKey),
+        ),
+        ...TEAM_SCOPED_CONVERSATION_ASSISTANT_RUN_INDEXES
+          .filter(
+            (index) =>
+              index.name !== "AssistantRun_organizationId_scopeKind_startedAt_idx",
+          )
+          .map((index) =>
+            inspector.hasNamedIndexOnColumns(
+              index.table,
+              index.name,
+              index.columns,
+              index.unique,
+            ),
+          ),
+      ]),
+    ]);
+
+  if (
+    !sessionHasCurrentScope ||
+    !sessionHasCurrentIndex ||
+    !assistantRunHasLegacyDocument ||
+    assistantRunHasScopeColumn ||
+    assistantRunHasScopeIndex ||
+    !assistantRunIntegrityChecks.every(Boolean)
+  ) {
+    return {
+      resumable: false,
+      reason:
+        "found new_AssistantRun but Session/AssistantRun are not in the exact interrupted team-scoped migration state.",
+    };
+  }
+
+  if (
+    !(await hasCompleteTableSchema(
+      inspector,
+      TEAM_SCOPED_CONVERSATION_STAGING_TABLE,
+    ))
+  ) {
+    return {
+      resumable: false,
+      reason:
+        "found new_AssistantRun but its schema does not match the expected team-scoped AssistantRun staging table.",
+    };
+  }
+
+  const [rowCountsMatch, hasMismatchedRows, hasLegacyExtraRows] = await Promise.all([
+    inspector.scalarEquals(
+      `
+        SELECT COUNT(*) FROM "AssistantRun"
+      `,
+      `
+        SELECT COUNT(*) FROM "new_AssistantRun"
+      `,
+    ),
+    inspector.hasAnyRows(`
+      SELECT 1
+      FROM "AssistantRun" AS legacy
+      LEFT JOIN "new_AssistantRun" AS staged
+        ON staged."id" = legacy."id"
+      WHERE staged."id" IS NULL
+         OR staged."organizationId" <> legacy."organizationId"
+         OR staged."sessionId" <> legacy."sessionId"
+         OR NOT (
+           (staged."documentId" IS NULL AND legacy."documentId" IS NULL)
+           OR staged."documentId" = legacy."documentId"
+         )
+         OR staged."scopeKind" <> 'wiki'
+         OR NOT (
+           (staged."requestMessageId" IS NULL AND legacy."requestMessageId" IS NULL)
+           OR staged."requestMessageId" = legacy."requestMessageId"
+         )
+         OR staged."mode" <> legacy."mode"
+         OR staged."title" <> legacy."title"
+         OR staged."status" <> legacy."status"
+         OR NOT (
+           (staged."summary" IS NULL AND legacy."summary" IS NULL)
+           OR staged."summary" = legacy."summary"
+         )
+         OR NOT (
+           (staged."payloadJson" IS NULL AND legacy."payloadJson" IS NULL)
+           OR staged."payloadJson" = legacy."payloadJson"
+         )
+         OR NOT (
+           (staged."createdByUserId" IS NULL AND legacy."createdByUserId" IS NULL)
+           OR staged."createdByUserId" = legacy."createdByUserId"
+         )
+         OR NOT (
+           (staged."originDeviceId" IS NULL AND legacy."originDeviceId" IS NULL)
+           OR staged."originDeviceId" = legacy."originDeviceId"
+         )
+         OR staged."revision" <> legacy."revision"
+         OR NOT (
+           (staged."deletedAt" IS NULL AND legacy."deletedAt" IS NULL)
+           OR staged."deletedAt" = legacy."deletedAt"
+         )
+         OR staged."startedAt" <> legacy."startedAt"
+         OR NOT (
+           (staged."finishedAt" IS NULL AND legacy."finishedAt" IS NULL)
+           OR staged."finishedAt" = legacy."finishedAt"
+         )
+         OR staged."createdAt" <> legacy."createdAt"
+         OR staged."updatedAt" <> legacy."updatedAt"
+      LIMIT 1
+    `),
+    inspector.hasAnyRows(`
+      SELECT 1
+      FROM "new_AssistantRun" AS staged
+      LEFT JOIN "AssistantRun" AS legacy
+        ON legacy."id" = staged."id"
+      WHERE legacy."id" IS NULL
+      LIMIT 1
+    `),
+  ]);
+
+  if (!rowCountsMatch || hasMismatchedRows || hasLegacyExtraRows) {
+    return {
+      resumable: false,
+      reason:
+        "found new_AssistantRun but its rows do not exactly match legacy AssistantRun data for deterministic resume.",
+    };
+  }
+
+  return { resumable: true };
+}
+
+async function resolveTeamScopedConversationsStrategy(inspector) {
+  const [hasSessionTable, hasAssistantRunTable, hasTemporaryAssistantRunTable] =
+    await Promise.all([
+      inspector.hasTable("Session"),
+      inspector.hasTable("AssistantRun"),
+      inspector.hasTable("new_AssistantRun"),
+    ]);
+
+  if (!hasSessionTable || !hasAssistantRunTable) {
+    throw new Error(
+      `${TEAM_SCOPED_CONVERSATIONS_MIGRATION} requires Session and AssistantRun tables before compatibility checks.`,
+    );
+  }
+
+  if (hasTemporaryAssistantRunTable) {
+    const interruptedStage = await inspectInterruptedTeamScopedConversationStage(
+      inspector,
+    );
+    if (interruptedStage.resumable) {
+      return {
+        action: MIGRATION_ACTION_REPAIR,
+        sql: TEAM_SCOPED_CONVERSATION_RESUME_SQL,
+      };
+    }
+    throw new Error(
+      `${TEAM_SCOPED_CONVERSATIONS_MIGRATION} detected an ambiguous leftover new_AssistantRun table and will not guess how to recover it: ${interruptedStage.reason} Drop the stray staging table and restore a clean legacy or complete target schema before retrying bootstrap.`,
+    );
+  }
+
+  if (await hasCompleteTeamScopedConversationSchema(inspector)) {
+    return { action: MIGRATION_ACTION_MARK };
+  }
+
+  if (await hasUntouchedLegacyTeamScopedConversationSchema(inspector)) {
+    return { action: MIGRATION_ACTION_APPLY };
+  }
+
+  throw new Error(
+    `${TEAM_SCOPED_CONVERSATIONS_MIGRATION} detected a partial or mixed team-scoped conversation schema. Refusing to rebuild AssistantRun against a mixed state.`,
+  );
+}
+
 function quoteSqliteIdentifier(value) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
     throw new Error(`Unsafe SQLite identifier: ${value}`);
@@ -1515,6 +2062,30 @@ function createSchemaInspector(client) {
         const name =
           typeof row.name === "string" ? row.name : String(row.name ?? "");
         return name === column;
+      });
+    },
+    async hasColumnDefinition(table, expected) {
+      const result = await client.execute(
+        `PRAGMA table_info(${quoteSqliteIdentifier(table)})`,
+      );
+      return result.rows.some((row) => {
+        const column = {
+          defaultValue:
+            row.dflt_value === null || row.dflt_value === undefined
+              ? null
+              : String(row.dflt_value),
+          name: typeof row.name === "string" ? row.name : String(row.name ?? ""),
+          notNull: Boolean(Number(row.notnull)),
+          primaryKeyPosition: Number(row.pk),
+          type: String(row.type ?? "").trim().toUpperCase(),
+        };
+        return (
+          column.name === expected.name &&
+          column.type === expected.type.trim().toUpperCase() &&
+          column.notNull === expected.notNull &&
+          column.defaultValue === expected.defaultValue &&
+          column.primaryKeyPosition === expected.primaryKeyPosition
+        );
       });
     },
     async hasExactColumns(table, columns) {
@@ -1716,6 +2287,16 @@ function createSchemaInspector(client) {
     async hasNoRows(sql) {
       return !(await this.hasAnyRows(sql));
     },
+    async scalarEquals(leftSql, rightSql) {
+      const [left, right] = await Promise.all([
+        client.execute(leftSql),
+        client.execute(rightSql),
+      ]);
+      return (
+        String(left.rows[0]?.[0] ?? left.rows[0]?.value ?? "") ===
+        String(right.rows[0]?.[0] ?? right.rows[0]?.value ?? "")
+      );
+    },
   };
 }
 
@@ -1724,22 +2305,241 @@ function normalizeSqliteSchemaSql(value) {
 }
 
 async function markMigrationApplied(client, migrationName) {
-  await client.execute({
-    sql: 'INSERT INTO "_dao_local_migrations" ("name") VALUES (?)',
-    args: [migrationName],
-  });
+  const statements = [
+    "BEGIN IMMEDIATE;",
+    `INSERT INTO "_dao_local_migrations" ("name") VALUES (${quoteSqliteString(migrationName)});`,
+    "COMMIT;",
+  ].join("\n\n");
+  await client.executeMultiple(statements);
 }
 
 async function executeMigrationStep(client, migrationName, sql) {
+  const trimmedSql = sql?.trim();
+  if (!trimmedSql) {
+    return;
+  }
+
+  if (hasForeignKeyManagedMigration(trimmedSql)) {
+    await executeForeignKeyManagedMigrationStep(
+      client,
+      migrationName,
+      trimmedSql,
+    );
+    return;
+  }
+
   const statements = [
     "BEGIN IMMEDIATE;",
-    sql?.trim(),
+    trimmedSql,
     `INSERT INTO "_dao_local_migrations" ("name") VALUES (${quoteSqliteString(migrationName)});`,
     "COMMIT;",
   ]
     .filter(Boolean)
     .join("\n\n");
   await client.executeMultiple(statements);
+}
+
+async function assertNoForeignKeyViolations(client, migrationName) {
+  const result = await client.execute("PRAGMA foreign_key_check");
+  if (result.rows.length === 0) {
+    return;
+  }
+
+  const details = result.rows
+    .slice(0, 5)
+    .map((row) => {
+      const table = String(row.table ?? "");
+      const rowId = String(row.rowid ?? "");
+      const parent = String(row.parent ?? "");
+      const foreignKeyId = String(row.fkid ?? "");
+      return `table=${table || "unknown"}, rowid=${rowId || "unknown"}, parent=${parent || "unknown"}, fkid=${foreignKeyId || "unknown"}`;
+    })
+    .join("; ");
+  const remainder =
+    result.rows.length > 5 ? ` (+${result.rows.length - 5} more)` : "";
+  throw new Error(
+    `${migrationName} failed foreign_key_check after schema changes: ${details}${remainder}`,
+  );
+}
+
+function hasForeignKeyManagedMigration(sql) {
+  return /PRAGMA\s+foreign_keys\s*=\s*OFF\b/i.test(sql);
+}
+
+function stripManagedForeignKeyPragmas(sql) {
+  return sql
+    .replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*OFF\s*;\s*$/gim, "")
+    .replace(/^\s*PRAGMA\s+foreign_keys\s*=\s*ON\s*;\s*$/gim, "")
+    .replace(/^\s*PRAGMA\s+foreign_key_check\s*;\s*$/gim, "")
+    .trim();
+}
+
+async function executeForeignKeyManagedMigrationStep(
+  client,
+  migrationName,
+  sql,
+) {
+  const body = stripManagedForeignKeyPragmas(sql);
+  if (!body) {
+    throw new Error(
+      `${migrationName} declared PRAGMA foreign_keys=OFF but has no executable migration body after stripping managed pragmas.`,
+    );
+  }
+
+  await client.execute("PRAGMA foreign_keys = OFF");
+  const transaction = await client.transaction("write");
+  try {
+    for (const statement of splitSqlStatements(body)) {
+      await transaction.execute(statement);
+    }
+    await assertNoForeignKeyViolations(transaction, migrationName);
+    await transaction.execute({
+      sql: 'INSERT INTO "_dao_local_migrations" ("name") VALUES (?)',
+      args: [migrationName],
+    });
+    await transaction.commit();
+  } catch (error) {
+    try {
+      if (!transaction.closed) {
+        await transaction.rollback();
+      }
+    } catch {
+      // Best-effort rollback; preserve the original failure.
+    }
+    throw error;
+  } finally {
+    if (!transaction.closed) {
+      transaction.close();
+    }
+    await client.execute("PRAGMA foreign_keys = ON");
+  }
+}
+
+function splitSqlStatements(sql) {
+  const statements = [];
+  let buffer = "";
+  let token = "";
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let isTriggerStatement = false;
+  let triggerBlockDepth = 0;
+
+  const flushToken = () => {
+    if (!token) return;
+    const upper = token.toUpperCase();
+    if (upper === "TRIGGER") {
+      isTriggerStatement = true;
+    } else if (isTriggerStatement && upper === "BEGIN") {
+      triggerBlockDepth += 1;
+    } else if (isTriggerStatement && upper === "END" && triggerBlockDepth > 0) {
+      triggerBlockDepth -= 1;
+    }
+    token = "";
+  };
+
+  const flushStatement = () => {
+    const statement = buffer.trim();
+    if (statement) {
+      statements.push(statement);
+    }
+    buffer = "";
+    token = "";
+    isTriggerStatement = false;
+    triggerBlockDepth = 0;
+  };
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const char = sql[index];
+    const next = sql[index + 1] ?? "";
+    buffer += char;
+
+    if (inLineComment) {
+      if (char === "\n") {
+        inLineComment = false;
+      }
+      continue;
+    }
+
+    if (inBlockComment) {
+      if (char === "*" && next === "/") {
+        buffer += next;
+        index += 1;
+        inBlockComment = false;
+      }
+      continue;
+    }
+
+    if (inSingleQuote) {
+      if (char === "'" && next === "'") {
+        buffer += next;
+        index += 1;
+        continue;
+      }
+      if (char === "'") {
+        inSingleQuote = false;
+      }
+      continue;
+    }
+
+    if (inDoubleQuote) {
+      if (char === '"') {
+        inDoubleQuote = false;
+      }
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      flushToken();
+      buffer += next;
+      index += 1;
+      inLineComment = true;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      flushToken();
+      buffer += next;
+      index += 1;
+      inBlockComment = true;
+      continue;
+    }
+
+    if (char === "'") {
+      flushToken();
+      inSingleQuote = true;
+      continue;
+    }
+
+    if (char === '"') {
+      flushToken();
+      inDoubleQuote = true;
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(char)) {
+      token += char;
+      continue;
+    }
+
+    if (/[0-9]/.test(char) && token) {
+      token += char;
+      continue;
+    }
+
+    flushToken();
+
+    if (char === ";") {
+      if (!isTriggerStatement || triggerBlockDepth === 0) {
+        flushStatement();
+      }
+    }
+  }
+
+  flushToken();
+  flushStatement();
+  return statements;
 }
 
 async function main() {
@@ -1796,13 +2596,18 @@ async function main() {
         console.log(
           `Marking existing schema as already satisfying ${migrationName}`,
         );
-        await executeMigrationStep(client, migrationName, "");
+        await assertNoForeignKeyViolations(client, migrationName);
+        await markMigrationApplied(client, migrationName);
         continue;
       }
 
       if (strategy.action === MIGRATION_ACTION_REPAIR) {
         console.log(`Repairing existing schema for ${migrationName}`);
         await executeMigrationStep(client, migrationName, strategy.sql);
+        if (!strategy.sql?.trim()) {
+          await assertNoForeignKeyViolations(client, migrationName);
+          await markMigrationApplied(client, migrationName);
+        }
         continue;
       }
 
@@ -1816,6 +2621,10 @@ async function main() {
         console.log(`Applying ${migrationName}`);
       }
       await executeMigrationStep(client, migrationName, migrationSql);
+      if (!migrationSql.trim()) {
+        await assertNoForeignKeyViolations(client, migrationName);
+        await markMigrationApplied(client, migrationName);
+      }
     }
   } finally {
     await client.close();

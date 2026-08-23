@@ -257,27 +257,27 @@ test('finalized deliverables can start the next deliverable in the same project 
   await expect(nextDeliverableCard).toBeVisible();
   await expect(nextDeliverableCard).toContainText(activeWorkflow.title);
   await expect(page.getByTestId('plan-next-deliverable-action')).toContainText(
-    /继续下一项内容|Continue to Next Item/
+    /继续下一个页面|Continue to Next Page/
   );
   await expect(page.getByTestId('workspace-new-sibling-deliverable')).toContainText(
-    /继续下一项内容|Continue to Next Item/
+    /继续下一个页面|Continue to Next Page/
   );
 
   await page.getByTestId('plan-next-deliverable-action').click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText(activeWorkflow.title);
-  await expect(dialog).toContainText(/继续推进|continues inside/i);
+  await expect(dialog).toContainText(/上下文继续|continues inside/i);
   await expect(dialog.getByTestId('goal-deliverable-pill')).toHaveCount(0);
   await expect(
-    dialog.getByRole('button', { name: /创建内容|Create Content/ })
+    dialog.getByRole('button', { name: /创建页面|Create Page/ })
   ).toBeVisible();
 
   await dialog
     .getByLabel(/目标|Goal/)
     .fill('为同一项目继续创建下一份执行摘要。');
   await dialog
-    .getByRole('button', { name: /创建内容|Create Content|创建项目|Create Project/ })
+    .getByRole('button', { name: /创建页面|Create Page|创建 Wiki 空间|Create Wiki Space/ })
     .click();
   const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
@@ -356,7 +356,7 @@ test('workspace header shows the project path and keeps sibling creation in the 
   );
   await expect(page.getByTestId('sidebar-current-project-context')).toContainText(projectTitle);
   await expect(page.getByTestId('sidebar-current-project-context')).toContainText(
-    `当前内容：${currentTitle}`
+    `当前页面：${currentTitle}`
   );
   await expect(
     page.getByTestId(`sidebar-project-tree-current-${currentWorkspace.id}`)
@@ -365,12 +365,12 @@ test('workspace header shows the project path and keeps sibling creation in the 
     page.getByTestId(`sidebar-project-tree-current-badge-${currentWorkspace.id}`)
   ).toContainText(/当前|Current/);
   await expect(page.getByTestId('workspace-new-sibling-deliverable')).toContainText(
-    /继续下一项内容|Continue to Next Item/
+    /继续下一个页面|Continue to Next Page/
   );
   await expect(
     page.getByTestId(`sidebar-project-tree-create-next-${currentWorkspace.id}`)
-  ).toContainText(/从这里继续下一份|Continue from Here/);
-  await expect(page.getByText(/新建同级交付物|New Sibling Deliverable/)).toHaveCount(0);
+  ).toContainText(/在这里新建页面|New Page Here/);
+  await expect(page.getByText(/新建同级页面|New Sibling Page/)).toHaveCount(0);
 
   const dialog = page.getByRole('dialog');
   const createNextButton = page.getByTestId(
@@ -382,7 +382,7 @@ test('workspace header shows the project path and keeps sibling creation in the 
   await dialog
     .getByLabel(/目标|Goal/)
     .fill('创建一份新的执行摘要文档，沿着同一项目目录继续推进下一份交付物。');
-  await dialog.getByRole('button', { name: /创建内容|Create Content/ }).click();
+  await dialog.getByRole('button', { name: /创建页面|Create Page/ }).click();
   const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
     await clarifyAfterNextDeliverable
@@ -448,7 +448,7 @@ test('workspace header can switch to another deliverable in the same project', a
   const switcher = page.getByTestId('workspace-switch-deliverable');
   await expect(page.getByTestId('workspace-title-project-context')).toContainText(projectTitle);
   await expect(switcher).toContainText(projectTitle);
-  await expect(switcher).toContainText(/文档|Document/);
+  await expect(switcher).toContainText(/页面|Page/);
 
   await switcher.click();
   await expect(
@@ -502,7 +502,9 @@ test('workspace sidebar switches sibling nodes through query-only routes', async
   await primeClientState(page);
   await page.goto(`/workspace/${firstWorkspace.id}?conversationId=${firstWorkspace.conversationId}`);
 
-  await expect(page.getByTestId('sidebar-project-tree-section')).toContainText(/目录|Directory/);
+  await expect(page.getByTestId('sidebar-project-tree-section')).toContainText(
+    /页面树|Page Tree/
+  );
   await expect(page.getByTestId('sidebar-outline-section')).toContainText(/大纲|Outline/);
 
   const navigationCountBefore = await page.evaluate(
@@ -574,15 +576,15 @@ test('workspace sidebar can link another project and open it from linked project
   );
 
   await expect(page.getByTestId('sidebar-linked-projects-section')).toContainText(
-    /关联项目|Linked Projects/
+    /关联 Wiki 空间|Linked Wiki Spaces/
   );
   await expect(page.getByTestId('sidebar-linked-projects-empty')).toContainText(
-    /还没有关联项目|No linked projects yet/
+    /还没有关联 Wiki 空间|No linked Wiki Spaces yet/
   );
 
   await page.getByTestId('sidebar-linked-project-dialog-trigger').click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog).toContainText(/添加关联项目|Add Linked Project/);
+  await expect(dialog).toContainText(/关联 Wiki 空间|Link Wiki Space/);
   await page.getByTestId('sidebar-linked-project-select').click();
   await page.getByRole('option', { name: sourceTitle }).click();
   await page.getByTestId('sidebar-linked-project-submit').click();
@@ -653,7 +655,7 @@ test('workspace sidebar can search project nodes by content and open the matched
   await page.goto(`/workspace/${rootWorkspace.id}?conversationId=${rootWorkspace.conversationId}`);
 
   await expect(page.getByTestId('sidebar-node-search-section')).toContainText(
-    /项目内定位|Find in Project/
+    /Wiki 空间内定位|Find in Wiki Space/
   );
   await page.getByTestId('sidebar-node-search-input').fill(searchToken);
 

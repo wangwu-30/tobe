@@ -38,6 +38,7 @@ export async function streamPiAgentChat({
   const encoder = new TextEncoder();
   let isStreamSettled = false;
   let cleanupStreamResources: (() => void) | null = null;
+  let firstTextTransition: Promise<void> | null = null;
 
   const agent = new Agent({
     initialState: {
@@ -110,8 +111,8 @@ export async function streamPiAgentChat({
           event.type === 'message_update' &&
           event.assistantMessageEvent.type === 'text_delta'
         ) {
-          if (!streamedText.length) {
-            void onFirstText?.();
+          if (!firstTextTransition) {
+            firstTextTransition = Promise.resolve(onFirstText?.());
           }
           streamedText += event.assistantMessageEvent.delta;
           enqueueChunk(encoder.encode(event.assistantMessageEvent.delta));
@@ -120,6 +121,7 @@ export async function streamPiAgentChat({
 
       try {
         await agent.continue();
+        await firstTextTransition;
         const finalText = getLastAssistantMessageText(agent.state.messages) || streamedText;
         await onFinish?.({ text: finalText });
         settleStream('close');

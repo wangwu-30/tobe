@@ -49,7 +49,7 @@
 - 产品严格 Web-only；生产面是 Next.js Web 加 execution daemon、Room Session Host、knowledge merge worker 三个独立 Node 服务
 - 身份表述必须区分已实现的 team-mode schema/membership role/organization ACL 与当前 trusted local
   single-user principal；不得声称 production IdP、登录/session/JWT、成员邀请/provisioning 或企业 SSO 已交付
-- Project Room 是默认 Agent 入口；Room Agent Session 与 durable `ExecutionJob` 必须保持独立生命周期
+- Chat 是默认 AI 入口；Project Room 是高级多 Agent 协作面。Room Agent Session 与 durable `ExecutionJob` 必须保持独立生命周期
 - `git-worktree` 是 capability 名；当前实现是 per-attempt isolated clone/workspace，不是 native registered worktree
 - 远程 Git credential/fetch/push 与 monorepo subpath mount 是明确 non-goal
 - 本地 SQLite 由 bootstrap 强制 WAL，并通过 safe Prisma/libSQL adapter 访问；busy retry 只能包住可幂等重放的完整 durable command

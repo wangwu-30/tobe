@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db/prisma';
 import { describeAIError } from '@/lib/ai/error-utils';
 import {
+  ChatRequestError,
   createChatUserMessage,
   ensureChatConversation,
 } from '@/lib/ai/chat-request';
@@ -14,11 +15,14 @@ import {
   type SuggestEditAgentRunPayload,
 } from '@/lib/ai/agent-run-request';
 import {
+  buildOnboardingAssistantConversationContext,
   buildWorkspaceAssistantConversationContext,
   buildWorkspaceAssistantSystemPrompt,
   initializeWorkspaceAssistantRun,
   startWorkspaceAssistantRun,
+  streamWorkspaceAssistantRun,
 } from '@/lib/ai/conversation-runner';
+import { runWithAssistantRunFailureBoundary } from '@/lib/ai/assistant-run-lifecycle';
 import {
   executeCommentReplyAgentRun,
   executeExtractMemoryAgentRun,
@@ -35,6 +39,10 @@ import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
 import { getSearchProviderFromHeaders } from '@/lib/search/providers';
 import { SearchProviderError } from '@/lib/search/types';
 import { stringifyAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
+import {
+  beginOnboardingAssistantTurn,
+  ConversationCommandError,
+} from '@/objects/conversation/commands';
 
 const INTERNAL_FIRST_PASS_PREFIX = 'Take the first author pass for this deliverable.';
 
@@ -53,24 +61,33 @@ type ExtractMemoryAgentRunRequestContext = Omit<AgentRunRequestContext, 'payload
 };
 
 export async function handleAgentRunRequest(req: NextRequest) {
-  const payload = await parseAgentRunRequest(req);
+  try {
+    const payload = await parseAgentRunRequest(req);
 
-  switch (payload.mode) {
-    case 'chat':
-      return payload.researchMode === 'deep'
-        ? handleDeepResearchPayloadRequest(req, payload)
-        : handleLightChatPayloadRequest(req, payload);
-    case 'comment-reply':
-      return handleCommentReplyPayloadRequest(req, payload);
-    case 'suggest-edit':
-      return handleSuggestEditPayloadRequest(req, payload);
-    case 'extract-memory':
-      return handleExtractMemoryPayloadRequest(req, payload);
+    switch (payload.mode) {
+      case 'chat':
+        return payload.researchMode === 'deep'
+          ? handleDeepResearchPayloadRequest(req, payload)
+          : handleLightChatPayloadRequest(req, payload);
+      case 'comment-reply':
+        return handleCommentReplyPayloadRequest(req, payload);
+      case 'suggest-edit':
+        return handleSuggestEditPayloadRequest(req, payload);
+      case 'extract-memory':
+        return handleExtractMemoryPayloadRequest(req, payload);
+    }
+  } catch (error) {
+    return handleAgentRunError(error);
   }
 }
 
 export async function handleLightChatRunRequest(req: NextRequest) {
-  const payload = await parseAgentRunRequest(req);
+  let payload: AgentRunRequestPayload;
+  try {
+    payload = await parseAgentRunRequest(req);
+  } catch (error) {
+    return handleAgentRunError(error);
+  }
   if (payload.mode !== 'chat') {
     return NextResponse.json(
       { error: 'This route only accepts chat payloads.' },
@@ -89,7 +106,12 @@ export async function handleLightChatRunRequest(req: NextRequest) {
 }
 
 export async function handleDeepResearchPlanRequest(req: NextRequest) {
-  const payload = await parseAgentRunRequest(req);
+  let payload: AgentRunRequestPayload;
+  try {
+    payload = await parseAgentRunRequest(req);
+  } catch (error) {
+    return handleAgentRunError(error);
+  }
   if (payload.mode !== 'chat') {
     return NextResponse.json(
       { error: 'This route only accepts chat payloads.' },
@@ -109,7 +131,7 @@ async function handleLightChatPayloadRequest(
       req,
       payload
     )) as ChatAgentRunRequestContext;
-    return executeLightChatRunRequest(context, req);
+    return await executeLightChatRunRequest(context, req);
   } catch (error) {
     return handleAgentRunError(error);
   }
@@ -124,7 +146,7 @@ async function handleDeepResearchPayloadRequest(
       req,
       payload
     )) as ChatAgentRunRequestContext;
-    return executeDeepResearchPlanRequest(context, req);
+    return await executeDeepResearchPlanRequest(context, req);
   } catch (error) {
     return handleAgentRunError(error);
   }
@@ -139,7 +161,7 @@ async function handleCommentReplyPayloadRequest(
       req,
       payload
     )) as CommentReplyAgentRunRequestContext;
-    return executeCommentReplyAgentRun({
+    return await executeCommentReplyAgentRun({
       actor: context.actor,
       model: context.model,
       modelKey: context.modelKey,
@@ -165,7 +187,7 @@ async function handleSuggestEditPayloadRequest(
     )) as SuggestEditAgentRunRequestContext;
     modelKey = context.modelKey;
     language = context.settings.language;
-    return executeSuggestEditAgentRun({
+    return await executeSuggestEditAgentRun({
       actor: context.actor,
       model: context.model,
       modelKey: context.modelKey,
@@ -195,7 +217,7 @@ async function handleExtractMemoryPayloadRequest(
     )) as ExtractMemoryAgentRunRequestContext;
     modelKey = context.modelKey;
     language = context.settings.language;
-    return executeExtractMemoryAgentRun({
+    return await executeExtractMemoryAgentRun({
       actor: context.actor,
       model: context.model,
       modelKey: context.modelKey,
@@ -234,6 +256,7 @@ async function executeLightChatRunRequest(
   context: ChatAgentRunRequestContext,
   req: NextRequest
 ) {
+  assertSupportedChatCapabilities(context.payload);
   const language = context.settings.language || 'zh-CN';
   const newConversationTitle = translate(language, 'chat.newConversation');
   const untitledProjectTitle = translate(language, 'workspace.untitledProject');
@@ -241,15 +264,83 @@ async function executeLightChatRunRequest(
     ? ((context.model as { input?: string[] }).input || []).includes('image')
     : false;
 
-  const { conversation, workspaceId } = await ensureChatConversation({
+  if (context.payload.scope === 'onboarding') {
+    const { assistantRun, conversation } = await beginOnboardingAssistantTurn(
+      context.actor,
+      {
+        content: context.payload.message,
+        conversationId: context.payload.conversationId,
+        conversationTitle: newConversationTitle,
+        mode: 'run',
+        runTitle: buildRunTitle(context.payload.message),
+      }
+    );
+    return runWithAssistantRunFailureBoundary({
+      actor: context.actor,
+      assistantRunId: assistantRun.id,
+      operation: async () => {
+      const { history, systemPrompt, toolMessages } =
+        await buildOnboardingAssistantConversationContext({
+          conversationId: conversation.id,
+          language: context.settings.language,
+          modelSupportsImages,
+          organizationId: context.actor.organizationId,
+        });
+
+        return streamWorkspaceAssistantRun({
+        actor: context.actor,
+        assistantRunId: assistantRun.id,
+        conversationId: conversation.id,
+        model: context.model,
+        modelKey: context.modelKey,
+        settings: context.settings,
+        scopeKind: 'team',
+        systemPrompt,
+        toolMessages,
+        workspaceId: null,
+        onAfterFinish: async () => {
+          if (history.length <= 1) {
+            const title =
+              context.payload.message.slice(0, 50) +
+              (context.payload.message.length > 50 ? '...' : '');
+            await prisma.session.updateMany({
+              where: {
+                deletedAt: null,
+                id: conversation.id,
+                organizationId: context.actor.organizationId,
+                activeFileId: null,
+                baseVersionId: null,
+                projectId: null,
+                scopeKind: 'team',
+                sourceType: 'onboarding',
+                wikiId: null,
+              },
+              data: { title },
+            });
+          }
+        },
+        });
+      },
+    });
+  }
+
+  const { conversation, scopeKind, workspaceId } = await ensureChatConversation({
     actor: context.actor,
     activeFileId: context.payload.activeFileId,
     baseVersionId: context.payload.baseVersionId,
     conversationId: context.payload.conversationId,
     conversationTitle: newConversationTitle,
+    scope: context.payload.scope,
     title: untitledProjectTitle,
     workspaceId: context.payload.workspaceId,
   });
+  if (scopeKind !== 'wiki' || !workspaceId) {
+    throw new ChatRequestError(
+      'Workspace chat requires a Wiki scope.',
+      409,
+      'WORKSPACE_SCOPE_REQUIRED'
+    );
+  }
 
   const userMessage = await createChatUserMessage({
     actor: context.actor,
@@ -258,6 +349,7 @@ async function executeLightChatRunRequest(
     content: context.payload.message,
     conversationId: conversation.id,
     focusNodeId: context.payload.focusNodeId,
+    scopeKind,
     workspaceId,
   });
 
@@ -322,6 +414,7 @@ async function executeLightChatRunRequest(
     searchBudget: LIGHT_RESEARCH_SEARCH_BUDGET,
     searchProvider,
     settings: context.settings,
+    scopeKind: 'wiki',
     systemPrompt,
     toolMessages,
     workspaceId,
@@ -346,6 +439,14 @@ async function executeDeepResearchPlanRequest(
   context: ChatAgentRunRequestContext,
   req: NextRequest
 ) {
+  assertSupportedChatCapabilities(context.payload);
+  if (context.payload.scope === 'onboarding') {
+    throw new ChatRequestError(
+      'Deep research is not supported in onboarding chat.',
+      400,
+      'ONBOARDING_DEEP_RESEARCH_NOT_SUPPORTED'
+    );
+  }
   const language = context.settings.language || 'zh-CN';
 
   await getSearchProviderFromHeaders(req.headers);
@@ -356,9 +457,17 @@ async function executeDeepResearchPlanRequest(
     baseVersionId: context.payload.baseVersionId,
     conversationId: context.payload.conversationId,
     conversationTitle: translate(language, 'chat.newConversation'),
+    scope: context.payload.scope,
     title: translate(language, 'workspace.untitledProject'),
     workspaceId: context.payload.workspaceId,
   });
+  if (!workspaceId) {
+    throw new ChatRequestError(
+      'Deep research requires a workspace.',
+      409,
+      'WORKSPACE_SCOPE_REQUIRED'
+    );
+  }
 
   const userMessage = await createChatUserMessage({
     actor: context.actor,
@@ -426,6 +535,26 @@ async function executeDeepResearchPlanRequest(
 }
 
 function handleAgentRunError(error: unknown) {
+  if (error instanceof ConversationCommandError) {
+    return NextResponse.json(
+      {
+        code: error.code,
+        error: error.message,
+      },
+      { status: error.status }
+    );
+  }
+
+  if (error instanceof ChatRequestError) {
+    return NextResponse.json(
+      {
+        code: error.code,
+        error: error.message,
+      },
+      { status: error.status }
+    );
+  }
+
   if (error instanceof SearchProviderError) {
     return NextResponse.json(
       {
@@ -437,6 +566,33 @@ function handleAgentRunError(error: unknown) {
   }
 
   throw error;
+}
+
+function assertSupportedChatCapabilities(payload: ChatAgentRunPayload) {
+  if (payload.scope !== 'onboarding') {
+    return;
+  }
+
+  if (payload.attachments.length > 0) {
+    throw new ChatRequestError(
+      'Attachments are not supported in onboarding chat.',
+      400,
+      'ONBOARDING_ATTACHMENTS_NOT_SUPPORTED'
+    );
+  }
+
+  if (
+    payload.workspaceId ||
+    payload.focusNodeId ||
+    payload.activeFileId ||
+    payload.baseVersionId
+  ) {
+    throw new ChatRequestError(
+      'Onboarding chat cannot target a workspace.',
+      409,
+      'ONBOARDING_WORKSPACE_NOT_ALLOWED'
+    );
+  }
 }
 
 function handleDescribedAgentRunError(

@@ -40,7 +40,9 @@ test('C2-C7: status panel no longer exposes manual result-shape switching', asyn
   const baseURL = String(testInfo.project.use.baseURL);
 
   await primeClientState(page);
-  await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=status`
+  );
 
   const statusPanel = page.getByRole('tabpanel', { name: /状态|Status/ });
 

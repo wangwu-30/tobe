@@ -33,6 +33,7 @@ export function mapConversation(
     parentSessionId: string | null;
     projectId?: string | null;
     revision: number;
+    scopeKind?: string | null;
     sourceType: string;
     title: string;
     updatedAt: Date;
@@ -53,6 +54,7 @@ export function mapConversation(
     hasPendingChanges:
       (pendingChangeSetsByConversation?.get(session.id) || 0) > 0,
     scopeFilter: session.activeFileId,
+    scopeKind: normalizeConversationScopeKind(session.scopeKind),
     title: session.title,
     sourceType: session.sourceType,
     createdByUserId: session.createdByUserId,
@@ -179,7 +181,7 @@ export function mapAssistantRun(run: {
   createdAt: Date;
   createdByUserId: string | null;
   deletedAt: Date | null;
-  documentId: string;
+  documentId: string | null;
   finishedAt: Date | null;
   id: string;
   mode: string;
@@ -188,6 +190,7 @@ export function mapAssistantRun(run: {
   payloadJson: string | null;
   requestMessageId: string | null;
   revision: number;
+  scopeKind?: string | null;
   sessionId: string;
   startedAt: Date;
   status: string;
@@ -202,6 +205,7 @@ export function mapAssistantRun(run: {
     organizationId: run.organizationId,
     conversationId: run.sessionId,
     workspaceId: run.documentId,
+    scopeKind: normalizeConversationScopeKind(run.scopeKind),
     requestMessageId: run.requestMessageId,
     mode: normalizeAssistantRunMode(run.mode),
     title: run.title,
@@ -278,6 +282,7 @@ export function mapConversationWithRelations(
     parentSessionId: string | null;
     projectId?: string | null;
     revision: number;
+    scopeKind?: string | null;
     sourceType: string;
     title: string;
     updatedAt: Date;
@@ -337,6 +342,12 @@ function normalizeAssistantRunMode(mode?: string | null): AssistantRunData['mode
   }
 
   return 'revision';
+}
+
+function normalizeConversationScopeKind(
+  scopeKind?: string | null
+): ConversationData['scopeKind'] {
+  return scopeKind === 'team' ? 'team' : 'wiki';
 }
 
 function normalizeAssistantRunStatus(

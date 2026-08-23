@@ -131,6 +131,17 @@ export const DELETE = defineRoute(async function DELETE(
     },
     select: { id: true },
   });
+
+  if (existing.id === projectId && remainingProjectDocument) {
+    return NextResponse.json(
+      {
+        error:
+          'The Wiki space home page cannot be deleted while the space still has other pages.',
+      },
+      { status: 409 }
+    );
+  }
+
   await stopWorkspacePreview(actor.organizationId, workspaceId);
 
   await prisma.$transaction(async (tx) => {

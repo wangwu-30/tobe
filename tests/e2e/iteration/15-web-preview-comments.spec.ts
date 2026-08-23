@@ -507,8 +507,6 @@ async function dismissVisibleFirstUseGuidance(page: Page) {
 
 async function openReviewTab(page: Page, threadId?: string) {
   await expect(async () => {
-    await dismissVisibleFirstUseGuidance(page);
-
     const reviewTab = page.getByTestId('assistant-tab-review');
     await expect(reviewTab).toBeVisible();
     await expect(reviewTab).toBeEnabled();

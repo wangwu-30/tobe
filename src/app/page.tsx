@@ -1,9 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, LayoutGrid, Map, Sparkles } from 'lucide-react';
+import { BookOpen, Plus, Sparkles } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { ProjectCard } from '@/components/layout/project-card';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
@@ -12,11 +11,13 @@ import {
   buildCreatedWorkspaceLocation,
   buildWorkspaceCreateRecovery,
   clearWorkspaceCreateRecovery,
+  getWorkspaceCreateErrorMessage,
+  hasUnknownWorkspaceCreateOutcome,
   loadWorkspaceCreateRecovery,
   persistWorkspaceCreateRecovery,
   submitWorkspaceCreateRequest,
-  WorkspaceCreateActionError,
   type WorkspaceCreateContext,
+  type WorkspaceCreateValues,
 } from '@/lib/workspace/create-request';
 import {
   GoalComposerDialog,
@@ -26,30 +27,14 @@ import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { useT } from '@/components/providers/language-provider';
 import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
+import { HomeOnboardingChat } from '@/surfaces/home/home-onboarding-chat';
+import { clearOnboardingConversationId } from '@/surfaces/home/onboarding-session';
+import {
+  WikiCreateConfirmationDialog,
+  type WikiCreateConfirmationPayload,
+} from '@/surfaces/home/wiki-create-confirmation-dialog';
 
 import type { ProjectSummaryData } from '@/types';
-import { cn } from '@/lib/utils';
-
-const HomeCanvasLoader = dynamic(
-  () =>
-    import('@/canvas/home-canvas/home-canvas-loader').then((mod) => ({
-      default: mod.HomeCanvasLoader,
-    })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-        Loading canvas…
-      </div>
-    ),
-  }
-);
-
-type HomeViewMode = 'list' | 'canvas';
-
-function setStoredHomeViewMode(mode: HomeViewMode) {
-  localStorage.setItem('home-view-mode', mode);
-}
 
 export default function HomePage() {
   return (
@@ -63,51 +48,29 @@ function HomePageContent() {
   const t = useT();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
-  const requestedViewMode = searchParams.get('view');
   const [homeProjects, setHomeProjects] = React.useState<ProjectSummaryData[] | null>(null);
   const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
+  const [wikiDialogOpen, setWikiDialogOpen] = React.useState(false);
+  const [wikiCreateProposal, setWikiCreateProposal] = React.useState<{
+    conversationId: string | null;
+    goal: string;
+    title: string;
+  } | null>(null);
   const [isCreatingWorkspace, setIsCreatingWorkspace] = React.useState(false);
   const [createWorkspaceError, setCreateWorkspaceError] = React.useState<string | null>(null);
   const [createWorkspaceRecoveryActive, setCreateWorkspaceRecoveryActive] =
     React.useState(false);
   const [createWorkspaceRecoveryValues, setCreateWorkspaceRecoveryValues] =
-    React.useState<GoalComposerValues | null>(null);
+    React.useState<WorkspaceCreateValues | null>(null);
   const [workspaceCreateContext, setWorkspaceCreateContext] =
     React.useState<WorkspaceCreateContext | null>(null);
+  const [goalDialogSeedValues, setGoalDialogSeedValues] =
+    React.useState<Partial<GoalComposerValues> | null>(null);
   const [pendingCreateEntry, setPendingCreateEntry] = React.useState<
     WorkspaceCreateContext | 'workspace' | null
   >(null);
-  const [viewMode, setViewMode] = React.useState<HomeViewMode>(() =>
-    requestedViewMode === 'canvas' || requestedViewMode === 'list'
-      ? requestedViewMode
-      : 'list'
-  );
   const createWorkspaceRequestIdRef = React.useRef<string | null>(null);
   const createWorkspaceInFlightRef = React.useRef(false);
-
-  React.useEffect(() => {
-    const nextViewMode =
-      requestedViewMode === 'canvas' || requestedViewMode === 'list'
-        ? requestedViewMode
-        : (localStorage.getItem('home-view-mode') as HomeViewMode) || 'list';
-    setViewMode(nextViewMode);
-  }, [requestedViewMode]);
-
-  const selectViewMode = React.useCallback(
-    (nextViewMode: HomeViewMode) => {
-      setViewMode(nextViewMode);
-      setStoredHomeViewMode(nextViewMode);
-      const nextSearchParams = new URLSearchParams(searchParams.toString());
-      if (nextViewMode === 'list') {
-        nextSearchParams.delete('view');
-      } else {
-        nextSearchParams.set('view', nextViewMode);
-      }
-      const nextQuery = nextSearchParams.toString();
-      router.push(`${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`);
-    },
-    [router, searchParams]
-  );
 
   React.useEffect(() => {
     const recovery = loadWorkspaceCreateRecovery();
@@ -163,18 +126,47 @@ function HomePageContent() {
   }, [router, searchParams]);
 
   const openWorkspaceCreateEntry = React.useCallback(
-    (context: WorkspaceCreateContext | null = null) => {
-      setWorkspaceCreateContext(context);
-
+    (
+      context: WorkspaceCreateContext | null = null,
+      initialValues: Partial<GoalComposerValues> | null = null
+    ) => {
       if (createWorkspaceRecoveryActive) {
+        if (workspaceCreateContext?.projectId) {
+          setGoalDialogOpen(true);
+        } else {
+          setWikiCreateProposal({
+            conversationId: workspaceCreateContext?.conversationId || null,
+            goal: createWorkspaceRecoveryValues?.goal || '',
+            title:
+              createWorkspaceRecoveryValues?.title?.trim() ||
+              createWorkspaceRecoveryValues?.goal.trim() ||
+              '',
+          });
+          setWikiDialogOpen(true);
+        }
+        return;
+      }
+
+      setWorkspaceCreateContext(context);
+      setCreateWorkspaceError(null);
+      if (context?.projectId) {
+        setGoalDialogSeedValues(initialValues);
         setGoalDialogOpen(true);
         return;
       }
 
-      setCreateWorkspaceError(null);
-      setGoalDialogOpen(true);
+      setWikiCreateProposal({
+        conversationId: context?.conversationId || null,
+        goal: initialValues?.goal?.trim() || '',
+        title: '',
+      });
+      setWikiDialogOpen(true);
     },
-    [createWorkspaceRecoveryActive]
+    [
+      createWorkspaceRecoveryActive,
+      createWorkspaceRecoveryValues,
+      workspaceCreateContext,
+    ]
   );
 
   React.useEffect(() => {
@@ -188,72 +180,93 @@ function HomePageContent() {
     setPendingCreateEntry(null);
   }, [openWorkspaceCreateEntry, pendingCreateEntry]);
 
-  const createWorkspace = async (values: GoalComposerValues) => {
-    if (createWorkspaceInFlightRef.current) return;
+  const createWorkspace = React.useCallback(
+    async (
+      values: WorkspaceCreateValues,
+      context: WorkspaceCreateContext | null
+    ) => {
+      if (createWorkspaceInFlightRef.current) return;
 
-    createWorkspaceInFlightRef.current = true;
-    setCreateWorkspaceError(null);
-    setIsCreatingWorkspace(true);
+      createWorkspaceInFlightRef.current = true;
+      setCreateWorkspaceError(null);
+      setIsCreatingWorkspace(true);
 
-    const requestId = createWorkspaceRequestIdRef.current || crypto.randomUUID();
-    createWorkspaceRequestIdRef.current = requestId;
+      const requestId = createWorkspaceRequestIdRef.current || crypto.randomUUID();
+      createWorkspaceRequestIdRef.current = requestId;
 
-    try {
-      const workspace = await submitWorkspaceCreateRequest({
-        context: workspaceCreateContext,
-        errorMessage: t(
-          workspaceCreateContext?.projectId
-            ? 'goal.createDeliverableFailed'
-            : 'goal.createProjectFailed'
-        ),
-        headers: getStoredAISettingsHeader(),
-        requestId,
-        values,
-      });
-      clearWorkspaceCreateRecovery();
-      setCreateWorkspaceRecoveryActive(false);
-      setCreateWorkspaceRecoveryValues(null);
-      setWorkspaceCreateContext(null);
-      createWorkspaceRequestIdRef.current = null;
-      setGoalDialogOpen(false);
-      router.push(
-        buildCreatedWorkspaceLocation({
-          conversationId: workspace.conversation.id,
-          projectId: workspace.workspace.projectId || workspace.workspace.id,
-          workspaceId: workspace.workspace.id,
-        })
-      );
-    } catch (error) {
-      if (error instanceof WorkspaceCreateActionError) {
+      try {
+        const workspace = await submitWorkspaceCreateRequest({
+          context,
+          errorMessage: t(
+            context?.projectId
+              ? 'goal.createDeliverableFailed'
+              : 'goal.createProjectFailed'
+          ),
+          headers: getStoredAISettingsHeader(),
+          requestId,
+          values,
+        });
         clearWorkspaceCreateRecovery();
         setCreateWorkspaceRecoveryActive(false);
         setCreateWorkspaceRecoveryValues(null);
+        setWorkspaceCreateContext(null);
+        setGoalDialogSeedValues(null);
+        setWikiCreateProposal(null);
         createWorkspaceRequestIdRef.current = null;
-        setCreateWorkspaceError(error.message);
-        return;
-      }
+        setGoalDialogOpen(false);
+        setWikiDialogOpen(false);
+        if (context?.conversationId) {
+          clearOnboardingConversationId(context.conversationId);
+        }
+        router.push(
+          buildCreatedWorkspaceLocation({
+            conversationId: workspace.conversation.id,
+            projectId: workspace.workspace.projectId || workspace.workspace.id,
+            workspaceId: workspace.workspace.id,
+          })
+        );
+      } catch (error) {
+        if (!hasUnknownWorkspaceCreateOutcome(error)) {
+          clearWorkspaceCreateRecovery();
+          setCreateWorkspaceRecoveryActive(false);
+          setCreateWorkspaceRecoveryValues(null);
+          createWorkspaceRequestIdRef.current = null;
+          setCreateWorkspaceError(
+            getWorkspaceCreateErrorMessage(
+              error,
+              t(
+                context?.projectId
+                  ? 'goal.createDeliverableFailed'
+                  : 'goal.createProjectFailed'
+              )
+            )
+          );
+          return;
+        }
 
-      const recovery = buildWorkspaceCreateRecovery({
-        context: workspaceCreateContext,
-        requestId,
-        values,
-      });
-      createWorkspaceRequestIdRef.current = recovery.requestId;
-      persistWorkspaceCreateRecovery(recovery);
-      setCreateWorkspaceRecoveryActive(true);
-      setCreateWorkspaceRecoveryValues(values);
-      setCreateWorkspaceError(
-        t(
-          workspaceCreateContext?.projectId
-            ? 'goal.createDeliverableRetryUnknown'
-            : 'goal.createProjectRetryUnknown'
-        )
-      );
-    } finally {
-      createWorkspaceInFlightRef.current = false;
-      setIsCreatingWorkspace(false);
-    }
-  };
+        const recovery = buildWorkspaceCreateRecovery({
+          context,
+          requestId,
+          values,
+        });
+        createWorkspaceRequestIdRef.current = recovery.requestId;
+        persistWorkspaceCreateRecovery(recovery);
+        setCreateWorkspaceRecoveryActive(true);
+        setCreateWorkspaceRecoveryValues(values);
+        setCreateWorkspaceError(
+          t(
+            context?.projectId
+              ? 'goal.createDeliverableRetryUnknown'
+              : 'goal.createProjectRetryUnknown'
+          )
+        );
+      } finally {
+        createWorkspaceInFlightRef.current = false;
+        setIsCreatingWorkspace(false);
+      }
+    },
+    [router, t]
+  );
 
   const handleGoalDialogOpenChange = React.useCallback((open: boolean) => {
     if (!open) {
@@ -262,6 +275,7 @@ function HomePageContent() {
         setCreateWorkspaceError(null);
         setCreateWorkspaceRecoveryValues(null);
         setWorkspaceCreateContext(null);
+        setGoalDialogSeedValues(null);
         createWorkspaceRequestIdRef.current = null;
       }
     }
@@ -269,16 +283,63 @@ function HomePageContent() {
     setGoalDialogOpen(open);
   }, [createWorkspaceRecoveryActive]);
 
-  const openProject = React.useCallback(
-    (project: ProjectSummaryData) => {
-      router.push(
-        buildWorkspaceRoute({
-          nodeId: project.workspaceId,
-          projectId: project.id,
-        })
-      );
+  const handleWikiDialogOpenChange = React.useCallback(
+    (open: boolean) => {
+      if (!open && !createWorkspaceRecoveryActive) {
+        clearWorkspaceCreateRecovery();
+        setCreateWorkspaceError(null);
+        setCreateWorkspaceRecoveryValues(null);
+        setWorkspaceCreateContext(null);
+        setWikiCreateProposal(null);
+        createWorkspaceRequestIdRef.current = null;
+      }
+
+      setWikiDialogOpen(open);
     },
-    [router]
+    [createWorkspaceRecoveryActive]
+  );
+
+  const confirmWikiCreation = React.useCallback(
+    async (payload: WikiCreateConfirmationPayload) => {
+      const context = createWorkspaceRecoveryActive
+        ? workspaceCreateContext
+        : {
+            conversationId: payload.conversationId,
+            projectFolderId: null,
+            projectId: null,
+            projectTitle: null,
+          };
+      const values =
+        createWorkspaceRecoveryActive && createWorkspaceRecoveryValues
+          ? createWorkspaceRecoveryValues
+          : {
+              constraints: '',
+              createMode: 'document' as const,
+              deliverableType: 'document' as const,
+              goal: payload.purpose,
+              projectParentPath: '',
+              selectedIntent: 'document' as const,
+              selectedIntentNote: '',
+              styleGuide: '',
+              title: payload.title,
+              workflowPlaybookId: '',
+            };
+
+      if (createWorkspaceRecoveryActive && (!context || !createWorkspaceRecoveryValues)) {
+        setCreateWorkspaceError(t('goal.createProjectFailed'));
+        return;
+      }
+
+      setWorkspaceCreateContext(context);
+      await createWorkspace(values, context);
+    },
+    [
+      createWorkspaceRecoveryActive,
+      createWorkspaceRecoveryValues,
+      createWorkspace,
+      t,
+      workspaceCreateContext,
+    ]
   );
 
   const showsProjectWall = Boolean(homeProjects && homeProjects.length > 0);
@@ -298,150 +359,66 @@ function HomePageContent() {
       title={t('home.title')}
       subtitle={t('home.subtitle')}
     >
-      <main className="h-full overflow-y-auto px-4 py-6 sm:px-6 sm:py-8">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-          <div
-            className={
-              showsProjectWall
-                ? 'rounded-[28px] border border-border/70 bg-muted/20 p-6 shadow-sm sm:p-8'
-                : 'rounded-[28px] border border-border/70 bg-muted/20 p-8 shadow-sm sm:p-12'
+      <main className="h-full overflow-y-auto px-4 py-5 sm:px-6 sm:py-7">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+          <HomeOnboardingChat
+            onCreateWiki={({ conversationId, goal }) =>
+              openWorkspaceCreateEntry(
+                {
+                  conversationId,
+                  projectFolderId: null,
+                  projectId: null,
+                  projectTitle: null,
+                },
+                goal ? { goal } : null
+              )
             }
-          >
-            <div className={showsProjectWall ? 'max-w-5xl' : 'max-w-2xl'}>
-              <div className="inline-flex rounded-full bg-foreground/5 px-3 py-1 text-xs font-medium uppercase tracking-[0.24em] text-foreground/60 ring-1 ring-border/40">
-                {t('home.badge')}
+          />
+
+          <section aria-labelledby="recent-wikis-title" data-testid="home-wiki-list">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 id="recent-wikis-title" className="flex items-center gap-2 text-lg font-semibold">
+                  <BookOpen aria-hidden="true" className="h-4 w-4" />
+                  {t('home.wikiSpaces')}
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t('home.subtitle')}</p>
               </div>
-              <div
-                className={
-                  showsProjectWall
-                    ? 'mt-4 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between'
-                    : undefined
-                }
+              <Button
+                className="gap-2 rounded-xl"
+                onClick={() => openWorkspaceCreateEntry()}
+                variant="outline"
               >
-                <div className="min-w-0">
-                  <h1
-                    className={
-                      showsProjectWall
-                        ? 'text-balance text-2xl font-semibold tracking-tight sm:text-3xl'
-                        : 'mt-4 text-balance text-3xl font-semibold tracking-tight sm:text-5xl'
-                    }
-                  >
-                    {t('home.heroTitle')}
-                  </h1>
-                  <p
-                    className={
-                      showsProjectWall
-                        ? 'mt-3 max-w-3xl text-sm leading-7 text-muted-foreground'
-                        : 'mt-4 max-w-xl text-sm leading-7 text-muted-foreground sm:text-base'
-                    }
-                  >
-                    {t('home.heroDescription')}
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    className="gap-2 rounded-xl px-5"
-                    onClick={() => openWorkspaceCreateEntry()}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {t('home.startWithGoal')}
-                  </Button>
-                  <Button asChild className="gap-2 rounded-xl" variant="ghost">
-                    <a href="/settings">
-                      {t('home.configureModels')}
-                      <ArrowRight className="h-4 w-4" />
-                    </a>
-                  </Button>
-                </div>
-              </div>
+                <Plus aria-hidden="true" className="h-4 w-4" />
+                {t('home.createWikiSpace')}
+              </Button>
             </div>
-          </div>
 
-          {showsProjectWall ? (
-            <>
-              <div className="flex items-center justify-between">
-                <div className="inline-flex rounded-lg border bg-muted/50 p-0.5">
-                  <button
-                    type="button"
-                    className={cn(
-                      'inline-flex min-h-10 touch-manipulation items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:min-h-0',
-                      viewMode === 'list'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                    onClick={() => {
-                      selectViewMode('list');
-                    }}
-                    data-testid="home-view-list"
-                    aria-pressed={viewMode === 'list'}
-                  >
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                    列表
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      'inline-flex min-h-10 touch-manipulation items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none sm:min-h-0',
-                      viewMode === 'canvas'
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                    onClick={() => {
-                      selectViewMode('canvas');
-                    }}
-                    data-testid="home-view-canvas"
-                    aria-pressed={viewMode === 'canvas'}
-                  >
-                    <Map className="h-3.5 w-3.5" />
-                    画布
-                  </button>
-                </div>
-              </div>
-
-              {viewMode === 'list' ? (
-                <section className="space-y-4" data-testid="home-project-wall">
-                  <div className="grid gap-4 xl:grid-cols-3">
-                    {homeProjects?.map((project) => (
-                      <ProjectCard
-                        currentHref={buildWorkspaceRoute({
-                          nodeId: project.workspaceId,
-                          projectId: project.id,
-                        })}
-                        key={project.id}
-                        nextHref={`/?${new URLSearchParams({
-                          newDeliverableProjectId: project.id,
-                          newDeliverableProjectTitle: project.title,
-                        }).toString()}`}
-                        project={project}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ) : (
-                <section
-                  className="h-[500px] overflow-hidden rounded-2xl border border-border/60 bg-background/60"
-                  data-testid="home-project-canvas"
-                >
-                  <HomeCanvasLoader
-                    projects={homeProjects || []}
-                    onDoubleClickProject={openProject}
+            {showsProjectWall ? (
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="home-project-wall">
+                {homeProjects?.slice(0, 6).map((project) => (
+                  <ProjectCard
+                    currentHref={buildWorkspaceRoute({
+                      nodeId: project.workspaceId,
+                      projectId: project.id,
+                    })}
+                    key={project.id}
+                    nextHref={`/?${new URLSearchParams({
+                      newDeliverableProjectId: project.id,
+                      newDeliverableProjectTitle: project.title,
+                    }).toString()}`}
+                    project={project}
                   />
-                </section>
-              )}
-            </>
-          ) : (
-            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-              {[t('home.card1'), t('home.card2'), t('home.card3')].map((copy) => (
-                <div
-                  key={copy}
-                  className="rounded-2xl border border-border/60 bg-background/60 px-4 py-4 leading-6"
-                >
-                  {copy}
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-5 py-8 text-center">
+                <Sparkles aria-hidden="true" className="mx-auto h-5 w-5 text-muted-foreground" />
+                <p className="mt-2 text-sm font-medium">{t('home.noWikiSpaces')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('home.noWikiSpacesDescription')}</p>
+              </div>
+            )}
+          </section>
         </div>
       </main>
 
@@ -451,14 +428,31 @@ function HomePageContent() {
         disableInputs={createWorkspaceRecoveryActive}
         open={goalDialogOpen}
         errorMessage={createWorkspaceError}
-        initialValues={createWorkspaceRecoveryValues || undefined}
+        initialValues={
+          createWorkspaceRecoveryValues || goalDialogSeedValues || undefined
+        }
         onOpenChange={handleGoalDialogOpenChange}
         isSubmitting={isCreatingWorkspace}
         submitLabel={
           createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
         }
-        onSubmit={(values) => createWorkspace(values)}
+        onSubmit={(values) => createWorkspace(values, workspaceCreateContext)}
         workflowContextId={null}
+      />
+
+      <WikiCreateConfirmationDialog
+        confirmLabel={
+          createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
+        }
+        conversationId={wikiCreateProposal?.conversationId || null}
+        disableInputs={createWorkspaceRecoveryActive}
+        errorMessage={createWorkspaceError}
+        isSubmitting={isCreatingWorkspace}
+        onConfirm={confirmWikiCreation}
+        onOpenChange={handleWikiDialogOpenChange}
+        open={wikiDialogOpen}
+        suggestedGoal={wikiCreateProposal?.goal || ''}
+        suggestedTitle={wikiCreateProposal?.title || ''}
       />
       
       <OnboardingDialog />

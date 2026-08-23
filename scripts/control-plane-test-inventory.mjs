@@ -41,6 +41,18 @@ export const controlPlaneTestGroups = [
     ],
   },
   {
+    id: 'conversation',
+    config: 'src/objects/conversation/control-plane.playwright.config.ts',
+    testDir: 'src/lib/ai',
+    testMatch: ['assistant-run-lifecycle.test.ts'],
+  },
+  {
+    id: 'home',
+    config: 'src/surfaces/home/playwright.config.ts',
+    testDir: 'src/surfaces/home',
+    testMatch: ['onboarding-session.test.ts'],
+  },
+  {
     id: 'execution-daemon',
     config: 'apps/execution-daemon/src/playwright.config.ts',
     testDir: 'apps/execution-daemon/src',

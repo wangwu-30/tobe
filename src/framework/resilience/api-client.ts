@@ -7,6 +7,7 @@ const DEFAULT_RETRY_STATUSES = [408, 429, 500, 502, 503, 504];
 export type ApiErrorKind = 'http' | 'network' | 'parse' | 'timeout';
 
 export type ApiErrorData = {
+  code?: string | null;
   detail: string | null;
   kind: ApiErrorKind;
   message: string;
@@ -146,6 +147,7 @@ export async function apiCall<T>(
   if (parsed === null) {
     return {
       error: {
+        code: null,
         detail: raw.slice(0, 2000) || null,
         kind: 'parse',
         message: 'The response could not be parsed.',
@@ -185,6 +187,7 @@ export async function readApiError(response: Response): Promise<ApiErrorData> {
   const parsedResponseFailed = raw.trim().length > 0 && payload === null;
 
   return {
+    code: typeof payload?.code === 'string' ? payload.code : null,
     detail:
       typeof payload?.detail === 'string'
         ? payload.detail
@@ -217,6 +220,7 @@ export async function readApiError(response: Response): Promise<ApiErrorData> {
 
 function buildSyntheticErrorResponse(error: ApiErrorData) {
   return new Response(JSON.stringify({
+    code: error.code || null,
     detail: error.detail,
     error: error.message,
     kind: error.kind,

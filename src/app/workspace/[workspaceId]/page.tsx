@@ -24,6 +24,7 @@ import {
 import { listProjectFolderPath } from '@/lib/workspace/project-summary';
 import {
   buildWorkspaceRoute,
+  isCanonicalWorkspaceAssistantParam,
   WORKSPACE_AUTO_START_FIRST_PASS_PARAM,
   WORKSPACE_ASSISTANT_SEARCH_PARAM,
   WORKSPACE_NODE_SEARCH_PARAM,
@@ -103,6 +104,9 @@ function WorkspacePageContent() {
   const requestedVersionId = searchParams.get('versionId');
   const requestedAssistantTab = parseWorkspaceAssistantTab(
     searchParams.get(WORKSPACE_ASSISTANT_SEARCH_PARAM)
+  );
+  const assistantParamIsCanonical = isCanonicalWorkspaceAssistantParam(
+    searchParams.getAll(WORKSPACE_ASSISTANT_SEARCH_PARAM)
   );
   const shouldAutoStartFirstPass =
     searchParams.get(WORKSPACE_AUTO_START_FIRST_PASS_PARAM) === '1';
@@ -441,7 +445,9 @@ function WorkspacePageContent() {
     versionId: requestedVersionId,
   });
   const routeIsCanonical =
-    Boolean(canonicalWorkspaceHref) && canonicalWorkspaceHref === currentWorkspaceHref;
+    Boolean(canonicalWorkspaceHref) &&
+    canonicalWorkspaceHref === currentWorkspaceHref &&
+    assistantParamIsCanonical;
   const canSwitchProjectDeliverable =
     !isVersionView && projectDeliverableSwitchOptions.length > 1;
   const canOpenOutline = outlineItems.some((item) => item.id.startsWith('heading-'));
@@ -537,11 +543,31 @@ function WorkspacePageContent() {
 
     if (canonicalWorkspaceHref !== currentWorkspaceHref) {
       router.replace(canonicalWorkspaceHref);
+      return;
+    }
+
+    if (!assistantParamIsCanonical) {
+      const nextSearchParams = new URLSearchParams(searchParams.toString());
+      nextSearchParams.delete(WORKSPACE_ASSISTANT_SEARCH_PARAM);
+      if (requestedAssistantTab !== 'chat') {
+        nextSearchParams.set(
+          WORKSPACE_ASSISTANT_SEARCH_PARAM,
+          requestedAssistantTab
+        );
+      }
+      const nextQuery = nextSearchParams.toString();
+      router.replace(
+        `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`,
+        { scroll: false }
+      );
     }
   }, [
+    assistantParamIsCanonical,
     canonicalWorkspaceHref,
     currentWorkspaceHref,
+    requestedAssistantTab,
     router,
+    searchParams,
   ]);
 
   React.useEffect(() => {
@@ -718,9 +744,8 @@ function WorkspacePageContent() {
       }}
       onValueChange={(assistant) => {
         const nextSearchParams = new URLSearchParams(searchParams.toString());
-        if (assistant === 'room') {
-          nextSearchParams.delete(WORKSPACE_ASSISTANT_SEARCH_PARAM);
-        } else {
+        nextSearchParams.delete(WORKSPACE_ASSISTANT_SEARCH_PARAM);
+        if (assistant !== 'chat') {
           nextSearchParams.set(WORKSPACE_ASSISTANT_SEARCH_PARAM, assistant);
         }
         const nextQuery = nextSearchParams.toString();

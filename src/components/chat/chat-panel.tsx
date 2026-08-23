@@ -39,6 +39,8 @@ const DEFAULT_CHAT_MODEL_KEY = 'openai-codex::gpt-5.2-codex';
 const INTERNAL_FIRST_PASS_PREFIX = 'Take the first author pass for this deliverable.';
 
 export function ChatPanel({
+  allowAttachments = true,
+  allowDeepResearch = true,
   activeAssistantRun,
   conversationId,
   conversationRuns,
@@ -58,8 +60,14 @@ export function ChatPanel({
   onWorkspaceChange,
   initialMessages,
   showHeader = true,
+  scope = 'workspace',
+  emptyState,
+  composerHint,
+  onMessagesChange,
   onChatErrorChange,
 }: {
+  allowAttachments?: boolean;
+  allowDeepResearch?: boolean;
   activeAssistantRun?: AssistantRunData | null;
   conversationId?: string | null;
   conversationRuns?: AssistantRunData[];
@@ -90,6 +98,10 @@ export function ChatPanel({
   ) => void;
   initialMessages?: ChatMessageData[];
   showHeader?: boolean;
+  scope?: 'onboarding' | 'workspace';
+  emptyState?: { description: string; title: string } | null;
+  composerHint?: string | null;
+  onMessagesChange?: (messages: ChatMessageData[]) => void;
 }) {
   const t = useT();
   const {
@@ -109,6 +121,7 @@ export function ChatPanel({
     conversationId,
     focusNodeId: workspaceId,
     workspaceId,
+    scope,
   });
   const [modelCatalog, setModelCatalog] = React.useState<ModelCatalogData | null>(null);
   const [selectedModelSelection, setSelectedModelSelection] =
@@ -238,6 +251,10 @@ export function ChatPanel({
   }, [isLoading, onBusyChange]);
 
   React.useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
+
+  React.useEffect(() => {
     if (scrollRef.current && shouldAutoScrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -258,6 +275,21 @@ export function ChatPanel({
     shouldAutoScrollRef.current = distanceFromBottom < 80;
   }, []);
 
+  const handleWorkspaceChange = React.useCallback(
+    (workspace: {
+      conversationId: string | null;
+      workspaceId: string | null;
+    }) => {
+      if (workspace.conversationId) {
+        // A conversation id returned by this panel's own request adopts the
+        // in-memory timeline; it is not an external conversation switch.
+        lastHydratedConversationRef.current = workspace.conversationId;
+      }
+      onWorkspaceChange?.(workspace);
+    },
+    [onWorkspaceChange]
+  );
+
   const handleSend = React.useCallback(
     (
       content: string,
@@ -273,11 +305,11 @@ export function ChatPanel({
         hiddenFromTimeline: isInternalFirstPassPrompt(content),
         model: activeModelKey,
         onComplete: onConversationComplete,
-        onWorkspaceChange,
+        onWorkspaceChange: handleWorkspaceChange,
         researchMode: options?.researchMode,
       });
     },
-    [onConversationComplete, onWorkspaceChange, selectedModelSelection, sendMessage]
+    [handleWorkspaceChange, onConversationComplete, selectedModelSelection, sendMessage]
   );
 
   const handleModelSelectionChange = React.useCallback((selection: ModelSelectionData) => {
@@ -334,7 +366,7 @@ export function ChatPanel({
         await onConversationComplete?.();
         await continueProposal(run.id, {
           onComplete: onConversationComplete,
-          onWorkspaceChange,
+          onWorkspaceChange: handleWorkspaceChange,
         });
       } catch (error) {
         setProposalActionError({
@@ -347,9 +379,9 @@ export function ChatPanel({
     },
     [
       continueProposal,
+      handleWorkspaceChange,
       isLoading,
       onConversationComplete,
-      onWorkspaceChange,
       proposalActionId,
       t,
       workspaceId,
@@ -389,7 +421,7 @@ export function ChatPanel({
 
         await startResearch(run.id, {
           onComplete: onConversationComplete,
-          onWorkspaceChange,
+          onWorkspaceChange: handleWorkspaceChange,
         });
       } catch (error) {
         setProposalActionError({
@@ -401,9 +433,9 @@ export function ChatPanel({
       }
     },
     [
+      handleWorkspaceChange,
       isLoading,
       onConversationComplete,
-      onWorkspaceChange,
       proposalActionId,
       startResearch,
       t,
@@ -473,6 +505,7 @@ export function ChatPanel({
         className="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain scroll-pb-32"
         onScroll={handleTimelineScroll}
         role="log"
+        tabIndex={0}
       >
         <div className="min-w-0 py-4 pb-28">
           {displayRuns.length > 0 ? (
@@ -500,18 +533,22 @@ export function ChatPanel({
             >
               <FileText aria-hidden="true" className="mb-3 h-10 w-10 opacity-30" />
               <p className="text-sm">
-                {t(
-                  isWaitingForFirstPass
-                    ? 'chat.waitingForFirstPassTitle'
-                    : 'chat.emptyTitle'
-                )}
+                {emptyState && !isWaitingForFirstPass
+                  ? emptyState.title
+                  : t(
+                      isWaitingForFirstPass
+                        ? 'chat.waitingForFirstPassTitle'
+                        : 'chat.emptyTitle'
+                    )}
               </p>
-              <p className="mt-1 text-xs opacity-70">
-                {t(
-                  isWaitingForFirstPass
-                    ? 'chat.waitingForFirstPassDescription'
-                    : 'chat.emptyDescription'
-                )}
+              <p className="mt-1 text-xs">
+                {emptyState && !isWaitingForFirstPass
+                  ? emptyState.description
+                  : t(
+                      isWaitingForFirstPass
+                        ? 'chat.waitingForFirstPassDescription'
+                        : 'chat.emptyDescription'
+                    )}
               </p>
             </div>
           ) : null}
@@ -579,6 +616,9 @@ export function ChatPanel({
       </div>
 
       <ChatInput
+        allowAttachments={allowAttachments}
+        allowDeepResearch={allowDeepResearch}
+        capabilityHint={composerHint}
         onSend={handleSend}
         onStop={stopGeneration}
         isLoading={isLoading}

@@ -124,6 +124,7 @@ model Device {
 model Session {
   id                  String           @id @default(cuid())
   organizationId      String           @default("local-org")
+  scopeKind           String           @default("wiki")
   title               String           @default("New Conversation")
   wikiId              String?
   projectId           String?
@@ -153,6 +154,7 @@ model Session {
   sourceVersions      Version[]        @relation("SnapshotSourceConversation")
 
   @@index([organizationId, updatedAt])
+  @@index([organizationId, scopeKind, updatedAt])
   @@index([wikiId, updatedAt])
   @@index([projectId, updatedAt])
   @@index([parentSessionId, updatedAt])
@@ -545,7 +547,8 @@ model AssistantRun {
   id               String       @id @default(cuid())
   organizationId   String       @default("local-org")
   sessionId        String
-  documentId       String
+  documentId       String?
+  scopeKind        String       @default("wiki")
   requestMessageId String?
   mode             String       @default("revision")
   title            String
@@ -562,10 +565,11 @@ model AssistantRun {
   updatedAt        DateTime     @updatedAt
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   session          Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  document         Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document         Document?    @relation(fields: [documentId], references: [id], onDelete: Cascade)
   requestMessage   ChatMessage? @relation("ConversationRequestRuns", fields: [requestMessageId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, startedAt])
+  @@index([organizationId, scopeKind, startedAt])
   @@index([sessionId, startedAt])
   @@index([documentId, startedAt])
   @@index([status, startedAt])

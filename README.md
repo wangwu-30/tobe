@@ -1,18 +1,26 @@
 # 成形
 
-成形 is a Web-only project workspace for turning a goal into shared documents, Project Room collaboration, and reviewable Agent execution. People remain in control: Agents propose work, humans approve it, and trusted workers apply or merge approved changes.
+成形 is a Web-only, one-person AI wiki for a one-person team. One human owner works with multiple AI Agents across multiple Wiki Spaces: start in Chat, turn an idea into a Wiki Space only when it is worth keeping, and grow the result as reviewable Pages.
 
-The current release is a trusted local, single-user MVP built with Next.js, Prisma, SQLite, Plate, tldraw, and pi-mono. It has no desktop or Electron runtime.
+The current deployment model is a trusted local, single-user MVP built with Next.js, Prisma, SQLite, Plate, tldraw, and pi-mono. It bootstraps one singleton `Organization` and one human `owner`; additional `AgentProfile` records are AI collaborators, not human accounts. The product does not claim multi-user collaboration, login, invitations, or production identity.
 
-## What You Can Try
+## Product Model
 
-- Create a project from a goal and move between the home list and spatial canvas.
-- Open a project workspace with structured documents, chat, comments, history, and visible milestone versions.
-- Use the Project Canvas to see and navigate a multi-Node project.
-- Enter Project Room, the default Agent surface, for typed multi-Agent routing, bounded context, grants, and explicit tool confirmation.
-- Publish, claim, deliver, and review centralized team tasks.
-- Inspect durable Execution Job events, logs, artifacts, waiting input, cancellation, and recovery.
-- Extract reusable knowledge from resolved review conversations.
+- **Chat first.** Home opens a personal assistant conversation. Asking a question does not create an empty Wiki Space.
+- **Create on confirmation.** When the conversation has a durable outcome, the assistant may propose a Wiki Space. Only explicit human confirmation creates it, and the new Wiki Space adopts the same `Session` so the conversation continues without a context-breaking copy or restart.
+- **Wiki Space, then Pages.** A Wiki Space is the user-facing facade over a canonical Project root. A Page is the user-facing facade over a `Document` inside that root. `Project`, `Deliverable`, and `Content` remain compatibility or implementation terms, not the primary product language.
+- **Human-controlled writes.** AI may chat, plan, and prepare Suggested changes for a Page. The human owner reviews and applies them; trusted workers perform the checked mutation or merge.
+- **Progressive disclosure.** Chat, Wiki Spaces, Pages, comments, and versions form the normal path. Room, Agents, Team Tasks, Execution Jobs, and Git Knowledge are advanced capabilities.
+- **Two kinds of knowledge.** A Wiki Space is the human-visible source of truth. A Git-backed `KnowledgeSpace` is an advanced Agent/runtime knowledge repository with its own proposal, review, merge, and ready-snapshot lifecycle. It is not a Wiki Space.
+
+## What You Can Explore
+
+- Talk to the assistant before deciding whether the result belongs in the wiki.
+- Create and open Wiki Spaces with a tree of Pages, support material, comments, history, and visible milestones.
+- Navigate a Wiki Space in list or canvas form; the existing Project/Node implementation backs this facade.
+- Review AI-prepared Suggested changes before applying them to the live Page draft.
+- Open the advanced Room surface for typed multi-Agent routing, bounded context, grants, and explicit tool confirmation.
+- Inspect advanced Team Tasks, durable Execution Jobs, Agent profiles, and Git Knowledge review.
 
 ## Quickstart
 
@@ -25,21 +33,23 @@ npm ci
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). No `.env` file or AI credential is required to start the application and explore its local, non-AI workspace features.
+Open [http://localhost:3000](http://localhost:3000). No `.env` file or AI credential is required to start the application and inspect its local, non-AI surfaces.
 
-`npm ci` generates the ignored Prisma Client, and `npm run dev` regenerates it before automatically running the local database bootstrap. The bootstrap creates or upgrades `dev.db` in the repository root, applies the local migrations, and enables SQLite WAL mode. To keep runtime data outside the checkout, use an absolute app-data directory:
+`npm ci` generates the ignored Prisma Client. `npm run dev` regenerates it and runs the local database bootstrap before starting Next.js. The bootstrap creates or upgrades `dev.db` in the repository root, applies local migrations, and enables SQLite WAL mode. To keep runtime data outside the checkout, provide an absolute app-data directory:
 
 ```bash
 DAO_APP_DATA_ROOT=/absolute/path/to/tobe-data npm run dev
 ```
 
-### Three-Minute Demo
+### Short Walkthrough
 
-1. On the home page, enter a goal and create a project.
-2. Switch between **列表 / List** and **画布 / Canvas**, or open [http://localhost:3000/?view=canvas](http://localhost:3000/?view=canvas) directly.
-3. Double-click a project on the canvas to enter its workspace.
-4. When the project has at least two Nodes, choose **视图 / View → 项目总览 / Project Overview** to open the Project Canvas.
-5. Explore the document editor, comments and milestones, then open Project Room to see the Agent collaboration surface. Actual model responses require the optional AI setup below.
+1. Open Home and start with Chat. A message alone must not create an empty Wiki Space.
+2. Continue the conversation until the intended result is clear.
+3. Explicitly confirm **Create Wiki Space** when the result should become durable wiki work. The same conversation Session continues in that Wiki Space.
+4. Open a Page, review the draft, add comments, and inspect milestones.
+5. Use **Advanced** only when you need Room orchestration, Agents, Jobs, Team Tasks, or Git Knowledge. Model-backed responses require the optional AI setup below.
+
+The Wiki-first home and navigation are the active product workstream. If a checked-out revision still opens the historical Project Room flow by default, treat that as the preceding implementation baseline rather than the current product contract. The normal flow does not expose Room orchestration, Job/runtime selection, recovery consoles, or Git merge controls.
 
 ## Optional AI Setup
 
@@ -53,21 +63,21 @@ npm run auth:openai-oauth
 
 OAuth credentials are stored under the active app-data root in `.oauth/openai-codex.json` and `.oauth/auth.json`. If you set `DAO_APP_DATA_ROOT` for the Web app, use the same value for this command.
 
-Without a provider credential, the application still starts, but model-backed chat, AI editing, AI comment replies, memory extraction, and real Room Agent reasoning are unavailable.
+Without a provider credential, the application still starts, but model-backed Chat, AI editing, comment replies, memory extraction, and Room Agent reasoning are unavailable.
 
-## Runtime Model
+## Advanced Runtime
 
-The Quickstart launches the Web application only. The complete durable runtime adds exactly three standalone Node services:
+The Quickstart launches the Web application only. Advanced durable execution adds exactly three standalone Node services:
 
 | Service | Responsibility | Build and start |
 | --- | --- | --- |
-| Execution daemon | Durable job queueing, leases, attempts, suspension, cancellation, and recovery | `npm run execution:daemon:build` then `npm run execution:daemon:start` |
-| Room Session Host | Low-latency Project Room sessions and replayable room events | `npm run room:host:build` then `npm run room:host:start` |
-| Knowledge merge worker | Ready-only knowledge snapshot merging | `npm run knowledge:merge-worker:build` then `npm run knowledge:merge-worker:start` |
+| Execution daemon | Durable Job queueing, leases, attempts, suspension, cancellation, and recovery | `npm run execution:daemon:build` then `npm run execution:daemon:start` |
+| Room Session Host | Low-latency multi-Agent Room sessions and replayable events | `npm run room:host:build` then `npm run room:host:start` |
+| Knowledge merge worker | Human-approved Git Knowledge merge and ready-snapshot activation | `npm run knowledge:merge-worker:build` then `npm run knowledge:merge-worker:start` |
 
-These are deployment-level services, not extra Quickstart steps. Run them as separate processes and point every process at the same `DAO_APP_DATA_ROOT` or `DATABASE_URL`. The execution daemon requires an absolute `DAO_EXECUTION_DAEMON_CONFIG_PATH`; the Room host requires an absolute `DAO_ROOM_SESSION_HOST_CONFIG_PATH`; the knowledge worker requires `DAO_KNOWLEDGE_ORGANIZATION_ID` and an absolute `DAO_KNOWLEDGE_INDEX_ROOT`. See the [Agent Room and durable execution workstream](./docs/agent-room-execution-workstream.md) for architecture and deployment context.
+Run them as separate processes and point every process at the same `DAO_APP_DATA_ROOT` or `DATABASE_URL`. The execution daemon requires an absolute `DAO_EXECUTION_DAEMON_CONFIG_PATH`; the Room host requires an absolute `DAO_ROOM_SESSION_HOST_CONFIG_PATH`; the knowledge worker requires `DAO_KNOWLEDGE_ORGANIZATION_ID` and an absolute `DAO_KNOWLEDGE_INDEX_ROOT`. See the [Agent Room and durable execution workstream](./docs/agent-room-execution-workstream.md) for deployment details.
 
-Room Agent Sessions and durable Execution Jobs deliberately have separate lifecycles. Room sessions provide low-latency collaboration; Jobs own durable queueing and execution. Knowledge snapshots have their own readiness and merge lifecycle.
+Chat/Room Sessions and durable Execution Jobs deliberately have separate lifecycles. Git Knowledge snapshots have a third readiness and merge lifecycle. None of these advanced lifecycles changes the Wiki Space/Page product model.
 
 ## Production Mode
 
@@ -80,15 +90,16 @@ npm run build
 npm run start
 ```
 
-This starts the Web process. Add the three standalone services above when deploying the complete durable runtime.
+This starts the Web process. Add the three standalone services above only when deploying the complete advanced runtime.
 
-## Current Trust and Integration Boundaries
+## Trust and Release Boundaries
 
-- Team-mode organization, role, and ACL contracts exist, but the current Web MVP has no production identity provider, login/session/JWT integration, member invitation flow, or enterprise SSO. Trusted runtime headers are transport receipts, not authentication.
-- Agents may propose changes; a human reviews and approves them before a trusted worker performs expected-old CAS apply or merge operations.
-- `git-worktree`-capable deployments use isolated per-attempt clones/workspaces rather than native registered Git worktrees. Remote Git credentials, fetch/push, and monorepo subpath mounts are currently out of scope.
-- OpenHands remains disabled, offline, capacity-zero, and fail-closed until its protocol is verified.
-- Project canvases retain the tldraw watermark. A production release must use a compatible tldraw license or explicitly accept the applicable terms; the watermark is not hidden in CSS, DOM code, or test branches.
+- The singleton Organization, owner membership, device tuple, and ACL checks are trusted-local authorization contracts. Runtime headers are transport receipts, not authentication. There is no production identity provider, login/session/JWT integration, member invitation flow, or enterprise SSO.
+- AI and Runtimes may propose changes. The human owner approves them before a trusted worker performs expected-old CAS apply or merge operations.
+- Git Knowledge uses isolated per-attempt clones/workspaces and proposal branches. Remote Git credentials, fetch/push, and monorepo subpath mounts remain out of scope.
+- OpenHands remains disabled, offline, capacity-zero, and fail-closed until its protocol is implemented and verified.
+- The product is Web-only. There is no desktop or Electron runtime.
+- tldraw canvases retain the watermark. Production release requires a compatible tldraw license or an explicit decision to accept the applicable terms; do not hide the watermark with CSS, DOM code, or test branches.
 
 ## Validation
 
@@ -98,15 +109,15 @@ npm run test:control-plane
 npm run verify:iteration
 ```
 
-The full gate runs static checks, the complete control-plane inventory and all three Node-service suites, WAL-enforcing database bootstrap, the production Web build, browser preflight, and browser E2E. A dated verification record is the authority for a particular run; the presence of code or targeted tests alone is not a full-gate result.
+The full gate runs static checks, the control-plane inventory and three Node-service suites, WAL-enforcing database bootstrap, the production Web build, browser preflight, and browser E2E. A dated verification record is authoritative only for the exact tree it tested. Historical gate counts are retained in the handoff and workstream documents and must not be presented as proof of the current Wiki-first workstream.
 
 ## Documentation
 
-- [Current handoff and delivery snapshot](./docs/HANDOFF-2026-08-22.md)
-- [Agent runtime research and architecture decisions](./docs/agent-runtime-architecture-research.md)
-- [Change log and project status](./CHANGELOG.md)
-- [Product north star and information architecture glossary](./docs/chengxing-product-north-star.md)
-- [Rollout plan and phase boundaries](./docs/chengxing-rollout-plan.md)
+- [One-person AI wiki brief](./docs/briefs/one-person-ai-wiki.md)
+- [Product north star and terminology](./docs/chengxing-product-north-star.md)
+- [System model](./SYSTEM.md)
+- [Current constraints](./CONSTRAINTS.md)
+- [Current handoff and historical delivery snapshot](./docs/HANDOFF-2026-08-22.md)
 - [Agent Room and durable execution workstream](./docs/agent-room-execution-workstream.md)
-- [Team document and Agent marketplace brief](./docs/briefs/team-document-agent-marketplace.md)
+- [Agent runtime research and architecture decisions](./docs/agent-runtime-architecture-research.md)
 - [General engineering knowledge index](./docs/knowledge/README.md)

@@ -1,27 +1,33 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import {
+  ArrowLeft,
   BookOpen,
   MessageSquare,
   MessagesSquare,
   Sparkles,
-  Users,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { COMMENT_THREAD_FOCUS_EVENT } from '@/lib/comments/constants';
 import { OPEN_MANUAL_COMMENT_COMPOSER_EVENT } from '@/lib/comments/constants';
 import { cn } from '@/lib/utils';
 import { useT } from '@/components/providers/language-provider';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
 import { OPEN_AGENT_COMPOSER_EVENT } from '@/agent/events';
-import type { WorkspaceAssistantTab } from '@/lib/workspace/route';
+import {
+  parseWorkspaceAssistantTab,
+  type WorkspaceAssistantTab,
+} from '@/lib/workspace/route';
 
 export function AssistantRail({
   chat,
   context,
-  defaultTab = 'room',
+  defaultTab = 'chat',
+  chatHref,
   onValueChange,
   room,
   review,
@@ -30,6 +36,7 @@ export function AssistantRail({
   value,
 }: {
   chat: React.ReactNode;
+  chatHref: string;
   context: React.ReactNode;
   defaultTab?: WorkspaceAssistantTab;
   onValueChange?: (value: WorkspaceAssistantTab) => void;
@@ -123,19 +130,32 @@ export function AssistantRail({
     };
   }, [selectTab]);
 
+  if (tab === 'room') {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background md:border-l md:border-border">
+        <div className="flex min-w-0 shrink-0 items-center border-b border-border px-3 py-2">
+          <Button asChild className="min-w-0" size="sm" variant="ghost">
+            <Link
+              className="touch-manipulation"
+              data-testid="room-back-to-chat"
+              href={chatHref}
+            >
+              <ArrowLeft aria-hidden="true" className="shrink-0" />
+              <span className="truncate">{t('assistant.chat')}</span>
+            </Link>
+          </Button>
+        </div>
+        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{room}</div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-border bg-background">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background md:border-l md:border-border">
       <Tabs
         value={tab}
         onValueChange={(nextValue) =>
-          selectTab(
-            nextValue === 'status' ||
-              nextValue === 'review' ||
-              nextValue === 'chat' ||
-              nextValue === 'context'
-              ? nextValue
-              : 'room',
-          )
+          selectTab(parseWorkspaceAssistantTab(nextValue))
         }
         className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       >
@@ -155,14 +175,14 @@ export function AssistantRail({
               {currentTabMeta.description}
             </p>
           </div>
-          <TabsList className="mt-3 grid w-full grid-cols-5">
+          <TabsList className="mt-3 grid w-full grid-cols-4">
             <TabsTrigger
-              value="room"
+              value="chat"
               className="text-xs"
-              data-testid="assistant-tab-room"
+              data-testid="assistant-tab-chat"
             >
-              <Users className="h-3.5 w-3.5" />
-              {t('assistant.room')}
+              <MessagesSquare className="h-3.5 w-3.5" />
+              {t('assistant.chat')}
             </TabsTrigger>
             <TabsTrigger
               value="status"
@@ -189,14 +209,6 @@ export function AssistantRail({
               ) : null}
             </TabsTrigger>
             <TabsTrigger
-              value="chat"
-              className="text-xs"
-              data-testid="assistant-tab-chat"
-            >
-              <MessagesSquare className="h-3.5 w-3.5" />
-              {t('assistant.chat')}
-            </TabsTrigger>
-            <TabsTrigger
               value="context"
               className="text-xs"
               data-testid="assistant-tab-context"
@@ -207,16 +219,6 @@ export function AssistantRail({
           </TabsList>
         </div>
 
-        <TabsContent
-          forceMount
-          value="room"
-          className={cn(
-            'mt-0 min-h-0 flex-1 overflow-hidden',
-            tab !== 'room' && 'hidden',
-          )}
-        >
-          {room}
-        </TabsContent>
         <TabsContent
           forceMount
           value="status"

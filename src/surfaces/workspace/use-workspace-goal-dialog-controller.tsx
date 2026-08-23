@@ -10,10 +10,11 @@ import {
   buildCreatedWorkspaceLocation,
   buildWorkspaceCreateRecovery,
   clearWorkspaceCreateRecovery,
+  getWorkspaceCreateErrorMessage,
+  hasUnknownWorkspaceCreateOutcome,
   loadWorkspaceCreateRecovery,
   persistWorkspaceCreateRecovery,
   submitWorkspaceCreateRequest,
-  WorkspaceCreateActionError,
   type WorkspaceCreateContext,
 } from '@/lib/workspace/create-request';
 import type { WorkspaceAssistantTab } from '@/lib/workspace/route';
@@ -202,10 +203,12 @@ export function useWorkspaceGoalDialogController({
           })
         );
       } catch (error) {
-        if (error instanceof WorkspaceCreateActionError) {
+        if (!hasUnknownWorkspaceCreateOutcome(error)) {
           clearWorkspaceRecoveryState();
           createWorkspaceRequestIdRef.current = null;
-          setCreateWorkspaceError(error.message);
+          setCreateWorkspaceError(
+            getWorkspaceCreateErrorMessage(error, t(createFailureCopyKey))
+          );
           return;
         }
 

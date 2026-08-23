@@ -773,8 +773,13 @@ test('staged document proposal review shows multi-file diff and applies through 
   await expect(reviewTrigger).toContainText('1');
   await reviewTrigger.click();
 
-  const reviewDialog = page.getByRole('dialog', { name: /审阅待应用修改|Review proposed changes/ });
+  const reviewDialog = page.getByTestId('staged-review-panel');
   await expect(reviewDialog).toBeVisible();
+  await expect(
+    reviewDialog.getByRole('heading', {
+      name: /审阅建议修改|Review Suggested changes/,
+    })
+  ).toBeVisible();
   await expect(reviewDialog.getByTestId(`staged-change-${proposalId}`)).toHaveAttribute(
     'aria-current',
     'true'
@@ -814,7 +819,7 @@ test('staged document proposal review shows multi-file diff and applies through 
     status: 'applied',
   });
   await expect(page.getByTestId('staged-change-notice')).toContainText(
-    /已将 staged changes 应用到当前草稿|Applied staged changes/
+    /已将建议修改应用到当前页面草稿|Applied Suggested changes to the current Page draft/
   );
   await reloadPromise;
 

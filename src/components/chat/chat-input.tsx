@@ -23,6 +23,9 @@ type OversizedPasteSnapshot = {
 };
 
 export function ChatInput({
+  allowAttachments = true,
+  allowDeepResearch = true,
+  capabilityHint,
   onSend,
   onStop,
   isLoading,
@@ -32,6 +35,9 @@ export function ChatInput({
   modelSelection,
   onModelSelectionChange,
 }: {
+  allowAttachments?: boolean;
+  allowDeepResearch?: boolean;
+  capabilityHint?: string | null;
   onSend: (
     message: string,
     options?: {
@@ -83,7 +89,10 @@ export function ChatInput({
   const handleSubmit = () => {
     const trimmed = value.trim();
     if ((!trimmed && attachments.length === 0) || isLoading) return;
-    onSend(trimmed, { attachments, researchMode });
+    onSend(trimmed, {
+      attachments: allowAttachments ? attachments : [],
+      researchMode: allowDeepResearch ? researchMode : 'light',
+    });
     resetComposer();
     setResearchMode('light');
   };
@@ -97,6 +106,10 @@ export function ChatInput({
 
   const handlePaste = React.useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!allowAttachments) {
+        return;
+      }
+
       const clipboardItems = Array.from(event.clipboardData.items || []);
       const files = clipboardItems
         .map((item) => item.getAsFile())
@@ -130,7 +143,7 @@ export function ChatInput({
         addAttachments([file], 'clipboard');
       }
     },
-    [addAttachments]
+    [addAttachments, allowAttachments]
   );
 
   const handleFileChange = React.useCallback(
@@ -224,16 +237,18 @@ export function ChatInput({
 
   return (
     <div className="border-t border-border bg-background p-3" data-testid="chat-composer">
-      <input
-        aria-label={t('chat.addAttachments')}
-        autoComplete="off"
-        name="chatAttachments"
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={handleFileChange}
-      />
+      {allowAttachments ? (
+        <input
+          aria-label={t('chat.addAttachments')}
+          autoComplete="off"
+          name="chatAttachments"
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFileChange}
+        />
+      ) : null}
 
       <div className="mb-2 flex flex-col gap-2 text-[11px] text-muted-foreground">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -257,28 +272,30 @@ export function ChatInput({
               </div>
             )}
           </div>
-          <button
-            aria-pressed={researchMode === 'deep'}
-            disabled={disabled || isLoading}
-            type="button"
-            className={`inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 sm:min-h-0 ${
-              researchMode === 'deep'
-                ? 'border-foreground/20 bg-foreground text-background'
-                : 'border-border bg-muted/30 text-muted-foreground'
-            }`}
-            onClick={() =>
-              setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
-            }
-          >
-            <Search aria-hidden="true" className="h-3 w-3" />
-            {researchMode === 'deep'
-              ? t('chat.deepResearchEnabled')
-              : t('chat.deepResearch')}
-          </button>
+          {allowDeepResearch ? (
+            <button
+              aria-pressed={researchMode === 'deep'}
+              disabled={disabled || isLoading}
+              type="button"
+              className={`inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 sm:min-h-0 ${
+                researchMode === 'deep'
+                  ? 'border-foreground/20 bg-foreground text-background'
+                  : 'border-border bg-muted/30 text-muted-foreground'
+              }`}
+              onClick={() =>
+                setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
+              }
+            >
+              <Search aria-hidden="true" className="h-3 w-3" />
+              {researchMode === 'deep'
+                ? t('chat.deepResearchEnabled')
+                : t('chat.deepResearch')}
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {researchMode === 'deep' ? (
+      {allowDeepResearch && researchMode === 'deep' ? (
         <div className="mb-2 rounded-xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-[11px] leading-5 text-muted-foreground">
           {t('chat.deepResearchInfo')}
         </div>
@@ -319,17 +336,19 @@ export function ChatInput({
       ) : null}
 
       <div className="flex items-end gap-2">
-        <Button
-          aria-label={t('chat.addAttachments')}
-          type="button"
-          size="icon"
-          variant="outline"
-          className="shrink-0 rounded-xl"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isLoading}
-        >
-          <Paperclip aria-hidden="true" className="h-4 w-4" />
-        </Button>
+        {allowAttachments ? (
+          <Button
+            aria-label={t('chat.addAttachments')}
+            type="button"
+            size="icon"
+            variant="outline"
+            className="shrink-0 rounded-xl"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isLoading}
+          >
+            <Paperclip aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        ) : null}
         <Textarea
           aria-label={t('chat.messageLabel')}
           autoComplete="off"
@@ -374,9 +393,11 @@ export function ChatInput({
         )}
       </div>
 
-      <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-        {t('chat.attachmentHint')}
-      </p>
+      {capabilityHint || allowAttachments ? (
+        <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+          {capabilityHint || t('chat.attachmentHint')}
+        </p>
+      ) : null}
     </div>
   );
 }

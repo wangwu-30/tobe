@@ -113,6 +113,22 @@ export function useWorkspaceRouteController({
 }) {
   const pendingPlanGenerationRef = React.useRef<string | null>(null);
   const loadedSurfaceRef = React.useRef<LoadedWorkspaceSurface | null>(null);
+  const routeKey = [
+    workspaceId,
+    requestedConversationId || '',
+    requestedFileId || '',
+    requestedVersionId || '',
+  ].join(':');
+  const activeRouteKeyRef = React.useRef(routeKey);
+  const viewRequestSequenceRef = React.useRef(0);
+  const runsRequestSequenceRef = React.useRef(0);
+  const threadsRequestSequenceRef = React.useRef(0);
+  if (activeRouteKeyRef.current !== routeKey) {
+    activeRouteKeyRef.current = routeKey;
+    viewRequestSequenceRef.current += 1;
+    runsRequestSequenceRef.current += 1;
+    threadsRequestSequenceRef.current += 1;
+  }
   const showLoadError = React.useCallback(
     (message: string) => {
       setWorkspaceNotice({
@@ -130,6 +146,11 @@ export function useWorkspaceRouteController({
       versionId?: string | null;
       workspaceId?: string;
     }) => {
+      const requestRouteKey = routeKey;
+      if (requestRouteKey !== activeRouteKeyRef.current) {
+        return null;
+      }
+      const requestSequence = ++viewRequestSequenceRef.current;
       const resolvedWorkspaceId = target?.workspaceId || workspaceId;
       const conversationId =
         target && 'conversationId' in target
@@ -145,14 +166,23 @@ export function useWorkspaceRouteController({
         versionId,
         workspaceId: resolvedWorkspaceId,
       });
+      const requestOwnsView =
+        requestRouteKey === activeRouteKeyRef.current &&
+        requestSequence === viewRequestSequenceRef.current;
       if (!result.ok) {
-        showLoadError(result.error.message);
-        throw new Error(result.error.message);
+        if (requestOwnsView) {
+          showLoadError(result.error.message);
+          throw new Error(result.error.message);
+        }
+        return null;
       }
       if (!result.data) {
         return null;
       }
       const nextView = result.data;
+      if (!requestOwnsView || nextView.workspace?.id !== resolvedWorkspaceId) {
+        return null;
+      }
 
       setWorkspaceView(nextView);
       setInitialMessages(nextView.currentConversation?.messages || []);
@@ -190,6 +220,7 @@ export function useWorkspaceRouteController({
       setShowImplementation,
       showLoadError,
       setWorkspaceView,
+      routeKey,
       workspaceId,
     ]
   );
@@ -199,34 +230,63 @@ export function useWorkspaceRouteController({
   }, [loadWorkspaceView]);
 
   const loadRuns = React.useCallback(async () => {
-    const result = await readWorkspaceRuns(workspaceId);
+    const requestRouteKey = routeKey;
+    if (requestRouteKey !== activeRouteKeyRef.current) {
+      return [];
+    }
+    const requestSequence = ++runsRequestSequenceRef.current;
+    const requestedWorkspaceId = workspaceId;
+    const result = await readWorkspaceRuns(requestedWorkspaceId);
+    const requestOwnsRuns =
+      requestRouteKey === activeRouteKeyRef.current &&
+      requestSequence === runsRequestSequenceRef.current;
     if (!result.ok) {
-      showLoadError(result.error.message);
-      throw new Error(result.error.message);
+      if (requestOwnsRuns) {
+        showLoadError(result.error.message);
+        throw new Error(result.error.message);
+      }
+      return [];
     }
 
-    setWorkspaceRuns(result.data || []);
+    if (requestOwnsRuns) {
+      setWorkspaceRuns(result.data || []);
+    }
     return result.data || [];
-  }, [setWorkspaceRuns, showLoadError, workspaceId]);
+  }, [routeKey, setWorkspaceRuns, showLoadError, workspaceId]);
 
   const loadThreads = React.useCallback(async () => {
+    const requestRouteKey = routeKey;
+    if (requestRouteKey !== activeRouteKeyRef.current) {
+      return [];
+    }
+    const requestSequence = ++threadsRequestSequenceRef.current;
+    const requestedWorkspaceId = workspaceId;
     const result = await readWorkspaceReviewThreads({
       currentFileId,
       currentVersionId,
       deliverableType,
-      workspaceId,
+      workspaceId: requestedWorkspaceId,
     });
+    const requestOwnsThreads =
+      requestRouteKey === activeRouteKeyRef.current &&
+      requestSequence === threadsRequestSequenceRef.current;
     if (!result.ok) {
-      showLoadError(result.error.message);
-      throw new Error(result.error.message);
+      if (requestOwnsThreads) {
+        showLoadError(result.error.message);
+        throw new Error(result.error.message);
+      }
+      return [];
     }
 
-    setReviewThreads(result.data || []);
+    if (requestOwnsThreads) {
+      setReviewThreads(result.data || []);
+    }
     return result.data || [];
   }, [
     currentFileId,
     currentVersionId,
     deliverableType,
+    routeKey,
     setReviewThreads,
     showLoadError,
     workspaceId,

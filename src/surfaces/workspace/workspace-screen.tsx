@@ -6,8 +6,14 @@ import { AppShell } from '@/components/layout/app-shell';
 import { FirstUseGuide } from '@/components/layout/first-use-guide';
 import { SplitView } from '@/components/layout/split-view';
 import { Button } from '@/components/ui/button';
+import { useT } from '@/components/providers/language-provider';
 import { ZoneErrorBoundary } from '@/framework/resilience';
+import { useAppSearchParams } from '@/lib/app-router';
 import { cn } from '@/lib/utils';
+import {
+  parseWorkspaceAssistantTab,
+  WORKSPACE_ASSISTANT_SEARCH_PARAM,
+} from '@/lib/workspace/route';
 import type { DeliverableType } from '@/types';
 
 type WorkspacePaneOrder = 'deliverable-left' | 'assistant-left';
@@ -57,6 +63,19 @@ export function WorkspaceScreen({
   workspaceId: string;
   workspaceNotice: WorkspaceScreenNotice | null;
 }) {
+  const t = useT();
+  const searchParams = useAppSearchParams();
+  const deliverableLabel = t('execution.document');
+  const assistantLabel = t('home.askAssistant');
+  const mobileAssistantPane =
+    paneOrder === 'deliverable-left' ? 'right' : 'left';
+  const mobilePaneRequest =
+    parseWorkspaceAssistantTab(
+      searchParams.get(WORKSPACE_ASSISTANT_SEARCH_PARAM)
+    ) !== 'chat'
+      ? mobileAssistantPane
+      : undefined;
+
   return (
     <AppShell
       actions={actions}
@@ -119,6 +138,10 @@ export function WorkspaceScreen({
         <SplitView
           className="flex-1"
           defaultRatio={paneOrder === 'deliverable-left' ? 0.68 : 0.32}
+          leftLabel={
+            paneOrder === 'deliverable-left' ? deliverableLabel : assistantLabel
+          }
+          mobilePaneRequest={mobilePaneRequest}
           left={
             paneOrder === 'deliverable-left' ? (
               <ZoneErrorBoundary level="critical" zone="workspace-deliverable">
@@ -131,6 +154,9 @@ export function WorkspaceScreen({
             )
           }
           resetKey={`${workspaceId}:${paneOrder}:${deliverableType}`}
+          rightLabel={
+            paneOrder === 'deliverable-left' ? assistantLabel : deliverableLabel
+          }
           right={
             paneOrder === 'deliverable-left' ? (
               <ZoneErrorBoundary level="recoverable" zone="workspace-assistant">

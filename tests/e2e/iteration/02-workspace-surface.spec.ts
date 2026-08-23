@@ -2,43 +2,60 @@ import { expect, test } from '@playwright/test';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { apiRequest, primeClientState, readSeedState } from './helpers';
 
-test('workspace deep-links to Chat and switching to Room preserves the legacy request conversation', async ({
+test('default Chat does not mount Room and Advanced opens Room without losing the conversation', async ({
   page,
 }) => {
   const workspace = readSeedState().branchVersionWorkspace;
+  const roomRequests: string[] = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/api/rooms')) {
+      roomRequests.push(url.pathname);
+    }
+  });
 
   await primeClientState(page);
-  await page.goto('/');
-  await page.goto(buildWorkspaceRoute({
-    assistant: 'chat',
-    conversationId: workspace.conversationId,
-    nodeId: workspace.id,
-    projectId: workspace.id,
-  }));
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=chat`
+  );
 
-  const roomTab = page.getByTestId('assistant-tab-room');
-  await expect(roomTab).toBeVisible();
   const chatTab = page.getByTestId('assistant-tab-chat');
   await expect(chatTab).toHaveAttribute('aria-selected', 'true');
-  await expect(page).toHaveURL(/(?:\?|&)assistant=chat(?:&|$)/);
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
   await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(page.getByTestId('assistant-tab-room')).toHaveCount(0);
+  await expect(page.getByTestId('project-room-surface')).toHaveCount(0);
   await expect(
     page.getByText('请把这一版再压缩成更简洁的说明。', { exact: true })
   ).toBeVisible();
   await expect(
     page.getByText('已经整理出一个更简洁的方向。', { exact: true })
   ).toBeVisible();
+  expect(roomRequests).toEqual([]);
 
-  await roomTab.click();
-  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
-  await expect(roomTab).toHaveAttribute('aria-selected', 'true');
+  await page.getByTestId('sidebar-advanced-toggle').click();
+  const roomLink = page.getByTestId('sidebar-advanced-room-link');
+  await expect(roomLink).toBeVisible();
+  await expect(roomLink).toHaveJSProperty('tagName', 'A');
+  await expect(roomLink).toHaveAttribute('href', /assistant=room/);
+  await roomLink.click();
+  await expect(page).toHaveURL(/(?:\?|&)assistant=room(?:&|$)/);
   await expect(page.getByTestId('project-room-surface')).toBeVisible();
+  await expect.poll(() => roomRequests.length).toBeGreaterThan(0);
 
-  await page.goBack();
-  await expect(page).toHaveURL(/\/$/);
+  const backToChat = page.getByTestId('room-back-to-chat');
+  await expect(backToChat).toHaveJSProperty('tagName', 'A');
+  await expect(backToChat).not.toHaveAttribute('href', /assistant=/);
+  await backToChat.click();
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
+  await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(page.getByTestId('project-room-surface')).toHaveCount(0);
+  await expect(
+    page.getByText('请把这一版再压缩成更简洁的说明。', { exact: true })
+  ).toBeVisible();
 });
 
-test('invalid assistant tab URLs fall back to Room and canonicalize the query', async ({
+test('invalid assistant tab URLs fall back to Chat and canonicalize the query', async ({
   page,
 }) => {
   const workspace = readSeedState().baseWorkspace;
@@ -48,11 +65,34 @@ test('invalid assistant tab URLs fall back to Room and canonicalize the query', 
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}&assistant=unknown`
   );
 
-  await expect(page.getByTestId('assistant-tab-room')).toHaveAttribute(
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
     'data-state',
     'active'
   );
   await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
+});
+
+test('canonical workspace URLs clean legacy and duplicate assistant params in place', async ({
+  page,
+}) => {
+  const workspace = readSeedState().baseWorkspace;
+  const basePath = `/workspace/${workspace.id}?node=${workspace.id}&conversationId=${workspace.conversationId}`;
+
+  await primeClientState(page);
+  await page.goto(`${basePath}&assistant=chat`);
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
+    'data-state',
+    'active'
+  );
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
+
+  await page.goto(`${basePath}&assistant=room&assistant=status`);
+  await expect(page.getByTestId('assistant-tab-room')).toHaveCount(0);
+  await expect(page.getByTestId('project-room-surface')).toBeVisible();
+  await expect(page).toHaveURL(/(?:\?|&)assistant=room(?:&|$)/);
+  await expect
+    .poll(() => new URL(page.url()).searchParams.getAll('assistant'))
+    .toEqual(['room']);
 });
 
 test('outline jump keeps the target heading near the top and status stays visible', async ({

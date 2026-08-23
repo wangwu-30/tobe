@@ -7,7 +7,16 @@ test('Knowledge dirty guard covers shell link navigation and restores back and f
   await primeClientState(page);
 
   await page.goto('/settings');
-  await page.getByRole('link', { name: 'Knowledge', exact: true }).click();
+  await expect(page.getByTestId('sidebar-advanced-toggle')).toHaveAttribute(
+    'aria-expanded',
+    'true'
+  );
+  const advancedNavigation = page
+    .getByTestId('sidebar-advanced-toggle')
+    .locator('xpath=..');
+  await advancedNavigation
+    .getByRole('link', { name: /Git 知识|Git Knowledge/, exact: true })
+    .click();
   const configurationTab = page.getByTestId('knowledge-configuration-tab');
   await configurationTab.click();
   await expect(configurationTab).toHaveAttribute('aria-current', 'page');
@@ -15,7 +24,7 @@ test('Knowledge dirty guard covers shell link navigation and restores back and f
   await repoPath.fill('/tmp/unsaved-navigation-guard');
 
   page.once('dialog', (dialog) => dialog.dismiss());
-  await page.getByRole('link', { name: /团队任务|Team Tasks/ }).click();
+  await advancedNavigation.getByRole('link', { name: /团队任务|Team Tasks/ }).click();
   await expect(page).toHaveURL(/\/knowledge\?view=configuration$/);
   await expect(repoPath).toHaveValue('/tmp/unsaved-navigation-guard');
 
@@ -31,7 +40,7 @@ test('Knowledge dirty guard covers shell link navigation and restores back and f
   await page.goForward();
   await expect(page).toHaveURL(/\/knowledge\?view=configuration$/);
   await expect(repoPath).toHaveValue('');
-  await page.getByRole('link', { name: /团队任务|Team Tasks/ }).click();
+  await advancedNavigation.getByRole('link', { name: /团队任务|Team Tasks/ }).click();
   await expect(page).toHaveURL(/\/tasks$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/knowledge\?view=configuration$/);
