@@ -2,8 +2,11 @@ import { createClient } from '@libsql/client';
 import { expect, test, type Frame, type Page } from '@playwright/test';
 
 import {
+  AppError,
+  ValidationError,
   apiCall,
   createPollController,
+  defineRoute,
   safeJsonParse,
 } from '@/framework/resilience';
 import { stringifyAssistantRunPayload } from '@/lib/workspace/assistant-run-payload';
@@ -36,9 +39,76 @@ test('resilience A2: uncaught route errors always return JSON instead of HTML', 
   expect(response.status()).toBe(500);
   expect(response.headers()['content-type']).toContain('application/json');
   expect(body).not.toContain('<!DOCTYPE html>');
-  expect(payload.error).toBe('Resilience debug route exploded.');
-  expect(typeof payload.detail).toBe('string');
+  expect(payload.error).toBe('Unexpected error.');
+  expect(payload.detail).toBeNull();
   expect(payload.kind).toBe('unexpected');
+});
+
+test('resilience A2b: route logs sanitize and bound controlled error messages', async () => {
+  const message = `Invalid input.\r\n[forged]\u0000${'x'.repeat(600)}`;
+  const logCalls: unknown[][] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    logCalls.push(args);
+  };
+
+  try {
+    const route = defineRoute(async () => {
+      throw new ValidationError(message, { detail: 'field=name' });
+    });
+    const response = await route();
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      detail: 'field=name',
+      error: message,
+      kind: 'validation',
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  expect(logCalls).toHaveLength(1);
+  expect(logCalls[0]).toHaveLength(1);
+  expect(typeof logCalls[0]?.[0]).toBe('string');
+  const logMessage = String(logCalls[0]?.[0]);
+  expect(logMessage).not.toMatch(/[\p{C}\u2028\u2029]/u);
+  expect(logMessage).toContain('Invalid input. [forged]');
+  expect(logMessage.length).toBeLessThanOrEqual(
+    '[route] 400 validation: '.length + 500
+  );
+});
+
+test('resilience A2c: unexpected AppErrors expose only a fixed public message', async () => {
+  const secret = 'database password=do-not-expose';
+  const logCalls: unknown[][] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    logCalls.push(args);
+  };
+
+  try {
+    const route = defineRoute(async () => {
+      throw new AppError(secret, {
+        detail: `internal stack: ${secret}`,
+        kind: 'unexpected',
+        statusCode: 503,
+      });
+    });
+    const response = await route();
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      detail: null,
+      error: 'Unexpected error.',
+      kind: 'unexpected',
+    });
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  expect(logCalls).toEqual([['[route] 503 unexpected: Unexpected error.']]);
+  expect(JSON.stringify(logCalls)).not.toContain(secret);
 });
 
 test('resilience A3: apiCall reports non-JSON error bodies as parse failures', async () => {

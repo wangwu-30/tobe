@@ -1130,7 +1130,27 @@
 - 为什么：模型 SDK 更新会同时触及 provider auth、模型目录、Agent state 和工具 schema；semver 可安装不代表产品契约仍成立。真实 provider secret 也不应暴露给不可信依赖 PR。
 - 默认做法：耦合 SDK 放进同一个 Dependabot update group；PR 只运行不含真实 provider secret 的完整 iteration gate，合并前要求人工 review。GitHub ruleset 将该 gate 设为 required，Dependabot 不得进入 bypass list。
 
+### 48. 创建成功的 E2E 必须加载本次真实创建的资源
+
+- 结论：创建类浏览器测试不能把 mock 响应指向一个已有 seed Wiki，再只断言 URL。
+- 为什么：这种夹具在创建接口字段错误、资源没有落库或 onboarding Session 没有被接管时仍会通过，属于假绿。
+- 默认做法：让 UI 调用真实创建 API，从响应取得动态 Wiki/Session id，并等待目标 Wiki 的真实 view 和侧栏节点加载；onboarding 接管测试必须从真实的未绑定 team Session 开始。
+
+### 49. Route catch 中不要把 Error 对象直接交给框架开发态 inspector
+
+- 结论：route boundary 应记录有界的标量字符串；unexpected 错误对客户端和日志都使用固定公开消息。
+- 为什么：框架的开发态 Error inspector 自身可能抛错，把原本受控的 4xx/5xx 响应升级成二次 500；原始 message 还可能包含换行、控制字符或内部信息。
+- 默认做法：expected message 去控制字符并限制长度；unexpected message 固定化且 `detail=null`；用真实开发服务器回归原状态码、单行日志和秘密不外泄。
+
+### 50. 安装警告要按责任边界处理，不能用 force 修复清零
+
+- 结论：先用仓库声明的 Node/npm 复现，再区分 engine mismatch、可审核的 install scripts、上游弃用和无兼容修复的审计链。
+- 为什么：在错误 Node 版本下会制造 `EBADENGINE` 噪音；`npm audit fix --force` 可能用重大降级换取表面清零；传递依赖 override 也可能绕过上游真实契约。
+- 默认做法：锁定并文档化受支持运行时，显式审核 install-script allowlist，升级正常补丁；对仍由最新版上游固定的风险记录依赖链、影响和等待条件，由 Dependabot 提 PR 后跑完整门禁。
+
 ## 最新验证状态
+
+- **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。
 
 - **Web Agent Collaboration pre-push closure 2026-08-23**：项目级 Web guideline skill 与 fail-closed scanner、Canvas forward migration、atomic proposal/comment apply、prior-draft 与 formal lineage semantics、dual-Host delegation crash/restart、Execution recovery contract、真实尾部 `@` overlay，以及 Canvas layout ACL、workspace-scoped relation delete、retry recovery lease CAS、Canvas bootstrap column contract 四项终审 blocker 均已完成实现修复。01:15、01:51 与 02:05 的 `npm run verify:iteration` 保留为各自旧 fingerprint 的历史 PASS。后续发现 Project Room disabled -> enabled opacity 动画会产生可被 axe 捕获的低对比度中间帧；移除 opacity transition 并按 canonical route/控件 enabled 同步测试后，11:51 完整门禁通过：inventory `69/69`、script contracts `46`、control-plane Playwright `462`、总计 `508`、Chromium `134/134 passed (3.4m)`，两个 WCAG A/AA 用例均通过。只读产品验收结果为 P0 `0`、P1 `0`、P2 `1`、P3 `0`；唯一 P2 是 tldraw production-license watermark，需在正式发布前配置合法 license 或明确接受。最终 delivery 必须在本记录进入 closure commit 后，对精确 clean commit 无编辑复跑完整门禁，再 push 并核对远端 SHA；未授权创建 PR、merge 或 release，也不宣称 fully Web Interface Guidelines compliant。
 

@@ -40,7 +40,7 @@ import {
 } from '../contracts';
 
 export const PI_ROOM_RUNTIME_ID_V1 = 'pi-agent-core';
-export const PI_ROOM_RUNTIME_VERSION_V1 = '0.84.2';
+export const PI_ROOM_RUNTIME_VERSION_V1 = '0.84.3';
 
 const PI_ROOM_CHECKPOINT_KIND_V1 = 'pi-agent-core.fresh-replay';
 const PI_ROOM_CHECKPOINT_STATE_VERSION_V1 = 1;

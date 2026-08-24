@@ -1,8 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Button } from '@/components/ui/button';
-import { BookOpen, Plus, Sparkles } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 import { AppShell } from '@/components/layout/app-shell';
 import { ProjectCard } from '@/components/layout/project-card';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
@@ -25,7 +24,6 @@ import {
 } from '@/components/workspace/goal-composer-dialog';
 import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { useT } from '@/components/providers/language-provider';
-import { OnboardingDialog } from '@/components/layout/onboarding-dialog';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import { HomeOnboardingChat } from '@/surfaces/home/home-onboarding-chat';
 import { clearOnboardingConversationId } from '@/surfaces/home/onboarding-session';
@@ -342,7 +340,7 @@ function HomePageContent() {
     ]
   );
 
-  const showsProjectWall = Boolean(homeProjects && homeProjects.length > 0);
+  const hasProjects = Boolean(homeProjects?.length);
 
   return (
     <AppShell
@@ -354,13 +352,14 @@ function HomePageContent() {
           onNavigate={onNavigate}
           onProjectsChange={setHomeProjects}
           outlineItems={[]}
+          showEmptyProjectState={false}
         />
       )}
       title={t('home.title')}
       subtitle={t('home.subtitle')}
     >
       <main className="h-full overflow-y-auto px-4 py-5 sm:px-6 sm:py-7">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-8">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-10">
           <HomeOnboardingChat
             onCreateWiki={({ conversationId, goal }) =>
               openWorkspaceCreateEntry(
@@ -375,27 +374,19 @@ function HomePageContent() {
             }
           />
 
-          <section aria-labelledby="recent-wikis-title" data-testid="home-wiki-list">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 id="recent-wikis-title" className="flex items-center gap-2 text-lg font-semibold">
+          {hasProjects ? (
+            <section aria-labelledby="recent-wikis-title" data-testid="home-wiki-list">
+              <div className="mb-2 flex items-center justify-between gap-3 px-2">
+                <h2
+                  className="flex items-center gap-2 text-sm font-medium text-muted-foreground"
+                  id="recent-wikis-title"
+                >
                   <BookOpen aria-hidden="true" className="h-4 w-4" />
                   {t('home.wikiSpaces')}
                 </h2>
-                <p className="mt-1 text-sm text-muted-foreground">{t('home.subtitle')}</p>
               </div>
-              <Button
-                className="gap-2 rounded-xl"
-                onClick={() => openWorkspaceCreateEntry()}
-                variant="outline"
-              >
-                <Plus aria-hidden="true" className="h-4 w-4" />
-                {t('home.createWikiSpace')}
-              </Button>
-            </div>
 
-            {showsProjectWall ? (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-testid="home-project-wall">
+              <div data-testid="home-project-list">
                 {homeProjects?.slice(0, 6).map((project) => (
                   <ProjectCard
                     currentHref={buildWorkspaceRoute({
@@ -411,14 +402,8 @@ function HomePageContent() {
                   />
                 ))}
               </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 px-5 py-8 text-center">
-                <Sparkles aria-hidden="true" className="mx-auto h-5 w-5 text-muted-foreground" />
-                <p className="mt-2 text-sm font-medium">{t('home.noWikiSpaces')}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{t('home.noWikiSpacesDescription')}</p>
-              </div>
-            )}
-          </section>
+            </section>
+          ) : null}
         </div>
       </main>
 
@@ -454,8 +439,6 @@ function HomePageContent() {
         suggestedGoal={wikiCreateProposal?.goal || ''}
         suggestedTitle={wikiCreateProposal?.title || ''}
       />
-      
-      <OnboardingDialog />
     </AppShell>
   );
 }

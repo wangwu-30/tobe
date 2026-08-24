@@ -9,18 +9,32 @@ import {
   waitForWorkspaceRoute,
 } from './helpers';
 
-test('home shows the onboarding chat and Wiki list as the primary home contract', async ({
+test('an empty home centers chat without onboarding or a Wiki empty state', async ({
   page,
 }) => {
   await primeClientState(page);
+  await page.route('**/api/project-list', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({ items: [] }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
   await page.goto('/');
 
   await expect(page.getByRole('dialog', { name: /欢迎使用成形|Welcome/ })).toHaveCount(0);
-  await expect(page.getByTestId('first-use-guide-home')).toBeVisible();
+  await expect(page.getByTestId('first-use-guide-home')).toHaveCount(0);
   await expect(page.getByTestId('home-onboarding-chat')).toBeVisible();
-  await expect(page.getByTestId('home-wiki-list')).toBeVisible();
+  await expect(page.getByTestId('home-wiki-list')).toHaveCount(0);
+  await expect(page.getByText(/还没有 Wiki 空间|No Wiki Spaces yet/)).toHaveCount(0);
   await expect(page.getByTestId('home-onboarding-create-wiki')).toBeVisible();
   await expect(page.getByTestId('agent-composer-input')).toBeVisible();
+  await expect(page.getByTestId('home-onboarding-chat').getByRole('log')).toHaveCount(0);
+  await expect(page.getByTestId('agent-composer-input')).toHaveAttribute(
+    'placeholder',
+    /问个问题，或从一个想法开始|Ask a question or explore an idea/
+  );
+  await expect(page.getByTestId('sidebar-advanced-toggle')).toBeVisible();
 });
 
 test('home create Wiki keeps confirmation lightweight and does not create anything before explicit confirm', async ({
@@ -36,16 +50,7 @@ test('home create Wiki keeps confirmation lightweight and does not create anythi
     }
 
     createWorkspacePostCount += 1;
-    await route.fulfill({
-      body: JSON.stringify({
-        conversation: { id: 'lightweight-confirmation-conversation' },
-        initialRoomMessageReceipt: null,
-        room: { id: 'lightweight-room', projectId: 'lightweight-wiki' },
-        workspace: { id: 'lightweight-wiki', projectId: 'lightweight-wiki' },
-      }),
-      contentType: 'application/json',
-      status: 200,
-    });
+    await route.abort();
   });
   await page.goto('/');
 
@@ -65,31 +70,21 @@ test('home create Wiki keeps confirmation lightweight and does not create anythi
 
 test('home create Wiki confirmation submits once and opens the created Wiki route', async ({
   page,
-}) => {
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
   let createWorkspacePostCount = 0;
+  const suffix = Date.now();
+  const title = `Home Wiki ${String(suffix).slice(-6)}`;
+  const goal = `Keep the home flow focused on Wiki-first onboarding. ${suffix}`;
 
   await primeClientState(page);
-  await page.route('**/api/workspaces', async (route) => {
-    if (route.request().method() !== 'POST') {
-      await route.continue();
-      return;
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/workspaces'
+    ) {
+      createWorkspacePostCount += 1;
     }
-
-    createWorkspacePostCount += 1;
-    await route.fulfill({
-      body: JSON.stringify({
-        conversation: { id: 'confirmed-home-conversation' },
-        initialRoomMessageReceipt: {
-          messageId: 'confirmed-room-message',
-          roomId: 'confirmed-room',
-          status: 'accepted',
-        },
-        room: { id: 'confirmed-room', projectId: 'confirmed-home-wiki' },
-        workspace: { id: 'confirmed-home-wiki', projectId: 'confirmed-home-wiki' },
-      }),
-      contentType: 'application/json',
-      status: 200,
-    });
   });
   await page.goto('/');
 
@@ -97,16 +92,47 @@ test('home create Wiki confirmation submits once and opens the created Wiki rout
   const dialog = page.getByTestId('wiki-create-confirmation-dialog');
   await expect(dialog).toBeVisible();
 
-  await dialog.getByTestId('wiki-create-name-input').fill('Confirmed home Wiki');
-  await dialog.getByTestId('wiki-create-purpose-input').fill(
-    'Keep the home flow focused on Wiki-first onboarding.'
+  await dialog.getByTestId('wiki-create-name-input').fill(title);
+  await dialog.getByTestId('wiki-create-purpose-input').fill(goal);
+
+  const createResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/workspaces'
   );
   await dialog.getByTestId('wiki-create-confirm').click();
+  const createResponse = await createResponsePromise;
+  expect(createResponse.ok()).toBe(true);
+  const created = (await createResponse.json()) as {
+    conversation: { id: string };
+    initialRoomMessageReceipt: { status: string } | null;
+    room: { id: string; projectId: string | null };
+    workspace: { id: string; projectId: string | null };
+  };
 
   await expect.poll(() => createWorkspacePostCount).toBe(1);
+  expect(createResponse.request().postDataJSON()).toMatchObject({
+    conversationId: null,
+    goal,
+    title,
+  });
+  expect(created.workspace.projectId).toBe(created.workspace.id);
+  expect(created.room.projectId).toBe(created.workspace.id);
+  expect(created.initialRoomMessageReceipt).toMatchObject({ status: 'accepted' });
   await expect(page).toHaveURL(
-    /\/workspace\/confirmed-home-wiki\?node=confirmed-home-wiki&conversationId=confirmed-home-conversation/
+    `/workspace/${created.workspace.id}?node=${created.workspace.id}&conversationId=${created.conversation.id}`,
+    { timeout: 20_000 }
   );
+
+  const createdView = await getWorkspaceView(
+    baseURL,
+    created.workspace.id,
+    created.conversation.id
+  );
+  expect(createdView.workspace).toMatchObject({
+    projectId: created.workspace.id,
+    title,
+  });
 });
 
 test('workspace creation persists the initial goal as the first human Project Room message', async ({}, testInfo) => {
@@ -201,7 +227,7 @@ test('workspace creation persists the initial goal as the first human Project Ro
   });
 });
 
-test('home project cards summarize the latest node and open the canonical project route', async ({
+test('home Wiki rows stay compact and open the canonical project route', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -246,21 +272,20 @@ test('home project cards summarize the latest node and open the canonical projec
     page.goto('/'),
   ]);
 
-  const projectCard = page.getByTestId(`home-project-card-${firstWorkspace.workspace.id}`);
-  await expect(page.getByTestId('home-project-wall')).toBeVisible({ timeout: 10000 });
-  await expect(projectCard).toBeVisible();
-  await expect(projectCard).toContainText(projectTitle);
-  await expect(projectCard).toContainText(/2 个页面|2 Pages/);
-  await expect(projectCard).toContainText(
-    /最近活跃页面|Latest active Page/
-  );
-  await expect(projectCard).toContainText(latestDeliverableTitle);
-  await expect(projectCard).toContainText(
-    /打开|Open/
-  );
-  await expect(projectCard).toContainText(
+  const projectRow = page.getByTestId(`home-project-card-${firstWorkspace.workspace.id}`);
+  await expect(page.getByTestId('home-project-list')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('home-project-wall')).toHaveCount(0);
+  await expect(projectRow).toBeVisible();
+  await expect(projectRow).toContainText(projectTitle);
+  await expect(projectRow).toContainText(latestDeliverableTitle);
+  await expect(projectRow).not.toContainText(/2 个页面|2 Pages/);
+  await expect(projectRow.getByTestId(`home-project-next-${firstWorkspace.workspace.id}`)).toContainText(
     /新建页面|New Page/
   );
+  await page.setViewportSize({ height: 812, width: 375 });
+  await expect(
+    projectRow.getByTestId(`home-project-next-${firstWorkspace.workspace.id}`)
+  ).toHaveAccessibleName(/新建页面|New Page/);
 
   await page.getByTestId(`home-project-open-${firstWorkspace.workspace.id}`).click();
   await expect
@@ -283,7 +308,7 @@ test('home project cards summarize the latest node and open the canonical projec
     });
 });
 
-test('home project cards can continue the next deliverable inside the same project', async ({
+test('home Wiki rows can continue the next deliverable inside the same project', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -636,7 +661,8 @@ test('home keeps the Wiki list as the primary reopen surface', async ({
 
   await primeClientState(page);
   await page.goto('/');
-  await expect(page.getByTestId('home-project-wall')).toBeVisible();
+  await expect(page.getByTestId('home-project-list')).toBeVisible();
+  await expect(page.getByTestId('home-project-wall')).toHaveCount(0);
   await expect(page.locator('[data-testid^="home-project-open-"]').first()).toHaveAttribute(
     'href',
     /\/workspace\//

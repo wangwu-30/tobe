@@ -1,9 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { Paperclip, Search, SendHorizontal, Square, X } from 'lucide-react';
+import { Paperclip, Search, SendHorizontal, Settings2, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { useT } from '@/components/providers/language-provider';
 import {
   CHAT_CLIPBOARD_TEXT_FILE_THRESHOLD,
@@ -34,6 +43,8 @@ export function ChatInput({
   modelLabel,
   modelSelection,
   onModelSelectionChange,
+  placeholder,
+  variant = 'workspace',
 }: {
   allowAttachments?: boolean;
   allowDeepResearch?: boolean;
@@ -52,6 +63,8 @@ export function ChatInput({
   modelLabel?: string | null;
   modelSelection?: ModelSelectionData | null;
   onModelSelectionChange?: (selection: ModelSelectionData) => void;
+  placeholder?: string;
+  variant?: 'home' | 'workspace';
 }) {
   const t = useT();
   const [value, setValue] = React.useState('');
@@ -253,24 +266,70 @@ export function ChatInput({
       <div className="mb-2 flex flex-col gap-2 text-[11px] text-muted-foreground">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            {modelCatalog && modelSelection && onModelSelectionChange ? (
-              <ModelPicker
-                allowUnconfiguredProviders={false}
-                catalog={modelCatalog}
-                disabled={disabled || isLoading}
-                idPrefix="chat-model"
-                namePrefix="chatModel"
-                value={modelSelection}
-                variant="compact"
-                onChange={onModelSelectionChange}
-              />
-            ) : (
-              <div className="truncate pt-1">
-                {modelLabel
-                  ? t('chat.modelLabel', { model: modelLabel })
-                  : t('chat.modelFromSettings')}
-              </div>
-            )}
+            <Sheet>
+              <SheetTrigger asChild>
+                <button
+                  aria-label={`${t('chat.conversationSettings')}: ${
+                    modelLabel
+                      ? t('chat.modelLabel', { model: modelLabel })
+                      : t('chat.modelFromSettings')
+                  }`}
+                  className="inline-flex h-11 max-w-full touch-manipulation items-center gap-2 rounded-lg px-2 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+                  data-testid="chat-model-settings-trigger"
+                  disabled={disabled || isLoading}
+                  type="button"
+                >
+                  <Settings2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  <span className="shrink-0 font-medium">
+                    {t('chat.conversationSettings')}
+                  </span>
+                  {variant === 'workspace' ? (
+                    <span aria-hidden="true" className="truncate text-muted-foreground">
+                      {modelLabel || t('chat.modelFromSettings')}
+                    </span>
+                  ) : null}
+                </button>
+              </SheetTrigger>
+              <SheetContent
+                className="w-full gap-0 p-0 sm:max-w-md"
+                data-testid="chat-model-settings-sheet"
+                side="right"
+                showCloseButton={false}
+              >
+                <SheetClose
+                  aria-label={t('execution.close')}
+                  className="absolute right-4 top-4 inline-flex size-11 touch-manipulation items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+                >
+                  <X aria-hidden="true" className="size-4" />
+                </SheetClose>
+                <SheetHeader className="border-b px-6 py-5 pr-12 text-left">
+                  <SheetTitle>{t('chat.conversationSettings')}</SheetTitle>
+                  <SheetDescription className="leading-5">
+                    {t('chat.conversationSettingsDescription')}
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                  {modelCatalog && modelSelection && onModelSelectionChange ? (
+                    <ModelPicker
+                      allowUnconfiguredProviders={false}
+                      catalog={modelCatalog}
+                      disabled={disabled || isLoading}
+                      idPrefix="chat-model"
+                      namePrefix="chatModel"
+                      value={modelSelection}
+                      variant="stacked"
+                      onChange={onModelSelectionChange}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {modelLabel
+                        ? t('chat.modelLabel', { model: modelLabel })
+                        : t('chat.modelFromSettings')}
+                    </p>
+                  )}
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
           {allowDeepResearch ? (
             <button
@@ -362,7 +421,7 @@ export function ChatInput({
           placeholder={
             researchMode === 'deep'
               ? t('chat.askWithDeepResearchPlaceholder')
-              : t('chat.askAiPlaceholder')
+              : placeholder || t('chat.askAiPlaceholder')
           }
           className="min-h-[44px] max-h-[200px] resize-none overscroll-contain rounded-xl border-muted-foreground/20"
           rows={1}

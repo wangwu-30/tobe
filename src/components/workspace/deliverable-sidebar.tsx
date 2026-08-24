@@ -141,6 +141,7 @@ export function DeliverableSidebar({
   outlineItems,
   projectFolders = [],
   projectDeliverables = [],
+  showEmptyProjectState = true,
   supportFiles = [],
 }: {
   activeSupportFileId?: string | null;
@@ -194,6 +195,7 @@ export function DeliverableSidebar({
   outlineItems: DeliverableOutlineItem[];
   projectFolders?: ProjectFolderItem[];
   projectDeliverables?: ProjectDeliverableItem[];
+  showEmptyProjectState?: boolean;
   supportFiles?: SidebarSupportFile[];
 }) {
   const t = useT();
@@ -1351,7 +1353,7 @@ export function DeliverableSidebar({
                 >
                   {isLoading ? (
                     <SidebarInfo text={t('sidebar.loadingProjects')} />
-                  ) : projects.length === 0 ? (
+                  ) : projects.length === 0 && showEmptyProjectState ? (
                     <SidebarInfo text={t('sidebar.noProjectsYet')} />
                   ) : (
                   <div className="min-w-0 space-y-1">

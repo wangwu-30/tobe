@@ -24,22 +24,30 @@ The current deployment model is a trusted local, single-user MVP built with Next
 
 ## Quickstart
 
-Prerequisites: Node.js 22.19 or newer (but below Node.js 23) and a modern npm version.
+Prerequisites: Node.js `>=22.19.0 <23` and a modern npm version. The checked-in `.node-version` recommends Node.js 22.23.2. Node.js 26 is outside the currently supported and tested engine range, so `npm ci` reports an `EBADENGINE` warning; switch to the recommended Node.js 22 release instead of ignoring it.
 
 From a repository checkout:
 
 ```bash
+node --version # v22.23.2 recommended
+npm --version  # 11.17.0 recommended
 npm ci
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). No `.env` file or AI credential is required to start the application and inspect its local, non-AI surfaces.
 
-`npm ci` generates the ignored Prisma Client. `npm run dev` regenerates it and runs the local database bootstrap before starting Next.js. The bootstrap creates or upgrades `dev.db` in the repository root, applies local migrations, and enables SQLite WAL mode. To keep runtime data outside the checkout, provide an absolute app-data directory:
+`npm ci` runs the project's `postinstall` hook, which executes `npm run db:generate` and generates the ignored Prisma Client. `npm run dev` regenerates it and runs the local database bootstrap before starting Next.js. The bootstrap creates or upgrades `dev.db` in the repository root, applies local migrations, and enables SQLite WAL mode. To keep runtime data outside the checkout, provide an absolute app-data directory:
 
 ```bash
 DAO_APP_DATA_ROOT=/absolute/path/to/tobe-data npm run dev
 ```
+
+### Install Diagnostics
+
+With Node.js 22.23.2 and npm 11.17.0, `npm ci` should not report `EBADENGINE` or unreviewed install scripts. Two upstream transitive deprecation notices currently remain: `tldraw` still depends on `lodash.isequal`, and the `shadcn` package that supplies `shadcn/tailwind.css` still reaches `node-domexception` through `node-fetch`. Neither has a safe local override.
+
+`npm audit` currently reports three high-severity entries for one dependency chain: `prisma -> @prisma/config -> deepmerge-ts@7`. The published Prisma release pins that version, while npm's suggested automatic fix is an incompatible downgrade to Prisma 6.12. Do not run `npm audit fix --force`; Dependabot will propose the normal upstream upgrade when Prisma adopts the patched `deepmerge-ts` line.
 
 ### Short Walkthrough
 

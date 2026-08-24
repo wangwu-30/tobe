@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { BookOpen, Sparkles } from 'lucide-react';
+import { BookOpen } from 'lucide-react';
 
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { Button } from '@/components/ui/button';
@@ -115,37 +115,19 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
   return (
     <section
       aria-labelledby="home-onboarding-title"
-      className="overflow-hidden rounded-[28px] border border-border/70 bg-background shadow-sm"
+      className="mx-auto w-full max-w-3xl"
       data-testid="home-onboarding-chat"
     >
-      <div className="border-b border-border/70 bg-gradient-to-br from-primary/[0.08] via-background to-background px-5 py-5 sm:px-7">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-              <Sparkles aria-hidden="true" className="h-3.5 w-3.5" />
-              {t('home.badge')}
-            </div>
-            <h1 id="home-onboarding-title" className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
-              {t('home.heroTitle')}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-              {t('home.heroDescription')}
-            </p>
-          </div>
-          <Button
-            aria-busy={isBusy}
-            className="shrink-0 gap-2 rounded-xl"
-            data-testid="home-onboarding-create-wiki"
-            disabled={isBusy}
-            onClick={() => onCreateWiki({ conversationId, goal: lastGoal })}
-          >
-            <BookOpen aria-hidden="true" className="h-4 w-4" />
-            {t('home.createWikiSpace')}
-          </Button>
-        </div>
+      <div className="px-4 pb-6 pt-8 text-center sm:pt-12">
+        <h1
+          className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl"
+          id="home-onboarding-title"
+        >
+          {t('home.heroTitle')}
+        </h1>
       </div>
 
-      <div className="h-[min(62vh,620px)] min-h-[420px]">
+      <div>
         {isRestoring ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
             {t('common.loading')}
@@ -166,22 +148,37 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
           <ChatPanel
             allowAttachments={false}
             allowDeepResearch={false}
-            composerHint={t('home.card3')}
+            composerPlaceholder={t('home.chatPlaceholder')}
             conversationId={conversationId}
-            emptyState={{
-              description: t('home.heroDescription'),
-              title: t('home.askAssistant'),
-            }}
+            emptyState={null}
             initialMessages={messages}
             onMessagesChange={handleMessagesChange}
             onBusyChange={setIsBusy}
             onWorkspaceChange={handleWorkspaceChange}
             scope="onboarding"
             showHeader={false}
+            variant="home"
             workspaceId={null}
           />
         )}
       </div>
+
+      {!isRestoring && !restoreError ? (
+        <div className="flex justify-center pt-2">
+          <Button
+            aria-busy={isBusy}
+            className="h-11 min-h-11 gap-1.5 px-2 text-muted-foreground md:h-11 md:min-h-11"
+            data-testid="home-onboarding-create-wiki"
+            disabled={isBusy}
+            onClick={() => onCreateWiki({ conversationId, goal: lastGoal })}
+            size="sm"
+            variant="ghost"
+          >
+            <BookOpen aria-hidden="true" className="h-3.5 w-3.5" />
+            {t('home.createWikiSpace')}
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

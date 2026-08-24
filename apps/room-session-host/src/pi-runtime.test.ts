@@ -30,7 +30,7 @@ test('production Pi composition resolves credentials and attaches only Room tool
     {
       driver: 'pi-agent-core',
       runtimeId: 'pi-agent-core',
-      runtimeVersion: '0.84.2',
+      runtimeVersion: '0.84.3',
       providerId: MODEL.provider,
       modelId: MODEL.id,
       systemPrompt: 'Room system prompt',
@@ -113,7 +113,7 @@ test('production Pi composition creates a confirmation authority from trusted se
     {
       driver: 'pi-agent-core',
       runtimeId: 'pi-agent-core',
-      runtimeVersion: '0.84.2',
+      runtimeVersion: '0.84.3',
       providerId: MODEL.provider,
       modelId: MODEL.id,
       systemPrompt: 'Room system prompt',
@@ -179,7 +179,7 @@ test('production Pi composition rejects a mismatched model resolver', async () =
     {
       driver: 'pi-agent-core',
       runtimeId: 'pi-agent-core',
-      runtimeVersion: '0.84.2',
+      runtimeVersion: '0.84.3',
       providerId: 'different-provider',
       modelId: MODEL.id,
       systemPrompt: 'Room system prompt',

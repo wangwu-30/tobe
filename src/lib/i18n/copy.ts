@@ -48,6 +48,9 @@ const COPY = {
     'chat.generationStopped': 'Generation stopped.',
     'chat.modelFromSettings': 'Model from Settings',
     'chat.modelLabel': 'Model: {model}',
+    'chat.conversationSettings': 'Conversation settings',
+    'chat.conversationSettingsDescription':
+      'Choose the model used for this conversation. Manage the global default in Settings.',
     'chat.openSettings': 'Open Settings',
     'chat.planning': 'AI is planning the next move…',
     'chat.researchActionFailed': 'Could not update this research plan.',
@@ -525,7 +528,7 @@ const COPY = {
     'home.configureModels': 'Configure models',
     'home.askAssistant': 'Ask Assistant',
     'home.createWikiSpace': 'Create Wiki Space',
-    'home.wikiSpaces': 'Wiki Spaces',
+    'home.wikiSpaces': 'Recent Wiki Spaces',
     'home.noWikiSpaces': 'No Wiki Spaces yet',
     'home.noWikiSpacesDescription':
       'Start in Chat. Create a Wiki Space only when you want to keep the work.',
@@ -533,9 +536,10 @@ const COPY = {
     'home.projectCardNoRecentNode': 'No active Pages yet',
     'home.projectCardOpen': 'Open',
     'home.projectCardNewItem': 'New Page',
+    'home.chatPlaceholder': 'Ask a question or explore an idea…',
     'home.heroDescription':
-      'Start in Chat without creating an empty Wiki Space. When the work is worth keeping, confirm a Wiki Space and continue in the same conversation.',
-    'home.heroTitle': 'Ask first. Keep what matters in your Wiki.',
+      'Ask anything. Create a Wiki Space only when the work is worth keeping.',
+    'home.heroTitle': 'What would you like to work on?',
     'home.startWithGoal': 'Ask Assistant',
     'home.subtitle': 'Your one-person team wiki',
     'home.title': 'Home',
@@ -1218,6 +1222,9 @@ const COPY = {
     'chat.generationStopped': '已停止生成。',
     'chat.modelFromSettings': '模型来自设置',
     'chat.modelLabel': '模型：{model}',
+    'chat.conversationSettings': '对话设置',
+    'chat.conversationSettingsDescription':
+      '选择这段对话使用的模型。全局默认模型仍在设置中管理。',
     'chat.openSettings': '打开设置',
     'chat.planning': 'AI 正在规划下一步……',
     'chat.researchActionFailed': '无法更新这份研究计划。',
@@ -1665,7 +1672,7 @@ const COPY = {
     'home.configureModels': '配置模型',
     'home.askAssistant': '问助手',
     'home.createWikiSpace': '创建 Wiki 空间',
-    'home.wikiSpaces': 'Wiki 空间',
+    'home.wikiSpaces': '最近的 Wiki 空间',
     'home.noWikiSpaces': '还没有 Wiki 空间',
     'home.noWikiSpacesDescription':
       '先从 Chat 开始，只有想长期保留时再创建 Wiki 空间。',
@@ -1673,9 +1680,9 @@ const COPY = {
     'home.projectCardNoRecentNode': '还没有活跃页面',
     'home.projectCardOpen': '打开',
     'home.projectCardNewItem': '新建页面',
-    'home.heroDescription':
-      '先从 Chat 开始，不创建空 Wiki。值得长期保留时，再确认创建 Wiki 空间并继续同一段对话。',
-    'home.heroTitle': '先问助手，把重要的留下来。',
+    'home.chatPlaceholder': '问个问题，或从一个想法开始……',
+    'home.heroDescription': '先直接聊；值得长期保留时，再创建 Wiki 空间。',
+    'home.heroTitle': '今天想做什么？',
     'home.startWithGoal': '问助手',
     'home.subtitle': '你的一人团队 Wiki',
     'home.title': '首页',

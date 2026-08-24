@@ -37,13 +37,47 @@ test('Global settings ModelPicker shows correct options and cascade changes', as
   }
 });
 
-test('ChatInput compact ModelPicker renders the current selection inside the workspace composer', async ({
+test('workspace composer opens model selection in a conversation settings sheet and sends with the temporary selection', async ({
   page,
 }) => {
   const seedState = readSeedState();
   const workspace = seedState.baseWorkspace;
+  const selectedModelKey = 'test-provider::test-model-b';
 
+  await page.setViewportSize({ height: 900, width: 768 });
   await primeClientState(page);
+  await page.route('**/api/ai/models', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        defaultModelKey: 'test-provider::test-model-a',
+        providers: [
+          {
+            authState: 'api_key_configured',
+            configured: true,
+            disabledReason: null,
+            id: 'test-provider',
+            label: 'Test Provider',
+            models: [
+              {
+                id: 'test-model-a',
+                key: 'test-provider::test-model-a',
+                name: 'Test Model A',
+                providerId: 'test-provider',
+              },
+              {
+                id: 'test-model-b',
+                key: selectedModelKey,
+                name: 'Test Model B',
+                providerId: 'test-provider',
+              },
+            ],
+          },
+        ],
+      }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
   await page.goto(buildWorkspaceRoute({
     assistant: 'chat',
     conversationId: workspace.conversationId,
@@ -55,20 +89,52 @@ test('ChatInput compact ModelPicker renders the current selection inside the wor
   const composer = page.getByTestId('chat-composer');
   await expect(composer).toBeVisible();
 
-  const comboboxes = composer.getByRole('combobox');
-  await expect(comboboxes).toHaveCount(2);
-  const providerCombobox = composer.getByRole('combobox', {
+  await expect(composer.getByRole('combobox')).toHaveCount(0);
+  const settingsTrigger = composer.getByTestId('chat-model-settings-trigger');
+  await expect(settingsTrigger).toBeVisible();
+  await expect(settingsTrigger).toHaveAccessibleName(/对话设置|Conversation settings/);
+  const settingsTriggerBox = await settingsTrigger.boundingBox();
+  expect(settingsTriggerBox?.height).toBeGreaterThanOrEqual(44);
+  await settingsTrigger.click();
+
+  const settingsSheet = page.getByTestId('chat-model-settings-sheet');
+  await expect(settingsSheet).toBeVisible();
+  await expect(
+    settingsSheet.getByRole('heading', { name: /对话设置|Conversation settings/ })
+  ).toBeVisible();
+  await expect(settingsSheet).toContainText(
+    /选择这段对话使用的模型|Choose the model used for this conversation/
+  );
+  await expect(settingsSheet.getByRole('combobox')).toHaveCount(2);
+  const providerCombobox = settingsSheet.getByRole('combobox', {
     name: 'Provider',
     exact: true,
   });
-  const modelCombobox = composer.getByRole('combobox', { name: /模型|Model/ });
+  const modelCombobox = settingsSheet.getByRole('combobox', { name: /模型|Model/ });
 
   await expect(providerCombobox).toBeVisible();
   await expect(modelCombobox).toBeVisible();
+  for (const target of [
+    providerCombobox,
+    modelCombobox,
+    settingsSheet.getByRole('button', { name: /关闭|Close/ }),
+  ]) {
+    const box = await target.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+  }
   await expect(providerCombobox).toHaveAccessibleName(/Provider/);
   await expect(modelCombobox).toHaveAccessibleName(/模型|Model/);
   await expect(providerCombobox).toHaveAttribute('aria-autocomplete', 'none');
   await expect(modelCombobox).toHaveAttribute('aria-autocomplete', 'none');
+  await modelCombobox.click();
+  await page.getByRole('option', { name: 'Test Model B', exact: true }).click();
+  await expect(modelCombobox).toContainText('Test Model B');
+  await settingsSheet.getByRole('button', { name: /关闭|Close/ }).click();
+  await expect(settingsSheet).toBeHidden();
+  await expect(composer.getByRole('combobox')).toHaveCount(0);
+  await expect(settingsTrigger).toContainText('Test Model B');
+
   const researchButton = page.getByRole('button', { name: /深度研究|Deep Research/ });
   await expect(researchButton).toBeVisible();
   await expect(researchButton).toHaveAttribute('aria-pressed', 'false');
@@ -109,9 +175,7 @@ test('ChatInput compact ModelPicker renders the current selection inside the wor
   await expect(removeMixedAttachment).toBeVisible();
   await removeMixedAttachment.click();
 
-  let submittedBody = '';
   await page.route('**/api/agent/run', async (route) => {
-    submittedBody = route.request().postDataBuffer()?.toString('utf8') || '';
     await route.fulfill({
       body: 'Oversized paste received.',
       contentType: 'text/plain; charset=utf-8',
@@ -154,18 +218,27 @@ test('ChatInput compact ModelPicker renders the current selection inside the wor
   await expect(messageInput).toHaveValue('Existing draft');
   await expect(composer.getByText(/clipboard-.*.txt/)).toBeVisible();
 
+  const runRequestPromise = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/agent/run'
+  );
   await composer.getByRole('button', { name: /发送消息|Send message/ }).click();
+  const runRequest = await runRequestPromise;
+  const contentType = runRequest.headers()['content-type'];
+  const requestBody = runRequest.postDataBuffer();
+
+  expect(contentType).toContain('multipart/form-data; boundary=');
+  expect(requestBody).not.toBeNull();
+  const submittedForm = await new Response(Uint8Array.from(requestBody!), {
+    headers: { 'content-type': contentType },
+  }).formData();
+  const submittedBody = requestBody?.toString('utf8') || '';
+
   await expect(page.getByText('Oversized paste received.', { exact: true })).toBeVisible();
   expect((submittedBody.match(/OVERSIZED_CLIPBOARD_/g) || [])).toHaveLength(1);
   expect(submittedBody).toContain('Existing draft');
-
-  await providerCombobox.click();
-  const providerList = page.getByRole('listbox');
-  expect(await providerList.getByRole('option').count()).toBeGreaterThan(0);
-  await expect(providerList.getByRole('option').first()).toBeVisible();
-  await page.keyboard.press('Escape');
-
-  await expect(modelCombobox).toContainText(/\S+/);
+  expect(submittedForm.get('model')).toBe(selectedModelKey);
 });
 
 test('workspace chat composer re-syncs to the saved default model when re-entering an existing workspace', async ({
@@ -241,8 +314,17 @@ test('workspace chat composer re-syncs to the saved default model when re-enteri
 
   const composer = page.getByTestId('chat-composer');
   await expect(composer).toBeVisible();
-  const workspaceProviderCombobox = composer.getByRole('combobox').first();
-  const workspaceModelCombobox = composer.getByRole('combobox').nth(1);
+  await expect(composer.getByRole('combobox')).toHaveCount(0);
+  await composer.getByTestId('chat-model-settings-trigger').click();
+  const settingsSheet = page.getByTestId('chat-model-settings-sheet');
+  await expect(settingsSheet).toBeVisible();
+  const workspaceProviderCombobox = settingsSheet.getByRole('combobox', {
+    name: 'Provider',
+    exact: true,
+  });
+  const workspaceModelCombobox = settingsSheet.getByRole('combobox', {
+    name: /模型|Model/,
+  });
 
   await expect(workspaceProviderCombobox).toContainText(expectedProvider);
   await expect(workspaceModelCombobox).toContainText(expectedModel);
