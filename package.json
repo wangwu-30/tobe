@@ -47,7 +47,7 @@
     "@libsql/client": "0.17.4",
     "@platejs/basic-nodes": "^52.0.11",
     "@platejs/code-block": "^52.0.11",
-    "@platejs/combobox": "^52.0.15",
+    "@platejs/combobox": "^53.0.0",
     "@platejs/comment": "^52.0.11",
     "@platejs/core": "^52.0.17",
     "@platejs/date": "^52.0.11",
