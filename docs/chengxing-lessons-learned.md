@@ -1110,7 +1110,7 @@
 
 - 结论：共享控件可以用 opacity 表示 disabled，但 disabled -> enabled 时不应继续动画整体 opacity。
 - 为什么：属性解除后控件已可聚焦、可点击，若视觉仍停留在半透明中间帧，用户会看到低对比度的已启用控件，自动化无障碍扫描也会稳定捕获这个真实竞态。
-- 默认做法：disabled 视觉状态可以立即切换；测试等待业务稳定信号（例如 canonical URL 与代表性动作 enabled）后扫描，不使用固定 sleep 掩盖竞态。
+- 默认做法：disabled 视觉状态可以立即切换；测试等待业务稳定信号（例如 canonical URL 与代表性动作 enabled）后扫描；对抽屉内的触控尺寸等几何断言，还要等开场 `transform` 收敛为 `none`，不使用固定 sleep 掩盖竞态。
 
 ### 45. Provider SDK 升级是运行时契约迁移，不是只替换 package namespace
 
@@ -1147,6 +1147,12 @@
 - 结论：先用仓库声明的 Node/npm 复现，再区分 engine mismatch、可审核的 install scripts、上游弃用和无兼容修复的审计链。
 - 为什么：在错误 Node 版本下会制造 `EBADENGINE` 噪音；`npm audit fix --force` 可能用重大降级换取表面清零；传递依赖 override 也可能绕过上游真实契约。
 - 默认做法：锁定并文档化受支持运行时，显式审核 install-script allowlist，升级正常补丁；对仍由最新版上游固定的风险记录依赖链、影响和等待条件，由 Dependabot 提 PR 后跑完整门禁。
+
+### 51. linked worktree 正在使用的分支必须从所属 worktree 移动
+
+- 结论：测试要模拟 linked worktree 分支漂移时，不能从主 worktree 用 `git branch -f` 强制改写该分支。
+- 为什么：较新的 Git 会拒绝移动仍被另一个 worktree checkout 的分支，而旧版 Git 可能放行，导致本地门禁假绿、CI 才失败。
+- 默认做法：在持有该分支的 linked worktree 内执行 `git reset --hard <commit>`，并让创建与查找 worktree 复用同一个路径 helper；这既遵守 Git worktree 所有权约束，也能精确模拟 ref 漂移。
 
 ## 最新验证状态
 

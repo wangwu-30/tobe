@@ -106,6 +106,7 @@ test('workspace composer opens model selection in a conversation settings sheet 
     /选择这段对话使用的模型|Choose the model used for this conversation/
   );
   await expect(settingsSheet.getByRole('combobox')).toHaveCount(2);
+  await expect(settingsSheet).toHaveCSS('transform', 'none');
   const providerCombobox = settingsSheet.getByRole('combobox', {
     name: 'Provider',
     exact: true,

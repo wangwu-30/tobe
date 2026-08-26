@@ -81,7 +81,11 @@ test('validates proposal ref and canonical patch hash before mutation', async ()
   ).rejects.toMatchObject({ code: 'patch-hash-mismatch' });
   expect(await git(fixture.repoPath, ['rev-parse', 'refs/heads/main'])).toBe(fixture.baseCommit);
 
-  await git(fixture.repoPath, ['branch', '-f', proposal.proposalBranch, fixture.baseCommit]);
+  await git(proposalWorktreePath(fixture.repoPath, proposal.proposalBranch), [
+    'reset',
+    '--hard',
+    fixture.baseCommit,
+  ]);
   await expect(port.merge(proposal)).rejects.toMatchObject({ code: 'proposal-ref-changed' });
 });
 
@@ -153,7 +157,7 @@ async function createProposal(
   content: string
 ): Promise<TrustedKnowledgeMergeInputV1> {
   await git(repoPath, ['branch', proposalBranch, baseCommit]);
-  const worktree = path.join(path.dirname(repoPath), proposalBranch.replace('/', '-'));
+  const worktree = proposalWorktreePath(repoPath, proposalBranch);
   await git(repoPath, ['worktree', 'add', worktree, proposalBranch]);
   const filePath = path.join(worktree, file);
   await mkdir(path.dirname(filePath), { recursive: true });
@@ -173,6 +177,10 @@ async function createProposal(
     headCommit,
     expectedPatchSha256: createHash('sha256').update(patch).digest('hex'),
   };
+}
+
+function proposalWorktreePath(repoPath: string, proposalBranch: string) {
+  return path.join(path.dirname(repoPath), proposalBranch.replaceAll('/', '-'));
 }
 
 function canonicalDiffArgs(baseCommit: string, headCommit: string) {
