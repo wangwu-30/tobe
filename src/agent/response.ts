@@ -30,6 +30,10 @@ export async function ensureAgentResponseOk(response: Response) {
 export async function consumeAssistantTextResponse(params: {
   onFirstChunk?: () => void;
   onText: (text: string) => void;
+  onWorkspaceChange?: (workspace: {
+    conversationId: string | null;
+    workspaceId: string | null;
+  }) => void;
   response: Response;
   streamController: StreamController;
   workspaceChangeFallback: WorkspaceChangeFallback;
@@ -42,6 +46,9 @@ export async function consumeAssistantTextResponse(params: {
     params.response,
     params.workspaceChangeFallback
   );
+  // Response headers arrive before the body stream. Publish the durable identity
+  // immediately so callers can recover the conversation even if streaming aborts.
+  params.onWorkspaceChange?.(workspaceChange);
   const fullText = await readTextResponseStream({
     onActivity: () => {
       params.streamController.markActivity();

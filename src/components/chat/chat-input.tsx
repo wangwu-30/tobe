@@ -1,9 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { Paperclip, Search, SendHorizontal, Square, X } from 'lucide-react';
+import { Paperclip, Search, SendHorizontal, Settings2, Square, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import { useT } from '@/components/providers/language-provider';
 import {
   CHAT_CLIPBOARD_TEXT_FILE_THRESHOLD,
@@ -23,6 +32,9 @@ type OversizedPasteSnapshot = {
 };
 
 export function ChatInput({
+  allowAttachments = true,
+  allowDeepResearch = true,
+  capabilityHint,
   onSend,
   onStop,
   isLoading,
@@ -31,7 +43,12 @@ export function ChatInput({
   modelLabel,
   modelSelection,
   onModelSelectionChange,
+  placeholder,
+  variant = 'workspace',
 }: {
+  allowAttachments?: boolean;
+  allowDeepResearch?: boolean;
+  capabilityHint?: string | null;
   onSend: (
     message: string,
     options?: {
@@ -46,6 +63,8 @@ export function ChatInput({
   modelLabel?: string | null;
   modelSelection?: ModelSelectionData | null;
   onModelSelectionChange?: (selection: ModelSelectionData) => void;
+  placeholder?: string;
+  variant?: 'home' | 'workspace';
 }) {
   const t = useT();
   const [value, setValue] = React.useState('');
@@ -83,7 +102,10 @@ export function ChatInput({
   const handleSubmit = () => {
     const trimmed = value.trim();
     if ((!trimmed && attachments.length === 0) || isLoading) return;
-    onSend(trimmed, { attachments, researchMode });
+    onSend(trimmed, {
+      attachments: allowAttachments ? attachments : [],
+      researchMode: allowDeepResearch ? researchMode : 'light',
+    });
     resetComposer();
     setResearchMode('light');
   };
@@ -97,6 +119,10 @@ export function ChatInput({
 
   const handlePaste = React.useCallback(
     (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      if (!allowAttachments) {
+        return;
+      }
+
       const clipboardItems = Array.from(event.clipboardData.items || []);
       const files = clipboardItems
         .map((item) => item.getAsFile())
@@ -130,7 +156,7 @@ export function ChatInput({
         addAttachments([file], 'clipboard');
       }
     },
-    [addAttachments]
+    [addAttachments, allowAttachments]
   );
 
   const handleFileChange = React.useCallback(
@@ -224,61 +250,111 @@ export function ChatInput({
 
   return (
     <div className="border-t border-border bg-background p-3" data-testid="chat-composer">
-      <input
-        aria-label={t('chat.addAttachments')}
-        autoComplete="off"
-        name="chatAttachments"
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={handleFileChange}
-      />
+      {allowAttachments ? (
+        <input
+          aria-label={t('chat.addAttachments')}
+          autoComplete="off"
+          name="chatAttachments"
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFileChange}
+        />
+      ) : null}
 
       <div className="mb-2 flex flex-col gap-2 text-[11px] text-muted-foreground">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            {modelCatalog && modelSelection && onModelSelectionChange ? (
-              <ModelPicker
-                allowUnconfiguredProviders={false}
-                catalog={modelCatalog}
-                disabled={disabled || isLoading}
-                idPrefix="chat-model"
-                namePrefix="chatModel"
-                value={modelSelection}
-                variant="compact"
-                onChange={onModelSelectionChange}
-              />
-            ) : (
-              <div className="truncate pt-1">
-                {modelLabel
-                  ? t('chat.modelLabel', { model: modelLabel })
-                  : t('chat.modelFromSettings')}
-              </div>
-            )}
+            <Sheet>
+              <SheetTrigger asChild>
+                <button
+                  aria-label={`${t('chat.conversationSettings')}: ${
+                    modelLabel
+                      ? t('chat.modelLabel', { model: modelLabel })
+                      : t('chat.modelFromSettings')
+                  }`}
+                  className="inline-flex h-11 max-w-full touch-manipulation items-center gap-2 rounded-lg px-2 text-left text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+                  data-testid="chat-model-settings-trigger"
+                  disabled={disabled || isLoading}
+                  type="button"
+                >
+                  <Settings2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                  <span className="shrink-0 font-medium">
+                    {t('chat.conversationSettings')}
+                  </span>
+                  {variant === 'workspace' ? (
+                    <span aria-hidden="true" className="truncate text-muted-foreground">
+                      {modelLabel || t('chat.modelFromSettings')}
+                    </span>
+                  ) : null}
+                </button>
+              </SheetTrigger>
+              <SheetContent
+                className="w-full gap-0 p-0 sm:max-w-md"
+                data-testid="chat-model-settings-sheet"
+                side="right"
+                showCloseButton={false}
+              >
+                <SheetClose
+                  aria-label={t('execution.close')}
+                  className="absolute right-4 top-4 inline-flex size-11 touch-manipulation items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
+                >
+                  <X aria-hidden="true" className="size-4" />
+                </SheetClose>
+                <SheetHeader className="border-b px-6 py-5 pr-12 text-left">
+                  <SheetTitle>{t('chat.conversationSettings')}</SheetTitle>
+                  <SheetDescription className="leading-5">
+                    {t('chat.conversationSettingsDescription')}
+                  </SheetDescription>
+                </SheetHeader>
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                  {modelCatalog && modelSelection && onModelSelectionChange ? (
+                    <ModelPicker
+                      allowUnconfiguredProviders={false}
+                      catalog={modelCatalog}
+                      disabled={disabled || isLoading}
+                      idPrefix="chat-model"
+                      namePrefix="chatModel"
+                      value={modelSelection}
+                      variant="stacked"
+                      onChange={onModelSelectionChange}
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      {modelLabel
+                        ? t('chat.modelLabel', { model: modelLabel })
+                        : t('chat.modelFromSettings')}
+                    </p>
+                  )}
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
-          <button
-            aria-pressed={researchMode === 'deep'}
-            disabled={disabled || isLoading}
-            type="button"
-            className={`inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 sm:min-h-0 ${
-              researchMode === 'deep'
-                ? 'border-foreground/20 bg-foreground text-background'
-                : 'border-border bg-muted/30 text-muted-foreground'
-            }`}
-            onClick={() =>
-              setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
-            }
-          >
-            <Search aria-hidden="true" className="h-3 w-3" />
-            {researchMode === 'deep'
-              ? t('chat.deepResearchEnabled')
-              : t('chat.deepResearch')}
-          </button>
+          {allowDeepResearch ? (
+            <button
+              aria-pressed={researchMode === 'deep'}
+              disabled={disabled || isLoading}
+              type="button"
+              className={`inline-flex min-h-11 shrink-0 touch-manipulation items-center gap-1.5 rounded-full border px-2.5 py-1 transition-colors motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 sm:min-h-0 ${
+                researchMode === 'deep'
+                  ? 'border-foreground/20 bg-foreground text-background'
+                  : 'border-border bg-muted/30 text-muted-foreground'
+              }`}
+              onClick={() =>
+                setResearchMode((current) => (current === 'deep' ? 'light' : 'deep'))
+              }
+            >
+              <Search aria-hidden="true" className="h-3 w-3" />
+              {researchMode === 'deep'
+                ? t('chat.deepResearchEnabled')
+                : t('chat.deepResearch')}
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {researchMode === 'deep' ? (
+      {allowDeepResearch && researchMode === 'deep' ? (
         <div className="mb-2 rounded-xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2 text-[11px] leading-5 text-muted-foreground">
           {t('chat.deepResearchInfo')}
         </div>
@@ -319,17 +395,19 @@ export function ChatInput({
       ) : null}
 
       <div className="flex items-end gap-2">
-        <Button
-          aria-label={t('chat.addAttachments')}
-          type="button"
-          size="icon"
-          variant="outline"
-          className="shrink-0 rounded-xl"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isLoading}
-        >
-          <Paperclip aria-hidden="true" className="h-4 w-4" />
-        </Button>
+        {allowAttachments ? (
+          <Button
+            aria-label={t('chat.addAttachments')}
+            type="button"
+            size="icon"
+            variant="outline"
+            className="shrink-0 rounded-xl"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isLoading}
+          >
+            <Paperclip aria-hidden="true" className="h-4 w-4" />
+          </Button>
+        ) : null}
         <Textarea
           aria-label={t('chat.messageLabel')}
           autoComplete="off"
@@ -343,7 +421,7 @@ export function ChatInput({
           placeholder={
             researchMode === 'deep'
               ? t('chat.askWithDeepResearchPlaceholder')
-              : t('chat.askAiPlaceholder')
+              : placeholder || t('chat.askAiPlaceholder')
           }
           className="min-h-[44px] max-h-[200px] resize-none overscroll-contain rounded-xl border-muted-foreground/20"
           rows={1}
@@ -374,9 +452,11 @@ export function ChatInput({
         )}
       </div>
 
-      <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
-        {t('chat.attachmentHint')}
-      </p>
+      {capabilityHint || allowAttachments ? (
+        <p className="mt-2 text-[11px] leading-5 text-muted-foreground">
+          {capabilityHint || t('chat.attachmentHint')}
+        </p>
+      ) : null}
     </div>
   );
 }

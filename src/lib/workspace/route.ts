@@ -3,10 +3,10 @@ export const WORKSPACE_ASSISTANT_SEARCH_PARAM = 'assistant';
 export const WORKSPACE_NODE_SEARCH_PARAM = 'node';
 
 export const WORKSPACE_ASSISTANT_TABS = [
+  'chat',
   'room',
   'status',
   'review',
-  'chat',
   'context',
 ] as const;
 
@@ -17,7 +17,19 @@ export function parseWorkspaceAssistantTab(
 ): WorkspaceAssistantTab {
   return WORKSPACE_ASSISTANT_TABS.includes(value as WorkspaceAssistantTab)
     ? (value as WorkspaceAssistantTab)
-    : 'room';
+    : 'chat';
+}
+
+export function isCanonicalWorkspaceAssistantParam(values: readonly string[]) {
+  if (values.length === 0) {
+    return true;
+  }
+
+  if (values.length !== 1 || values[0] === 'chat') {
+    return false;
+  }
+
+  return WORKSPACE_ASSISTANT_TABS.includes(values[0] as WorkspaceAssistantTab);
 }
 
 export function buildWorkspacePath(projectId: string) {
@@ -35,7 +47,7 @@ export function buildWorkspaceRoute(params: {
 }) {
   const searchParams = new URLSearchParams();
 
-  if (params.assistant && params.assistant !== 'room') {
+  if (params.assistant && params.assistant !== 'chat') {
     searchParams.set(WORKSPACE_ASSISTANT_SEARCH_PARAM, params.assistant);
   }
 

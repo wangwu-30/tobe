@@ -19,6 +19,7 @@ type ModelDelegate = {
   findFirst<T = Record<string, unknown>>(args: QueryArgs): Promise<T | null>;
   findMany<T = Record<string, unknown>>(args: QueryArgs): Promise<T[]>;
   findUnique<T = Record<string, unknown>>(args: QueryArgs): Promise<T | null>;
+  findUniqueOrThrow<T = Record<string, unknown>>(args: QueryArgs): Promise<T>;
   update<T = Record<string, unknown>>(args: QueryArgs): Promise<T>;
   updateMany(args: QueryArgs): Promise<{ count: number }>;
   upsert(args: QueryArgs): Promise<Record<string, unknown>>;
@@ -27,6 +28,7 @@ type ModelDelegate = {
 export type PrismaClientLike = {
   $disconnect(): Promise<void>;
   $transaction<T>(action: (db: PrismaClientLike) => Promise<T>): Promise<T>;
+  assistantRun: ModelDelegate;
   commentThread: ModelDelegate;
   document: ModelDelegate;
   session: ModelDelegate;
@@ -92,6 +94,11 @@ function createDb(executor: Pick<Client | Transaction, 'execute'>): PrismaClient
     async findUnique<T = Record<string, unknown>>(args: QueryArgs) {
       return findOne(executor, table, args.where || {}, args.orderBy) as Promise<T | null>;
     },
+    async findUniqueOrThrow<T = Record<string, unknown>>(args: QueryArgs) {
+      const row = await findOne(executor, table, args.where || {}, args.orderBy);
+      if (!row) throw new Error(table + ' not found.');
+      return row as T;
+    },
     async update<T = Record<string, unknown>>(args: QueryArgs) {
       await executeUpdate(executor, table, args.where || {}, args.data || {});
       return (await findOne(executor, table, args.where || {}, undefined)) as T;
@@ -121,6 +128,7 @@ function createDb(executor: Pick<Client | Transaction, 'execute'>): PrismaClient
         if (!transaction.closed) transaction.close();
       }
     },
+    assistantRun: makeModel('AssistantRun'),
     commentThread: makeModel('CommentThread'),
     document: makeModel('Document'),
     session: makeModel('Session'),
@@ -311,7 +319,15 @@ function normalizeWriteValue(value: unknown): InValue {
 
 function mapRow(row: Record<string, unknown>) {
   const result = { ...row };
-  for (const key of ['createdAt', 'deletedAt', 'expiresAt', 'occurredAt', 'updatedAt']) {
+  for (const key of [
+    'createdAt',
+    'deletedAt',
+    'expiresAt',
+    'finishedAt',
+    'occurredAt',
+    'startedAt',
+    'updatedAt',
+  ]) {
     if (typeof result[key] === 'string') result[key] = new Date(result[key]);
   }
   if (typeof result.isPrimary === 'number') {

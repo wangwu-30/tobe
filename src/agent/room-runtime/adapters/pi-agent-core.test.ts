@@ -4,10 +4,10 @@ import type {
   Context,
   Model,
   SimpleStreamOptions,
-} from '@mariozechner/pi-ai';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+} from '@earendil-works/pi-ai';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { expect, test } from '@playwright/test';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 
 import { ROOM_RUNTIME_CONTRACT_VERSION_V1 } from '../contracts';
 import {
@@ -265,8 +265,9 @@ test('projects governed tool denial as confirmation then ignored without generic
     {
       resolveAgentConfig: createStaticPiRoomAgentConfigResolverV1({
         model: TEST_MODEL,
+        streamFn: async () => successfulStream(RESPONSE_TEXT),
         systemPrompt: 'System prompt',
-        tools: [governed as AgentTool<any>],
+        tools: [governed as AgentTool],
       }),
     },
     {
@@ -316,7 +317,7 @@ function createHarness(behavior: RoomRuntimeComplianceBehaviorV1) {
           invocations += 1;
           if (behavior === 'pending') {
             const { createAssistantMessageEventStream } = await import(
-              '@mariozechner/pi-ai'
+              '@earendil-works/pi-ai'
             );
             const stream = createAssistantMessageEventStream();
             stream.push({ type: 'start', partial: assistantMessage('', 'stop') });
@@ -341,7 +342,7 @@ function createHarness(behavior: RoomRuntimeComplianceBehaviorV1) {
     {
       ...deterministicDependencies(),
       async createAgent(options) {
-        const { Agent } = await import('@mariozechner/pi-agent-core');
+        const { Agent } = await import('@earendil-works/pi-agent-core');
         const agent = new Agent(options);
         const waitForIdle = agent.waitForIdle.bind(agent);
         agent.waitForIdle = () => {
@@ -374,52 +375,69 @@ function deterministicDependencies() {
 }
 
 function confirmationAgent(
-  tool: AgentTool<any>,
+  tool: AgentTool,
   toolCallId: string,
   args: { goal: string; nested: { priority: number } }
 ) {
-  const listeners = new Set<(event: import('@mariozechner/pi-agent-core').AgentEvent) => void>();
+  const listeners = new Set<
+    (
+      event: import('@earendil-works/pi-agent-core').AgentEvent,
+      signal: AbortSignal
+    ) => Promise<void> | void
+  >();
+  const controller = new AbortController();
   let aborted = false;
   const runTool = async () => {
     for (const listener of listeners) {
-      listener({
-        type: 'tool_execution_start',
-        toolCallId,
-        toolName: tool.name,
-        args,
-      });
+      await listener(
+        {
+          type: 'tool_execution_start',
+          toolCallId,
+          toolName: tool.name,
+          args,
+        },
+        controller.signal
+      );
     }
     try {
       await tool.execute(toolCallId, args);
     } catch {
-      const pending = (tool as AgentTool<any> & {
+      const pending = (tool as AgentTool & {
         getPendingConfirmation?: (id: string) => unknown;
       }).getPendingConfirmation?.(toolCallId);
       if (!pending) throw new Error('Governed tool did not expose confirmation.');
       for (const listener of listeners) {
-        listener({
-          type: 'tool_execution_end',
-          toolCallId,
-          toolName: tool.name,
-          result: { content: [], details: {} },
-          isError: true,
-        });
+        await listener(
+          {
+            type: 'tool_execution_end',
+            toolCallId,
+            toolName: tool.name,
+            result: { content: [], details: {} },
+            isError: true,
+          },
+          controller.signal
+        );
       }
     }
     if (!aborted) throw new Error('Expected confirmation to abort continuation.');
   };
   return {
     state: {
-      error: undefined,
+      errorMessage: undefined,
       isStreaming: false,
       messages: [],
-      streamMessage: null,
+      streamingMessage: undefined,
     },
-    abort() { aborted = true; },
-    appendMessage() {},
+    abort() {
+      aborted = true;
+      controller.abort();
+    },
     continue: runTool,
     prompt: runTool,
-    subscribe(listener: (event: import('@mariozechner/pi-agent-core').AgentEvent) => void) {
+    subscribe(listener: (
+      event: import('@earendil-works/pi-agent-core').AgentEvent,
+      signal: AbortSignal
+    ) => Promise<void> | void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -429,7 +447,7 @@ function confirmationAgent(
 
 async function successfulStream(text: string) {
   const { createAssistantMessageEventStream } = await import(
-    '@mariozechner/pi-ai'
+    '@earendil-works/pi-ai'
   );
   const stream = createAssistantMessageEventStream();
   const midpoint = Math.floor(text.length / 2);
@@ -455,7 +473,7 @@ async function successfulStream(text: string) {
 
 async function failedStream(message: string) {
   const { createAssistantMessageEventStream } = await import(
-    '@mariozechner/pi-ai'
+    '@earendil-works/pi-ai'
   );
   const stream = createAssistantMessageEventStream();
   stream.push({ type: 'start', partial: assistantMessage('', 'stop') });

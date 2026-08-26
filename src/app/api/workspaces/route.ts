@@ -9,7 +9,7 @@ import { translate } from '@/lib/i18n/copy';
 import {
   IdempotencyConflictError,
   IdempotencyInProgressError,
-  withIdempotency,
+  withAtomicIdempotency,
 } from '@/lib/platform/idempotency';
 import { materializeWorkspaceMirror } from '@/lib/platform/mirror-manager';
 import { getPlatformContextFromHeaders } from '@/lib/platform/server-context';
@@ -41,7 +41,16 @@ import type { DeliverableType } from '@/types';
 import { defineRoute } from '@/framework/resilience';
 
 
-class WorkspaceCreateValidationError extends Error {}
+class WorkspaceCreateValidationError extends Error {
+  constructor(
+    message: string,
+    readonly status = 400,
+    readonly code = 'WORKSPACE_CREATE_INVALID'
+  ) {
+    super(message);
+    this.name = 'WorkspaceCreateValidationError';
+  }
+}
 
 type CreatedWorkspaceRecord = Awaited<ReturnType<typeof createWorkspaceForRequest>>;
 
@@ -74,6 +83,18 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
     typeof body.selectedIntentNote === 'string' && body.selectedIntentNote.trim()
       ? body.selectedIntentNote.trim()
       : null;
+  const conversationTitle =
+    typeof body.conversationTitle === 'string' && body.conversationTitle.trim()
+      ? body.conversationTitle.trim()
+      : null;
+  const goal =
+    typeof body.goal === 'string' && body.goal.trim() ? body.goal.trim() : null;
+  const initialContent = typeof body.content === 'string' ? body.content : null;
+  const styleGuide =
+    typeof body.styleGuide === 'string' && body.styleGuide.trim()
+      ? body.styleGuide.trim()
+      : null;
+  const initialPlanNote = translate(language, 'plan.generatingDescription');
   const mergedConstraints = mergeIntentDetailIntoConstraints(
     typeof body.constraints === 'string' ? body.constraints : null,
     selectedIntentNote
@@ -113,88 +134,82 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
   const requestKey = req.headers.get(WORKSPACE_CREATE_IDEMPOTENCY_HEADER)?.trim() || null;
   const requestHash = JSON.stringify({
     constraints: mergedConstraints,
+    content: initialContent,
+    conversationTitle,
     createMode,
     deliverableType,
-    goal: body.goal || null,
+    goal,
     conversationId,
+    language,
     projectFolderId,
     projectParentPath,
     projectId,
     projectTitle,
     selectedIntentNote,
-    styleGuide: body.styleGuide || null,
+    styleGuide,
     title: suggestedTitle || null,
     workflowPlaybookId,
   });
 
   try {
-    const workspace = await withIdempotency({
-      action: async () => {
+    const resolvedWorkflowPlaybook = workflowPlaybookId
+      ? await materializeWorkflowPlaybookSelection(actor, workflowPlaybookId)
+      : undefined;
+    let createdItemsToFinalize: CreatedWorkspaceRecord[] | null = null;
+    const workspace = await withAtomicIdempotency({
+      action: async (tx) => {
+        const creationInput = {
+          constraints: mergedConstraints,
+          conversationTitle,
+          conversationId,
+          goal,
+          initialContent,
+          initialPlanNote,
+          projectFolderId,
+          projectParentPath,
+          projectId,
+          projectTitle,
+          resolvedWorkflowPlaybook,
+          styleGuide,
+          title: suggestedTitle || undefined,
+          workflowPlaybookId,
+        };
         const createdItems =
-              createMode === 'both'
-            ? await createWorkspacePairForRequest(actor, {
-                constraints: mergedConstraints,
-                conversationTitle: body.conversationTitle,
-                conversationId,
-                goal: body.goal,
-                initialContent: typeof body.content === 'string' ? body.content : null,
-                initialPlanNote: translate(language, 'plan.generatingDescription'),
-                language,
-                projectFolderId,
-                projectParentPath,
-                projectId,
-                projectTitle,
-                styleGuide: body.styleGuide,
-                title: suggestedTitle || undefined,
-                workflowPlaybookId,
-              })
+          createMode === 'both'
+            ? await createWorkspacePairForRequest(
+                actor,
+                { ...creationInput, language },
+                tx
+              )
             : [
-                await createWorkspaceForRequest(actor, {
-                  constraints: mergedConstraints,
-                  conversationTitle: body.conversationTitle,
-                  conversationId,
-                  deliverableType,
-                  goal: body.goal,
-                  initialContent: typeof body.content === 'string' ? body.content : null,
-                  initialPlanNote: translate(language, 'plan.generatingDescription'),
-                  projectFolderId,
-                  projectParentPath,
-                  projectId,
-                  projectTitle,
-                  styleGuide: body.styleGuide,
-                  title: suggestedTitle || undefined,
-                  workflowPlaybookId,
-                }),
+                await createWorkspaceForRequest(
+                  actor,
+                  { ...creationInput, deliverableType },
+                  tx
+                ),
               ];
-        await Promise.all(
-          createdItems.map((created) =>
-            finalizeWorkspaceCreation(actor, created).catch((error) => {
-              console.error('Workspace creation side effects failed.', error);
-            })
-          )
-        );
 
+        createdItemsToFinalize = createdItems;
         return mapWorkspaceCreateResponse(createdItems);
       },
       key: requestKey,
       operation: 'workspace:create',
       organizationId: actor.organizationId,
       requestHash,
-      resource: (result) => ({
-        resourceId:
-          result && typeof result === 'object' && 'workspace' in result
-            ? ((result.workspace as { id?: string }).id || null)
-            : null,
-        resourceType: 'workspace',
-      }),
+      resource: mapWorkspaceCreateResource,
       userId: actor.userId,
     });
+
+    if (createdItemsToFinalize) {
+      await finalizeWorkspaceCreations(actor, createdItemsToFinalize);
+    }
 
     return NextResponse.json(workspace);
   } catch (error) {
     if (error instanceof IdempotencyConflictError) {
       return NextResponse.json(
         {
+          code: 'WORKSPACE_CREATE_IDEMPOTENCY_CONFLICT',
           error:
             'This project request key is already being used for a different project payload.',
         },
@@ -204,15 +219,18 @@ export const POST = defineRoute(async function POST(req: NextRequest) {
 
     if (error instanceof IdempotencyInProgressError) {
       return NextResponse.json(
-        { error: 'This project request is still in progress. Please wait a moment.' },
+        {
+          code: 'WORKSPACE_CREATE_IN_PROGRESS',
+          error: 'This project request is still in progress. Please wait a moment.',
+        },
         { status: 409 }
       );
     }
 
     if (error instanceof WorkspaceCreateValidationError) {
       return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
+        { code: error.code, error: error.message },
+        { status: error.status }
       );
     }
 
@@ -238,12 +256,17 @@ async function createWorkspaceForRequest(
     projectParentPath?: string | null;
     projectId?: string | null;
     projectTitle?: string | null;
+    resolvedWorkflowPlaybook?: Awaited<
+      ReturnType<typeof materializeWorkflowPlaybookSelection>
+    >;
     styleGuide?: string | null;
     title?: string;
     workflowPlaybookId?: string | null;
     publishGoalToRoom?: boolean;
-  }
+  },
+  transaction?: Prisma.TransactionClient
 ) {
+  const db = transaction || prisma;
   const title = input.title?.trim() || 'Untitled Project';
   const goal =
     typeof input.goal === 'string' && input.goal.trim().length > 0
@@ -258,7 +281,7 @@ async function createWorkspaceForRequest(
   const requestedWorkflowPlaybookId = input.workflowPlaybookId?.trim() || null;
   const inheritedProject =
     requestedProjectId
-      ? await prisma.document.findFirst({
+      ? await db.document.findFirst({
           where: {
             deletedAt: null,
             organizationId: actor.organizationId,
@@ -283,9 +306,12 @@ async function createWorkspaceForRequest(
     throw new WorkspaceCreateValidationError('Project folder requires a project.');
   }
 
-  const workflowPlaybook = requestedWorkflowPlaybookId
-    ? await materializeWorkflowPlaybookSelection(actor, requestedWorkflowPlaybookId)
-    : null;
+  const workflowPlaybook =
+    input.resolvedWorkflowPlaybook !== undefined
+      ? input.resolvedWorkflowPlaybook
+      : requestedWorkflowPlaybookId
+        ? await materializeWorkflowPlaybookSelection(actor, requestedWorkflowPlaybookId)
+        : null;
 
   if (requestedWorkflowPlaybookId && !workflowPlaybook) {
     throw new WorkspaceCreateValidationError('Workflow playbook not found.');
@@ -310,7 +336,7 @@ async function createWorkspaceForRequest(
   initialPlan.lastProgressNote = input.initialPlanNote?.trim() || initialPlan.lastProgressNote;
 
   if (requestedProjectFolderId) {
-    const folder = await prisma.projectFolder.findFirst({
+    const folder = await db.projectFolder.findFirst({
       where: {
         deletedAt: null,
         id: requestedProjectFolderId,
@@ -335,7 +361,7 @@ async function createWorkspaceForRequest(
     initialContent: input.initialContent || null,
   });
 
-  return prisma.$transaction(async (tx) => {
+  const createInTransaction = async (tx: Prisma.TransactionClient) => {
     const reusableConversation =
       requestedProjectId && requestedConversationId
         ? await findReusableProjectConversation({
@@ -345,9 +371,63 @@ async function createWorkspaceForRequest(
             tx,
           })
         : null;
+    const onboardingConversation =
+      !requestedProjectId && requestedConversationId
+        ? await tx.session.findFirst({
+            where: {
+              deletedAt: null,
+              id: requestedConversationId,
+              organizationId: actor.organizationId,
+            },
+          })
+        : null;
 
     if (requestedConversationId && requestedProjectId && !reusableConversation) {
       throw new WorkspaceCreateValidationError('Conversation not found for project.');
+    }
+
+    if (!requestedProjectId && requestedConversationId && !onboardingConversation) {
+      throw new WorkspaceCreateValidationError(
+        'Onboarding conversation not found.',
+        404,
+        'ONBOARDING_CONVERSATION_NOT_FOUND'
+      );
+    }
+
+    if (
+      onboardingConversation &&
+      (onboardingConversation.scopeKind !== 'team' ||
+        onboardingConversation.sourceType !== 'onboarding' ||
+        onboardingConversation.projectId ||
+        onboardingConversation.wikiId ||
+        onboardingConversation.activeFileId ||
+        onboardingConversation.baseVersionId)
+    ) {
+      throw new WorkspaceCreateValidationError(
+        'Conversation is not an unbound onboarding conversation.',
+        409,
+        'ONBOARDING_CONVERSATION_NOT_ADOPTABLE'
+      );
+    }
+
+    if (onboardingConversation) {
+      const activeOnboardingRun = await tx.assistantRun.findFirst({
+        where: {
+          deletedAt: null,
+          organizationId: actor.organizationId,
+          scopeKind: 'team',
+          sessionId: onboardingConversation.id,
+          status: { in: ['queued', 'planning', 'running'] },
+        },
+        select: { id: true },
+      });
+      if (activeOnboardingRun) {
+        throw new WorkspaceCreateValidationError(
+          'Wait for the onboarding reply to finish before creating a Wiki.',
+          409,
+          'ONBOARDING_RUN_ACTIVE'
+        );
+      }
     }
 
     const createWorkspacePlanRecord = tx.workspacePlan.create as unknown as (
@@ -355,10 +435,12 @@ async function createWorkspaceForRequest(
     ) => Promise<unknown>;
     const conversation =
       reusableConversation ||
+      onboardingConversation ||
       (await tx.session.create({
         data: {
           organizationId: actor.organizationId,
           projectId: requestedProjectId,
+          scopeKind: 'wiki',
           title:
             typeof input.conversationTitle === 'string' &&
             input.conversationTitle.trim().length > 0
@@ -466,13 +548,60 @@ async function createWorkspaceForRequest(
       );
     }
 
-    const updatedConversation = await tx.session.update({
-      where: { id: conversation.id },
-      data: {
-        activeFileId: primaryFile.id,
-        projectId: workspace.projectId || workspace.id,
-      },
-    });
+    let updatedConversation;
+    if (onboardingConversation) {
+      const adoption = await tx.session.updateMany({
+        where: {
+          deletedAt: null,
+          id: onboardingConversation.id,
+          organizationId: actor.organizationId,
+          activeFileId: null,
+          baseVersionId: null,
+          projectId: null,
+          revision: onboardingConversation.revision,
+          scopeKind: 'team',
+          sourceType: 'onboarding',
+          wikiId: null,
+          assistantRuns: {
+            none: {
+              deletedAt: null,
+              organizationId: actor.organizationId,
+              scopeKind: 'team',
+              status: { in: ['queued', 'planning', 'running'] },
+            },
+          },
+        },
+        data: {
+          activeFileId: primaryFile.id,
+          originDeviceId: actor.deviceId,
+          projectId: workspace.projectId || workspace.id,
+          revision: { increment: 1 },
+          scopeKind: 'wiki',
+          updatedAt: new Date(),
+        },
+      });
+
+      if (adoption.count !== 1) {
+        throw new WorkspaceCreateValidationError(
+          'Onboarding conversation is no longer adoptable.',
+          409,
+          'ONBOARDING_CONVERSATION_NOT_ADOPTABLE'
+        );
+      }
+
+      updatedConversation = await tx.session.findUniqueOrThrow({
+        where: { id: onboardingConversation.id },
+      });
+    } else {
+      updatedConversation = await tx.session.update({
+        where: { id: conversation.id },
+        data: {
+          activeFileId: primaryFile.id,
+          projectId: workspace.projectId || workspace.id,
+          scopeKind: 'wiki',
+        },
+      });
+    }
 
     await createWorkspacePlanRecord({
       data: {
@@ -521,7 +650,11 @@ async function createWorkspaceForRequest(
       room,
       workspace,
     };
-  });
+  };
+
+  return transaction
+    ? createInTransaction(transaction)
+    : prisma.$transaction(createInTransaction);
 }
 
 async function createWorkspacePairForRequest(
@@ -538,15 +671,19 @@ async function createWorkspacePairForRequest(
     projectParentPath?: string | null;
     projectId?: string | null;
     projectTitle?: string | null;
+    resolvedWorkflowPlaybook?: Awaited<
+      ReturnType<typeof materializeWorkflowPlaybookSelection>
+    >;
     styleGuide?: string | null;
     title?: string;
     workflowPlaybookId?: string | null;
-  }
+  },
+  transaction: Prisma.TransactionClient
 ) {
   const documentWorkspace = await createWorkspaceForRequest(actor, {
     ...input,
     deliverableType: 'document',
-  });
+  }, transaction);
 
   const webWorkspace = await createWorkspaceForRequest(actor, {
     ...input,
@@ -564,7 +701,7 @@ async function createWorkspacePairForRequest(
       documentWorkspace.workspace.title,
       input.language || null
     ),
-  });
+  }, transaction);
 
   return [documentWorkspace, webWorkspace];
 }
@@ -654,6 +791,29 @@ async function finalizeWorkspaceCreation(
     organizationId: actor.organizationId,
     workspaceId: created.workspace.id,
   });
+}
+
+async function finalizeWorkspaceCreations(
+  actor: { deviceId: string; organizationId: string; userId: string },
+  createdItems: CreatedWorkspaceRecord[]
+) {
+  await Promise.all(
+    createdItems.map((created) =>
+      finalizeWorkspaceCreation(actor, created).catch((error) => {
+        console.error('Workspace creation side effects failed.', error);
+      })
+    )
+  );
+}
+
+function mapWorkspaceCreateResource(result: unknown) {
+  return {
+    resourceId:
+      result && typeof result === 'object' && 'workspace' in result
+        ? ((result.workspace as { id?: string }).id || null)
+        : null,
+    resourceType: 'workspace',
+  };
 }
 
 function mapWorkspaceCreateResponse(createdItems: CreatedWorkspaceRecord[]) {

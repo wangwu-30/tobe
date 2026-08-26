@@ -1,9 +1,6 @@
 import 'server-only';
 
-import type { Api, Message as PiMessage, Model as PiModel } from '@mariozechner/pi-ai';
-import type { Settings } from '@/lib/ai/providers';
-import { getOAuthApiKeyForProvider } from '@/lib/ai/auth-store';
-import { resolveConfiguredApiKey } from '@/lib/ai/providers';
+import type { Api, Message as PiMessage, Model as PiModel } from '@earendil-works/pi-ai';
 
 export type AnyPiModel = PiModel<Api>;
 
@@ -30,17 +27,6 @@ export type AgentRunMessage =
           >;
       createdAt?: Date | string;
     };
-
-export async function resolvePiProviderApiKey(params: {
-  provider: string;
-  settings: Settings;
-}) {
-  return (
-    (isOAuthProvider(params.provider)
-      ? (await getOAuthApiKeyForProvider(params.provider))?.apiKey
-      : null) || resolveConfiguredApiKey(params.settings, params.provider)
-  );
-}
 
 export function toPiRunMessages(
   messages: AgentRunMessage[],
@@ -116,16 +102,4 @@ export function getLastAssistantMessageText(messages: PiMessage[]) {
     );
 
   return assistantMessage ? extractAssistantMessageText(assistantMessage) : '';
-}
-
-function isOAuthProvider(provider: string): provider is Parameters<
-  typeof getOAuthApiKeyForProvider
->[0] {
-  return (
-    provider === 'anthropic' ||
-    provider === 'openai-codex' ||
-    provider === 'github-copilot' ||
-    provider === 'google-gemini-cli' ||
-    provider === 'google-antigravity'
-  );
 }

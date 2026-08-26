@@ -33,7 +33,7 @@ test('assistant rail surfaces show contextual first-use guidance instead of a gl
 
   const chatTab = page.getByTestId('assistant-tab-chat');
   await chatTab.click();
-  await expect(page).toHaveURL(/(?:\?|&)assistant=chat(?:&|$)/);
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
   await expect(chatTab).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByTestId('first-use-guide-chat')).toBeVisible();
 

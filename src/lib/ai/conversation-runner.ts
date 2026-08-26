@@ -1,13 +1,15 @@
-import type { Api, Model as PiModel } from '@mariozechner/pi-ai';
+import type { Api, Model as PiModel } from '@earendil-works/pi-ai';
 import { prisma } from '@/lib/db/prisma';
 import { buildChatSystemPrompt } from '@/lib/ai/context-builder';
+import { buildReplyLanguageInstruction } from '@/lib/ai/language';
 import { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 import { streamPiAgentChat } from '@/lib/ai/chat-agent';
 import { safeJsonParse } from '@/framework/resilience';
-import { resolvePiProviderApiKey } from '@/framework/agent/run';
+import { hasConfiguredPiProviderAuth } from '@/lib/ai/providers';
 import type { Settings } from '@/lib/ai/providers';
 import type { SearchProvider } from '@/lib/search/types';
 import {
+  AssistantRunTransitionError,
   createAssistantRun,
   createConversationMessage,
   updateAssistantRun,
@@ -16,7 +18,8 @@ import {
   ensureWorkspaceFiles,
   updateWorkspaceFile,
 } from '@/objects/file/commands';
-import type { ResearchMode } from '@/types';
+import { listProjects } from '@/objects/project/queries';
+import type { ConversationScopeKind, ResearchMode } from '@/types';
 
 type AnyPiModel = PiModel<Api>;
 
@@ -47,7 +50,7 @@ export type AgentConversationMessage =
       createdAt?: Date | string;
     };
 
-type WorkspaceAssistantRunStreamParams = {
+type AssistantRunStreamBaseParams = {
   actor: ActorContext;
   assistantRunId: string;
   conversationId: string;
@@ -56,15 +59,29 @@ type WorkspaceAssistantRunStreamParams = {
   model: AnyPiModel;
   modelKey: string;
   onAfterFinish?: (text: string) => Promise<void> | void;
-  persistAssistantText?: (text: string) => Promise<void> | void;
   researchMode?: ResearchMode;
   searchBudget?: number;
   searchProvider?: SearchProvider | null;
   settings: Settings;
   systemPrompt: string;
   toolMessages: AgentConversationMessage[];
+};
+
+type TeamAssistantRunStreamParams = AssistantRunStreamBaseParams & {
+  persistAssistantText?: never;
+  scopeKind: 'team';
+  workspaceId: null;
+};
+
+type WikiAssistantRunStreamParams = AssistantRunStreamBaseParams & {
+  persistAssistantText?: (text: string) => Promise<void> | void;
+  scopeKind?: 'wiki';
   workspaceId: string;
 };
+
+type WorkspaceAssistantRunStreamParams =
+  | TeamAssistantRunStreamParams
+  | WikiAssistantRunStreamParams;
 
 type WorkspaceAssistantRunDescriptor = {
   mode: Parameters<typeof createAssistantRun>[1]['mode'];
@@ -74,7 +91,7 @@ type WorkspaceAssistantRunDescriptor = {
 };
 
 type WorkspaceAssistantRunStartParams = Omit<
-  WorkspaceAssistantRunStreamParams,
+  WikiAssistantRunStreamParams,
   'assistantRunId'
 > & {
   run: WorkspaceAssistantRunDescriptor;
@@ -111,6 +128,11 @@ type WorkspaceAssistantSystemPromptParams = {
   workspaceId: string;
 };
 
+type OnboardingAssistantSystemPromptParams = {
+  language: Parameters<typeof buildChatSystemPrompt>[0]['language'];
+  organizationId: string;
+};
+
 export async function buildWorkspaceAssistantSystemPrompt(
   params: WorkspaceAssistantSystemPromptParams
 ) {
@@ -136,6 +158,59 @@ export async function buildWorkspaceAssistantConversationContext(
       organizationId: params.organizationId,
     }),
     buildWorkspaceAssistantSystemPrompt(params),
+  ]);
+
+  return {
+    history,
+    systemPrompt,
+    toolMessages: history.map((message) =>
+      mapHistoryMessageToAgent(message, params.modelSupportsImages)
+    ),
+  };
+}
+
+export async function buildOnboardingAssistantSystemPrompt(
+  params: OnboardingAssistantSystemPromptParams
+) {
+  const projects = await listProjects(params.organizationId);
+  const parts = [
+    'You are the onboarding assistant for a one-person team in 成形.',
+    'Use this chat to understand the user, clarify what they want to organize or create, and help them decide what their first Wiki space should be.',
+    'This is conversation only. You have no tools and cannot create, edit, delete, preview, or otherwise change a Wiki, document, file, project, task, room, or external resource.',
+    'Never claim that a Wiki or document has been created or changed. When the user is ready, summarize the proposed Wiki purpose and suggest using the explicit create-space action in the interface.',
+    'Ask at most one focused clarification question at a time unless the user explicitly asks for a broader plan.',
+    buildReplyLanguageInstruction(params.language),
+  ];
+
+  if (projects.length > 0) {
+    parts.push('', '## Existing Wiki Summaries');
+    projects.slice(0, 20).forEach((project) => {
+      parts.push(
+        `- ${project.title}: ${project.preview} (${project.deliverableCount} pages)`
+      );
+    });
+    parts.push(
+      'Use these summaries only to avoid duplicate suggestions. Do not imply access to page contents.'
+    );
+  } else {
+    parts.push('', 'There are no existing Wiki spaces in this organization yet.');
+  }
+
+  return parts.join('\n');
+}
+
+export async function buildOnboardingAssistantConversationContext(params: {
+  conversationId: string;
+  language: OnboardingAssistantSystemPromptParams['language'];
+  modelSupportsImages: boolean;
+  organizationId: string;
+}) {
+  const [history, systemPrompt] = await Promise.all([
+    loadConversationHistoryForAgent({
+      conversationId: params.conversationId,
+      organizationId: params.organizationId,
+    }),
+    buildOnboardingAssistantSystemPrompt(params),
   ]);
 
   return {
@@ -264,6 +339,7 @@ export async function startWorkspaceAssistantRun(
       status: 'planning',
     },
     run: params.run,
+    scopeKind: params.scopeKind,
     workspaceId: params.workspaceId,
   });
 
@@ -281,6 +357,7 @@ export async function startWorkspaceAssistantRun(
     searchBudget: params.searchBudget,
     searchProvider: params.searchProvider,
     settings: params.settings,
+    scopeKind: params.scopeKind,
     systemPrompt: params.systemPrompt,
     toolMessages: params.toolMessages,
     workspaceId: params.workspaceId,
@@ -292,49 +369,59 @@ export async function initializeWorkspaceAssistantRun(params: {
   conversationId: string;
   initialUpdate?: Omit<Parameters<typeof updateAssistantRun>[1], 'runId'>;
   run: WorkspaceAssistantRunDescriptor;
-  workspaceId: string;
+  scopeKind?: ConversationScopeKind;
+  workspaceId: string | null;
 }) {
-  const assistantRun = await createAssistantRun(params.actor, {
+  return createAssistantRun(params.actor, {
     conversationId: params.conversationId,
-    mode: params.run.mode,
-    payloadJson: params.run.payloadJson,
+    finishedAt: params.initialUpdate?.finishedAt,
+    mode: params.initialUpdate?.mode || params.run.mode,
+    payloadJson:
+      params.initialUpdate?.payloadJson === undefined
+        ? params.run.payloadJson
+        : params.initialUpdate.payloadJson,
     requestMessageId: params.run.requestMessageId,
+    scopeKind: params.scopeKind || 'wiki',
+    status: params.initialUpdate?.status,
+    summary: params.initialUpdate?.summary,
     title: params.run.title,
     workspaceId: params.workspaceId,
-  });
-
-  if (!params.initialUpdate) {
-    return assistantRun;
-  }
-
-  return updateAssistantRun(params.actor, {
-    ...params.initialUpdate,
-    runId: assistantRun.id,
   });
 }
 
 export async function streamWorkspaceAssistantRun(
   params: WorkspaceAssistantRunStreamParams
 ) {
-  const providerApiKey = await resolvePiProviderApiKey({
-    provider: params.model.provider,
-    settings: params.settings,
-  });
+  const scopeKind = params.scopeKind || 'wiki';
+  if (scopeKind === 'wiki' && !params.workspaceId) {
+    throw new Error('Workspace assistant runs require a workspace.');
+  }
+  if (scopeKind === 'team' && params.workspaceId) {
+    throw new Error('Onboarding assistant runs cannot target a workspace.');
+  }
 
-  if (process.env.DAO_E2E === '1' && !providerApiKey) {
+  const hasProviderAuth = await hasConfiguredPiProviderAuth(
+    params.settings,
+    params.model.provider
+  );
+
+  if (process.env.DAO_E2E === '1' && !hasProviderAuth) {
     return streamE2EWorkspaceAssistantRun(params);
   }
 
-  const workspaceAgent = createWorkspaceAgentTools({
-    actorUserId: params.actor.userId,
-    conversationId: params.conversationId,
-    organizationId: params.actor.organizationId,
-    originDeviceId: params.actor.deviceId,
-    researchMode: params.researchMode || 'light',
-    searchBudget: params.searchBudget,
-    searchProvider: params.searchProvider || null,
-    workspaceId: params.workspaceId,
-  });
+  const workspaceAgent =
+    scopeKind === 'wiki' && params.workspaceId
+      ? createWorkspaceAgentTools({
+          actorUserId: params.actor.userId,
+          conversationId: params.conversationId,
+          organizationId: params.actor.organizationId,
+          originDeviceId: params.actor.deviceId,
+          researchMode: params.researchMode || 'light',
+          searchBudget: params.searchBudget,
+          searchProvider: params.searchProvider || null,
+          workspaceId: params.workspaceId,
+        })
+      : null;
 
   const response = await streamPiAgentChat({
     sessionId: params.conversationId,
@@ -342,15 +429,22 @@ export async function streamWorkspaceAssistantRun(
     settings: params.settings,
     systemPrompt: params.systemPrompt,
     messages: params.toolMessages,
-    tools: workspaceAgent.tools,
+    tools: workspaceAgent?.tools || [],
     onFirstText: async () => {
-      await updateAssistantRun(params.actor, {
-        runId: params.assistantRunId,
-        status: 'running',
-      });
+      try {
+        await updateAssistantRun(params.actor, {
+          runId: params.assistantRunId,
+          status: 'running',
+        });
+      } catch (error) {
+        if (!(error instanceof AssistantRunTransitionError)) {
+          throw error;
+        }
+      }
     },
     onFinish: async ({ text }) => {
-      const persistedText = text.trim() || workspaceAgent.getLatestToolSummary() || '';
+      const persistedText =
+        text.trim() || workspaceAgent?.getLatestToolSummary() || '';
       const emptyReplySummary =
         params.emptyReplySummary || 'AI finished without a visible reply.';
       if (!persistedText) {
@@ -363,7 +457,7 @@ export async function streamWorkspaceAssistantRun(
         throw new Error(emptyReplySummary);
       }
 
-      if (params.persistAssistantText) {
+      if (scopeKind === 'wiki' && params.persistAssistantText) {
         await params.persistAssistantText(persistedText);
       } else {
         await createConversationMessage(params.actor, {
@@ -372,9 +466,12 @@ export async function streamWorkspaceAssistantRun(
           focusNodeId: params.workspaceId,
           model: `agent:${params.modelKey}`,
           role: 'assistant',
+          scopeKind,
           workspaceId: params.workspaceId,
         });
       }
+
+      await params.onAfterFinish?.(persistedText);
 
       await updateAssistantRun(params.actor, {
         finishedAt: new Date(),
@@ -383,21 +480,28 @@ export async function streamWorkspaceAssistantRun(
         summary: persistedText,
       });
 
-      await params.onAfterFinish?.(persistedText);
     },
     onError: async (error) => {
       const errorSummary = params.errorSummary || 'AI run failed.';
-      await updateAssistantRun(params.actor, {
-        finishedAt: new Date(),
-        runId: params.assistantRunId,
-        status: 'failed',
-        summary: error instanceof Error ? error.message : errorSummary,
-      });
+      try {
+        await updateAssistantRun(params.actor, {
+          finishedAt: new Date(),
+          runId: params.assistantRunId,
+          status: 'failed',
+          summary: error instanceof Error ? error.message : errorSummary,
+        });
+      } catch (transitionError) {
+        if (!(transitionError instanceof AssistantRunTransitionError)) {
+          throw transitionError;
+        }
+      }
     },
   });
 
   response.headers.set('x-dao-conversation-id', params.conversationId);
-  response.headers.set('x-dao-workspace-id', params.workspaceId);
+  if (params.workspaceId) {
+    response.headers.set('x-dao-workspace-id', params.workspaceId);
+  }
 
   return response;
 }
@@ -418,7 +522,10 @@ async function streamE2EWorkspaceAssistantRun(
 
           await new Promise((resolve) => setTimeout(resolve, E2E_FALLBACK_START_DELAY_MS));
 
-          const persistedText = await applyE2EWorkspaceAssistantFallback(params);
+          const persistedText =
+            (params.scopeKind || 'wiki') === 'team'
+              ? '我们可以先一起厘清目标。你希望这个 Wiki 最先帮助你整理哪类信息或完成什么工作？'
+              : await applyE2EWorkspaceAssistantFallback(params);
 
           // Keep the run open long enough for the workspace polling loop to
           // observe the persisted draft change before the simulated run settles.
@@ -428,7 +535,7 @@ async function streamE2EWorkspaceAssistantRun(
 
           controller.enqueue(encoder.encode(persistedText));
 
-          if (params.persistAssistantText) {
+          if ((params.scopeKind || 'wiki') === 'wiki' && params.persistAssistantText) {
             await params.persistAssistantText(persistedText);
           } else {
             await createConversationMessage(params.actor, {
@@ -437,9 +544,12 @@ async function streamE2EWorkspaceAssistantRun(
               focusNodeId: params.workspaceId,
               model: 'agent:e2e-fallback',
               role: 'assistant',
+              scopeKind: params.scopeKind || 'wiki',
               workspaceId: params.workspaceId,
             });
           }
+
+          await params.onAfterFinish?.(persistedText);
 
           await updateAssistantRun(params.actor, {
             finishedAt: new Date(),
@@ -448,7 +558,6 @@ async function streamE2EWorkspaceAssistantRun(
             summary: persistedText,
           });
 
-          await params.onAfterFinish?.(persistedText);
           controller.close();
         } catch (error) {
           const errorSummary = params.errorSummary || 'AI run failed.';
@@ -471,7 +580,9 @@ async function streamE2EWorkspaceAssistantRun(
   );
 
   response.headers.set('x-dao-conversation-id', params.conversationId);
-  response.headers.set('x-dao-workspace-id', params.workspaceId);
+  if (params.workspaceId) {
+    response.headers.set('x-dao-workspace-id', params.workspaceId);
+  }
 
   return response;
 }
@@ -479,6 +590,9 @@ async function streamE2EWorkspaceAssistantRun(
 async function applyE2EWorkspaceAssistantFallback(
   params: WorkspaceAssistantRunStreamParams
 ) {
+  if (!params.workspaceId) {
+    throw new Error('Workspace fallback requires a workspace.');
+  }
   const latestUserMessage = await prisma.chatMessage.findFirst({
     where: {
       deletedAt: null,

@@ -554,8 +554,7 @@ test("aligned document action preserves the active chat and its existing draft",
     "/workspace/" +
       encodeURIComponent(workspace.id) +
       "?conversationId=" +
-      encodeURIComponent(workspace.conversationId) +
-      "&assistant=chat",
+      encodeURIComponent(workspace.conversationId),
   );
 
   const chatTab = page.getByTestId("assistant-tab-chat");

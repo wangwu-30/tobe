@@ -3,20 +3,17 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  Bot,
   FilePlus2,
   FileText,
   FolderClosed,
   FolderPlus,
-  GitBranch,
   History,
-  ListTodo,
   MessagesSquare,
   Plus,
-  Settings,
   Trash2,
 } from 'lucide-react';
 
+import { AdvancedNavigation } from '@/components/layout/advanced-navigation';
 import { AppTopBar } from '@/components/layout/app-top-bar';
 import {
   getSidebarWidthClass,
@@ -546,128 +543,7 @@ function WorkspaceSidebar({
             collapsed ? 'px-2 py-3' : 'p-3'
           )}
         >
-          <div className={cn('flex min-w-0', collapsed ? 'flex-col gap-2' : 'flex-col gap-1')}>
-            {collapsed ? (
-              <SidebarIconButton
-                active={pathname.startsWith('/knowledge')}
-                icon={<GitBranch className="h-4 w-4" />}
-                label="Knowledge"
-                onClick={() => {
-                  guardedRouter.push('/knowledge', () => {
-                    onNavigate?.();
-                    router.push('/knowledge');
-                  });
-                }}
-              />
-            ) : (
-              <Button
-                asChild
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-                variant={pathname.startsWith('/knowledge') ? 'secondary' : 'ghost'}
-              >
-                <Link href="/knowledge" onClick={onNavigate}>
-                  <GitBranch className="h-4 w-4 shrink-0" />
-                  <span className="truncate">Knowledge</span>
-                </Link>
-              </Button>
-            )}
-            {collapsed ? (
-              <SidebarIconButton
-                active={pathname.startsWith('/tasks')}
-                icon={<ListTodo className="h-4 w-4" />}
-                label={t('sidebar.teamTasks')}
-                onClick={() => {
-                  guardedRouter.push('/tasks', () => {
-                    onNavigate?.();
-                    router.push('/tasks');
-                  });
-                }}
-              />
-            ) : (
-              <Button
-                asChild
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-                variant={pathname.startsWith('/tasks') ? 'secondary' : 'ghost'}
-              >
-                <Link href="/tasks" onClick={onNavigate}>
-                  <ListTodo className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{t('sidebar.teamTasks')}</span>
-                </Link>
-              </Button>
-            )}
-            {collapsed ? (
-              <SidebarIconButton
-                active={pathname.startsWith('/agents')}
-                icon={<Bot className="h-4 w-4" />}
-                label="Agents"
-                onClick={() => {
-                  guardedRouter.push('/agents', () => {
-                    onNavigate?.();
-                    router.push('/agents');
-                  });
-                }}
-              />
-            ) : (
-              <Button
-                asChild
-                variant={pathname.startsWith('/agents') ? 'secondary' : 'ghost'}
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-              >
-                <Link href="/agents" onClick={onNavigate}>
-                  <Bot className="h-4 w-4 shrink-0" />
-                  <span className="truncate">Agents</span>
-                </Link>
-              </Button>
-            )}
-            {collapsed ? (
-              <SidebarIconButton
-                active={pathname.startsWith('/jobs')}
-                icon={<History className="h-4 w-4" />}
-                label={t('sidebar.jobs')}
-                onClick={() => {
-                  guardedRouter.push('/jobs', () => {
-                    onNavigate?.();
-                    router.push('/jobs');
-                  });
-                }}
-              />
-            ) : (
-              <Button
-                asChild
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-                variant={pathname.startsWith('/jobs') ? 'secondary' : 'ghost'}
-              >
-                <Link href="/jobs" onClick={onNavigate}>
-                  <History className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{t('sidebar.jobs')}</span>
-                </Link>
-              </Button>
-            )}
-            {collapsed ? (
-              <SidebarIconButton
-                active={pathname === '/settings'}
-                icon={<Settings className="h-4 w-4" />}
-                label={t('common.settings')}
-                onClick={() => {
-                  guardedRouter.push('/settings', () => {
-                    onNavigate?.();
-                    router.push('/settings');
-                  });
-                }}
-              />
-            ) : (
-              <Button
-                asChild
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-                variant={pathname === '/settings' ? 'secondary' : 'ghost'}
-              >
-                <Link href="/settings" onClick={onNavigate}>
-                  <Settings className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{t('common.settings')}</span>
-                </Link>
-              </Button>
-            )}
-          </div>
+          <AdvancedNavigation collapsed={collapsed} onNavigate={onNavigate} />
         </div>
       </div>
     </aside>

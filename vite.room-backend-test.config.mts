@@ -20,7 +20,7 @@ export default defineConfig({
       },
     },
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
   },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
 });

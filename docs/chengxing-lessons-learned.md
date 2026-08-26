@@ -1110,9 +1110,53 @@
 
 - 结论：共享控件可以用 opacity 表示 disabled，但 disabled -> enabled 时不应继续动画整体 opacity。
 - 为什么：属性解除后控件已可聚焦、可点击，若视觉仍停留在半透明中间帧，用户会看到低对比度的已启用控件，自动化无障碍扫描也会稳定捕获这个真实竞态。
-- 默认做法：disabled 视觉状态可以立即切换；测试等待业务稳定信号（例如 canonical URL 与代表性动作 enabled）后扫描，不使用固定 sleep 掩盖竞态。
+- 默认做法：disabled 视觉状态可以立即切换；测试等待业务稳定信号（例如 canonical URL 与代表性动作 enabled）后扫描；对抽屉内的触控尺寸等几何断言，还要等开场 `transform` 收敛为 `none`，不使用固定 sleep 掩盖竞态。
+
+### 45. Provider SDK 升级是运行时契约迁移，不是只替换 package namespace
+
+- 结论：模型 SDK 从弃用 namespace 迁到后继包时，必须把 Node engine、模型目录、Agent 构造参数、流状态字段、工具 schema 实现和构建 target 视为同一份契约。
+- 为什么：新 Pi SDK 除了包名变化，还要求 Node `>=22.19.0`、显式 `streamFn`，并调整了 Agent state API；它与工具定义使用同一代 TypeBox。只改 import 会留下能安装但无法构建、能构建但运行时 schema 不兼容，或本地与 CI Node 版本不一致的半迁移状态。
+- 默认做法：锁定同一版本的 `pi-ai` / `pi-agent-core`，用 `.node-version`、`package.json#engines` 和所有 Node bundle target 统一运行时；全仓扫描旧 namespace/API，并用 TypeScript、adapter contract、production composition build 和完整 iteration gate 一起验收。
+
+### 46. OAuth refresh、登录脚本与 Web runtime 必须共享同一个跨进程 CredentialStore 写路径
+
+- 结论：只在 Web 进程内串行化 OAuth refresh 不够；CLI 登录、Room Host 和 Web runtime 都必须复用同一个文件锁与原子写 helper。
+- 为什么：SDK 的 refresh 是 read-modify-write。若登录脚本仍直接覆盖 `auth.json`，它会与另一个进程刚刷新的 token 或其他 provider 写入互相丢更新；单进程 mutex 也挡不住多 Host。
+- 默认做法：所有 mutation 都在同一个跨进程锁内重读 credential map，通过同目录临时文件加 rename 原子替换；legacy credential 只作为兼容读源，刷新后写入 canonical `auth.json`。并发测试必须证明不同 provider 写入不丢失，删除与 legacy cleanup 也处于同一锁域。
+
+### 47. 自动依赖更新只负责提出变更，不能替代人工评审与完整门禁
+
+- 结论：SDK 可以由 Dependabot 定期检查并自动开 PR，但不应让机器人直推或自动合并默认分支。
+- 为什么：模型 SDK 更新会同时触及 provider auth、模型目录、Agent state 和工具 schema；semver 可安装不代表产品契约仍成立。真实 provider secret 也不应暴露给不可信依赖 PR。
+- 默认做法：耦合 SDK 放进同一个 Dependabot update group；PR 只运行不含真实 provider secret 的完整 iteration gate，合并前要求人工 review。GitHub ruleset 将该 gate 设为 required，Dependabot 不得进入 bypass list。
+
+### 48. 创建成功的 E2E 必须加载本次真实创建的资源
+
+- 结论：创建类浏览器测试不能把 mock 响应指向一个已有 seed Wiki，再只断言 URL。
+- 为什么：这种夹具在创建接口字段错误、资源没有落库或 onboarding Session 没有被接管时仍会通过，属于假绿。
+- 默认做法：让 UI 调用真实创建 API，从响应取得动态 Wiki/Session id，并等待目标 Wiki 的真实 view 和侧栏节点加载；onboarding 接管测试必须从真实的未绑定 team Session 开始。
+
+### 49. Route catch 中不要把 Error 对象直接交给框架开发态 inspector
+
+- 结论：route boundary 应记录有界的标量字符串；unexpected 错误对客户端和日志都使用固定公开消息。
+- 为什么：框架的开发态 Error inspector 自身可能抛错，把原本受控的 4xx/5xx 响应升级成二次 500；原始 message 还可能包含换行、控制字符或内部信息。
+- 默认做法：expected message 去控制字符并限制长度；unexpected message 固定化且 `detail=null`；用真实开发服务器回归原状态码、单行日志和秘密不外泄。
+
+### 50. 安装警告要按责任边界处理，不能用 force 修复清零
+
+- 结论：先用仓库声明的 Node/npm 复现，再区分 engine mismatch、可审核的 install scripts、上游弃用和无兼容修复的审计链。
+- 为什么：在错误 Node 版本下会制造 `EBADENGINE` 噪音；`npm audit fix --force` 可能用重大降级换取表面清零；传递依赖 override 也可能绕过上游真实契约。
+- 默认做法：锁定并文档化受支持运行时，显式审核 install-script allowlist，升级正常补丁；对仍由最新版上游固定的风险记录依赖链、影响和等待条件，由 Dependabot 提 PR 后跑完整门禁。
+
+### 51. linked worktree 正在使用的分支必须从所属 worktree 移动
+
+- 结论：测试要模拟 linked worktree 分支漂移时，不能从主 worktree 用 `git branch -f` 强制改写该分支。
+- 为什么：较新的 Git 会拒绝移动仍被另一个 worktree checkout 的分支，而旧版 Git 可能放行，导致本地门禁假绿、CI 才失败。
+- 默认做法：在持有该分支的 linked worktree 内执行 `git reset --hard <commit>`，并让创建与查找 worktree 复用同一个路径 helper；这既遵守 Git worktree 所有权约束，也能精确模拟 ref 漂移。
 
 ## 最新验证状态
+
+- **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。
 
 - **Web Agent Collaboration pre-push closure 2026-08-23**：项目级 Web guideline skill 与 fail-closed scanner、Canvas forward migration、atomic proposal/comment apply、prior-draft 与 formal lineage semantics、dual-Host delegation crash/restart、Execution recovery contract、真实尾部 `@` overlay，以及 Canvas layout ACL、workspace-scoped relation delete、retry recovery lease CAS、Canvas bootstrap column contract 四项终审 blocker 均已完成实现修复。01:15、01:51 与 02:05 的 `npm run verify:iteration` 保留为各自旧 fingerprint 的历史 PASS。后续发现 Project Room disabled -> enabled opacity 动画会产生可被 axe 捕获的低对比度中间帧；移除 opacity transition 并按 canonical route/控件 enabled 同步测试后，11:51 完整门禁通过：inventory `69/69`、script contracts `46`、control-plane Playwright `462`、总计 `508`、Chromium `134/134 passed (3.4m)`，两个 WCAG A/AA 用例均通过。只读产品验收结果为 P0 `0`、P1 `0`、P2 `1`、P3 `0`；唯一 P2 是 tldraw production-license watermark，需在正式发布前配置合法 license 或明确接受。最终 delivery 必须在本记录进入 closure commit 后，对精确 clean commit 无编辑复跑完整门禁，再 push 并核对远端 SHA；未授权创建 PR、merge 或 release，也不宣称 fully Web Interface Guidelines compliant。
 

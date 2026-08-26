@@ -92,7 +92,10 @@ test('settings track unsaved drafts, announce saves, and guard app navigation', 
     dismissedMessages.push(dialog.message());
     await dialog.dismiss();
   });
-  await page.getByRole('link', { name: 'Knowledge' }).click();
+  const advancedNavigation = page
+    .getByTestId('sidebar-advanced-toggle')
+    .locator('xpath=..');
+  await advancedNavigation.getByRole('link', { name: /Git 知识|Git Knowledge/ }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(customCard.getByLabel('角色名称')).toHaveValue('导航守卫测试角色');
   expect(dismissedMessages).toEqual(['设置尚未保存，确定要离开吗？']);
@@ -106,6 +109,6 @@ test('settings track unsaved drafts, announce saves, and guard app navigation', 
   await expect(page.getByTestId('settings-save-status')).toBeEmpty();
 
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('link', { name: 'Knowledge' }).click();
+  await advancedNavigation.getByRole('link', { name: /Git 知识|Git Knowledge/ }).click();
   await expect(page).toHaveURL(/\/knowledge/);
 });

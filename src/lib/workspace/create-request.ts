@@ -11,7 +11,7 @@ import {
   buildWorkspaceRoute,
   type WorkspaceAssistantTab,
 } from '@/lib/workspace/route';
-import { apiCallOrThrow, safeJsonParse } from '@/framework/resilience';
+import { apiCall, safeJsonParse } from '@/framework/resilience';
 
 
 export const WORKSPACE_CREATE_IDEMPOTENCY_HEADER = 'x-dao-idempotency-key';
@@ -34,6 +34,7 @@ export type WorkspaceCreateValues = {
   selectedIntent?: WorkspaceCreateIntentChoice | null;
   selectedIntentNote?: string;
   styleGuide: string;
+  title?: string;
   workflowPlaybookId: string;
 };
 
@@ -54,7 +55,53 @@ export type WorkspaceCreateResult = {
   workspace: { id: string; projectId?: string | null };
 };
 
-export class WorkspaceCreateActionError extends Error {}
+export class WorkspaceCreateActionError extends Error {
+  readonly outcome = 'unknown' as const;
+}
+export class WorkspaceCreateRequestError extends Error {
+  constructor(
+    message: string,
+    readonly outcome: 'rejected' | 'unknown'
+  ) {
+    super(message);
+    this.name = 'WorkspaceCreateRequestError';
+  }
+}
+
+export function classifyWorkspaceCreateError(params: {
+  code?: string | null;
+  kind: 'http' | 'network' | 'parse' | 'timeout';
+  message?: string | null;
+  responsePresent: boolean;
+  status: number | null;
+}): 'rejected' | 'unknown' {
+  return !params.responsePresent ||
+    params.kind === 'network' ||
+    params.kind === 'timeout' ||
+    params.kind === 'parse' ||
+    params.status === 408 ||
+    params.code === 'WORKSPACE_CREATE_IN_PROGRESS' ||
+    (params.status === 409 &&
+      params.message?.toLowerCase().includes('still in progress')) ||
+    (params.status !== null && params.status >= 500)
+    ? 'unknown'
+    : 'rejected';
+}
+
+export function hasUnknownWorkspaceCreateOutcome(error: unknown) {
+  return !(
+    (error instanceof WorkspaceCreateActionError ||
+      error instanceof WorkspaceCreateRequestError) &&
+    error.outcome === 'rejected'
+  );
+}
+
+export function getWorkspaceCreateErrorMessage(
+  error: unknown,
+  fallbackMessage: string
+) {
+  return error instanceof Error && error.message ? error.message : fallbackMessage;
+}
 
 function buildWorkspaceCreateBody(params: {
   context?: WorkspaceCreateContext | null;
@@ -100,6 +147,8 @@ export function loadWorkspaceCreateRecovery() {
       typeof parsed.values.projectParentPath !== 'string' ||
       typeof parsed.values.styleGuide !== 'string' ||
       typeof parsed.values.workflowPlaybookId !== 'string' ||
+      (parsed.values.title !== undefined &&
+        typeof parsed.values.title !== 'string') ||
       (parsed.values.selectedIntentNote !== undefined &&
         typeof parsed.values.selectedIntentNote !== 'string')
     ) {
@@ -204,7 +253,7 @@ export async function submitWorkspaceCreateRequest(params: {
   requestId: string;
   values: WorkspaceCreateValues;
 }) {
-  const payload = await apiCallOrThrow<WorkspaceCreateResult & { error?: string }>(
+  const result = await apiCall<WorkspaceCreateResult & { error?: string }>(
     '/api/workspaces',
     {
       body: JSON.stringify(
@@ -213,7 +262,6 @@ export async function submitWorkspaceCreateRequest(params: {
           values: params.values,
         })
       ),
-      fallbackMessage: params.errorMessage,
       headers: {
         'Content-Type': 'application/json',
         [WORKSPACE_CREATE_IDEMPOTENCY_HEADER]: params.requestId,
@@ -222,6 +270,20 @@ export async function submitWorkspaceCreateRequest(params: {
       method: 'POST',
     }
   );
+
+  if (!result.ok) {
+    throw new WorkspaceCreateRequestError(
+      result.error.message || params.errorMessage,
+      classifyWorkspaceCreateError({
+        code: result.error.code,
+        kind: result.error.kind,
+        message: result.error.message,
+        responsePresent: result.response !== null,
+        status: result.error.status,
+      })
+    );
+  }
+  const payload = result.data;
 
   if (
     !payload?.workspace?.id ||

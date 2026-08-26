@@ -19,9 +19,16 @@ test('room feed exposes log semantics and a jump-to-latest control when new mess
 
   await primeClientState(page);
   await page.goto(
-    `/workspace/${created.workspaceId}?conversationId=${created.conversationId}`
+    `/workspace/${created.workspaceId}?conversationId=${created.conversationId}&assistant=room`
   );
 
+  await expect(page.getByTestId('assistant-tab-room')).toHaveCount(0);
+  const chatHref = await page.getByTestId('room-back-to-chat').getAttribute('href');
+  expect(chatHref).not.toBeNull();
+  const chatUrl = new URL(chatHref!, baseURL);
+  expect(chatUrl.pathname).toBe(`/workspace/${created.workspaceId}`);
+  expect(chatUrl.searchParams.get('conversationId')).toBe(created.conversationId);
+  expect(chatUrl.searchParams.has('assistant')).toBe(false);
   const roomFeed = page.getByTestId('room-feed');
   await expect(roomFeed).toHaveAttribute('role', 'log');
   await expect(roomFeed).toHaveAttribute('aria-relevant', 'additions text');
@@ -62,7 +69,7 @@ test('room composer uses a standalone agent listbox and keeps keyboard mention i
 
   await primeClientState(page);
   await page.goto(
-    `/workspace/${created.workspaceId}?conversationId=${created.conversationId}`
+    `/workspace/${created.workspaceId}?conversationId=${created.conversationId}&assistant=room`
   );
 
   const input = page.getByTestId('room-message-input');

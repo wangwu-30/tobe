@@ -1,8 +1,18 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getOAuthApiKey } from '@mariozechner/pi-ai/oauth';
+import type {
+  AuthOperationOptions,
+  Credential,
+  CredentialStore,
+  OAuthCredential,
+} from '@earendil-works/pi-ai';
 import { safeJsonParse } from '@/framework/resilience/safe-data';
 import { ensurePlatformDirectories, getPlatformPaths } from '@/lib/platform/paths';
+import {
+  deleteCredentialEntry,
+  modifyCredentialEntry,
+  readCredentialMap,
+} from '../../../scripts/oauth-credential-file.mjs';
 
 function getOAuthPaths() {
   ensurePlatformDirectories();
@@ -11,7 +21,6 @@ function getOAuthPaths() {
   return {
     authStorePath: path.join(oauthDir, 'auth.json'),
     legacyOpenAICodexPath: path.join(oauthDir, 'openai-codex.json'),
-    oauthDir,
   };
 }
 
@@ -30,54 +39,115 @@ type OAuthProviderSummary = {
   savedAt: string | null;
 };
 
-export interface OAuthCredentialStore {
-  getConfiguredProviders(): Promise<OAuthProviderSummary[]>;
-  getProviderApiKey(providerId: OAuthProviderId): Promise<{
-    apiKey: string;
-    savedAt: string | null;
-  } | null>;
-  saveCredentials(
-    providerId: OAuthProviderId,
-    credentials: Record<string, unknown>
-  ): Promise<void>;
-}
+class FileOAuthCredentialStore implements CredentialStore {
+  private mutationChain = Promise.resolve();
 
-export async function getOAuthApiKeyForProvider(providerId: OAuthProviderId) {
-  const auth = await readOAuthAuthMap();
-  if (!auth[providerId] && providerId === 'openai-codex') {
-    const legacy = await readLegacyOpenAICodexCredentials();
-    if (legacy) {
-      auth[providerId] = legacy;
+  async read(providerId: string, options?: AuthOperationOptions) {
+    options?.signal?.throwIfAborted();
+    const auth = await readOAuthAuthMap();
+    options?.signal?.throwIfAborted();
+    const stored = normalizeCredential(auth[providerId]);
+    if (stored || providerId !== 'openai-codex') {
+      return stored;
     }
+
+    const legacy = await readLegacyOpenAICodexCredentials();
+    options?.signal?.throwIfAborted();
+    return normalizeCredential(legacy);
   }
 
-  if (!auth[providerId]) {
-    return null;
+  async list(options?: AuthOperationOptions) {
+    options?.signal?.throwIfAborted();
+    const auth = await readOAuthAuthMap();
+    const credentials = Object.entries(auth).flatMap(([providerId, value]) => {
+      const credential = normalizeCredential(value);
+      return credential ? [{ providerId, type: credential.type }] : [];
+    });
+
+    if (!credentials.some(({ providerId }) => providerId === 'openai-codex')) {
+      const legacy = normalizeCredential(await readLegacyOpenAICodexCredentials());
+      if (legacy) {
+        credentials.push({ providerId: 'openai-codex', type: legacy.type });
+      }
+    }
+
+    options?.signal?.throwIfAborted();
+    return credentials;
   }
 
-  const result = await getOAuthApiKey(providerId, auth as never);
-  if (!result) {
-    return null;
+  modify(
+    providerId: string,
+    fn: (current: Credential | undefined) => Promise<Credential | undefined>,
+    options?: AuthOperationOptions
+  ) {
+    return this.enqueue(async () => {
+      const { authStorePath } = getOAuthPaths();
+      const persisted = await modifyCredentialEntry(
+        authStorePath,
+        providerId,
+        async (stored: unknown) => {
+          options?.signal?.throwIfAborted();
+          let current = normalizeCredential(stored);
+          if (!current && providerId === 'openai-codex') {
+            current = normalizeCredential(await readLegacyOpenAICodexCredentials());
+          }
+
+          const next = await fn(current);
+          options?.signal?.throwIfAborted();
+          if (next === undefined) {
+            return current as unknown as Record<string, unknown> | undefined;
+          }
+
+          return addCredentialMetadata(next, current) as unknown as Record<
+            string,
+            unknown
+          >;
+        },
+        { signal: options?.signal }
+      );
+      options?.signal?.throwIfAborted();
+      return normalizeCredential(persisted);
+    });
   }
 
-  auth[providerId] = { type: 'oauth', ...result.newCredentials };
-  await writeOAuthAuthMap(auth);
+  delete(providerId: string, options?: AuthOperationOptions) {
+    return this.enqueue(async () => {
+      const { authStorePath } = getOAuthPaths();
+      await deleteCredentialEntry(authStorePath, providerId, {
+        afterDelete:
+          providerId === 'openai-codex'
+            ? removeLegacyOpenAICodexCredentials
+            : undefined,
+        signal: options?.signal,
+      });
+      options?.signal?.throwIfAborted();
+    });
+  }
 
-  return {
-    apiKey: result.apiKey,
-    savedAt: (auth[providerId]?.savedAt as string | undefined) || null,
-  };
+  private enqueue<T>(operation: () => Promise<T>) {
+    const queued = this.mutationChain.catch(() => undefined).then(operation);
+    this.mutationChain = queued.then(
+      () => undefined,
+      () => undefined
+    );
+    return queued;
+  }
 }
+
+/** File-backed credentials shared by every pi-ai Models collection in this app. */
+export const oauthCredentialStore: CredentialStore = new FileOAuthCredentialStore();
 
 export async function getConfiguredOAuthProviders() {
   const auth = await readOAuthAuthMap();
-  const providers = Object.entries(auth).map(([providerId, credentials]) =>
-    summarizeOAuthProvider(providerId, credentials)
+  const providers = Object.entries(auth).flatMap(([providerId, credentials]) =>
+    normalizeCredential(credentials)?.type === 'oauth'
+      ? [summarizeOAuthProvider(providerId, credentials)]
+      : []
   );
 
   if (!providers.find(provider => provider.providerId === 'openai-codex')) {
     const legacy = await readLegacyOpenAICodexCredentials();
-    if (legacy) {
+    if (normalizeCredential(legacy)?.type === 'oauth' && legacy) {
       providers.push(summarizeOAuthProvider('openai-codex', legacy));
     }
   }
@@ -89,45 +159,20 @@ export async function saveOAuthCredentials(
   providerId: OAuthProviderId,
   credentials: Record<string, unknown>
 ) {
-  const auth = await readOAuthAuthMap();
-  auth[providerId] = {
-    type: 'oauth',
-    ...credentials,
-    savedAt: credentials.savedAt || new Date().toISOString(),
-  };
-  await writeOAuthAuthMap(auth);
+  const credential = normalizeCredential({ type: 'oauth', ...credentials });
+  if (credential?.type !== 'oauth') {
+    throw new Error(`Invalid OAuth credentials for ${providerId}`);
+  }
+  await oauthCredentialStore.modify(providerId, async () => credential);
 }
 
 export async function removeOAuthCredentials(providerId: OAuthProviderId) {
-  const auth = await readOAuthAuthMap();
-  delete auth[providerId];
-  await writeOAuthAuthMap(auth);
-
-  if (providerId === 'openai-codex') {
-    const { legacyOpenAICodexPath } = getOAuthPaths();
-    try {
-      await fs.unlink(legacyOpenAICodexPath);
-    } catch {
-      // Ignore missing legacy credential files.
-    }
-  }
+  await oauthCredentialStore.delete(providerId);
 }
 
 async function readOAuthAuthMap(): Promise<OAuthAuthMap> {
   const { authStorePath } = getOAuthPaths();
-
-  try {
-    const raw = await fs.readFile(authStorePath, 'utf8');
-    return safeJsonParse<OAuthAuthMap>(raw, {});
-  } catch {
-    return {};
-  }
-}
-
-async function writeOAuthAuthMap(auth: OAuthAuthMap) {
-  const { authStorePath, oauthDir } = getOAuthPaths();
-  await fs.mkdir(oauthDir, { recursive: true });
-  await fs.writeFile(authStorePath, JSON.stringify(auth, null, 2));
+  return readCredentialMap(authStorePath) as Promise<OAuthAuthMap>;
 }
 
 async function readLegacyOpenAICodexCredentials() {
@@ -135,17 +180,59 @@ async function readLegacyOpenAICodexCredentials() {
 
   try {
     const raw = await fs.readFile(legacyOpenAICodexPath, 'utf8');
-    const credentials = safeJsonParse<Record<string, unknown> | null>(raw, null);
-    if (!credentials) {
-      return null;
-    }
-    return {
-      type: 'oauth',
-      ...credentials,
-    };
+    return asRecord(safeJsonParse<unknown>(raw, null));
   } catch {
     return null;
   }
+}
+
+async function removeLegacyOpenAICodexCredentials() {
+  const { legacyOpenAICodexPath } = getOAuthPaths();
+  try {
+    await fs.unlink(legacyOpenAICodexPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
+function normalizeCredential(value: unknown): Credential | undefined {
+  const credential = asRecord(value);
+  if (!credential) {
+    return undefined;
+  }
+  if (credential.type === 'api_key') {
+    return credential as unknown as Credential;
+  }
+
+  const access = stringValue(credential.access) ?? stringValue(credential.accessToken);
+  const refresh = stringValue(credential.refresh) ?? stringValue(credential.refreshToken);
+  const expires = numberValue(credential.expires) ?? numberValue(credential.expiresAt);
+  if (!access || refresh === undefined || expires === undefined) {
+    return undefined;
+  }
+
+  return {
+    ...credential,
+    type: 'oauth',
+    access,
+    refresh,
+    expires,
+  } as OAuthCredential;
+}
+
+function addCredentialMetadata(next: Credential, current?: Credential) {
+  if (next.type !== 'oauth') {
+    return next;
+  }
+  return {
+    ...next,
+    savedAt:
+      asString(next.savedAt) ||
+      (current?.type === 'oauth' ? asString(current.savedAt) : '') ||
+      new Date().toISOString(),
+  };
 }
 
 function summarizeOAuthProvider(
@@ -190,10 +277,31 @@ function decodeJwtClaims(token: unknown) {
   }
 }
 
-function asRecord(value: unknown) {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function asString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberValue(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+    const timestamp = Date.parse(value);
+    return Number.isNaN(timestamp) ? undefined : timestamp;
+  }
+  return undefined;
 }

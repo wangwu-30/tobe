@@ -19,6 +19,7 @@ import {
   useT,
 } from '@/components/providers/language-provider';
 import type { ChatComposerAttachment } from '@/components/chat/attachment-types';
+import type { AgentRunScope } from '@/agent/run';
 
 const SLOW_RESPONSE_MS = 8000;
 const STREAM_IDLE_TIMEOUT_MS = 45000;
@@ -30,12 +31,14 @@ export function useChat({
   workspaceId,
   activeFileId,
   baseVersionId,
+  scope,
 }: {
   conversationId?: string | null;
   focusNodeId?: string | null;
   workspaceId?: string | null;
   activeFileId?: string | null;
   baseVersionId?: string | null;
+  scope?: AgentRunScope;
 }) {
   const language = useAppLanguage();
   const t = useT();
@@ -156,6 +159,7 @@ export function useChat({
           message: content,
           model: options?.model || '',
           researchMode: options?.researchMode || 'light',
+          scope,
           signal: streamController.signal,
           workspaceId: activeNodeId,
         });
@@ -181,7 +185,7 @@ export function useChat({
           return;
         }
 
-        const { fullText, workspaceChange } = await consumeAssistantTextResponse({
+        const { fullText } = await consumeAssistantTextResponse({
           onFirstChunk: () => {
             setStatusMessage(null);
           },
@@ -192,6 +196,7 @@ export function useChat({
               )
             );
           },
+          onWorkspaceChange: options?.onWorkspaceChange,
           response,
           streamController,
           workspaceChangeFallback: {
@@ -199,8 +204,6 @@ export function useChat({
             workspaceId: activeNodeId,
           },
         });
-        options?.onWorkspaceChange?.(workspaceChange);
-
         if (!fullText.trim()) {
           throw new Error(t('chat.timeoutDetail'));
         }
@@ -249,6 +252,7 @@ export function useChat({
       createStreamController,
       language,
       nextTempId,
+      scope,
       t,
     ]
   );
@@ -393,7 +397,7 @@ export function useChat({
 
         setStatusMessage(t('chat.planning'));
 
-        const { fullText, workspaceChange } = await consumeAssistantTextResponse({
+        const { fullText } = await consumeAssistantTextResponse({
           onFirstChunk: () => {
             setStatusMessage(null);
           },
@@ -404,6 +408,7 @@ export function useChat({
               )
             );
           },
+          onWorkspaceChange: options?.onWorkspaceChange,
           response,
           streamController,
           workspaceChangeFallback: {
@@ -411,8 +416,6 @@ export function useChat({
             workspaceId,
           },
         });
-        options?.onWorkspaceChange?.(workspaceChange);
-
         if (!fullText.trim()) {
           throw new Error(t('chat.timeoutDetail'));
         }

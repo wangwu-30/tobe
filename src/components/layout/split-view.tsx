@@ -8,21 +8,39 @@ export function SplitView({
   right,
   className,
   defaultRatio = 0.38,
+  leftLabel,
+  mobilePaneRequest,
   resetKey,
+  rightLabel,
 }: {
   left: React.ReactNode;
   right: React.ReactNode;
   className?: string;
   defaultRatio?: number;
+  leftLabel: string;
+  mobilePaneRequest?: 'left' | 'right';
   resetKey?: string;
+  rightLabel: string;
 }) {
   const [splitRatio, setSplitRatio] = React.useState(defaultRatio);
   const [isDragging, setIsDragging] = React.useState(false);
+  const [mobilePane, setMobilePane] = React.useState<'left' | 'right'>(
+    mobilePaneRequest ?? (defaultRatio >= 0.5 ? 'left' : 'right')
+  );
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const leftPaneId = React.useId();
+  const rightPaneId = React.useId();
 
   React.useEffect(() => {
     setSplitRatio(defaultRatio);
+    setMobilePane(defaultRatio >= 0.5 ? 'left' : 'right');
   }, [defaultRatio, resetKey]);
+
+  React.useEffect(() => {
+    if (mobilePaneRequest) {
+      setMobilePane(mobilePaneRequest);
+    }
+  }, [mobilePaneRequest, resetKey]);
 
   const updateRatioFromPointer = React.useCallback((clientX: number) => {
     const container = containerRef.current;
@@ -83,18 +101,57 @@ export function SplitView({
     <div
       ref={containerRef}
       className={cn(
-        'flex h-full min-h-0 w-full min-w-0 overflow-hidden',
+        'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden md:flex-row',
         isDragging && 'select-none',
         className
       )}
     >
       <div
+        aria-label={`${leftLabel} / ${rightLabel}`}
+        className="grid shrink-0 grid-cols-2 gap-1 border-b border-border bg-background p-2 md:hidden"
+        role="group"
+      >
+        <button
+          aria-controls={leftPaneId}
+          aria-pressed={mobilePane === 'left'}
+          className={cn(
+            'min-h-11 min-w-0 touch-manipulation truncate rounded-md px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+            mobilePane === 'left' && 'bg-accent text-accent-foreground'
+          )}
+          data-testid="workspace-mobile-pane-left"
+          onClick={() => setMobilePane('left')}
+          type="button"
+        >
+          {leftLabel}
+        </button>
+        <button
+          aria-controls={rightPaneId}
+          aria-pressed={mobilePane === 'right'}
+          className={cn(
+            'min-h-11 min-w-0 touch-manipulation truncate rounded-md px-3 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none',
+            mobilePane === 'right' && 'bg-accent text-accent-foreground'
+          )}
+          data-testid="workspace-mobile-pane-right"
+          onClick={() => setMobilePane('right')}
+          type="button"
+        >
+          {rightLabel}
+        </button>
+      </div>
+
+      <div
+        aria-label={leftLabel}
         className={cn(
-          'flex min-w-0 shrink-0 flex-col overflow-hidden border-r border-border',
+          'min-h-0 min-w-0 flex-1 flex-col overflow-hidden md:flex-none md:border-r md:border-border md:w-[var(--split-pane-width)]',
+          mobilePane === 'left' ? 'flex' : 'hidden md:flex',
           isDragging && 'pointer-events-none'
         )}
+        id={leftPaneId}
         inert={isDragging ? true : undefined}
-        style={{ width: `${splitRatio * 100}%` }}
+        role="region"
+        style={
+          { '--split-pane-width': `${splitRatio * 100}%` } as React.CSSProperties
+        }
       >
         {left}
       </div>
@@ -105,7 +162,7 @@ export function SplitView({
         aria-valuemax={60}
         aria-valuemin={20}
         aria-valuenow={Math.round(splitRatio * 100)}
-        className="w-2 flex-shrink-0 touch-none cursor-col-resize bg-transparent transition-colors hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-primary/20 motion-reduce:transition-none"
+        className="hidden w-2 flex-shrink-0 touch-none cursor-col-resize bg-transparent transition-colors hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-primary/20 motion-reduce:transition-none md:block"
         onKeyDown={handleSeparatorKeyDown}
         onLostPointerCapture={() => setIsDragging(false)}
         onPointerCancel={finishPointerDrag}
@@ -117,11 +174,15 @@ export function SplitView({
       />
 
       <div
+        aria-label={rightLabel}
         className={cn(
-          'flex min-w-0 flex-1 flex-col overflow-hidden',
+          'min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
+          mobilePane === 'right' ? 'flex' : 'hidden md:flex',
           isDragging && 'pointer-events-none'
         )}
+        id={rightPaneId}
         inert={isDragging ? true : undefined}
+        role="region"
       >
         {right}
       </div>

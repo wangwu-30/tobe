@@ -4,126 +4,135 @@ import { createClient } from '@libsql/client';
 import { expect, test } from '@playwright/test';
 import {
   apiRequest,
-  extractWorkspaceIdFromLocation,
   LOCAL_PLATFORM_HEADERS,
   primeClientState,
   waitForWorkspaceRoute,
 } from './helpers';
 
-test('home starter exposes built-in workflows and can start from the research workflow', async ({
+test('an empty home centers chat without onboarding or a Wiki empty state', async ({
   page,
 }) => {
   await primeClientState(page);
+  await page.route('**/api/project-list', async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({ items: [] }),
+      contentType: 'application/json',
+      status: 200,
+    });
+  });
   await page.goto('/');
 
   await expect(page.getByRole('dialog', { name: /欢迎使用成形|Welcome/ })).toHaveCount(0);
-  await expect(page.getByTestId('first-use-guide-home')).toBeVisible();
-
-  await page.getByRole('main').getByRole('button', { name: /从目标开始|Start with a Goal/ }).click();
-
-  const goalDialog = page.getByRole('dialog');
-  await expect(goalDialog).toBeVisible();
-  await expect(goalDialog.getByLabel(/目标|Goal/)).toBeVisible();
-  await expect(goalDialog.getByTestId('goal-deliverable-pill')).toHaveCount(0);
-  await expect(page.getByTestId('starter-option-document')).toHaveCount(0);
-  await expect(page.getByTestId('starter-option-code')).toHaveCount(0);
-
-  const workflowSelect = page.getByRole('combobox').first();
-  await workflowSelect.click();
-  const workflowList = page.getByRole('listbox');
-  await expect(
-    workflowList.getByRole('option', { name: /需求规格到网页上线|Built-in/ }).first()
-  ).toBeVisible();
-  await workflowList
-    .getByRole('option', { name: /成形类产品市场分析报告|Built-in/ })
-    .first()
-    .click();
-
-  await expect(workflowSelect).toContainText(/成形类产品市场分析报告/);
-  await expect(page.getByTestId('goal-workflow-extension-tools')).toBeVisible();
-  await expect(page.getByTestId('goal-workflow-extension-mcp')).toBeVisible();
-  await expect(page.getByTestId('goal-workflow-extension-skills')).toBeVisible();
-
-  await page.locator('#goal').fill('调研成形类产品的市场机会与竞争格局。');
-  const createButton = page.getByRole('button', { name: /创建项目|Create Project/ });
-  await expect(createButton).toBeEnabled();
-  await Promise.all([
-    page.waitForURL(/\/workspace\//),
-    createButton.click(),
-  ]);
-
-  expect(extractWorkspaceIdFromLocation(page.url())).toBeTruthy();
-  expect(new URL(page.url()).searchParams.has('autoStartFirstPass')).toBe(false);
-  await expect(page.getByTestId('assistant-tab-room')).toHaveAttribute(
-    'data-state',
-    'active'
+  await expect(page.getByTestId('first-use-guide-home')).toHaveCount(0);
+  await expect(page.getByTestId('home-onboarding-chat')).toBeVisible();
+  await expect(page.getByTestId('home-wiki-list')).toHaveCount(0);
+  await expect(page.getByText(/还没有 Wiki 空间|No Wiki Spaces yet/)).toHaveCount(0);
+  await expect(page.getByTestId('home-onboarding-create-wiki')).toBeVisible();
+  await expect(page.getByTestId('agent-composer-input')).toBeVisible();
+  await expect(page.getByTestId('home-onboarding-chat').getByRole('log')).toHaveCount(0);
+  await expect(page.getByTestId('agent-composer-input')).toHaveAttribute(
+    'placeholder',
+    /问个问题，或从一个想法开始|Ask a question or explore an idea/
   );
-  await expect(page.getByTestId('project-room-surface')).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(
-    page.getByTestId('room-feed').getByText(
-      '调研成形类产品的市场机会与竞争格局。',
-      { exact: true }
-    )
-  ).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
-    'data-state',
-    'inactive'
-  );
+  await expect(page.getByTestId('sidebar-advanced-toggle')).toBeVisible();
 });
 
-test('home create flow surfaces clarify cards for ambiguous goals', async ({ page }) => {
-  await primeClientState(page);
-  await page.goto('/');
-
-  await page.getByRole('main').getByRole('button', { name: /从目标开始|Start with a Goal/ }).click();
-
-  const goalDialog = page.getByRole('dialog');
-  await expect(goalDialog).toBeVisible();
-
-  await goalDialog.getByLabel(/目标|Goal/).fill('介绍一下我们的服务。');
-  await goalDialog.getByRole('button', { name: /创建项目|Create Project/ }).click();
-
-  await expect(goalDialog).toContainText(/更了解你期望的结果形态|结果形态|最佳方式/);
-  await expect(goalDialog.getByTestId('goal-intent-option-document')).toBeVisible();
-  await expect(goalDialog.getByTestId('goal-intent-option-web')).toBeVisible();
-  await expect(goalDialog.getByTestId('goal-intent-option-both')).toBeVisible();
-  await expect(goalDialog.getByTestId('goal-intent-option-other')).toBeVisible();
-
-  await Promise.all([
-    page.waitForURL(/\/workspace\//),
-    goalDialog
-      .getByTestId('goal-intent-option-document')
-      .getByRole('button', { name: /选择|Select/ })
-      .click(),
-  ]);
-});
-
-test('home create flow asks for goal detail before accepting an extremely vague request', async ({
+test('home create Wiki keeps confirmation lightweight and does not create anything before explicit confirm', async ({
   page,
 }) => {
+  let createWorkspacePostCount = 0;
+
   await primeClientState(page);
+  await page.route('**/api/workspaces', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+
+    createWorkspacePostCount += 1;
+    await route.abort();
+  });
   await page.goto('/');
 
-  await page.getByRole('main').getByRole('button', { name: /从目标开始|Start with a Goal/ }).click();
+  await page.getByTestId('home-onboarding-create-wiki').click();
 
-  const goalDialog = page.getByRole('dialog');
-  await expect(goalDialog).toBeVisible();
+  const dialog = page.getByTestId('wiki-create-confirmation-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText(
+    /创建前请确认名称和用途|Nothing is created until you confirm/
+  );
+  expect(createWorkspacePostCount).toBe(0);
 
-  await goalDialog.getByLabel(/目标|Goal/).fill('帮我弄个东西');
-  await goalDialog.getByRole('button', { name: /创建项目|Create Project/ }).click();
+  await dialog.getByRole('button', { name: /取消|Cancel/ }).click();
+  await expect(dialog).toBeHidden();
+  expect(createWorkspacePostCount).toBe(0);
+});
 
-  await expect(goalDialog.getByTestId('goal-goal-clarify')).toBeVisible();
-  await expect(goalDialog.getByTestId('goal-goal-clarify')).toContainText(
-    /产出什么|page, a brief, a report/
+test('home create Wiki confirmation submits once and opens the created Wiki route', async ({
+  page,
+}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  let createWorkspacePostCount = 0;
+  const suffix = Date.now();
+  const title = `Home Wiki ${String(suffix).slice(-6)}`;
+  const goal = `Keep the home flow focused on Wiki-first onboarding. ${suffix}`;
+
+  await primeClientState(page);
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/workspaces'
+    ) {
+      createWorkspacePostCount += 1;
+    }
+  });
+  await page.goto('/');
+
+  await page.getByTestId('home-onboarding-create-wiki').click();
+  const dialog = page.getByTestId('wiki-create-confirmation-dialog');
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByTestId('wiki-create-name-input').fill(title);
+  await dialog.getByTestId('wiki-create-purpose-input').fill(goal);
+
+  const createResponsePromise = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/api/workspaces'
   );
-  await expect(goalDialog.getByTestId('goal-goal-clarify')).toContainText(
-    /给谁看|Who is it for/
+  await dialog.getByTestId('wiki-create-confirm').click();
+  const createResponse = await createResponsePromise;
+  expect(createResponse.ok()).toBe(true);
+  const created = (await createResponse.json()) as {
+    conversation: { id: string };
+    initialRoomMessageReceipt: { status: string } | null;
+    room: { id: string; projectId: string | null };
+    workspace: { id: string; projectId: string | null };
+  };
+
+  await expect.poll(() => createWorkspacePostCount).toBe(1);
+  expect(createResponse.request().postDataJSON()).toMatchObject({
+    conversationId: null,
+    goal,
+    title,
+  });
+  expect(created.workspace.projectId).toBe(created.workspace.id);
+  expect(created.room.projectId).toBe(created.workspace.id);
+  expect(created.initialRoomMessageReceipt).toMatchObject({ status: 'accepted' });
+  await expect(page).toHaveURL(
+    `/workspace/${created.workspace.id}?node=${created.workspace.id}&conversationId=${created.conversation.id}`,
+    { timeout: 20_000 }
   );
-  await expect(goalDialog.getByTestId('goal-goal-clarify')).toContainText(
-    /达成什么结果|What should it achieve/
+
+  const createdView = await getWorkspaceView(
+    baseURL,
+    created.workspace.id,
+    created.conversation.id
   );
+  expect(createdView.workspace).toMatchObject({
+    projectId: created.workspace.id,
+    title,
+  });
 });
 
 test('workspace creation persists the initial goal as the first human Project Room message', async ({}, testInfo) => {
@@ -218,7 +227,7 @@ test('workspace creation persists the initial goal as the first human Project Ro
   });
 });
 
-test('home project cards summarize the latest node and open the canonical project route', async ({
+test('home Wiki rows stay compact and open the canonical project route', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -263,41 +272,43 @@ test('home project cards summarize the latest node and open the canonical projec
     page.goto('/'),
   ]);
 
-  const projectCard = page.getByTestId(`home-project-card-${firstWorkspace.workspace.id}`);
-  await expect(page.getByTestId('home-project-wall')).toBeVisible({ timeout: 10000 });
-  await expect(projectCard).toBeVisible();
-  await expect(projectCard).toContainText(projectTitle);
-  await expect(projectCard).toContainText(/2 份内容|2 nodes/);
-  await expect(projectCard).toContainText(
-    /最近活跃内容|Latest active content/
+  const projectRow = page.getByTestId(`home-project-card-${firstWorkspace.workspace.id}`);
+  await expect(page.getByTestId('home-project-list')).toBeVisible({ timeout: 10000 });
+  await expect(page.getByTestId('home-project-wall')).toHaveCount(0);
+  await expect(projectRow).toBeVisible();
+  await expect(projectRow).toContainText(projectTitle);
+  await expect(projectRow).toContainText(latestDeliverableTitle);
+  await expect(projectRow).not.toContainText(/2 个页面|2 Pages/);
+  await expect(projectRow.getByTestId(`home-project-next-${firstWorkspace.workspace.id}`)).toContainText(
+    /新建页面|New Page/
   );
-  await expect(projectCard).toContainText(latestDeliverableTitle);
-  await expect(projectCard).toContainText(
-    /打开|Open/
-  );
-  await expect(projectCard).toContainText(
-    /新建内容|New Item/
-  );
+  await page.setViewportSize({ height: 812, width: 375 });
+  await expect(
+    projectRow.getByTestId(`home-project-next-${firstWorkspace.workspace.id}`)
+  ).toHaveAccessibleName(/新建页面|New Page/);
 
   await page.getByTestId(`home-project-open-${firstWorkspace.workspace.id}`).click();
   await expect
-    .poll(() => {
-      const currentUrl = new URL(page.url());
-      return {
-        nodeId:
-          currentUrl.searchParams.get('node') ||
-          currentUrl.pathname.split('/').pop() ||
-          '',
-        projectId: currentUrl.pathname.split('/').pop() || '',
-      };
-    })
+    .poll(
+      () => {
+        const currentUrl = new URL(page.url());
+        return {
+          nodeId:
+            currentUrl.searchParams.get('node') ||
+            currentUrl.pathname.split('/').pop() ||
+            '',
+          projectId: currentUrl.pathname.split('/').pop() || '',
+        };
+      },
+      { timeout: 15_000 }
+    )
     .toEqual({
       nodeId: latestWorkspace.workspace.id,
       projectId: firstWorkspace.workspace.id,
     });
 });
 
-test('home project cards can continue the next deliverable inside the same project', async ({
+test('home Wiki rows can continue the next deliverable inside the same project', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -347,11 +358,11 @@ test('home project cards can continue the next deliverable inside the same proje
   await expect(dialog).toContainText(projectTitle);
   await expect(dialog).toContainText(/沿着|continues inside/i);
   await expect(
-    dialog.getByRole('button', { name: /创建内容|Create Content/ })
+    dialog.getByRole('button', { name: /创建页面|Create Page/ })
   ).toBeVisible();
 
   await dialog.getByLabel(/目标|Goal/).fill('沿着当前项目继续下一份摘要交付物。');
-  await dialog.getByRole('button', { name: /创建内容|Create Content/ }).click();
+  await dialog.getByRole('button', { name: /创建页面|Create Page/ }).click();
   const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
   if (
     await clarifyAfterNextDeliverable
@@ -461,6 +472,55 @@ test('node relation deletion is scoped to the route workspace', async ({}, testI
     relations: Array<{ id: string }>;
   }>(baseURL, `/api/workspaces/${projectA.workspace.id}/node-relations`);
   expect(afterValidDelete.relations.map(({ id }) => id)).not.toContain(relation.id);
+});
+
+test('a Wiki space home page cannot be deleted while child pages remain', async ({}, testInfo) => {
+  const baseURL = String(testInfo.project.use.baseURL);
+  const suffix = Date.now();
+  const space = await apiRequest<{ workspace: { id: string } }>(
+    baseURL,
+    '/api/workspaces',
+    {
+      body: {
+        deliverableType: 'document',
+        goal: `Protect the Wiki space home page ${suffix}`,
+        title: `Protected Wiki space ${suffix}`,
+      },
+      method: 'POST',
+    }
+  );
+  const childPage = await apiRequest<{ workspace: { id: string } }>(
+    baseURL,
+    '/api/workspaces',
+    {
+      body: {
+        deliverableType: 'document',
+        goal: `Create a child Wiki page ${suffix}`,
+        projectId: space.workspace.id,
+        title: `Child Wiki page ${suffix}`,
+      },
+      method: 'POST',
+    }
+  );
+
+  const deleteRoot = await fetch(
+    new URL(`/api/workspaces/${encodeURIComponent(space.workspace.id)}`, baseURL),
+    { headers: LOCAL_PLATFORM_HEADERS, method: 'DELETE' }
+  );
+
+  expect(deleteRoot.status).toBe(409);
+  await expect(deleteRoot.json()).resolves.toEqual({
+    error:
+      'The Wiki space home page cannot be deleted while the space still has other pages.',
+  });
+
+  for (const workspaceId of [space.workspace.id, childPage.workspace.id]) {
+    const response = await fetch(
+      new URL(`/api/workspaces/${encodeURIComponent(workspaceId)}`, baseURL),
+      { headers: LOCAL_PLATFORM_HEADERS }
+    );
+    expect(response.status, workspaceId).toBe(200);
+  }
 });
 
 test('canvas layout API accepts only active project roots without partial writes', async ({}, testInfo) => {
@@ -584,7 +644,7 @@ test('canvas layout API accepts only active project roots without partial writes
   }
 });
 
-test('home view mode is URL-addressable and restores with browser history', async ({
+test('home keeps the Wiki list as the primary reopen surface', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -601,7 +661,8 @@ test('home view mode is URL-addressable and restores with browser history', asyn
 
   await primeClientState(page);
   await page.goto('/');
-  await expect(page.getByTestId('home-project-wall')).toBeVisible();
+  await expect(page.getByTestId('home-project-list')).toBeVisible();
+  await expect(page.getByTestId('home-project-wall')).toHaveCount(0);
   await expect(page.locator('[data-testid^="home-project-open-"]').first()).toHaveAttribute(
     'href',
     /\/workspace\//
@@ -611,25 +672,15 @@ test('home view mode is URL-addressable and restores with browser history', asyn
     /newDeliverableProjectId=/
   );
 
-  const canvasLayoutResponsePromise = page.waitForResponse(
-    (response) =>
-      new URL(response.url()).pathname === '/api/canvas-layout' &&
-      response.request().method() === 'GET'
+  await expect(page.getByTestId('home-wiki-list')).toBeVisible();
+  await expect(page.getByTestId('home-onboarding-chat')).toBeVisible();
+  await page.locator('[data-testid^="home-project-open-"]').first().click();
+  await expect(page).toHaveURL(/\/workspace\//);
+  await expect(page.getByTestId('assistant-tab-chat')).toHaveAttribute(
+    'data-state',
+    'active'
   );
-  await page.getByTestId('home-view-canvas').click();
-  const canvasLayoutResponse = await canvasLayoutResponsePromise;
-  expect(canvasLayoutResponse.status()).toBe(200);
-  await expect(page).toHaveURL(/(?:\?|&)view=canvas(?:&|$)/);
-  await expect(page.getByTestId('home-view-canvas')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('home-canvas')).toBeVisible();
-
-  await page.getByTestId('home-view-list').click();
-  await expect(page).not.toHaveURL(/(?:\?|&)view=/);
-  await expect(page.getByTestId('home-view-list')).toHaveAttribute('aria-pressed', 'true');
-
-  await page.goBack();
-  await expect(page).toHaveURL(/(?:\?|&)view=canvas(?:&|$)/);
-  await expect(page.getByTestId('home-view-canvas')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).not.toHaveURL(/(?:\?|&)assistant=/);
 });
 
 async function getWorkspaceView(

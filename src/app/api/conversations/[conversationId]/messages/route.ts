@@ -12,6 +12,36 @@ export const GET = defineRoute(async function GET(
 ) {
   const actor = await getPlatformContextFromHeaders(req.headers);
   const { conversationId } = await params;
+  const requestedScope = new URL(req.url).searchParams.get('scope');
+
+  if (requestedScope === 'onboarding') {
+    const conversation = await prisma.session.findFirst({
+      where: {
+        deletedAt: null,
+        id: conversationId,
+        organizationId: actor.organizationId,
+      },
+      select: {
+        scopeKind: true,
+        sourceType: true,
+      },
+    });
+
+    if (!conversation) {
+      return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
+    }
+
+    if (
+      conversation.scopeKind !== 'team' ||
+      conversation.sourceType !== 'onboarding'
+    ) {
+      return NextResponse.json(
+        { error: 'Conversation is no longer available for onboarding.' },
+        { status: 409 }
+      );
+    }
+  }
+
   const messages = await prisma.chatMessage.findMany({
     where: {
       deletedAt: null,

@@ -55,6 +55,10 @@ export function ModelPicker({
       ? 'grid min-w-0 gap-2 sm:grid-cols-[minmax(0,180px)_minmax(0,1fr)]'
       : 'grid min-w-0 gap-3 md:grid-cols-2';
   const triggerSize = variant === 'compact' ? 'sm' : 'default';
+  const triggerClassName =
+    variant === 'stacked'
+      ? 'min-h-11 w-full min-w-0'
+      : 'w-full min-w-0';
 
   const handleProviderChange = React.useCallback(
     (providerId: string) => {
@@ -105,7 +109,7 @@ export function ModelPicker({
           >
             <SelectTrigger
               aria-labelledby={providerLabelId}
-              className="w-full min-w-0"
+              className={triggerClassName}
               id={providerTriggerId}
               size={triggerSize}
             >
@@ -147,7 +151,7 @@ export function ModelPicker({
           >
             <SelectTrigger
               aria-labelledby={modelLabelId}
-              className="w-full min-w-0"
+              className={triggerClassName}
               id={modelTriggerId}
               size={triggerSize}
             >

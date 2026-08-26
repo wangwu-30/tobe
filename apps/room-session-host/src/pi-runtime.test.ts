@@ -1,11 +1,15 @@
-import type { AgentOptions } from '@mariozechner/pi-agent-core';
-import type { Api, Model } from '@mariozechner/pi-ai';
-import { Type } from '@sinclair/typebox';
+import type { AgentOptions } from '@earendil-works/pi-agent-core';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import { expect, test } from '@playwright/test';
+import { Type } from 'typebox';
 
 import { openInput } from '@/agent/room-runtime/testing/compliance';
 import type { AgentToolConfirmationAuthority } from '@/agent/tool-policy';
 import { createConfiguredPiRoomRuntimeV1 } from './pi-runtime';
+
+const TEST_STREAM_FN: AgentOptions['streamFn'] = async () => {
+  throw new Error('The test stream function must not be called.');
+};
 
 const MODEL: Model<Api> = {
   id: 'model-1',
@@ -26,7 +30,7 @@ test('production Pi composition resolves credentials and attaches only Room tool
     {
       driver: 'pi-agent-core',
       runtimeId: 'pi-agent-core',
-      runtimeVersion: '0.57.1',
+      runtimeVersion: '0.84.3',
       providerId: MODEL.provider,
       modelId: MODEL.id,
       systemPrompt: 'Room system prompt',
@@ -52,6 +56,7 @@ test('production Pi composition resolves credentials and attaches only Room tool
       },
       resolveApiKey: async (provider) => `key-for-${provider}`,
       resolveModel: () => MODEL,
+      streamFn: TEST_STREAM_FN,
       resolveSourceFence: async (session) => {
         sourceFenceSession = session;
         return { generation: 1, workerId: 'worker-1' };
@@ -83,6 +88,7 @@ test('production Pi composition resolves credentials and attaches only Room tool
   expect(initialState.model).toBe(MODEL);
   expect(initialState.systemPrompt).toBe('Room system prompt');
   expect(initialState.thinkingLevel).toBe('medium');
+  expect(options?.streamFn).toBe(TEST_STREAM_FN);
   expect(initialState.tools?.map(({ name }) => name)).toEqual([
     'publish_team_task',
     'start_execution_job',
@@ -107,7 +113,7 @@ test('production Pi composition creates a confirmation authority from trusted se
     {
       driver: 'pi-agent-core',
       runtimeId: 'pi-agent-core',
-      runtimeVersion: '0.57.1',
+      runtimeVersion: '0.84.3',
       providerId: MODEL.provider,
       modelId: MODEL.id,
       systemPrompt: 'Room system prompt',
@@ -132,6 +138,7 @@ test('production Pi composition creates a confirmation authority from trusted se
       },
       resolveApiKey: async () => 'test-key',
       resolveModel: () => MODEL,
+      streamFn: TEST_STREAM_FN,
       resolveSourceFence: async () => ({
         generation: 1,
         workerId: 'worker-1',
@@ -172,12 +179,12 @@ test('production Pi composition rejects a mismatched model resolver', async () =
     {
       driver: 'pi-agent-core',
       runtimeId: 'pi-agent-core',
-      runtimeVersion: '0.57.1',
+      runtimeVersion: '0.84.3',
       providerId: 'different-provider',
       modelId: MODEL.id,
       systemPrompt: 'Room system prompt',
     },
-    { resolveModel: () => MODEL }
+    { resolveModel: () => MODEL, streamFn: TEST_STREAM_FN }
   );
   await expect(runtime.open(openInput())).rejects.toThrow(
     /does not match providerId and modelId/
@@ -187,13 +194,12 @@ test('production Pi composition rejects a mismatched model resolver', async () =
 function fakeAgent() {
   return {
     state: {
-      error: undefined,
+      errorMessage: undefined,
       isStreaming: false,
       messages: [],
-      streamMessage: null,
+      streamingMessage: undefined,
     },
     abort() {},
-    appendMessage() {},
     async continue() {},
     async prompt() {},
     subscribe() {

@@ -28,6 +28,7 @@ export const controlPlaneTestGroups = [
       'src/derive/thread-classify.test.ts',
       'src/lib/execution/client.test.ts',
       'src/lib/execution/room-events.test.ts',
+      'src/lib/ai/providers.test.ts',
       'src/lib/db/prisma-libsql-adapter.test.ts',
       'src/lib/room/activity.test.ts',
       'src/lib/room/client.test.ts',
@@ -39,6 +40,18 @@ export const controlPlaneTestGroups = [
       'src/objects/execution-runtime/schema.test.ts',
       'src/objects/execution-runtime/worker-commands.test.ts',
     ],
+  },
+  {
+    id: 'conversation',
+    config: 'src/objects/conversation/control-plane.playwright.config.ts',
+    testDir: 'src/lib/ai',
+    testMatch: ['assistant-run-lifecycle.test.ts'],
+  },
+  {
+    id: 'home',
+    config: 'src/surfaces/home/playwright.config.ts',
+    testDir: 'src/surfaces/home',
+    testMatch: ['onboarding-session.test.ts'],
   },
   {
     id: 'execution-daemon',

@@ -17,7 +17,7 @@ test('team Web surfaces have no automated WCAG A or AA violations', async ({
   }
 });
 
-test('default Project Room has no automated WCAG A or AA violations', async ({
+test('default workspace Chat has no automated WCAG A or AA violations', async ({
   page,
 }) => {
   const workspace = readSeedState().baseWorkspace;
@@ -25,12 +25,51 @@ test('default Project Room has no automated WCAG A or AA violations', async ({
   await page.goto(
     `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
   );
-  await expect(page.getByTestId('room-feed')).toBeVisible();
+  await expect(page.getByTestId('chat-composer')).toBeVisible();
   await expect
     .poll(() => new URL(page.url()).searchParams.get('node'))
     .toBe(workspace.id);
   await expect(page.getByTestId('workspace-start-agent')).toBeEnabled();
-  await expectNoAccessibilityViolations(page, 'Project Room');
+  await expectNoAccessibilityViolations(page, 'workspace Chat');
+});
+
+test('mobile workspace switches between one Page and assistant panel without overflow', async ({
+  page,
+}) => {
+  const workspace = readSeedState().baseWorkspace;
+  await page.setViewportSize({ height: 812, width: 375 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await primeClientState(page);
+  await page.goto(
+    `/workspace/${workspace.id}?conversationId=${workspace.conversationId}`
+  );
+
+  const pagePanelButton = page.getByTestId('workspace-mobile-pane-left');
+  const assistantPanelButton = page.getByTestId('workspace-mobile-pane-right');
+  await expect(pagePanelButton).toBeVisible();
+  await expect(assistantPanelButton).toBeVisible();
+  await expect(pagePanelButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(assistantPanelButton).toHaveAttribute('aria-pressed', 'false');
+  const pageSurface = page.locator('[data-workspace-outline-surface="true"]');
+  await expect(pageSurface).toBeVisible();
+  await expect(page.getByTestId('chat-composer')).toBeHidden();
+
+  for (const button of [pagePanelButton, assistantPanelButton]) {
+    const box = await button.boundingBox();
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await assistantPanelButton.click();
+  await expect(assistantPanelButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(pagePanelButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('chat-composer')).toBeVisible();
+  await expect(pageSurface).toBeHidden();
+
+  const pageOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth
+  );
+  expect(pageOverflow).toBe(false);
+  await expectNoAccessibilityViolations(page, 'mobile workspace Chat');
 });
 
 async function expectNoAccessibilityViolations(page: Page, surface: string) {

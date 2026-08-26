@@ -24,7 +24,7 @@ export default defineConfig({
     },
     outDir: '.tmp/staged-changes-test',
     sourcemap: true,
-    target: 'node20',
+    target: 'node22',
   },
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
 });

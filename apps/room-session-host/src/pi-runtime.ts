@@ -1,6 +1,6 @@
-import type { Api, Model } from '@mariozechner/pi-ai';
+import type { Api, Model } from '@earendil-works/pi-ai';
 
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentTool, StreamFn } from '@earendil-works/pi-agent-core';
 import type {
   RoomAgentDelegationSourceFenceV1,
   RoomAgentToolIdentityPortV1,
@@ -22,6 +22,7 @@ type PiRoomRuntimeDependenciesV1 = {
   ) => Promise<RoomAgentDelegationSourceFenceV1>;
   resolveApiKey?: (providerId: string) => Promise<string | undefined>;
   resolveModel?: (providerId: string, modelId: string) => Model<Api>;
+  streamFn?: StreamFn;
   createTools?: (input: {
     confirmationAuthority?: AgentToolConfirmationAuthority;
     identity: RoomAgentToolIdentityPortV1;
@@ -35,7 +36,6 @@ export function createConfiguredPiRoomRuntimeV1(
 ) {
   const identity =
     dependencies.identity ?? createPrismaRoomAgentToolIdentityPortV1();
-  const resolveApiKey = dependencies.resolveApiKey ?? resolveProductionApiKey;
   return new PiRoomSessionRuntimeAdapterV1({
     // Only the production toolkit is known here to install the governed,
     // durable delegate_room_task command. Custom/test toolkits stay
@@ -44,13 +44,18 @@ export function createConfiguredPiRoomRuntimeV1(
     runtimeId: config.runtimeId,
     runtimeVersion: config.runtimeVersion,
     resolveAgentConfig: async ({ session }) => {
+      const models =
+        dependencies.resolveModel && dependencies.streamFn
+          ? undefined
+          : (await import('@/lib/ai/providers')).getPiModels();
       const model = dependencies.resolveModel
         ? dependencies.resolveModel(config.providerId, config.modelId)
-        : ((await import('@mariozechner/pi-ai')).getModel(
-            config.providerId as never,
-            config.modelId as never
-          ) as Model<Api>);
-      if (model.provider !== config.providerId || model.id !== config.modelId) {
+        : models?.getModel(config.providerId, config.modelId);
+      if (
+        !model ||
+        model.provider !== config.providerId ||
+        model.id !== config.modelId
+      ) {
         throw new Error(
           'Configured Pi model does not match providerId and modelId.'
         );
@@ -85,11 +90,20 @@ export function createConfiguredPiRoomRuntimeV1(
                   };
                 },
               }));
+      const streamFn =
+        dependencies.streamFn ??
+        (models ? models.streamSimple.bind(models) : undefined);
+      if (!streamFn) {
+        throw new Error('Configured Pi runtime does not have a stream function.');
+      }
       return {
         model,
         systemPrompt: config.systemPrompt,
         thinkingLevel: config.thinkingLevel,
-        getApiKey: (provider) => resolveApiKey(provider),
+        ...(dependencies.resolveApiKey
+          ? { getApiKey: dependencies.resolveApiKey }
+          : {}),
+        streamFn,
         tools: createTools({
           confirmationAuthority,
           identity: bindRoomAgentToolIdentityV1(identity, sourceFence),
@@ -258,28 +272,4 @@ export function createPrismaRoomAgentToolIdentityPortV1(): RoomAgentToolIdentity
       };
     },
   };
-}
-
-async function resolveProductionApiKey(providerId: string) {
-  const oauthProvider = asOAuthProvider(providerId);
-  if (oauthProvider) {
-    const { getOAuthApiKeyForProvider } = await import('@/lib/ai/auth-store');
-    const oauth = await getOAuthApiKeyForProvider(oauthProvider);
-    if (oauth?.apiKey) return oauth.apiKey;
-  }
-  const { resolveConfiguredApiKey } = await import('@/lib/ai/providers');
-  return resolveConfiguredApiKey({ providerApiKeys: {} }, providerId);
-}
-
-function asOAuthProvider(providerId: string) {
-  if (
-    providerId === 'anthropic' ||
-    providerId === 'openai-codex' ||
-    providerId === 'github-copilot' ||
-    providerId === 'google-gemini-cli' ||
-    providerId === 'google-antigravity'
-  ) {
-    return providerId;
-  }
-  return null;
 }

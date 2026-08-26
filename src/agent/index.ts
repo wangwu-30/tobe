@@ -4,7 +4,7 @@ export {
   requestResearchStart,
   resolveWorkspaceChangeFromHeaders,
 } from './run';
-export type { AgentRunAttachmentInput } from './run';
+export type { AgentRunAttachmentInput, AgentRunScope } from './run';
 export {
   createLocalAssistantMessageDraft,
   createLocalAttachmentDrafts,

@@ -548,13 +548,13 @@ test('context panel shows deliverable, project, and user scope notes together', 
   );
   await expect(page.getByTestId(`context-note-${userNote.id}`)).toContainText(userMemory);
   await expect(page.getByTestId(`context-note-scope-${deliverableNote.id}`)).toHaveText(
-    '当前内容'
+    '当前页面'
   );
   await expect(page.getByTestId(`context-note-scope-${projectNote.id}`)).toHaveText(
-    '项目'
+    'Wiki 空间'
   );
   await expect(page.getByTestId(`context-note-scope-${userNote.id}`)).toHaveText('用户');
-  await expect(page.getByText('这里新建的知识会保存到当前内容。')).toBeVisible();
+  await expect(page.getByText('这里新建的知识会保存到当前页面。')).toBeVisible();
 });
 
 test('context panel can create scoped knowledge and edit existing knowledge scope', async ({
@@ -609,13 +609,13 @@ test('context panel can create scoped knowledge and edit existing knowledge scop
   await page.getByTestId('context-knowledge-title').fill('项目级术语');
   await page.getByTestId('context-knowledge-content').fill(updatedProjectKnowledge);
   await page.getByTestId('context-knowledge-scope-project').click();
-  await expect(page.getByText('保存后这条知识会归到项目。')).toBeVisible();
+  await expect(page.getByText('保存后这条知识会归到Wiki 空间。')).toBeVisible();
   await page.getByTestId('context-save-knowledge').click();
 
   await expect(page.getByTestId(`context-note-${seedNote.id}`)).toContainText(
     updatedProjectKnowledge
   );
-  await expect(page.getByTestId(`context-note-scope-${seedNote.id}`)).toHaveText('项目');
+  await expect(page.getByTestId(`context-note-scope-${seedNote.id}`)).toHaveText('Wiki 空间');
 
   const projectNotes = await listNotesForScope(baseURL, {
     scope: 'project',

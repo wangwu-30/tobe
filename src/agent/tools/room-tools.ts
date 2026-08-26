@@ -1,5 +1,5 @@
-import type { AgentTool } from '@mariozechner/pi-agent-core';
-import type { TSchema } from '@sinclair/typebox';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
+import type { TSchema } from 'typebox';
 
 import type { RoomSessionRefV1 } from '@/agent/room-runtime/contracts';
 import {

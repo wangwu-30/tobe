@@ -1,7 +1,16 @@
-# Agent Room 与持久执行落地追踪器
+# Agent Room 与持久执行落地追踪器（历史基线）
 
 更新时间：2026-08-23（closure commit 推送前）
-状态：implementation、四项终审 blocker、产品验收与 Project Room 对比度竞态修复已完成；精确 closure commit 门禁待执行
+历史 workstream 状态：implementation、四项终审 blocker、产品验收与 Project Room 对比度竞态修复已完成；精确 closure commit 门禁待执行
+
+> **当前 workstream（2026-08-23）**：产品入口已转向 [一人 AI Wiki](./briefs/one-person-ai-wiki.md)。
+> 当前契约是 Home Chat 默认、普通对话不创建空 Wiki Space、human owner 显式确认后由 canonical
+> Wiki Space root 接管同一 Session；Wiki Space 是 canonical Project root facade，Page 是 Document
+> facade。Room、Agents、Team Tasks、Execution Jobs 与 Git Knowledge 变为 Advanced 能力，且 Git
+> `KnowledgeSpace` 不等于 Wiki Space。本文后续的 “Project Room default” 均为 2026-08-22/23 已交付
+> 基线的历史事实，不是当前产品默认入口；其 gate 数字只证明当时精确 tree。Wiki-first 行为完成度与
+> 验证结果必须另增 dated record，不能复用本文历史 PASS。
+> 当前 Wiki-first gate：**待 root/main workstream 最终填写**；本文没有为当前文档、文案或行为树虚构 PASS。
 
 交接入口：[2026-08-22 Web Agent Collaboration Handoff](./HANDOFF-2026-08-22.md)。原快照中的
 execution recovery 测试契约、Team Tasks UI 和 Room delegation 测试 blocker 已关闭，后续四项终审 blocker
@@ -12,11 +21,11 @@ clean 的 closure commit 再次通过同一完整门禁，本地 gate PASS 也�
 
 相关文档：[系统契约](../SYSTEM.md) · [产品 brief](./briefs/team-document-agent-marketplace.md) · [Runtime 调研](./agent-runtime-architecture-research.md)
 
-## 当前范围
+## 历史 workstream 范围
 
-本 workstream 把 Web-only Project Room、团队文档、TeamTask、durable Execution Job、开放 Runtime 与
-Git 知识库组成 `Room -> Job -> review -> trusted CAS merge -> ready knowledge` 闭环。Project Room 是默认
-多 Agent 入口；Room Agent Session 负责低延迟连续协作，Execution Job 负责可脱离浏览器的排队、租约、
+本历史 workstream 把 Web-only Project Room、团队文档、TeamTask、durable Execution Job、开放 Runtime 与
+Git 知识库组成 `Room -> Job -> review -> trusted CAS merge -> ready knowledge` 闭环。在该历史基线中，
+Project Room 是默认多 Agent 入口；Room Agent Session 负责低延迟连续协作，Execution Job 负责可脱离浏览器的排队、租约、
 attempt、等待输入、取消与恢复，两者不共享状态机或容量。
 
 代码与生产组合点已经覆盖 Room/API/Host/UI、bounded context、Execution 产品面、HTTP running cancel、
@@ -38,7 +47,8 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 - team-mode schema、membership role 与 organization ACL 已实现；当前运行身份仍是进程冻结的 trusted local
   single-user principal。Web runtime identity header 只是 transport receipt，不是认证机制；Room 显式 receipt
   只能引用已存在且完整匹配的 organization/user/membership/device tuple。
-- Project Room 是默认入口；请求级协调 Agent 与多个专业 Agent 可按 typed mention/reply routing 并行参与。
+- **历史基线决策**：Project Room 是当时的默认入口；请求级协调 Agent 与多个专业 Agent 可按 typed
+  mention/reply routing 并行参与。当前 Wiki-first workstream 保留该能力，但只从 Advanced 进入。
 - 请求协调、Room Agent Session 与 Execution Job 是三个独立生命周期；`TeamTask != ExecutionJob`，
   `AssistantRun != ExecutionJob`。
 - Execution admission 只接受经 membership ACL 授权的 trusted local principal 显式对齐的可见不可变版本；服务端冻结内容、文件 hash、revision
@@ -82,9 +92,9 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 - production IdP、服务端 login/session/JWT 映射与完整企业 SSO 属于部署或未来范围，不能用当前 ACL 测试、
   header resolver 或 seeded membership 代替其验收证据。
 
-### Project Room 与 bounded context
+### Project Room 与 bounded context（历史默认入口实现）
 
-- 工作区默认 assistant route 是 Room；缺失或非法 tab canonicalize 回 Room。Project-scoped default Room、
+- 在该历史基线中，工作区默认 assistant route 是 Room；缺失或非法 tab canonicalize 回 Room。Project-scoped default Room、
   durable HTTP `202` message acceptance、replayable SSE、grant 与 tool-confirmation API 已接入。
 - atomic router 为每个被 mention 的 Agent 创建 delivery，reply 可定向原 Agent；同一 session FIFO，跨 session
   可并行。独立 Session Host 使用 Prisma store、production context source 和 Pi runtime composition，并支持
@@ -149,7 +159,7 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 
 | 主链路 | 生产事实 | Web 产品面 | 验证证据组成 | 当前基线 |
 |---|---|---|---|---|
-| Project Room | persistence、atomic router、HTTP/SSE、独立 Host、Pi adapter | 默认 Room、typed mention、grants、confirmation、activity | team-mode ACL、local-principal fail-closed、FIFO/并行、双 Host、kill/restart、SSE replay、browser journey | 生产组合已接入；不代表 production multi-user identity |
+| Project Room（历史默认入口，当前 Advanced） | persistence、atomic router、HTTP/SSE、独立 Host、Pi adapter | 历史默认 Room、typed mention、grants、confirmation、activity | team-mode ACL、local-principal fail-closed、FIFO/并行、双 Host、kill/restart、SSE replay、browser journey | 生产组合已接入；不代表 production multi-user identity |
 | Bounded context | budgeted builder、Prisma source、ACL/ready-snapshot recheck | Room feed 使用受限上下文 | 10x 历史非线性增长、summary/ACL/config invalidation、tamper/revocation | V1 生产集成；rich metadata 经 compatibility bridge |
 | Execution product | read models、input/resume、completion projection、HTTP cancel | Job list/detail/log/artifact/input/cancel/recovery | route + standalone daemon、waiting-input、terminal projection、browser UI | 生产组合已接入 |
 | Knowledge review | review API、trusted worker、Git CAS、index builder、ready activation | configuration、diff、review、merge/conflict/index 状态 | same-base conflict、replay、index fail/retry、execution-to-ready browser path | 生产闭环已接入 |
@@ -162,9 +172,10 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 任何一行都必须同时具备代码、production composition 与相应测试证据；完整交付结论还必须来自同一次
 `npm run verify:iteration`。targeted test、历史记录或 browser spec 的存在不能替代该结论。
 
-## 验收标准
+## 历史 workstream 验收标准
 
-- 新建/打开项目默认进入 Project Room；typed mentions 能原子路由多个 Agent，accepted 消息不依赖浏览器连接。
+- 历史基线要求新建/打开项目默认进入 Project Room；typed mentions 能原子路由多个 Agent，accepted
+  消息不依赖浏览器连接。当前产品入口以一人 AI Wiki brief 为准，Room routing 能力保留在 Advanced。
 - Room Session 与 durable Job 的身份、lease、capacity 和 recovery 保持隔离；Room 发起 Job 必须经过 durable
   confirmation，并保留 Room/message origin。
 - Job admission 拒绝未对齐或不可见版本；Runtime 只收到服务端冻结的 immutable context 和非敏感 binding。
@@ -194,12 +205,12 @@ provider、登录/session/JWT integration、成员邀请/provisioning 与完整�
 - **Tracker**：只按 repository facts 更新矩阵，区分 code、composition、targeted test 与 full gate。
 - **Artifacts**：记录隔离 app-data、logs/report/trace 路径；dated record 写明命令、精确结果和环境边界。
 
-### 15 requirements pre-push status
+### 15 requirements pre-push status（历史 Project Room workstream）
 
 Items 1-14 describe implemented scope and accumulated evidence. The 11:51 accessibility-stabilized gate covers them;
 item 15 becomes final local delivery evidence only after the exact clean closure commit passes without later tree edits.
 
-1. **Web-only、team-first、Project Room default**：production build 与 home/workspace Chromium journey 通过。
+1. **Web-only、team-first、Project Room default（历史默认入口）**：production build 与 home/workspace Chromium journey 通过。
 2. **Initial goal 是第一条 human Room message**：workspace create API、persistence 与 browser assertion 纳入完整门禁。
 3. **Host default 与 typed mentions/replies**：atomic router、raw `@text` boundary、Room persistence/process/browser 通过。
 4. **Room Session 与 durable Job 生命周期分离**：独立 Host/daemon、live Room source fence、process restart evidence 通过。
@@ -222,6 +233,35 @@ P2 `1`、P3 `0`；无横向溢出、4xx/5xx、console error/warning 或 page err
 的 tldraw production-license watermark，属于发布前 license/产品决策，不是本轮功能 blocker；不得通过
 CSS、DOM patch 或测试分支隐藏。该验收不替代 iteration gate，ignored artifacts 位于
 `.tmp/product-acceptance/`。
+
+## Pi SDK 0.84.3 迁移与自动更新记录（2026-08-24）
+
+- npm registry 已核对：弃用的 `@mariozechner/pi-ai` / `pi-agent-core` 明确指向
+  `@earendil-works/*`；迁移后又完成维护版本更新，仓库当前使用
+  `@earendil-works/pi-ai` / `pi-agent-core@^0.84.3`，并移除未使用的 Vercel AI SDK、旧 Pi namespace
+  和旧 TypeBox 依赖。
+- 新 SDK 的 Node 下限已统一为 `>=22.19.0 <23`，`.node-version` 固定 `22.23.2`，Node 服务与测试
+  bundle target 统一为 `node22`；工具 schema 统一使用 `typebox@1.3.7`，避免 SDK 与应用各持一份不兼容的
+  schema runtime。
+- provider 接线改为共享 `Models` collection；Agent 与 Room runtime 显式注入 `streamFn`，适配
+  `errorMessage` / `streamingMessage` 和 state setter。默认模型为 `openai-codex::gpt-5.4`；只对历史默认
+  `openai-codex::gpt-5.2-codex` 做显式迁移，其他不存在的模型 fail closed，不跨 provider 静默回退。
+- OAuth canonical store 为 `.oauth/auth.json`。Web、Room Host 和 `npm run auth:openai-oauth` 共用同一
+  `proper-lockfile` 跨进程锁、锁内 read-modify-write 与临时文件 rename；legacy
+  `.oauth/openai-codex.json` 只保留兼容读取，并在后续刷新时进入 canonical store。
+- 自动更新由 `.github/dependabot.yml` 每周发起 PR，两个 Pi package 同组；GitHub Actions 在 PR 上执行
+  完整 `iteration-gate`。不启用自动合并，不向不可信依赖 PR 提供真实 provider secret；`main` 的 required
+  check、reviewer 和 Dependabot no-bypass 仍须仓库管理员在 GitHub ruleset 中启用。
+- 冻结前定向验证：Node `22.23.2` + npm `11.17.0` 下 clean `npm ci`、TypeScript、迁移范围 ESLint、
+  OAuth credential helper `2/2`、Pi Room adapter `11/11`、Room Host Pi composition `3/3`、Room Host
+  production build 和 `git diff --check` 均通过。依赖刷新后 `npm audit` 与 `npm audit --omit=dev` 均为
+  `3 high`，来自 Prisma 固定的同一 `deepmerge-ts@7.1.5` 链；没有使用 breaking downgrade、broad
+  override 或 `npm audit fix --force`，等待上游版本后由依赖 PR 审阅。
+- 本次冻结前工作树已在 `2026-08-24 21:32 +08:00` 完成完整 `npm run verify:iteration`：Web guideline
+  scanner、Prisma/typegen、generated test builds、TypeScript、ESLint、fresh DB bootstrap、production Web build
+  和 browser preflight 均通过；inventory `72/72`，script contracts `53 passed`，control-plane Playwright
+  `474 passed`，Chromium `150/150 passed (4.1m)`。文档记录进入 closure commit 后，仍需在该 clean
+  commit 上无编辑复跑同一门禁，再推送并核对远端 SHA。
 
 ## 历史验证记录
 

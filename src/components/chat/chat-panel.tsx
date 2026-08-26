@@ -27,7 +27,6 @@ import { ExternalLink, FileText, LoaderCircle, Search, Wand2 } from 'lucide-reac
 import {
   AI_SETTINGS_CHANGED_EVENT,
   getStoredAISettingsHeader,
-  getStoredDefaultModelKey,
   getStoredDefaultModelSelection,
   resolveStoredModelSelection,
 } from '@/lib/client/ai-settings';
@@ -35,10 +34,12 @@ import { useT } from '@/components/providers/language-provider';
 import { apiCall, apiCallOrThrow } from '@/framework/resilience';
 import { shouldHydrateChatMessages } from '@/lib/chat/message-hydration';
 
-const DEFAULT_CHAT_MODEL_KEY = 'openai-codex::gpt-5.2-codex';
+const DEFAULT_CHAT_MODEL_KEY = 'openai-codex::gpt-5.4';
 const INTERNAL_FIRST_PASS_PREFIX = 'Take the first author pass for this deliverable.';
 
 export function ChatPanel({
+  allowAttachments = true,
+  allowDeepResearch = true,
   activeAssistantRun,
   conversationId,
   conversationRuns,
@@ -58,8 +59,16 @@ export function ChatPanel({
   onWorkspaceChange,
   initialMessages,
   showHeader = true,
+  scope = 'workspace',
+  emptyState,
+  composerHint,
+  composerPlaceholder,
+  variant = 'workspace',
+  onMessagesChange,
   onChatErrorChange,
 }: {
+  allowAttachments?: boolean;
+  allowDeepResearch?: boolean;
   activeAssistantRun?: AssistantRunData | null;
   conversationId?: string | null;
   conversationRuns?: AssistantRunData[];
@@ -90,6 +99,12 @@ export function ChatPanel({
   ) => void;
   initialMessages?: ChatMessageData[];
   showHeader?: boolean;
+  scope?: 'onboarding' | 'workspace';
+  emptyState?: { description: string; title: string } | null;
+  composerHint?: string | null;
+  composerPlaceholder?: string;
+  variant?: 'home' | 'workspace';
+  onMessagesChange?: (messages: ChatMessageData[]) => void;
 }) {
   const t = useT();
   const {
@@ -109,11 +124,12 @@ export function ChatPanel({
     conversationId,
     focusNodeId: workspaceId,
     workspaceId,
+    scope,
   });
   const [modelCatalog, setModelCatalog] = React.useState<ModelCatalogData | null>(null);
   const [selectedModelSelection, setSelectedModelSelection] =
     React.useState<ModelSelectionData | null>(() =>
-      resolveStoredModelSelection(null, getStoredDefaultModelSelection(), DEFAULT_CHAT_MODEL_KEY)
+      resolveStoredModelSelection(null, null, DEFAULT_CHAT_MODEL_KEY)
     );
   const [proposalActionId, setProposalActionId] = React.useState<string | null>(null);
   const [proposalActionError, setProposalActionError] = React.useState<{
@@ -126,9 +142,16 @@ export function ChatPanel({
     () => flattenBranches(branches || []),
     [branches]
   );
+  const showPanelHeader =
+    variant !== 'home' ||
+    showHeader ||
+    (flatBranches.length > 1 && Boolean(onSelectConversation)) ||
+    Boolean(conversationTitle) ||
+    Boolean(baseVersionLabel);
   const lastHydratedConversationRef = React.useRef<string | null>(
     conversationId || null
   );
+  const adoptedConversationIdRef = React.useRef<string | null>(null);
   const handledQueuedPromptRef = React.useRef<string | null>(null);
   const hasManualModelSelectionRef = React.useRef(false);
   const lastModelContextRef = React.useRef<string | null>(null);
@@ -150,6 +173,13 @@ export function ChatPanel({
     () => buildDisplayRuns(conversationRuns || [], activeAssistantRun || null),
     [activeAssistantRun, conversationRuns]
   );
+  const isHomeInitialState =
+    variant === 'home' &&
+    visibleMessages.length === 0 &&
+    displayRuns.length === 0 &&
+    !isWaitingForFirstPass &&
+    !error &&
+    !isLoading;
 
   const loadModelCatalog = React.useCallback(async () => {
     const result = await apiCall<ModelCatalogData>('/api/ai/models', {
@@ -213,6 +243,18 @@ export function ChatPanel({
   React.useEffect(() => {
     const nextConversationId = conversationId || null;
     const serverMessages = initialMessages || [];
+
+    if (
+      nextConversationId &&
+      adoptedConversationIdRef.current === nextConversationId &&
+      serverMessages.length === 0
+    ) {
+      lastHydratedConversationRef.current = nextConversationId;
+      return;
+    }
+
+    adoptedConversationIdRef.current = null;
+
     const conversationChanged =
       lastHydratedConversationRef.current !== nextConversationId;
 
@@ -238,6 +280,10 @@ export function ChatPanel({
   }, [isLoading, onBusyChange]);
 
   React.useEffect(() => {
+    onMessagesChange?.(messages);
+  }, [messages, onMessagesChange]);
+
+  React.useEffect(() => {
     if (scrollRef.current && shouldAutoScrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
@@ -258,6 +304,24 @@ export function ChatPanel({
     shouldAutoScrollRef.current = distanceFromBottom < 80;
   }, []);
 
+  const handleWorkspaceChange = React.useCallback(
+    (workspace: {
+      conversationId: string | null;
+      workspaceId: string | null;
+    }) => {
+      if (workspace.conversationId) {
+        // A conversation id returned by this panel's own request adopts the
+        // in-memory timeline; it is not an external conversation switch.
+        lastHydratedConversationRef.current = workspace.conversationId;
+        if (workspace.conversationId !== (conversationId || null)) {
+          adoptedConversationIdRef.current = workspace.conversationId;
+        }
+      }
+      onWorkspaceChange?.(workspace);
+    },
+    [conversationId, onWorkspaceChange]
+  );
+
   const handleSend = React.useCallback(
     (
       content: string,
@@ -267,17 +331,17 @@ export function ChatPanel({
       }
     ) => {
       shouldAutoScrollRef.current = true;
-      const activeModelKey = selectedModelSelection?.key || getActiveModelKey();
+      const activeModelKey = selectedModelSelection?.key || DEFAULT_CHAT_MODEL_KEY;
       sendMessage(content, {
         attachments: options?.attachments,
         hiddenFromTimeline: isInternalFirstPassPrompt(content),
         model: activeModelKey,
         onComplete: onConversationComplete,
-        onWorkspaceChange,
+        onWorkspaceChange: handleWorkspaceChange,
         researchMode: options?.researchMode,
       });
     },
-    [onConversationComplete, onWorkspaceChange, selectedModelSelection, sendMessage]
+    [handleWorkspaceChange, onConversationComplete, selectedModelSelection, sendMessage]
   );
 
   const handleModelSelectionChange = React.useCallback((selection: ModelSelectionData) => {
@@ -334,7 +398,7 @@ export function ChatPanel({
         await onConversationComplete?.();
         await continueProposal(run.id, {
           onComplete: onConversationComplete,
-          onWorkspaceChange,
+          onWorkspaceChange: handleWorkspaceChange,
         });
       } catch (error) {
         setProposalActionError({
@@ -347,9 +411,9 @@ export function ChatPanel({
     },
     [
       continueProposal,
+      handleWorkspaceChange,
       isLoading,
       onConversationComplete,
-      onWorkspaceChange,
       proposalActionId,
       t,
       workspaceId,
@@ -389,7 +453,7 @@ export function ChatPanel({
 
         await startResearch(run.id, {
           onComplete: onConversationComplete,
-          onWorkspaceChange,
+          onWorkspaceChange: handleWorkspaceChange,
         });
       } catch (error) {
         setProposalActionError({
@@ -401,9 +465,9 @@ export function ChatPanel({
       }
     },
     [
+      handleWorkspaceChange,
       isLoading,
       onConversationComplete,
-      onWorkspaceChange,
       proposalActionId,
       startResearch,
       t,
@@ -413,179 +477,201 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-      <div className="border-b border-border px-4 py-2.5">
-        <div className="min-w-0 space-y-2">
-          {showHeader ? (
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <FileText aria-hidden="true" className="h-4 w-4" />
-              {t('assistant.chat')}
-            </h2>
-          ) : null}
-          {flatBranches.length > 1 && onSelectConversation ? (
-            <Select
-              value={conversationId || ''}
-              onValueChange={(value) => onSelectConversation(value)}
-            >
-              <SelectTrigger
-                aria-label={t('chat.selectConversation')}
-                className="h-11 w-full max-w-[220px] text-xs sm:h-7"
-                data-testid="chat-conversation-select"
+      {showPanelHeader ? (
+        <div className="border-b border-border px-4 py-2.5">
+          <div className="min-w-0 space-y-2">
+            {showHeader ? (
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                <FileText aria-hidden="true" className="h-4 w-4" />
+                {t('assistant.chat')}
+              </h2>
+            ) : null}
+            {flatBranches.length > 1 && onSelectConversation ? (
+              <Select
+                value={conversationId || ''}
+                onValueChange={(value) => onSelectConversation(value)}
               >
-                <SelectValue placeholder={t('chat.selectConversation')} />
-              </SelectTrigger>
-              <SelectContent className="motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none">
-                {flatBranches.map((branch) => (
-                  <SelectItem key={branch.id} value={branch.id} className="text-xs">
-                    {branch.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : conversationTitle ? (
-            <p
-              className="truncate text-xs text-muted-foreground"
-              title={formatConversationTitle(conversationTitle)}
-            >
-              {t('chat.conversationPrefix', {
-                title: formatConversationTitle(conversationTitle),
-              })}
-            </p>
-          ) : null}
-          {baseVersionLabel ? (
-            <Badge
-              variant="outline"
-              className="w-fit max-w-full truncate text-[10px] font-normal"
-              data-testid="chat-base-version-label"
-              title={baseVersionLabel}
-            >
-              {baseVersionLabel}
-            </Badge>
-          ) : null}
+                <SelectTrigger
+                  aria-label={t('chat.selectConversation')}
+                  className="h-11 w-full max-w-[220px] text-xs sm:h-7"
+                  data-testid="chat-conversation-select"
+                >
+                  <SelectValue placeholder={t('chat.selectConversation')} />
+                </SelectTrigger>
+                <SelectContent className="motion-reduce:data-[state=closed]:animate-none motion-reduce:data-[state=open]:animate-none">
+                  {flatBranches.map((branch) => (
+                    <SelectItem key={branch.id} value={branch.id} className="text-xs">
+                      {branch.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : conversationTitle ? (
+              <p
+                className="truncate text-xs text-muted-foreground"
+                title={formatConversationTitle(conversationTitle)}
+              >
+                {t('chat.conversationPrefix', {
+                  title: formatConversationTitle(conversationTitle),
+                })}
+              </p>
+            ) : null}
+            {baseVersionLabel ? (
+              <Badge
+                variant="outline"
+                className="w-fit max-w-full truncate text-[10px] font-normal"
+                data-testid="chat-base-version-label"
+                title={baseVersionLabel}
+              >
+                {baseVersionLabel}
+              </Badge>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div
-        ref={scrollRef}
-        aria-label={t('assistant.chat')}
-        aria-busy={isLoading}
-        aria-live="polite"
-        aria-relevant="additions text"
-        className="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain scroll-pb-32"
-        onScroll={handleTimelineScroll}
-        role="log"
-      >
-        <div className="min-w-0 py-4 pb-28">
-          {displayRuns.length > 0 ? (
-            <div className="space-y-3 px-4 pb-4">
-              {displayRuns.map((run) => (
-                <ConversationRunCard
-                  key={run.id}
-                  run={run}
-                  actionError={proposalActionError?.runId === run.id ? proposalActionError.message : null}
-                  actionState={proposalActionId}
-                  disabled={isLoading}
-                  onOpenFile={onOpenFile}
-                  onProposalAction={handleProposalAction}
-                  onResearchAction={handleResearchAction}
-                />
-              ))}
-            </div>
-          ) : null}
+      {!isHomeInitialState ? (
+        <div
+          ref={scrollRef}
+          aria-label={t('assistant.chat')}
+          aria-busy={isLoading}
+          aria-live="polite"
+          aria-relevant="additions text"
+          className="min-h-0 min-w-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain scroll-pb-32"
+          onScroll={handleTimelineScroll}
+          role="log"
+          tabIndex={0}
+        >
+          <div className="min-w-0 py-4 pb-28">
+            {displayRuns.length > 0 ? (
+              <div className="space-y-3 px-4 pb-4">
+                {displayRuns.map((run) => (
+                  <ConversationRunCard
+                    key={run.id}
+                    run={run}
+                    actionError={
+                      proposalActionError?.runId === run.id
+                        ? proposalActionError.message
+                        : null
+                    }
+                    actionState={proposalActionId}
+                    disabled={isLoading}
+                    onOpenFile={onOpenFile}
+                    onProposalAction={handleProposalAction}
+                    onResearchAction={handleResearchAction}
+                  />
+                ))}
+              </div>
+            ) : null}
 
-          {visibleMessages.length === 0 ? (
-            <div
-              className="flex flex-col items-center justify-center px-4 py-16 text-center text-muted-foreground"
-              role={isWaitingForFirstPass ? 'status' : undefined}
-              aria-live={isWaitingForFirstPass ? 'polite' : undefined}
-            >
-              <FileText aria-hidden="true" className="mb-3 h-10 w-10 opacity-30" />
-              <p className="text-sm">
-                {t(
-                  isWaitingForFirstPass
-                    ? 'chat.waitingForFirstPassTitle'
-                    : 'chat.emptyTitle'
-                )}
-              </p>
-              <p className="mt-1 text-xs opacity-70">
-                {t(
-                  isWaitingForFirstPass
-                    ? 'chat.waitingForFirstPassDescription'
-                    : 'chat.emptyDescription'
-                )}
-              </p>
-            </div>
-          ) : null}
-
-          {visibleMessages.map((message) => (
-            <ChatMessage
-              key={message.id}
-              message={message}
-              onBranch={
-                message.content.trim().length > 0 && !isLoading
-                  ? onBranchConversation
-                  : undefined
-              }
-            />
-          ))}
-
-          {error ? (
-            <div className="px-4 pb-3">
+            {visibleMessages.length === 0 &&
+            (variant !== 'home' || isWaitingForFirstPass) ? (
               <div
-                className="break-words rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive [overflow-wrap:anywhere]"
-                role="alert"
+                className="flex flex-col items-center justify-center px-4 py-16 text-center text-muted-foreground"
+                role={isWaitingForFirstPass ? 'status' : undefined}
+                aria-live={isWaitingForFirstPass ? 'polite' : undefined}
               >
-                <div>{error.message}</div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  {error.retryable ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-11 sm:h-8"
-                      onClick={retryLastMessage}
-                    >
-                      {t('chat.retry')}
-                    </Button>
-                  ) : null}
-                  {error.showSettings ? (
-                    <Button
-                      asChild
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="h-11 sm:h-8"
-                    >
-                      <Link href="/settings">{t('chat.openSettings')}</Link>
-                    </Button>
-                  ) : null}
+                <FileText aria-hidden="true" className="mb-3 h-10 w-10 opacity-30" />
+                <p className="text-sm">
+                  {emptyState && !isWaitingForFirstPass
+                    ? emptyState.title
+                    : t(
+                        isWaitingForFirstPass
+                          ? 'chat.waitingForFirstPassTitle'
+                          : 'chat.emptyTitle'
+                      )}
+                </p>
+                <p className="mt-1 text-xs">
+                  {emptyState && !isWaitingForFirstPass
+                    ? emptyState.description
+                    : t(
+                        isWaitingForFirstPass
+                          ? 'chat.waitingForFirstPassDescription'
+                          : 'chat.emptyDescription'
+                      )}
+                </p>
+              </div>
+            ) : null}
+
+            {visibleMessages.map((message) => (
+              <ChatMessage
+                key={message.id}
+                message={message}
+                onBranch={
+                  message.content.trim().length > 0 && !isLoading
+                    ? onBranchConversation
+                    : undefined
+                }
+              />
+            ))}
+
+            {error ? (
+              <div className="px-4 pb-3">
+                <div
+                  className="break-words rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-3 text-sm text-destructive [overflow-wrap:anywhere]"
+                  role="alert"
+                >
+                  <div>{error.message}</div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    {error.retryable ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-11 sm:h-8"
+                        onClick={retryLastMessage}
+                      >
+                        {t('chat.retry')}
+                      </Button>
+                    ) : null}
+                    {error.showSettings ? (
+                      <Button
+                        asChild
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-11 sm:h-8"
+                      >
+                        <Link href="/settings">{t('chat.openSettings')}</Link>
+                      </Button>
+                    ) : null}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          {isLoading && statusMessage ? (
-            <div className="px-4 pb-3">
-              <div
-                className="break-words rounded-2xl border border-border/70 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                {statusMessage}
+            {isLoading && statusMessage ? (
+              <div className="px-4 pb-3">
+                <div
+                  className="break-words rounded-2xl border border-border/70 bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  {statusMessage}
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <ChatInput
+        allowAttachments={allowAttachments}
+        allowDeepResearch={allowDeepResearch}
+        capabilityHint={composerHint}
         onSend={handleSend}
         onStop={stopGeneration}
         isLoading={isLoading}
         modelCatalog={modelCatalog}
-        modelLabel={formatModelLabel(selectedModelSelection?.key || getActiveModelKey(), modelCatalog)}
+        modelLabel={formatModelLabel(
+          selectedModelSelection?.key || DEFAULT_CHAT_MODEL_KEY,
+          modelCatalog
+        )}
         modelSelection={selectedModelSelection}
         onModelSelectionChange={handleModelSelectionChange}
+        placeholder={composerPlaceholder}
+        variant={variant}
       />
     </div>
   );
@@ -908,10 +994,6 @@ function buildDisplayRuns(
 
 function formatConversationTitle(title: string) {
   return title.replace(/^Branch:\s*/i, '');
-}
-
-function getActiveModelKey() {
-  return getStoredDefaultModelKey() || DEFAULT_CHAT_MODEL_KEY;
 }
 
 function isInternalFirstPassPrompt(content: string) {

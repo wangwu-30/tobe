@@ -516,11 +516,16 @@ export type WorkspaceRunData = {
   updatedAt: Date | string;
 };
 
+export type ChatScope = 'onboarding' | 'workspace';
+
+export type ConversationScopeKind = 'team' | 'wiki';
+
 export type AssistantRunData = {
   id: string;
   organizationId: string;
   conversationId: string;
-  workspaceId: string;
+  workspaceId: string | null;
+  scopeKind: ConversationScopeKind;
   requestMessageId: string | null;
   mode: 'run' | 'first_pass' | 'revision' | 'question' | 'replan';
   title: string;
@@ -570,6 +575,7 @@ export type ConversationData = {
   activeFileId: string | null;
   hasPendingChanges?: boolean;
   scopeFilter?: string | null;
+  scopeKind: ConversationScopeKind;
   title: string;
   sourceType: string;
   createdByUserId: string | null;

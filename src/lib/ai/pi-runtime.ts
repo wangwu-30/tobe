@@ -1,9 +1,7 @@
-import { completeSimple, streamSimple } from '@mariozechner/pi-ai';
-import type { Api, Context, Message, Model as PiModel } from '@mariozechner/pi-ai';
-import type { Settings } from '@/lib/ai/providers';
+import type { Api, Context, Message, Model as PiModel } from '@earendil-works/pi-ai';
+import { createPiStreamFn, type Settings } from '@/lib/ai/providers';
 import {
   extractAssistantMessageText,
-  resolvePiProviderApiKey,
   toPiRunMessages,
 } from '@/framework/agent/run';
 
@@ -21,11 +19,12 @@ export async function completeWithPi({
 }: BuildPiRequestOptionsParams & {
   context: Context;
 }) {
-  const message = await completeSimple(
+  const stream = await createPiStreamFn(settings)(
     model,
     context,
-    await buildPiRequestOptions({ model, settings })
+    { sessionId: `chengxing:${model.provider}` }
   );
+  const message = await stream.result();
 
   if (message.role === 'assistant' && message.stopReason === 'error') {
     throw new Error(message.errorMessage || 'AI request failed');
@@ -44,8 +43,9 @@ export async function streamWithPi({
   onFinish?: (result: { text: string; message: Message }) => Promise<void> | void;
 }) {
   const encoder = new TextEncoder();
-  const options = await buildPiRequestOptions({ model, settings });
-  const stream = streamSimple(model, context, options);
+  const stream = await createPiStreamFn(settings)(model, context, {
+    sessionId: `chengxing:${model.provider}`,
+  });
 
   const responseStream = new ReadableStream({
     async start(controller) {
@@ -86,19 +86,4 @@ export function toPiContextMessages(
   model: AnyPiModel
 ): Message[] {
   return toPiRunMessages(messages, model);
-}
-
-async function buildPiRequestOptions({
-  model,
-  settings,
-}: BuildPiRequestOptionsParams) {
-  const providerApiKey = await resolvePiProviderApiKey({
-    provider: model.provider,
-    settings,
-  });
-
-  return {
-    apiKey: providerApiKey,
-    sessionId: `chengxing:${model.provider}`,
-  };
 }

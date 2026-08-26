@@ -10,6 +10,8 @@ export type AgentRunAttachmentInput = {
   source: string;
 };
 
+export type AgentRunScope = 'onboarding' | 'workspace';
+
 type AgentRunRequest = {
   activeFileId?: string | null;
   attachments?: AgentRunAttachmentInput[];
@@ -19,6 +21,7 @@ type AgentRunRequest = {
   message: string;
   model?: string | null;
   researchMode?: ResearchMode;
+  scope?: AgentRunScope;
   signal?: AbortSignal;
   workspaceId?: string | null;
 };
@@ -32,6 +35,7 @@ export async function requestAgentRun({
   message,
   model,
   researchMode = 'light',
+  scope,
   signal,
   workspaceId,
 }: AgentRunRequest) {
@@ -42,6 +46,9 @@ export async function requestAgentRun({
   formData.set('sessionId', conversationId || '');
   formData.set('focusNodeId', focusNodeId || workspaceId || '');
   formData.set('researchMode', researchMode);
+  if (scope) {
+    formData.set('scope', scope);
+  }
   formData.set('workspaceId', workspaceId || focusNodeId || '');
   formData.set('message', message);
   formData.set('model', model || '');

@@ -22,6 +22,23 @@ const durableDelegationMigration =
 const documentProposalMigration =
   '20260821170000_document_proposal_cas';
 const canvasTablesMigration = '20260822010000_add_canvas_tables';
+const teamScopedConversationsMigration =
+  '20260823010000_add_team_scoped_conversations';
+const teamScopedConversationAssistantRunIndexes = [
+  [
+    'AssistantRun_organizationId_startedAt_idx',
+    ['organizationId', 'startedAt'],
+    false,
+  ],
+  [
+    'AssistantRun_organizationId_scopeKind_startedAt_idx',
+    ['organizationId', 'scopeKind', 'startedAt'],
+    false,
+  ],
+  ['AssistantRun_sessionId_startedAt_idx', ['sessionId', 'startedAt'], false],
+  ['AssistantRun_documentId_startedAt_idx', ['documentId', 'startedAt'], false],
+  ['AssistantRun_status_startedAt_idx', ['status', 'startedAt'], false],
+];
 const canvasColumnSchemas = {
   NodeRelation: [
     {
@@ -132,6 +149,10 @@ test('fresh bootstrap applies all migrations and a second run is inert', async (
   assert.match(first.stdout, new RegExp(`Applying ${durableDelegationMigration}`, 'u'));
   assert.match(first.stdout, new RegExp(`Applying ${documentProposalMigration}`, 'u'));
   assert.match(first.stdout, new RegExp(`Applying ${canvasTablesMigration}`, 'u'));
+  assert.match(
+    first.stdout,
+    new RegExp(`Applying ${teamScopedConversationsMigration}`, 'u')
+  );
 
   const second = await runBootstrap(appDataRoot);
   assert.doesNotMatch(second.stdout, /Applying |Marking |Repairing /u);
@@ -465,6 +486,207 @@ test('partial room tool confirmation schema fails closed without recording the m
   );
 });
 
+test('mixed team-scoped conversation schema fails closed without recording the migration', async (t) => {
+  const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-team-mixed-');
+  const databasePath = path.join(appDataRoot, 'dev.db');
+
+  await createMigratedDatabase(databasePath, canvasTablesMigration);
+  await withClient(databasePath, (client) =>
+    client.executeMultiple(`
+      ALTER TABLE "Session" ADD COLUMN "scopeKind" TEXT NOT NULL DEFAULT 'wiki';
+      CREATE INDEX "Session_organizationId_scopeKind_updatedAt_idx"
+        ON "Session"("organizationId", "scopeKind", "updatedAt");
+      CREATE TABLE "new_AssistantRun" (
+        "id" TEXT NOT NULL PRIMARY KEY
+      );
+    `)
+  );
+
+  await assert.rejects(
+    runBootstrap(appDataRoot),
+    /leftover new_AssistantRun table|partial or mixed team-scoped conversation schema/u
+  );
+  assert.equal(
+    (await appliedMigrationNames(databasePath)).includes(
+      teamScopedConversationsMigration
+    ),
+    false
+  );
+  await withClient(databasePath, async (client) => {
+    const tables = await schemaObjectNames(client, 'table');
+    assert.equal(tables.has('new_AssistantRun'), true);
+    const assistantRunColumns = await tableColumnNames(client, 'AssistantRun');
+    assert.equal(assistantRunColumns.has('scopeKind'), false);
+  });
+});
+
+test('interrupted team-scoped migration resumes from verified staging table without data loss', async (t) => {
+  const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-team-resume-');
+  const databasePath = path.join(appDataRoot, 'dev.db');
+
+  await createMigratedDatabase(databasePath, canvasTablesMigration);
+  await seedInterruptedTeamScopedMigration(databasePath);
+
+  const result = await runBootstrap(appDataRoot);
+  assert.match(
+    result.stdout,
+    new RegExp(`Repairing existing schema for ${teamScopedConversationsMigration}`, 'u')
+  );
+  assert.doesNotMatch(
+    result.stdout,
+    new RegExp(`Applying ${teamScopedConversationsMigration}`, 'u')
+  );
+  assert.equal(
+    (await appliedMigrationNames(databasePath)).includes(
+      teamScopedConversationsMigration
+    ),
+    true
+  );
+
+  await withClient(databasePath, async (client) => {
+    const tables = await schemaObjectNames(client, 'table');
+    assert.equal(tables.has('new_AssistantRun'), false);
+    const run = await selectRow(
+      client,
+      `SELECT "id", "organizationId", "sessionId", "documentId", "scopeKind",
+              "requestMessageId", "mode", "title", "status", "summary",
+              "payloadJson", "createdByUserId", "originDeviceId", "revision",
+              "deletedAt", "startedAt", "finishedAt", "createdAt", "updatedAt"
+       FROM "AssistantRun"
+       WHERE "id" = ?`,
+      ['assistant-run-resume']
+    );
+    assert.deepEqual(run, {
+      id: 'assistant-run-resume',
+      organizationId: 'team-resume-org',
+      sessionId: 'team-resume-session',
+      documentId: 'team-resume-document',
+      scopeKind: 'wiki',
+      requestMessageId: 'team-resume-message',
+      mode: 'revision',
+      title: 'Resume candidate',
+      status: 'queued',
+      summary: 'staged summary',
+      payloadJson: '{"draft":true}',
+      createdByUserId: 'team-resume-user',
+      originDeviceId: 'team-resume-device',
+      revision: 2,
+      deletedAt: null,
+      startedAt: '2026-08-23 10:00:00',
+      finishedAt: null,
+      createdAt: '2026-08-23 10:00:00',
+      updatedAt: '2026-08-23 10:05:00',
+    });
+  });
+  await assertCurrentControlPlaneSchema(databasePath);
+});
+
+test('ambiguous leftover team-scoped staging table still fails closed with repair guidance', async (t) => {
+  const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-team-ambiguous-');
+  const databasePath = path.join(appDataRoot, 'dev.db');
+
+  await createMigratedDatabase(databasePath, canvasTablesMigration);
+  await seedInterruptedTeamScopedMigration(databasePath, { mismatchRows: true });
+
+  await assert.rejects(
+    runBootstrap(appDataRoot),
+    /ambiguous leftover new_AssistantRun table|Drop the stray staging table/u
+  );
+  assert.equal(
+    (await appliedMigrationNames(databasePath)).includes(
+      teamScopedConversationsMigration
+    ),
+    false
+  );
+  await withClient(databasePath, async (client) => {
+    const tables = await schemaObjectNames(client, 'table');
+    assert.equal(tables.has('new_AssistantRun'), true);
+    const sessionColumns = await tableColumnNames(client, 'Session');
+    assert.equal(sessionColumns.has('scopeKind'), true);
+    const assistantRunColumns = await tableColumnSchema(client, 'AssistantRun');
+    assert.deepEqual(
+      assistantRunColumns.find((column) => column.name === 'documentId'),
+      {
+        name: 'documentId',
+        type: 'TEXT',
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      }
+    );
+    assert.equal(
+      assistantRunColumns.some((column) => column.name === 'scopeKind'),
+      false
+    );
+  });
+});
+
+test('team-scoped migration rejects foreign key violations without recording success', async (t) => {
+  const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-team-fk-');
+  const databasePath = path.join(appDataRoot, 'dev.db');
+
+  await createMigratedDatabase(databasePath, canvasTablesMigration);
+  await withClient(databasePath, async (client) => {
+    await client.execute('PRAGMA foreign_keys = OFF');
+    await client.executeMultiple(`
+      INSERT INTO "Organization" ("id", "slug", "name", "updatedAt")
+      VALUES ('team-org', 'team-org', 'Team Org', CURRENT_TIMESTAMP);
+      INSERT INTO "Session" ("id", "organizationId", "updatedAt")
+      VALUES ('team-session', 'team-org', CURRENT_TIMESTAMP);
+      INSERT INTO "AssistantRun" (
+        "id", "organizationId", "sessionId", "documentId", "title", "updatedAt"
+      ) VALUES (
+        'assistant-run-bad-fk',
+        'team-org',
+        'team-session',
+        'missing-document',
+        'Broken FK',
+        CURRENT_TIMESTAMP
+      );
+      PRAGMA foreign_keys = ON;
+    `);
+  });
+
+  await assert.rejects(
+    runBootstrap(appDataRoot),
+    /failed foreign_key_check/u
+  );
+  assert.equal(
+    (await appliedMigrationNames(databasePath)).includes(
+      teamScopedConversationsMigration
+    ),
+    false
+  );
+  await withClient(databasePath, async (client) => {
+    const tables = await schemaObjectNames(client, 'table');
+    assert.equal(tables.has('new_AssistantRun'), false);
+    const sessionColumns = await tableColumnNames(client, 'Session');
+    assert.equal(sessionColumns.has('scopeKind'), false);
+    const assistantRunColumns = await tableColumnSchema(client, 'AssistantRun');
+    assert.deepEqual(
+      assistantRunColumns.find((column) => column.name === 'documentId'),
+      {
+        name: 'documentId',
+        type: 'TEXT',
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      }
+    );
+    assert.equal(
+      assistantRunColumns.some((column) => column.name === 'scopeKind'),
+      false
+    );
+    const result = await client.execute('PRAGMA foreign_key_check');
+    assert.equal(result.rows.length > 0, true);
+  });
+
+  await assert.rejects(
+    runBootstrap(appDataRoot),
+    /failed foreign_key_check/u
+  );
+});
+
 test('plain Prisma current schema repairs delegation constraints and preserves rows', async (t) => {
   const appDataRoot = await temporaryDirectory(t, 'tobe-bootstrap-delegation-current-');
   const databasePath = path.join(appDataRoot, 'dev.db');
@@ -744,6 +966,130 @@ async function createCanvasLookalikeSchema(databasePath, fixture) {
   );
 }
 
+async function seedInterruptedTeamScopedMigration(
+  databasePath,
+  options = {}
+) {
+  const { mismatchRows = false } = options;
+  await withClient(databasePath, async (client) => {
+    await client.execute('PRAGMA foreign_keys = OFF');
+    await client.executeMultiple(`
+      INSERT INTO "Organization" ("id", "slug", "name", "updatedAt")
+      VALUES ('team-resume-org', 'team-resume-org', 'Team Resume Org', CURRENT_TIMESTAMP);
+      INSERT INTO "User" ("id", "name", "updatedAt")
+      VALUES ('team-resume-user', 'Resume User', CURRENT_TIMESTAMP);
+      INSERT INTO "Device" ("id", "organizationId", "userId", "label", "updatedAt")
+      VALUES (
+        'team-resume-device',
+        'team-resume-org',
+        'team-resume-user',
+        'Resume Device',
+        CURRENT_TIMESTAMP
+      );
+      INSERT INTO "Session" ("id", "organizationId", "updatedAt")
+      VALUES ('team-resume-session', 'team-resume-org', CURRENT_TIMESTAMP);
+      INSERT INTO "Document" ("id", "organizationId", "sessionId", "updatedAt")
+      VALUES (
+        'team-resume-document',
+        'team-resume-org',
+        'team-resume-session',
+        CURRENT_TIMESTAMP
+      );
+      INSERT INTO "ChatMessage" (
+        "id", "organizationId", "sessionId", "role", "content", "documentId", "createdAt"
+      ) VALUES (
+        'team-resume-message',
+        'team-resume-org',
+        'team-resume-session',
+        'user',
+        'hello',
+        'team-resume-document',
+        CURRENT_TIMESTAMP
+      );
+      INSERT INTO "AssistantRun" (
+        "id", "organizationId", "sessionId", "documentId", "requestMessageId",
+        "mode", "title", "status", "summary", "payloadJson", "createdByUserId",
+        "originDeviceId", "revision", "deletedAt", "startedAt", "finishedAt",
+        "createdAt", "updatedAt"
+      ) VALUES (
+        'assistant-run-resume',
+        'team-resume-org',
+        'team-resume-session',
+        'team-resume-document',
+        'team-resume-message',
+        'revision',
+        'Resume candidate',
+        'queued',
+        'staged summary',
+        '{"draft":true}',
+        'team-resume-user',
+        'team-resume-device',
+        2,
+        NULL,
+        '2026-08-23 10:00:00',
+        NULL,
+        '2026-08-23 10:00:00',
+        '2026-08-23 10:05:00'
+      );
+      ALTER TABLE "Session" ADD COLUMN "scopeKind" TEXT NOT NULL DEFAULT 'wiki';
+      CREATE INDEX "Session_organizationId_scopeKind_updatedAt_idx"
+        ON "Session"("organizationId", "scopeKind", "updatedAt");
+      CREATE TABLE "new_AssistantRun" (
+        "id" TEXT NOT NULL PRIMARY KEY,
+        "organizationId" TEXT NOT NULL DEFAULT 'local-org',
+        "sessionId" TEXT NOT NULL,
+        "documentId" TEXT,
+        "scopeKind" TEXT NOT NULL DEFAULT 'wiki',
+        "requestMessageId" TEXT,
+        "mode" TEXT NOT NULL DEFAULT 'revision',
+        "title" TEXT NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'queued',
+        "summary" TEXT,
+        "payloadJson" TEXT,
+        "createdByUserId" TEXT,
+        "originDeviceId" TEXT,
+        "revision" INTEGER NOT NULL DEFAULT 1,
+        "deletedAt" DATETIME,
+        "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "finishedAt" DATETIME,
+        "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" DATETIME NOT NULL,
+        CONSTRAINT "AssistantRun_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "AssistantRun_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "Session" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "AssistantRun_documentId_fkey" FOREIGN KEY ("documentId") REFERENCES "Document" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+        CONSTRAINT "AssistantRun_requestMessageId_fkey" FOREIGN KEY ("requestMessageId") REFERENCES "ChatMessage" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+      );
+      INSERT INTO "new_AssistantRun" (
+        "id", "organizationId", "sessionId", "documentId", "scopeKind",
+        "requestMessageId", "mode", "title", "status", "summary", "payloadJson",
+        "createdByUserId", "originDeviceId", "revision", "deletedAt", "startedAt",
+        "finishedAt", "createdAt", "updatedAt"
+      ) VALUES (
+        'assistant-run-resume',
+        'team-resume-org',
+        'team-resume-session',
+        'team-resume-document',
+        'wiki',
+        'team-resume-message',
+        'revision',
+        'Resume candidate',
+        'queued',
+        '${mismatchRows ? 'tampered summary' : 'staged summary'}',
+        '{"draft":true}',
+        'team-resume-user',
+        'team-resume-device',
+        2,
+        NULL,
+        '2026-08-23 10:00:00',
+        NULL,
+        '2026-08-23 10:00:00',
+        '2026-08-23 10:05:00'
+      );
+      PRAGMA foreign_keys = ON;
+    `);
+  });
+}
+
 async function appliedMigrationNames(databasePath) {
   return withClient(databasePath, async (client) => {
     const result = await client.execute(
@@ -769,6 +1115,102 @@ async function assertCurrentControlPlaneSchema(databasePath) {
     const tables = await schemaObjectNames(client, 'table');
     assert.equal(tables.has('RoomToolConfirmationRequest'), true);
     assert.equal(tables.has('RoomToolConfirmationGrant'), false);
+    assert.equal(tables.has('new_AssistantRun'), false);
+
+    const sessionScope = (await tableColumnSchema(client, 'Session')).find(
+      (column) => column.name === 'scopeKind'
+    );
+    assert.deepEqual(sessionScope, {
+      name: 'scopeKind',
+      type: 'TEXT',
+      notNull: true,
+      defaultValue: "'wiki'",
+      primaryKeyPosition: 0,
+    });
+    const assistantRunColumns = await tableColumnSchema(client, 'AssistantRun');
+    assert.deepEqual(
+      assistantRunColumns.find((column) => column.name === 'documentId'),
+      {
+        name: 'documentId',
+        type: 'TEXT',
+        notNull: false,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      }
+    );
+    assert.deepEqual(
+      assistantRunColumns.find((column) => column.name === 'scopeKind'),
+      {
+        name: 'scopeKind',
+        type: 'TEXT',
+        notNull: true,
+        defaultValue: "'wiki'",
+        primaryKeyPosition: 0,
+      }
+    );
+    assert.equal(
+      await hasNamedIndexOnColumns(
+        client,
+        'Session',
+        'Session_organizationId_scopeKind_updatedAt_idx',
+        ['organizationId', 'scopeKind', 'updatedAt'],
+        false
+      ),
+      true
+    );
+    for (const [indexName, columns, unique] of teamScopedConversationAssistantRunIndexes) {
+      assert.equal(
+        await hasNamedIndexOnColumns(
+          client,
+          'AssistantRun',
+          indexName,
+          columns,
+          unique
+        ),
+        true,
+        indexName
+      );
+    }
+    for (const expected of [
+      {
+        column: 'organizationId',
+        referencedColumn: 'id',
+        referencedTable: 'Organization',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+      {
+        column: 'sessionId',
+        referencedColumn: 'id',
+        referencedTable: 'Session',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+      {
+        column: 'documentId',
+        referencedColumn: 'id',
+        referencedTable: 'Document',
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+      },
+      {
+        column: 'requestMessageId',
+        referencedColumn: 'id',
+        referencedTable: 'ChatMessage',
+        onDelete: 'SET NULL',
+        onUpdate: 'CASCADE',
+      },
+    ]) {
+      assert.equal(
+        await hasForeignKey(client, 'AssistantRun', expected),
+        true,
+        `AssistantRun.${expected.column}`
+      );
+    }
+    assert.equal(
+      (await client.execute('PRAGMA foreign_key_check')).rows.length,
+      0
+    );
 
     const agentColumns = await tableColumnNames(client, 'AgentProfile');
     for (const column of ['capabilitiesJson', 'configJson', 'revision']) {
