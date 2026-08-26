@@ -49,7 +49,7 @@
     "@platejs/code-block": "^52.0.11",
     "@platejs/combobox": "^52.0.15",
     "@platejs/comment": "^52.0.11",
-    "@platejs/core": "^52.0.17",
+    "@platejs/core": "^53.3.7",
     "@platejs/date": "^52.0.11",
     "@platejs/dnd": "^52.0.11",
     "@platejs/emoji": "^52.0.15",
