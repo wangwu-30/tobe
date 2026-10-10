@@ -6,6 +6,7 @@
   "packageManager": "npm@11.17.0",
   "description": "AI-native authoring workspace",
   "author": "Chengxing",
+  "license": "MIT",
   "engines": {
     "node": ">=22.19.0 <23"
   },
