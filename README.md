@@ -129,3 +129,7 @@ The full gate runs static checks, the control-plane inventory and three Node-ser
 - [Agent Room and durable execution workstream](./docs/agent-room-execution-workstream.md)
 - [Agent runtime research and architecture decisions](./docs/agent-runtime-architecture-research.md)
 - [General engineering knowledge index](./docs/knowledge/README.md)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](./LICENSE) file for details.
