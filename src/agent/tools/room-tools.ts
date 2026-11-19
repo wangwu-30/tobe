@@ -8,6 +8,8 @@ import {
 import type { consumeRoomDelegationGrant } from '@/objects/room';
 import { createDelegateRoomTaskToolV1 } from './room/delegate-room-task';
 import { createStartExecutionJobTool } from './execution/start-execution-job';
+import { createReadKnowledgeDocTool } from './knowledge/read-knowledge-doc';
+import { createSearchKnowledgeTool } from './knowledge/search-knowledge';
 import { createPublishTeamTaskTool } from './team-task/publish-team-task';
 
 export type RoomAgentDelegationSourceV1 = {
@@ -60,7 +62,7 @@ export type CreateRoomAgentToolsOptionsV1 = {
  */
 export function createRoomAgentToolsV1(
   options: CreateRoomAgentToolsOptionsV1
-): readonly [AgentTool, AgentTool, AgentTool] {
+): readonly AgentTool[] {
   const publishTemplate = createPublishTeamTaskTool({
     actorUserId: 'unresolved',
     organizationId: 'unresolved',
@@ -87,6 +89,18 @@ export function createRoomAgentToolsV1(
       roomSessionId: options.session.roomSessionId,
       workerId: 'unresolved',
     },
+  });
+  const searchKnowledgeTemplate = createSearchKnowledgeTool({
+    agentId: options.session.agent.agentId,
+    organizationId: 'unresolved',
+    resolveProjectId: async () => null,
+    workspaceId: 'unresolved',
+  });
+  const readKnowledgeDocTemplate = createReadKnowledgeDocTool({
+    agentId: options.session.agent.agentId,
+    organizationId: 'unresolved',
+    resolveProjectId: async () => null,
+    workspaceId: 'unresolved',
   });
   return [
     deferredTool(
@@ -129,6 +143,24 @@ export function createRoomAgentToolsV1(
         organizationId: identity.organizationId,
         roomId: options.session.roomId,
         source: identity.source,
+      });
+    }) as unknown as AgentTool,
+    deferredTool(searchKnowledgeTemplate, async () => {
+      const identity = await resolveBoundIdentity(options);
+      return createSearchKnowledgeTool({
+        agentId: options.session.agent.agentId,
+        organizationId: identity.organizationId,
+        resolveProjectId: async () => identity.projectId,
+        workspaceId: identity.workspaceId,
+      });
+    }) as unknown as AgentTool,
+    deferredTool(readKnowledgeDocTemplate, async () => {
+      const identity = await resolveBoundIdentity(options);
+      return createReadKnowledgeDocTool({
+        agentId: options.session.agent.agentId,
+        organizationId: identity.organizationId,
+        resolveProjectId: async () => identity.projectId,
+        workspaceId: identity.workspaceId,
       });
     }) as unknown as AgentTool,
   ];

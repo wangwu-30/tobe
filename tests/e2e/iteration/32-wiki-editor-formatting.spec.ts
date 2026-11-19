@@ -169,14 +169,18 @@ test('Wiki editor supports Markdown shortcuts, toolbar formatting, undo/redo, an
   await expect(editor).toBeVisible();
   await expect(surface.getByTestId('wiki-editor-toolbar')).toBeVisible();
 
+  const blocks = editor.locator('[data-slate-node="element"]');
   await editor.getByText('Draft starter line').click();
-  await page.keyboard.press('End');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ArrowRight');
   await page.keyboard.press('Enter');
-  await page.keyboard.type('## Quick Heading');
+  await expect(blocks).toHaveCount(2);
+  await page.keyboard.type('## Quick Heading', { delay: 15 });
   await expect(surface.locator('h2', { hasText: 'Quick Heading' })).toBeVisible();
 
   await page.keyboard.press('Enter');
-  await page.keyboard.type('- First task');
+  await page.keyboard.type('- First task', { delay: 15 });
   await expect(surface.locator('ul li', { hasText: 'First task' })).toBeVisible();
 
   const undoButton = surface.getByTestId('editor-toolbar-undo');

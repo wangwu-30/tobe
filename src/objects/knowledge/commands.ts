@@ -477,7 +477,7 @@ export async function queueKnowledgeMerge(
   const requestedById = requireReviewerActor(actor);
   const expectedRevision = positiveRevision(input.expectedRevision);
   const indexVersion = requiredText(
-    input.indexVersion ?? 'knowledge-index-v1',
+    input.indexVersion ?? 'knowledge-index-v2-fts5',
     'indexVersion is required.'
   );
   const current = await getKnowledgeChangeRequest(actor, id);

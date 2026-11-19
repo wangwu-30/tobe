@@ -255,7 +255,7 @@ test("real Knowledge UI configures access, reviews, merges, and activates an exa
     );
     expect(snapshot).toMatchObject({
       commitSha: proposal.headCommit,
-      indexVersion: "knowledge-index-v1",
+      indexVersion: "knowledge-index-v2-fts5",
       schemaVersion: 1,
     });
     expect(snapshot.documents).toEqual(
@@ -639,7 +639,7 @@ test("real Execution jobs produce a Knowledge proposal that the browser review f
     );
     expect(snapshot).toMatchObject({
       commitSha: executionResult.headCommit,
-      indexVersion: "knowledge-index-v1",
+      indexVersion: "knowledge-index-v2-fts5",
       schemaVersion: 1,
     });
     expect(snapshot.documents).toEqual(

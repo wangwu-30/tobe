@@ -27,8 +27,16 @@ export {
   LocalGitWorktreePortV1,
 } from './git-worktree';
 export {
+  chunkKnowledgeDocument,
+  type ChunkKnowledgeDocumentInput,
+  type KnowledgeChunkV1,
+} from './chunker';
+export {
+  KNOWLEDGE_INDEX_VERSION_V1,
+  KNOWLEDGE_INDEX_VERSION_V2_FTS5,
   KnowledgeIndexBuildErrorV1,
   LocalKnowledgeIndexBuilderV1,
+  isSqliteArtifactBytes,
   readKnowledgeIndexArtifactV1,
   type BuiltKnowledgeIndexV1,
   type KnowledgeIndexArtifactV1,
@@ -37,6 +45,18 @@ export {
   type KnowledgeIndexDocumentV1,
   type LocalKnowledgeIndexBuilderConfigV1,
 } from './index-builder';
+export {
+  KNOWLEDGE_RETRIEVAL_TRUST_V1,
+  readBoundKnowledgeDocumentForScope,
+  readKnowledgeIndexDocument,
+  searchBoundKnowledgeForScope,
+  searchKnowledgeIndexArtifact,
+  type BoundKnowledgeDocumentReadV1,
+  type BoundKnowledgeSearchHitV1,
+  type KnowledgeArtifactDocumentReadV1,
+  type KnowledgeArtifactSearchHitV1,
+  type KnowledgeRetrievalTrustV1,
+} from './search';
 export {
   LocalTrustedKnowledgeGitPortV1,
   TrustedKnowledgeGitError,
