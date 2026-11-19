@@ -170,15 +170,11 @@ export function Comment(props: {
   const isLast = index === discussionLength - 1;
   const isEditing = editingId && editingId === comment.id;
 
-  const [hovering, setHovering] = React.useState(false);
   const [dropdownOpen, setDropdownOpen] = React.useState(false);
 
   return (
-    <div
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
-    >
-      <div className="relative flex items-center">
+    <div>
+      <div className="relative flex items-center pr-16">
         <Avatar className="size-5">
           <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
           <AvatarFallback>{userInfo?.name?.[0]}</AvatarFallback>
@@ -195,17 +191,18 @@ export function Comment(props: {
           {comment.isEdited && <span>(edited)</span>}
         </div>
 
-        {isMyComment && (hovering || dropdownOpen) && (
-          <div className="absolute top-0 right-0 flex space-x-1">
+        {isMyComment && (
+          <div className="absolute top-0 right-0 flex items-center space-x-1">
             {index === 0 && (
               <Button
                 aria-label={t('comments.resolve')}
                 variant="ghost"
-                className="h-6 p-1 text-muted-foreground"
+                className="h-7 w-7 p-1 text-muted-foreground hover:text-foreground"
                 onClick={onResolveComment}
+                title={t('comments.resolve')}
                 type="button"
               >
-                <CheckIcon className="size-4" />
+                <CheckIcon aria-hidden="true" className="size-4" />
               </Button>
             )}
 
@@ -603,6 +600,7 @@ export function CommentCreateForm({
         >
           <EditorContainer variant="comment">
             <Editor
+              aria-label={t('comments.commentPlaceholder')}
               variant="comment"
               className="min-h-[25px] grow pt-0.5 pr-8"
               onKeyDown={(e) => {

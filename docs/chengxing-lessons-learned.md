@@ -1172,6 +1172,12 @@
 - 为什么：CSS `order-*` 只改变视觉顺序而保留旧 DOM/Tab 顺序，导致键盘焦点在侧边栏上下乱跳；`onOpenOutline` 仅滚动定位文档标题，传 sentinel ID 会让折叠侧边栏 3 个快捷图标完全无响应；`SplitView` 此前硬编码 `[0.2, 0.6]` 而工作区传 `defaultRatio=0.68`，既产生 `aria-valuenow="68" > aria-valuemax="60"` 的非法 ARIA 状态，又会在首次拖拽或键盘调整时瞬间跳回 `60%`。
 - 默认做法：按真实从上到下的视觉顺序编排侧边栏 JSX、移除全部 `order-*`、首页隐藏空工作区区块；折叠图标统一通过 `onRequestExpand` 展开侧边栏并滚动/聚焦目标区块；`SplitView` 将 `minRatio`/`maxRatio`（默认 `[0.2, 0.8]`）与 `clampRatio` 统一应用到初始值、拖拽、键盘步进与 `aria-value*` 属性，并用 E2E 验证。
 
+### 55. 审阅应用后的状态刷新不得回退到 `window.location.reload()`，且建议/评论/版本控件必须满足键盘与 WCAG 可达性
+
+- 结论：在工作区审阅并应用或丢弃 `StagedChangeSet` 后，必须通过局部状态重验（`loadWorkspace` + `loadVersions` + `loadThreads`）原地同步编辑器、文件树与版本列表，并将成功反馈提升到持久化的 `WorkspaceScreen` 通知栏，禁止调用 `window.location.reload()`；内联建议（`BlockSuggestionCard`）与评论卡片（`Comment`）的操作按钮必须常驻 DOM，不得用 `{hovering && ...}` 条件挂载；所有 Radix `SelectTrigger`（`role="combobox"`）与评论 `<Editor>` 必须显式提供 `aria-label`，且需在 `globals.css` 覆盖 Slate 默认 `opacity: 0.333` 的 `[data-slate-placeholder="true"]` 样式以保证 WCAG AA 对比度。
+- 为什么：整页重载会触发白屏闪烁并丢失用户未发送的 Chat 输入与滚动上下文；若成功提示只挂在 `DeliverableVersionControls` 局部状态中，空工作区丢弃最后一条变更集时 `DeliverablePanel` 切换回空态分支会卸载控件并瞬间丢失提示；仅在 `hovering` 时挂载按钮会让纯键盘用户永远无法 Tab 到达接受/拒绝动作；Slate 默认 `opacity: 0.333` 与缺少 `aria-label` 的评论输入框/版本下拉框会直接触发 `axe-core` WCAG 2.1 A/AA 违规。
+- 默认做法：为 `DeliverableVersionControls` 透传 `onStagedChangeDecided` 回调刷新工作区并由外层持久通知栏承接成功提示（同时避免与弹窗内提示重复 `data-testid`），在清空待审队列后平滑关闭弹窗；建议与评论按钮常驻 DOM 并保留足够触控尺寸与完整对比度，用 E2E 断言零主帧重载（`framenavigated === 0`）、未发送草稿保留、纯键盘 Focus + Enter 接受建议以及 `axe-core` 零 WCAG 违规。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

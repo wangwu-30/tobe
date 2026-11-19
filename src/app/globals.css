@@ -169,6 +169,10 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+  [data-slate-placeholder="true"] {
+    opacity: 1 !important;
+    color: var(--muted-foreground) !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
