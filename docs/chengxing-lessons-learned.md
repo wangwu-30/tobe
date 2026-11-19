@@ -1184,6 +1184,12 @@
 - 为什么：仅对个别工具接入策略层会导致其余写工具绕过确认门禁与审计；用 `findUnique({ where: { id } })` 会放行跨文档/跨组织/已软删记录越权写；在 E2E 分支直接写 live draft 会让“Prompt 要求直接改草稿但真实工具只支持 Staging”的线上协议矛盾长期被测试掩盖。
 - 默认做法：用 `isGovernedAgentTool` 与全量工具策略表单测守住 `createWorkspaceAgentTools` 零未治理工具；把高影响状态关闭/锁定工具（`lock_current_wiki`、`resolve_comment`、`start_execution_job`）统一收口为 `confirm + required`；在 E2E 测试中完整断言“AI 回复后 live draft 未被改写 + Pending `StagedChangeSet` 已生成 -> 人类 owner 通过审阅 UI 应用 -> 预览与继承线程同步更新”；将纯 Prompt 构造拆入无 `server-only` 依赖的模块以便在控制面单测中直接校验。
 
+### 57. tldraw 相机变化属于 `scope: 'session'`，且改造历史纯英文页面接入 `useT()` 时须注意 Playwright 默认 `locale: 'zh-CN'`
+
+- 结论：在 `ProjectCanvas` 中覆盖在 tldraw 画布之上的 SVG 依赖连线，仅监听 `editor.store.listen(..., { scope: 'document' })` 不会响应平移与缩放；必须同时监听 `{ scope: 'session', source: 'all' }` 捕获相机（`editor.getCamera()`）与容器 `ResizeObserver` 变化，把相机状态纳入 `pageToViewport` 重算依赖。同时，`playwright.config.ts` 全局默认 `locale: 'zh-CN'`，为历史硬编码英文的 Advanced 页面接入 `useT()` 后，依赖旧英文文案断言的 E2E 须显式声明 `test.use({ locale: 'en-US' })` 或改为中英双语覆盖，避免误报。
+- 为什么：tldraw 把 camera 状态存放在 session store 而非 document store，漏听 session scope 会导致画布平移/缩放时卡片移动而 SVG 连线停在原位产生视觉错位；水平 SVG `<line>` 的包围盒高度为 `0`，Playwright 中应先断言 `<svg>` 可见再对 `<line>` 用 `toBeAttached()`。
+- 默认做法：为 `ProjectCanvas` 同时维护 shape 位置（`document` scope）与相机/视口状态（`session` scope + `ResizeObserver`），右键菜单通过 `nodeTitleById` 展示人类可读页面标题而非 UUID 截断；保留原有英文全链路 E2E 的精确断言（加 `test.use({ locale: 'en-US' })`），再新增专门的中英文切换 E2E 守护双语渲染与边界引导卡。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

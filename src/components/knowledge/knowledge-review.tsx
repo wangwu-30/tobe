@@ -28,11 +28,18 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { useT } from '@/components/providers/language-provider';
 import type { KnowledgeChangeRequestDetail } from '@/lib/knowledge/client';
 import { formatStableDateTime } from '@/lib/time';
 import type { KnowledgeChangeRequestDto, KnowledgeMergeOperationDto } from '@/objects/knowledge';
 
-import { KnowledgeState, KnowledgeStatusBadge, humanize, shortSha, useUnsavedChangesWarning } from './knowledge-presentation';
+import {
+  formatKnowledgeStatusLabel,
+  KnowledgeState,
+  KnowledgeStatusBadge,
+  shortSha,
+  useUnsavedChangesWarning,
+} from './knowledge-presentation';
 
 type BusyAction = 'approve' | 'merge' | 'reject' | null;
 
@@ -69,41 +76,45 @@ export function KnowledgeReviewWorkspace({
   queueError: string | null;
   selectedId: string | null;
 }) {
+  const t = useT();
   const detailAnnouncement = React.useMemo(() => {
-    if (detailLoading && selectedId) return 'Loading proposal details…';
-    if (detailError && selectedId) return 'Selected proposal details could not be loaded.';
+    if (detailLoading && selectedId) return t('knowledge.announceLoadingDetail');
+    if (detailError && selectedId) return t('knowledge.announceDetailError');
     if (detail) {
-      return `Details updated for ${detail.changeRequest.diffSummary || 'Knowledge proposal'}. Status ${humanize(detail.changeRequest.status)}.`;
+      return t('knowledge.announceDetailUpdated', {
+        status: formatKnowledgeStatusLabel(detail.changeRequest.status, t),
+        title: detail.changeRequest.diffSummary || t('knowledge.proposalFallbackTitle'),
+      });
     }
-    if (changes.length === 0) return 'No knowledge proposals are available.';
-    return 'Select a proposal to inspect its trusted diff.';
-  }, [changes.length, detail, detailError, detailLoading, selectedId]);
+    if (changes.length === 0) return t('knowledge.announceEmpty');
+    return t('knowledge.announceSelect');
+  }, [changes.length, detail, detailError, detailLoading, selectedId, t]);
 
   return (
-    <section aria-label="Knowledge review workspace" className="mt-6 grid min-h-[620px] min-w-0 overflow-hidden rounded-xl border bg-card lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]" data-testid="knowledge-review-workspace">
+    <section aria-label={t('knowledge.reviewWorkspaceAria')} className="mt-6 grid min-h-[620px] min-w-0 overflow-hidden rounded-xl border bg-card lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]" data-testid="knowledge-review-workspace">
       <p aria-atomic="true" aria-live="polite" className="sr-only" data-testid="knowledge-detail-announcement">
         {detailAnnouncement}
       </p>
       <div className="min-w-0 border-b lg:border-b-0 lg:border-r">
         <div className="border-b p-4">
-          <h2 className="font-semibold" id="knowledge-proposals-heading">Proposed changes</h2>
-          <p className="mt-1 text-sm text-muted-foreground">One proposal stays in focus from review through activation.</p>
+          <h2 className="font-semibold" id="knowledge-proposals-heading">{t('knowledge.proposedChangesHeading')}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t('knowledge.proposedChangesSubtitle')}</p>
         </div>
         <nav aria-labelledby="knowledge-proposals-heading" className="max-h-[min(680px,50vh)] touch-pan-y overflow-y-auto overscroll-contain p-2 lg:max-h-[680px]">
           {loading ? (
-            <KnowledgeState kind="loading" text="Loading review queue…" />
+            <KnowledgeState kind="loading" text={t('knowledge.queueLoading')} />
           ) : queueError && changes.length === 0 ? (
             <KnowledgeState
-              action={<Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> Try again</Button>}
+              action={<Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.tryAgain')}</Button>}
               kind="error"
               text={queueError}
-              title="Review queue could not be loaded"
+              title={t('knowledge.queueErrorTitle')}
             />
           ) : changes.length === 0 ? (
             <KnowledgeState
-              title="Review queue is clear"
-              text="New agent proposals will appear here before they can reach trusted knowledge."
-              action={<Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> Check again</Button>}
+              title={t('knowledge.queueEmptyTitle')}
+              text={t('knowledge.queueEmptyText')}
+              action={<Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.checkAgain')}</Button>}
             />
           ) : (
             changes.map((change) => (
@@ -118,7 +129,7 @@ export function KnowledgeReviewWorkspace({
                 }
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="min-w-0 break-words text-sm font-medium" title={change.diffSummary || 'Knowledge proposal'}>{change.diffSummary || 'Knowledge proposal'}</span>
+                  <span className="min-w-0 break-words text-sm font-medium" title={change.diffSummary || t('knowledge.proposalFallbackTitle')}>{change.diffSummary || t('knowledge.proposalFallbackTitle')}</span>
                   <KnowledgeStatusBadge status={change.status} />
                 </div>
                 <p className="mt-2 break-all font-mono text-xs text-muted-foreground" title={change.branchName}>{change.branchName}</p>
@@ -128,25 +139,25 @@ export function KnowledgeReviewWorkspace({
           )}
           {queueError && changes.length > 0 ? (
             <div className="m-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300" role="status">
-              The queue could not be refreshed. Showing the last loaded proposals.
+              {t('knowledge.queueRefreshWarning')}
             </div>
           ) : null}
         </nav>
       </div>
       <div className="min-w-0">
         {detailLoading ? (
-          <KnowledgeState kind="loading" text="Loading trusted diff and audit trail…" />
+          <KnowledgeState kind="loading" text={t('knowledge.detailLoading')} />
         ) : detailError ? (
           <KnowledgeState
-            action={<Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> Try again</Button>}
+            action={<Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.tryAgain')}</Button>}
             kind="error"
             text={detailError}
-            title="Proposal could not be loaded"
+            title={t('knowledge.detailErrorTitle')}
           />
         ) : detail ? (
           <KnowledgeReviewDetail busyAction={busyAction} detail={detail} onMerge={onMerge} onRefresh={onRefresh} onReview={onReview} pollError={pollError} proposalGoal={proposalGoal} proposerLabel={proposerLabel} />
         ) : (
-          <KnowledgeState text={changes.length ? 'Select a proposal to inspect its trusted Git diff.' : 'No proposal is selected.'} />
+          <KnowledgeState text={changes.length ? t('knowledge.selectProposalPrompt') : t('knowledge.noProposalSelected')} />
         )}
       </div>
     </section>
@@ -172,6 +183,7 @@ function KnowledgeReviewDetail({
   proposalGoal: string | null;
   proposerLabel: string | null;
 }) {
+  const t = useT();
   const change = detail.changeRequest;
   const [note, setNote] = React.useState(change.reviewNote ?? '');
   const [rejectDialogOpen, setRejectDialogOpen] = React.useState(false);
@@ -182,7 +194,7 @@ function KnowledgeReviewDetail({
   const busy = busyAction !== null;
   useUnsavedChangesWarning(
     noteDirty && !busy,
-    'Your review note has not been submitted. Leave this proposal without saving it?'
+    t('knowledge.unsavedNoteWarning')
   );
 
   const operation = detail.mergeOperations[0];
@@ -190,16 +202,18 @@ function KnowledgeReviewDetail({
   const operationMatchesRevision = operation?.expectedRevision === change.revision;
   const activeForProposal = detail.activeSnapshot?.commitSha === change.headCommit;
   const metadata = readDiffMetadata(change.diffMetadata);
+  const changeStatusLabel = formatKnowledgeStatusLabel(change.status, t);
+  const operationStatusLabel = operation
+    ? formatKnowledgeStatusLabel(operation.status, t)
+    : null;
   const pipelineAnnouncement = [
-    `Proposal ${change.status === 'pending_review' ? 'awaiting review' : humanize(change.status).toLowerCase()}.`,
-    operation
-      ? `Merge pipeline ${operation.status === 'running' ? 'merging and indexing' : operation.status === 'succeeded' ? 'index ready' : humanize(operation.status).toLowerCase()}.`
-      : null,
-    activeForProposal ? 'Active in retrieval.' : null,
+    t('knowledge.proposalStatusSummary', { status: changeStatusLabel.toLowerCase() }),
+    operationStatusLabel ? `${t('knowledge.pipelineTitle')}: ${operationStatusLabel}.` : null,
+    activeForProposal ? `${t('knowledge.activeInRetrieval')}.` : null,
   ].filter(Boolean).join(' ');
 
   return (
-    <article aria-busy={busy} className="flex h-full min-w-0 flex-col" aria-label="Knowledge proposal review">
+    <article aria-busy={busy} className="flex h-full min-w-0 flex-col" aria-label={t('knowledge.reviewArticleAria')}>
       <header className="border-b p-5">
         <p aria-atomic="true" aria-live="polite" className="sr-only" data-testid="knowledge-pipeline-status">
           {pipelineAnnouncement}
@@ -207,39 +221,43 @@ function KnowledgeReviewDetail({
         <div className="flex flex-wrap items-center gap-2">
           <KnowledgeStatusBadge status={change.status} />
           {operation ? <KnowledgeStatusBadge status={operation.status} /> : null}
-          {activeForProposal ? <Badge variant="secondary"><CheckCircle2 aria-hidden="true" /> Active in retrieval</Badge> : null}
+          {activeForProposal ? <Badge variant="secondary"><CheckCircle2 aria-hidden="true" /> {t('knowledge.activeInRetrieval')}</Badge> : null}
         </div>
-        <h2 className="mt-3 break-words text-xl font-semibold" id="knowledge-review-detail-heading" tabIndex={-1}>{change.diffSummary || 'Knowledge proposal'}</h2>
+        <h2 className="mt-3 break-words text-xl font-semibold" id="knowledge-review-detail-heading" tabIndex={-1}>{change.diffSummary || t('knowledge.proposalFallbackTitle')}</h2>
         <p className="mt-1 break-words text-sm text-muted-foreground">
-          {detail.space.scope === 'team' ? 'Team knowledge' : 'Agent knowledge'} · {detail.space.defaultBranch} · proposal {shortSha(change.headCommit)}
+          {t('knowledge.proposalMeta', {
+            branch: detail.space.defaultBranch,
+            scope: detail.space.scope === 'team' ? t('knowledge.teamKnowledge') : t('knowledge.agentKnowledge'),
+            sha: shortSha(change.headCommit),
+          })}
         </p>
         {metadata.files.length ? (
           <div className="mt-3 flex flex-wrap gap-2">
             {metadata.files.slice(0, 5).map((file) => <Badge className="max-w-full break-all whitespace-normal" key={file} title={file} variant="outline"><FileCode2 aria-hidden="true" />{file}</Badge>)}
-            {metadata.files.length > 5 ? <Badge variant="outline">+{metadata.files.length - 5} files</Badge> : null}
+            {metadata.files.length > 5 ? <Badge variant="outline">{t('knowledge.moreFiles', { count: metadata.files.length - 5 })}</Badge> : null}
           </div>
         ) : null}
       </header>
 
-      <section className="grid border-b sm:grid-cols-3" aria-label="Proposal audit">
-        <AuditCell icon={<ShieldCheck aria-hidden="true" />} label="Proposed by" value={proposerLabel || `Execution job ${shortSha(change.jobId)}`} detail={proposalGoal || `Attempt ${shortSha(change.attemptId)}`} />
-        <AuditCell icon={<UserRoundCheck aria-hidden="true" />} label="Reviewer" value={change.reviewerId ? `User ${shortSha(change.reviewerId)}` : 'Not reviewed yet'} detail={change.reviewedAt ? formatStableDateTime(change.reviewedAt) : 'Human decision required'} />
-        <AuditCell icon={<Clock3 aria-hidden="true" />} label="Latest activity" value={formatStableDateTime(operation?.updatedAt || change.updatedAt)} detail={operation ? `${humanize(operation.status)} · attempt ${operation.attemptCount}` : humanize(change.status)} />
+      <section className="grid border-b sm:grid-cols-3" aria-label={t('knowledge.auditAria')}>
+        <AuditCell icon={<ShieldCheck aria-hidden="true" />} label={t('knowledge.proposedBy')} value={proposerLabel || t('knowledge.executionJobFallback', { sha: shortSha(change.jobId) })} detail={proposalGoal || t('knowledge.attemptFallback', { sha: shortSha(change.attemptId) })} />
+        <AuditCell icon={<UserRoundCheck aria-hidden="true" />} label={t('knowledge.reviewer')} value={change.reviewerId ? t('knowledge.userFallback', { sha: shortSha(change.reviewerId) }) : t('knowledge.notReviewedYet')} detail={change.reviewedAt ? formatStableDateTime(change.reviewedAt) : t('knowledge.humanDecisionRequired')} />
+        <AuditCell icon={<Clock3 aria-hidden="true" />} label={t('knowledge.latestActivity')} value={formatStableDateTime(operation?.updatedAt || change.updatedAt)} detail={operation ? t('knowledge.activityAttempt', { count: operation.attemptCount, status: operationStatusLabel || operation.status }) : t('knowledge.auditStatusLabel', { status: changeStatusLabel })} />
       </section>
 
       <div className="grid min-h-[300px] flex-1 lg:grid-cols-[minmax(0,1fr)_240px]">
         <div className="min-w-0">
           <p className="border-b px-4 py-3 text-xs text-muted-foreground sm:px-5" id="knowledge-diff-help">
-            Long diffs stay horizontally scrollable. Tab to focus the diff, then use arrow keys to review it; on touch devices, swipe sideways to inspect wide changes.
+            {t('knowledge.diffHelp')}
           </p>
           <pre
             aria-describedby="knowledge-diff-help"
-            aria-label="Git diff"
+            aria-label={t('knowledge.diffAria')}
             className="max-h-[70vh] min-h-[300px] min-w-0 overflow-auto overscroll-contain bg-muted/30 p-4 font-mono text-xs leading-5 whitespace-pre sm:p-5"
             data-testid="knowledge-diff"
             tabIndex={0}
           >
-          {detail.diff.patch || 'No textual diff.'}
+          {detail.diff.patch || t('knowledge.noTextualDiff')}
           </pre>
         </div>
         <StageRail change={change} operation={operation} active={activeForProposal} />
@@ -248,23 +266,23 @@ function KnowledgeReviewDetail({
       <div className="border-t p-5">
         {pollError ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-700 dark:text-amber-300" role="status">
-            <span className="min-w-0 break-words [overflow-wrap:anywhere]">Live status could not be refreshed: {pollError}</span>
-            <Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> Retry status</Button>
+            <span className="min-w-0 break-words [overflow-wrap:anywhere]">{t('knowledge.pollErrorPrefix', { error: pollError })}</span>
+            <Button onClick={() => void onRefresh()} size="sm" variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.retryStatus')}</Button>
           </div>
         ) : null}
         {operation?.errorMessage ? (
           <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
-            <div className="flex min-w-0 gap-2"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" /><div className="min-w-0"><p className="font-medium">{operation.status === 'conflicted' ? 'The proposal no longer applies cleanly.' : 'The merge or index worker could not finish.'}</p><p className="mt-1 break-words [overflow-wrap:anywhere]">{operation.errorMessage}</p></div></div>
+            <div className="flex min-w-0 gap-2"><AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" /><div className="min-w-0"><p className="font-medium">{operation.status === 'conflicted' ? t('knowledge.conflictHeadline') : t('knowledge.workerErrorHeadline')}</p><p className="mt-1 break-words [overflow-wrap:anywhere]">{operation.errorMessage}</p></div></div>
           </div>
         ) : null}
 
         {change.status === 'pending_review' || change.status === 'conflicted' ? (
           <>
             {change.status === 'conflicted' ? (
-              <p className="mb-3 text-sm text-muted-foreground">Review the updated diff, then approve again to create a new merge revision.</p>
+              <p className="mb-3 text-sm text-muted-foreground">{t('knowledge.conflictReapproveHint')}</p>
             ) : null}
-            <Label htmlFor="knowledge-review-note">Review note <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <p className="mt-1 text-xs text-muted-foreground" id="knowledge-review-note-help">Recorded in the audit trail. Press Ctrl+Enter or Command+Enter to approve.</p>
+            <Label htmlFor="knowledge-review-note">{t('knowledge.reviewNoteLabel')} <span className="font-normal text-muted-foreground">{t('knowledge.optionalTag')}</span></Label>
+            <p className="mt-1 text-xs text-muted-foreground" id="knowledge-review-note-help">{t('knowledge.reviewNoteHelp')}</p>
             <Textarea
               aria-describedby="knowledge-review-note-help"
               aria-keyshortcuts="Control+Enter Meta+Enter"
@@ -280,20 +298,20 @@ function KnowledgeReviewDetail({
                   if (!busy && !queueBusy) void onReview('approve', note);
                 }
               }}
-              placeholder="Example: Verified sources and approved the updated guidance…"
+              placeholder={t('knowledge.reviewNotePlaceholder')}
               spellCheck="true"
               value={note}
             />
             <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <Dialog onOpenChange={setRejectDialogOpen} open={rejectDialogOpen}>
-                <DialogTrigger asChild><Button className="w-full sm:w-auto" variant="outline" disabled={busy || queueBusy}>Reject</Button></DialogTrigger>
+                <DialogTrigger asChild><Button className="w-full sm:w-auto" variant="outline" disabled={busy || queueBusy}>{t('knowledge.reject')}</Button></DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Reject this proposal?</DialogTitle>
-                    <DialogDescription>The reviewed diff will stay in the audit trail, but it cannot enter the trusted merge queue.</DialogDescription>
+                    <DialogTitle>{t('knowledge.rejectDialogTitle')}</DialogTitle>
+                    <DialogDescription>{t('knowledge.rejectDialogDescription')}</DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
-                    <DialogClose asChild><Button variant="outline">Keep reviewing</Button></DialogClose>
+                    <DialogClose asChild><Button variant="outline">{t('knowledge.keepReviewing')}</Button></DialogClose>
                     <Button
                       aria-busy={busyAction === 'reject'}
                       disabled={busy}
@@ -306,7 +324,7 @@ function KnowledgeReviewDetail({
                       variant="destructive"
                     >
                       {busyAction === 'reject' ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : null}
-                      {busyAction === 'reject' ? 'Rejecting proposal…' : 'Reject proposal'}
+                      {busyAction === 'reject' ? t('knowledge.rejectingProposal') : t('knowledge.rejectProposal')}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -318,31 +336,37 @@ function KnowledgeReviewDetail({
                 onClick={() => void onReview('approve', note)}
               >
                 {busyAction === 'approve' ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <ShieldCheck aria-hidden="true" />}
-                {busyAction === 'approve' ? 'Approving proposal…' : 'Approve proposal'}
+                {busyAction === 'approve' ? t('knowledge.approvingProposal') : t('knowledge.approveProposal')}
               </Button>
             </div>
           </>
         ) : change.status === 'approved' ? (
           <div className="flex flex-wrap items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">
-              {queueBusy ? 'The trusted worker is merging and building the retrieval index. This view updates automatically.' : operationMatchesRevision && operation?.status === 'failed' ? 'The last worker attempt failed. Refresh after the worker retry is scheduled, or reject this proposal.' : operation && !operationMatchesRevision ? 'This approval is a new revision after the previous merge attempt. Queue it when ready.' : 'Approval is recorded. Queue the trusted merge and index pipeline when ready.'}
+              {queueBusy
+                ? t('knowledge.approvedBusyHint')
+                : operationMatchesRevision && operation?.status === 'failed'
+                  ? t('knowledge.approvedFailedHint')
+                  : operation && !operationMatchesRevision
+                    ? t('knowledge.approvedNewRevisionHint')
+                    : t('knowledge.approvedReadyHint')}
             </p>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              {operationMatchesRevision && operation?.status === 'failed' ? <Button disabled={busy} onClick={() => void onRefresh()} variant="outline"><RefreshCw aria-hidden="true" /> Check worker</Button> : null}
+              {operationMatchesRevision && operation?.status === 'failed' ? <Button disabled={busy} onClick={() => void onRefresh()} variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.checkWorker')}</Button> : null}
               <Dialog onOpenChange={setMergeDialogOpen} open={mergeDialogOpen}>
                 <DialogTrigger asChild>
                   <Button disabled={busy || (operationMatchesRevision && Boolean(operation))}>
                     {queueBusy ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <GitBranch aria-hidden="true" />}
-                    {queueBusy ? 'Trusted merge processing…' : 'Queue merge'}
+                    {queueBusy ? t('knowledge.queueMergeBusy') : t('knowledge.queueMerge')}
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Queue this approved revision?</DialogTitle>
-                    <DialogDescription>A trusted worker will verify the exact approved Git head, perform a compare-and-swap merge, and build the retrieval index.</DialogDescription>
+                    <DialogTitle>{t('knowledge.mergeDialogTitle')}</DialogTitle>
+                    <DialogDescription>{t('knowledge.mergeDialogDescription')}</DialogDescription>
                   </DialogHeader>
                   <DialogFooter>
-                    <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+                    <DialogClose asChild><Button variant="outline">{t('knowledge.cancel')}</Button></DialogClose>
                     <Button
                       aria-busy={busyAction === 'merge'}
                       disabled={busy}
@@ -354,7 +378,7 @@ function KnowledgeReviewDetail({
                       }}
                     >
                       {busyAction === 'merge' ? <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" /> : <GitBranch aria-hidden="true" />}
-                      {busyAction === 'merge' ? 'Queueing trusted merge…' : 'Queue trusted merge'}
+                      {busyAction === 'merge' ? t('knowledge.queueingTrustedMerge') : t('knowledge.queueTrustedMerge')}
                     </Button>
                   </DialogFooter>
                 </DialogContent>
@@ -362,10 +386,10 @@ function KnowledgeReviewDetail({
             </div>
           </div>
         ) : change.status === 'merged' && !activeForProposal ? (
-          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{operation?.status === 'failed' ? 'The merge completed, but index activation failed. A trusted worker retry is required.' : 'Merge completed. The trusted worker is finishing index activation.'}</p><Button onClick={() => void onRefresh()} variant="outline"><RefreshCw aria-hidden="true" /> Check activation</Button></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{operation?.status === 'failed' ? t('knowledge.mergedIndexFailed') : t('knowledge.mergedIndexFinishing')}</p><Button onClick={() => void onRefresh()} variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.checkActivation')}</Button></div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            {activeForProposal ? 'This reviewed revision is merged, indexed, and active for retrieval.' : `This proposal is ${humanize(change.status).toLowerCase()}.`}
+            {activeForProposal ? t('knowledge.activeSummary') : t('knowledge.proposalStatusSummary', { status: changeStatusLabel.toLowerCase() })}
           </p>
         )}
       </div>
@@ -374,6 +398,7 @@ function KnowledgeReviewDetail({
 }
 
 function StageRail({ active, change, operation }: { active: boolean; change: KnowledgeChangeRequestDto; operation?: KnowledgeMergeOperationDto }) {
+  const t = useT();
   const reviewDone = ['approved', 'merged'].includes(change.status);
   const queueDone = Boolean(operation && operation.status !== 'queued');
   const mergeDone =
@@ -385,14 +410,14 @@ function StageRail({ active, change, operation }: { active: boolean; change: Kno
     (operation?.status === 'failed' && !operation.mergedCommit);
   const indexFailed = operation?.status === 'failed' && Boolean(operation.mergedCommit);
   return (
-    <aside className="min-w-0 border-t bg-background p-4 lg:border-l lg:border-t-0" aria-label="Trust pipeline">
-      <h3 className="text-sm font-medium">Trust pipeline</h3>
+    <aside className="min-w-0 border-t bg-background p-4 lg:border-l lg:border-t-0" aria-label={t('knowledge.pipelineTitle')}>
+      <h3 className="text-sm font-medium">{t('knowledge.pipelineTitle')}</h3>
       <ol className="mt-4 space-y-4">
-        <Stage done label="Proposal" detail="Diff captured" />
-        <Stage done={reviewDone} failed={change.status === 'rejected' || change.status === 'conflicted'} active={change.status === 'pending_review'} label="Review" detail={change.status === 'conflicted' ? 'Approval must be renewed' : change.reviewedAt ? formatStableDateTime(change.reviewedAt) : 'Awaiting a person'} />
-        <Stage done={queueDone} active={operation?.status === 'queued'} label="Queue" detail={operation ? (operation.status === 'queued' ? 'Waiting for trusted worker' : 'Claimed by trusted worker') : 'Not queued'} />
-        <Stage done={mergeDone} failed={mergeFailed} active={operation?.status === 'running' && !operation.mergedCommit} label="Merge" detail={mergeDone ? `Merged ${shortSha(operation?.mergedCommit || change.mergedCommit)}` : mergeFailed ? humanize(operation?.status || 'conflicted') : 'Waiting in pipeline'} />
-        <Stage done={active} failed={indexFailed} active={(operation?.status === 'running' && Boolean(operation.mergedCommit)) || (change.status === 'merged' && !active && !indexFailed)} label="Index" detail={active ? 'Active for retrieval' : indexFailed ? 'Worker attention needed' : 'Waiting for merge'} />
+        <Stage done label={t('knowledge.stageProposal')} detail={t('knowledge.stageProposalDetail')} />
+        <Stage done={reviewDone} failed={change.status === 'rejected' || change.status === 'conflicted'} active={change.status === 'pending_review'} label={t('knowledge.stageReview')} detail={change.status === 'conflicted' ? t('knowledge.stageReviewRenew') : change.reviewedAt ? formatStableDateTime(change.reviewedAt) : t('knowledge.stageReviewWaiting')} />
+        <Stage done={queueDone} active={operation?.status === 'queued'} label={t('knowledge.stageQueue')} detail={operation ? (operation.status === 'queued' ? t('knowledge.stageQueueWaiting') : t('knowledge.stageQueueClaimed')) : t('knowledge.stageQueueNone')} />
+        <Stage done={mergeDone} failed={mergeFailed} active={operation?.status === 'running' && !operation.mergedCommit} label={t('knowledge.stageMerge')} detail={mergeDone ? t('knowledge.stageMergeDone', { sha: shortSha(operation?.mergedCommit || change.mergedCommit) }) : mergeFailed ? formatKnowledgeStatusLabel(operation?.status || 'conflicted', t) : t('knowledge.stageMergeWaiting')} />
+        <Stage done={active} failed={indexFailed} active={(operation?.status === 'running' && Boolean(operation.mergedCommit)) || (change.status === 'merged' && !active && !indexFailed)} label={t('knowledge.stageIndex')} detail={active ? t('knowledge.stageIndexActive') : indexFailed ? t('knowledge.stageIndexFailed') : t('knowledge.stageIndexWaiting')} />
       </ol>
     </aside>
   );
