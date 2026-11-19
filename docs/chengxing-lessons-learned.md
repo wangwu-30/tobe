@@ -1166,6 +1166,12 @@
 - 为什么：`globals.css` 此前缺失 `--brand` / `--color-brand` 定义，导致选区高亮、评论确认和建议块引用空变量；`CodeBlockCombobox` 触发按钮使用裸 `role="combobox"` 而无 `aria-controls` 会触发 `aria-required-attr`；同时内置的 GitHub 浅色语法色（如 `#d73a49`）在 `bg-muted/50`（`#fafafa`）上对比度仅 `4.38:1`，直接触发 WCAG AA `color-contrast` 违例。
 - 默认做法：在 `@theme inline`、`:root`、`.dark` 补齐高对比度 `--brand` / `--color-brand`，Popover 触发按钮改用 `aria-haspopup="dialog"` 与显式 `aria-label`，将代码高亮浅色 token 校准到 ≥ 4.5:1 对比度，并在真实 Chromium + `axe-core` 用例中验证。
 
+### 54. 侧边栏分区顺序必须以自然 DOM 顺序定义，折叠快捷按钮与分栏控件不得存在死回调或越界 ARIA
+
+- 结论：不要用 CSS `order-*` 重排 Flex 容器中的交互区块，不要把折叠态图标绑定到未实现的 sentinel 回调（如 `onOpenOutline('__search__')`），也不要让 `SplitView` 的 `defaultRatio` 落在 `[minRatio, maxRatio]` 之外。
+- 为什么：CSS `order-*` 只改变视觉顺序而保留旧 DOM/Tab 顺序，导致键盘焦点在侧边栏上下乱跳；`onOpenOutline` 仅滚动定位文档标题，传 sentinel ID 会让折叠侧边栏 3 个快捷图标完全无响应；`SplitView` 此前硬编码 `[0.2, 0.6]` 而工作区传 `defaultRatio=0.68`，既产生 `aria-valuenow="68" > aria-valuemax="60"` 的非法 ARIA 状态，又会在首次拖拽或键盘调整时瞬间跳回 `60%`。
+- 默认做法：按真实从上到下的视觉顺序编排侧边栏 JSX、移除全部 `order-*`、首页隐藏空工作区区块；折叠图标统一通过 `onRequestExpand` 展开侧边栏并滚动/聚焦目标区块；`SplitView` 将 `minRatio`/`maxRatio`（默认 `[0.2, 0.8]`）与 `clampRatio` 统一应用到初始值、拖拽、键盘步进与 `aria-value*` 属性，并用 E2E 验证。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

@@ -138,6 +138,7 @@ export function DeliverableSidebar({
   onOpenSupportFile,
   onOpenWorkspace,
   onProjectsChange,
+  onRequestExpand,
   outlineItems,
   projectFolders = [],
   projectDeliverables = [],
@@ -192,6 +193,7 @@ export function DeliverableSidebar({
   onOpenSupportFile?: (fileId: string) => void;
   onOpenWorkspace?: (workspaceId: string) => void;
   onProjectsChange?: (projects: ProjectSummaryData[]) => void;
+  onRequestExpand?: () => void;
   outlineItems: DeliverableOutlineItem[];
   projectFolders?: ProjectFolderItem[];
   projectDeliverables?: ProjectDeliverableItem[];
@@ -201,6 +203,44 @@ export function DeliverableSidebar({
   const t = useT();
   const router = useAppRouter();
   const guardedRouter = useGuardedRouter();
+  const sidebarRootRef = React.useRef<HTMLElement | null>(null);
+  const [pendingExpandSection, setPendingExpandSection] = React.useState<
+    'outline' | 'projects' | 'search' | 'tree' | null
+  >(null);
+  const requestExpandSection = React.useCallback(
+    (section: 'outline' | 'projects' | 'search' | 'tree') => {
+      setPendingExpandSection(section);
+      onRequestExpand?.();
+    },
+    [onRequestExpand]
+  );
+
+  React.useEffect(() => {
+    if (collapsed || !pendingExpandSection) {
+      return;
+    }
+
+    const testIdBySection: Record<'outline' | 'projects' | 'search' | 'tree', string> = {
+      outline: 'sidebar-outline-section',
+      projects: 'sidebar-projects-section',
+      search: 'sidebar-node-search-section',
+      tree: 'sidebar-project-tree-section',
+    };
+    const sectionTestId = testIdBySection[pendingExpandSection];
+    const targetSection = sidebarRootRef.current?.querySelector<HTMLElement>(
+      `[data-testid="${sectionTestId}"]`
+    );
+
+    if (targetSection) {
+      targetSection.scrollIntoView({ behavior: 'auto', block: 'start' });
+      if (pendingExpandSection === 'search') {
+        targetSection.querySelector<HTMLInputElement>('input')?.focus();
+      }
+    }
+
+    setPendingExpandSection(null);
+  }, [collapsed, pendingExpandSection]);
+
   const [isLoading, setIsLoading] = React.useState(true);
   const [isLoadingMounts, setIsLoadingMounts] = React.useState(false);
   const [projects, setProjects] = React.useState<ProjectSummaryData[]>([]);
@@ -1224,6 +1264,7 @@ export function DeliverableSidebar({
   return (
     <>
       <aside
+        ref={sidebarRootRef}
         className={cn(
           'h-full shrink-0 overflow-hidden border-r border-border bg-muted/25 transition-[width] duration-200 ease-out',
           getSidebarWidthClass(collapsed),
@@ -1268,6 +1309,7 @@ export function DeliverableSidebar({
                   icon={<FilePlus2 className="h-4 w-4" />}
                   label={t('sidebar.newDeliverable')}
                   onClick={() => onCreateDeliverable?.()}
+                  testId="sidebar-collapsed-new-page"
                 />
               ) : (
                 <SidebarIconButton
@@ -1275,6 +1317,7 @@ export function DeliverableSidebar({
                   icon={<Plus className="h-4 w-4" />}
                   label={t('sidebar.newProject')}
                   onClick={() => onCreateWorkspace?.()}
+                  testId="sidebar-collapsed-new-space"
                 />
               )
             ) : (
@@ -1315,135 +1358,37 @@ export function DeliverableSidebar({
                   <SidebarIconButton
                     icon={<Search className="h-4 w-4" />}
                     label={t('sidebar.searchProjectNodes')}
-                    onClick={() => onOpenOutline?.('__search__')}
+                    onClick={() => requestExpandSection('search')}
+                    testId="sidebar-collapsed-search"
                   />
                 ) : null}
+                {currentWorkspaceId ? (
+                  <>
+                    <SidebarIconButton
+                      icon={<List className="h-4 w-4" />}
+                      label={t('sidebar.projectTree')}
+                      onClick={() => requestExpandSection('tree')}
+                      testId="sidebar-collapsed-tree"
+                    />
+                    <SidebarIconButton
+                      icon={<Sparkles className="h-4 w-4" />}
+                      label={t('sidebar.deliverableOutline')}
+                      onClick={() => requestExpandSection('outline')}
+                      testId="sidebar-collapsed-outline"
+                    />
+                  </>
+                ) : null}
                 <SidebarIconButton
-                  icon={<Sparkles className="h-4 w-4" />}
-                  label={t('sidebar.deliverableOutline')}
-                  onClick={() => onOpenOutline?.('__outline__')}
-                />
-                <SidebarIconButton
-                  icon={<List className="h-4 w-4" />}
-                  label={t('sidebar.projectTree')}
-                  onClick={() => onOpenOutline?.('__tree__')}
-                />
-                <SidebarIconButton
-                  icon={<FilePlus2 className="h-4 w-4" />}
-                  label={t('sidebar.newDeliverable')}
-                  onClick={() => onCreateDeliverable?.()}
+                  icon={<FolderClosed className="h-4 w-4" />}
+                  label={t('sidebar.projects')}
+                  onClick={() => requestExpandSection('projects')}
+                  testId="sidebar-collapsed-projects"
                 />
               </div>
             ) : (
               <div className="flex min-w-0 flex-col gap-4 px-2 py-3">
-                <SidebarSection
-                  className="order-last"
-                  title={t('sidebar.projects')}
-                  action={
-                    <Button
-                      aria-label={t('sidebar.newProject')}
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 shrink-0"
-                      onClick={onCreateWorkspace}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  }
-                >
-                  {isLoading ? (
-                    <SidebarInfo text={t('sidebar.loadingProjects')} />
-                  ) : projects.length === 0 && showEmptyProjectState ? (
-                    <SidebarInfo text={t('sidebar.noProjectsYet')} />
-                  ) : (
-                  <div className="min-w-0 space-y-1">
-                    {projects.map((project) => (
-                      <div
-                        key={project.id}
-                          className={cn(
-                            'group flex min-w-0 items-center gap-1 overflow-hidden rounded-xl pr-1 transition-colors hover:bg-accent',
-                            currentProjectId === project.id
-                              ? 'bg-background shadow-sm ring-1 ring-border'
-                              : ''
-                          )}
-                        >
-                          <button
-                            type="button"
-                            className="flex min-w-0 w-full flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                            onClick={() => openProject(project)}
-                            data-testid={`sidebar-project-open-${project.id}`}
-                          >
-                            <div className="shrink-0 rounded-md bg-foreground/5 p-1.5 ring-1 ring-border/30">
-                              <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
-                            </div>
-                            <div className="min-w-0 flex-1 overflow-hidden">
-                              <div className="truncate text-sm font-medium leading-5">
-                                {project.title}
-                              </div>
-                              <div className="truncate text-[11px] text-muted-foreground">
-                                {!currentWorkspaceId
-                                  ? `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`
-                                  : currentProjectId === project.id && currentWorkspaceStatusLabel
-                                  ? currentWorkspaceStatusLabel
-                                  : formatProjectListMeta(project, t)}
-                              </div>
-                            </div>
-                          </button>
-                          <div className="flex shrink-0 items-center gap-1 pl-1">
-                            {!currentWorkspaceId ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-lg px-2 text-xs"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openProjectNextDeliverable(project);
-                                }}
-                                data-testid={`sidebar-project-create-next-${project.id}`}
-                              >
-                                <Plus className="mr-1 h-3.5 w-3.5" />
-                                {t('sidebar.newSiblingDeliverable')}
-                              </Button>
-                            ) : null}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  aria-label={`${t('sidebar.renameProject')}: ${project.title}`}
-                                  size="icon"
-                                  variant="ghost"
-                                  className={cn(
-                                    'h-7 w-7 shrink-0 data-[state=open]:opacity-100',
-                                    !currentWorkspaceId &&
-                                      'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
-                                  )}
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => openRenameDialog(project)}>
-                                  <Pencil className="h-3.5 w-3.5" />
-                                  {t('sidebar.renameProject')}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => void handleDelete(project.id)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                  {t('sidebar.deleteProject')}
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </SidebarSection>
-
                 {currentWorkspaceId && currentProjectId ? (
                   <SidebarSection
-                    className="order-first"
                     testId="sidebar-node-search-section"
                     title={t('sidebar.searchProjectNodes')}
                   >
@@ -1457,7 +1402,6 @@ export function DeliverableSidebar({
 
                 {currentWorkspaceId ? (
                   <SidebarSection
-                    className="order-1"
                     testId="sidebar-project-tree-section"
                     title={t('sidebar.projectTree')}
                     action={
@@ -1612,9 +1556,49 @@ export function DeliverableSidebar({
                   </SidebarSection>
                 ) : null}
 
+                {currentWorkspaceId ? (
+                  <SidebarSection
+                    testId="sidebar-outline-section"
+                    title={t('sidebar.deliverableOutline')}
+                  >
+                    {outlineItems.length === 0 ? (
+                      <SidebarInfo text={t('sidebar.outlineEmpty')} />
+                    ) : (
+                      <div className="min-w-0 space-y-1 overflow-hidden">
+                        {outlineItems.map((item) =>
+                          outlineInteractive ? (
+                            <button
+                              key={item.id}
+                              type="button"
+                              data-testid={`outline-item-${item.id}`}
+                              onClick={() => onOpenOutline?.(item.id)}
+                              className={cn(
+                                'flex w-full touch-manipulation items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
+                                item.active && 'bg-background shadow-sm ring-1 ring-border'
+                              )}
+                              style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
+                            >
+                              <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              <span className="truncate">{item.label}</span>
+                            </button>
+                          ) : (
+                            <div
+                              key={item.id}
+                              className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm text-foreground"
+                              style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
+                            >
+                              <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              <span className="truncate">{item.label}</span>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    )}
+                  </SidebarSection>
+                ) : null}
+
                 {currentWorkspaceId && currentProjectId ? (
                   <SidebarSection
-                    className="order-4"
                     testId="sidebar-linked-projects-section"
                     title={t('sidebar.linkedProjects')}
                     action={
@@ -1684,135 +1668,202 @@ export function DeliverableSidebar({
                   </SidebarSection>
                 ) : null}
 
-                <SidebarSection
-                  className="order-2"
-                  testId="sidebar-outline-section"
-                  title={t('sidebar.deliverableOutline')}
-                >
-                  {outlineItems.length === 0 ? (
-                    <SidebarInfo text={t('sidebar.outlineEmpty')} />
-                  ) : (
-                    <div className="min-w-0 space-y-1 overflow-hidden">
-                      {outlineItems.map((item) =>
-                        outlineInteractive ? (
-                          <button
-                            key={item.id}
-                            type="button"
-                            data-testid={`outline-item-${item.id}`}
-                            onClick={() => onOpenOutline?.(item.id)}
-                            className={cn(
-                              'flex w-full touch-manipulation items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
-                              item.active && 'bg-background shadow-sm ring-1 ring-border'
-                            )}
-                            style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
-                          >
-                            <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{item.label}</span>
-                          </button>
-                        ) : (
-                          <div
-                            key={item.id}
-                            className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm text-foreground"
-                            style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
-                          >
-                            <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{item.label}</span>
-                          </div>
-                        )
-                      )}
-                    </div>
-                  )}
-                </SidebarSection>
+                {currentWorkspaceId ? (
+                  <SidebarSection
+                    testId="sidebar-support-section"
+                    title={t('sidebar.uploads')}
+                    action={
+                      onCreateSupportFile || onCreateSupportFolder ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              aria-label={`${t('sidebar.newSupportNote')} / ${t('sidebar.newSupportFolder')}`}
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 shrink-0"
+                              data-testid="support-tree-add-trigger"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {onCreateSupportFile ? (
+                              <DropdownMenuItem onSelect={() => void onCreateSupportFile(null)}>
+                                <FilePlus2 className="h-3.5 w-3.5" />
+                                {t('sidebar.newSupportNote')}
+                              </DropdownMenuItem>
+                            ) : null}
+                            {onCreateSupportFolder ? (
+                              <DropdownMenuItem onSelect={() => void onCreateSupportFolder(null)}>
+                                <FolderPlus className="h-3.5 w-3.5" />
+                                {t('sidebar.newSupportFolder')}
+                              </DropdownMenuItem>
+                            ) : null}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : undefined
+                    }
+                  >
+                    {supportTreeError ? (
+                      <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                        {supportTreeError}
+                      </div>
+                    ) : null}
+                    {supportTree.length === 0 ? (
+                      <div data-testid="support-tree-empty">
+                        <SidebarInfo text={t('sidebar.noUploadsYet')} />
+                      </div>
+                    ) : (
+                      <SupportMaterialTree
+                        activeSupportFileId={activeSupportFileId}
+                        dragNode={dragSupportNode}
+                        files={supportTree}
+                        onCreateSupportFile={onCreateSupportFile}
+                        onCreateSupportFolder={onCreateSupportFolder}
+                        onDeleteSupportFile={
+                          onDeleteSupportFile ? (fileId) => void handleDeleteSupportFile(fileId) : undefined
+                        }
+                        onDragEndNode={
+                          onMoveSupportFile ? handleSupportTreeDragEnd : undefined
+                        }
+                        onDragStartNode={
+                          onMoveSupportFile ? handleSupportTreeDragStart : undefined
+                        }
+                        onDropNodeOnFolder={
+                          onMoveSupportFile
+                            ? (parentId, sortOrder) => void handleSupportTreeDrop(parentId, sortOrder)
+                            : undefined
+                        }
+                        onDropNodeOnRoot={
+                          onMoveSupportFile
+                            ? (sortOrder) => void handleSupportTreeDrop(null, sortOrder)
+                            : undefined
+                        }
+                        onMoveSupportFile={
+                          onMoveSupportFile ? openMoveSupportDialog : undefined
+                        }
+                        onOpenSupportFile={openSupportFile}
+                        onReorderSupportFile={
+                          onReorderSupportFile
+                            ? (fileId, direction) => void handleReorderSupportNode(fileId, direction)
+                            : undefined
+                        }
+                        onRenameSupportFile={
+                          onRenameSupportFile
+                            ? (file) => openRenameSupportDialog(file)
+                            : undefined
+                        }
+                        onSetDropTargetParentId={
+                          onMoveSupportFile ? setDropTargetSupportParentId : undefined
+                        }
+                        dropTargetParentId={dropTargetSupportParentId}
+                      />
+                    )}
+                  </SidebarSection>
+                ) : null}
 
                 <SidebarSection
-                  className="order-5"
-                  title={t('sidebar.uploads')}
+                  testId="sidebar-projects-section"
+                  title={t('sidebar.projects')}
                   action={
-                    onCreateSupportFile || onCreateSupportFolder ? (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            aria-label={`${t('sidebar.newSupportNote')} / ${t('sidebar.newSupportFolder')}`}
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 shrink-0"
-                            data-testid="support-tree-add-trigger"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          {onCreateSupportFile ? (
-                            <DropdownMenuItem onSelect={() => void onCreateSupportFile(null)}>
-                              <FilePlus2 className="h-3.5 w-3.5" />
-                              {t('sidebar.newSupportNote')}
-                            </DropdownMenuItem>
-                          ) : null}
-                          {onCreateSupportFolder ? (
-                            <DropdownMenuItem onSelect={() => void onCreateSupportFolder(null)}>
-                              <FolderPlus className="h-3.5 w-3.5" />
-                              {t('sidebar.newSupportFolder')}
-                            </DropdownMenuItem>
-                          ) : null}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    ) : undefined
+                    <Button
+                      aria-label={t('sidebar.newProject')}
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 shrink-0"
+                      onClick={onCreateWorkspace}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </Button>
                   }
                 >
-                  {supportTreeError ? (
-                    <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                      {supportTreeError}
-                    </div>
-                  ) : null}
-                  {supportTree.length === 0 ? (
-                    <div data-testid="support-tree-empty">
-                      <SidebarInfo text={t('sidebar.noUploadsYet')} />
-                    </div>
+                  {isLoading ? (
+                    <SidebarInfo text={t('sidebar.loadingProjects')} />
+                  ) : projects.length === 0 && showEmptyProjectState ? (
+                    <SidebarInfo text={t('sidebar.noProjectsYet')} />
                   ) : (
-                    <SupportMaterialTree
-                      activeSupportFileId={activeSupportFileId}
-                      dragNode={dragSupportNode}
-                      files={supportTree}
-                      onCreateSupportFile={onCreateSupportFile}
-                      onCreateSupportFolder={onCreateSupportFolder}
-                      onDeleteSupportFile={
-                        onDeleteSupportFile ? (fileId) => void handleDeleteSupportFile(fileId) : undefined
-                      }
-                      onDragEndNode={
-                        onMoveSupportFile ? handleSupportTreeDragEnd : undefined
-                      }
-                      onDragStartNode={
-                        onMoveSupportFile ? handleSupportTreeDragStart : undefined
-                      }
-                      onDropNodeOnFolder={
-                        onMoveSupportFile
-                          ? (parentId, sortOrder) => void handleSupportTreeDrop(parentId, sortOrder)
-                          : undefined
-                      }
-                      onDropNodeOnRoot={
-                        onMoveSupportFile
-                          ? (sortOrder) => void handleSupportTreeDrop(null, sortOrder)
-                          : undefined
-                      }
-                      onMoveSupportFile={
-                        onMoveSupportFile ? openMoveSupportDialog : undefined
-                      }
-                      onOpenSupportFile={openSupportFile}
-                      onReorderSupportFile={
-                        onReorderSupportFile
-                          ? (fileId, direction) => void handleReorderSupportNode(fileId, direction)
-                          : undefined
-                      }
-                      onRenameSupportFile={
-                        onRenameSupportFile
-                          ? (file) => openRenameSupportDialog(file)
-                          : undefined
-                      }
-                      onSetDropTargetParentId={
-                        onMoveSupportFile ? setDropTargetSupportParentId : undefined
-                      }
-                      dropTargetParentId={dropTargetSupportParentId}
-                    />
+                    <div className="min-w-0 space-y-1">
+                      {projects.map((project) => (
+                        <div
+                          key={project.id}
+                          className={cn(
+                            'group flex min-w-0 items-center gap-1 overflow-hidden rounded-xl pr-1 transition-colors hover:bg-accent',
+                            currentProjectId === project.id
+                              ? 'bg-background shadow-sm ring-1 ring-border'
+                              : ''
+                          )}
+                        >
+                          <button
+                            type="button"
+                            className="flex min-w-0 w-full flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                            onClick={() => openProject(project)}
+                            data-testid={`sidebar-project-open-${project.id}`}
+                          >
+                            <div className="shrink-0 rounded-md bg-foreground/5 p-1.5 ring-1 ring-border/30">
+                              <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
+                            </div>
+                            <div className="min-w-0 flex-1 overflow-hidden">
+                              <div className="truncate text-sm font-medium leading-5">
+                                {project.title}
+                              </div>
+                              <div className="truncate text-[11px] text-muted-foreground">
+                                {!currentWorkspaceId
+                                  ? `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`
+                                  : currentProjectId === project.id && currentWorkspaceStatusLabel
+                                  ? currentWorkspaceStatusLabel
+                                  : formatProjectListMeta(project, t)}
+                              </div>
+                            </div>
+                          </button>
+                          <div className="flex shrink-0 items-center gap-1 pl-1">
+                            {!currentWorkspaceId ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 rounded-lg px-2 text-xs"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openProjectNextDeliverable(project);
+                                }}
+                                data-testid={`sidebar-project-create-next-${project.id}`}
+                              >
+                                <Plus className="mr-1 h-3.5 w-3.5" />
+                                {t('sidebar.newSiblingDeliverable')}
+                              </Button>
+                            ) : null}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  aria-label={`${t('sidebar.renameProject')}: ${project.title}`}
+                                  size="icon"
+                                  variant="ghost"
+                                  className={cn(
+                                    'h-7 w-7 shrink-0 data-[state=open]:opacity-100',
+                                    !currentWorkspaceId &&
+                                      'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
+                                  )}
+                                >
+                                  <MoreHorizontal className="h-3.5 w-3.5" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onSelect={() => openRenameDialog(project)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                  {t('sidebar.renameProject')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onSelect={() => void handleDelete(project.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  {t('sidebar.deleteProject')}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </SidebarSection>
               </div>

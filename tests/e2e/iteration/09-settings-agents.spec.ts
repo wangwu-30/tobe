@@ -92,9 +92,14 @@ test('settings track unsaved drafts, announce saves, and guard app navigation', 
     dismissedMessages.push(dialog.message());
     await dialog.dismiss();
   });
-  const advancedNavigation = page
-    .getByTestId('sidebar-advanced-toggle')
-    .locator('xpath=..');
+  const advancedToggle = page.getByTestId('sidebar-advanced-toggle');
+  await expect(page.getByTestId('sidebar-settings-link')).toHaveAttribute(
+    'aria-current',
+    'page'
+  );
+  await expect(advancedToggle).toHaveAttribute('aria-expanded', 'false');
+  await advancedToggle.click();
+  const advancedNavigation = advancedToggle.locator('xpath=..');
   await advancedNavigation.getByRole('link', { name: /Git 知识|Git Knowledge/ }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(customCard.getByLabel('角色名称')).toHaveValue('导航守卫测试角色');

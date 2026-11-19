@@ -80,6 +80,7 @@ export function AppShell({
   currentWorkspaceId?: string | null;
   renderSidebar?: (props: {
     collapsed: boolean;
+    onExpandSidebar?: () => void;
     onNavigate?: () => void;
   }) => React.ReactNode;
   sidebarActions?: WorkspaceActions;
@@ -108,6 +109,11 @@ export function AppShell({
     });
   }, [sidebarStorageKey]);
 
+  const expandSidebar = React.useCallback(() => {
+    setSidebarCollapsed(false);
+    window.localStorage.setItem(sidebarStorageKey, 'false');
+  }, [sidebarStorageKey]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <a
@@ -118,7 +124,10 @@ export function AppShell({
       </a>
       {renderSidebar ? (
         <div className="hidden md:flex">
-          {renderSidebar({ collapsed: sidebarCollapsed })}
+          {renderSidebar({
+            collapsed: sidebarCollapsed,
+            onExpandSidebar: expandSidebar,
+          })}
         </div>
       ) : (
         <WorkspaceSidebar
@@ -139,6 +148,7 @@ export function AppShell({
           {renderSidebar ? (
             renderSidebar({
               collapsed: false,
+              onExpandSidebar: expandSidebar,
               onNavigate: () => setSidebarOpen(false),
             })
           ) : (

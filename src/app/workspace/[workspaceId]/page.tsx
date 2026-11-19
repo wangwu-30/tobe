@@ -830,9 +830,11 @@ function WorkspacePageContent() {
 
   const renderWorkspaceSidebar = ({
     collapsed,
+    onExpandSidebar,
     onNavigate,
   }: {
     collapsed: boolean;
+    onExpandSidebar?: () => void;
     onNavigate?: () => void;
   }) => (
     <WorkspaceRouteSidebar
@@ -867,6 +869,7 @@ function WorkspacePageContent() {
       onReorderProjectFolder={reorderProjectFolder}
       onRenameProjectFolder={renameProjectFolder}
       onDeleteProjectFolder={deleteProjectFolder}
+      onRequestExpand={onExpandSidebar}
       onSyncSupportFileLocation={syncLocation}
       openWorkspaceCreateEntry={openWorkspaceCreateEntry}
       projectFolders={projectFolders}

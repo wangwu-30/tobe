@@ -344,13 +344,14 @@ function HomePageContent() {
 
   return (
     <AppShell
-      renderSidebar={({ collapsed, onNavigate }) => (
+      renderSidebar={({ collapsed, onExpandSidebar, onNavigate }) => (
         <DeliverableSidebar
           collapsed={collapsed}
           currentWorkspaceId={null}
           onCreateWorkspace={openWorkspaceCreateEntry}
           onNavigate={onNavigate}
           onProjectsChange={setHomeProjects}
+          onRequestExpand={onExpandSidebar}
           outlineItems={[]}
           showEmptyProjectState={false}
         />
