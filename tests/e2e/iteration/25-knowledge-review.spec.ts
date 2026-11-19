@@ -16,6 +16,8 @@ const WORKSPACE_TITLE = "迭代回归-主交付物";
 const WORKER_TIMEOUT_MS = 30_000;
 const PROCESS_TIMEOUT_MS = 30_000;
 
+test.use({ locale: 'en-US' });
+
 test("real Knowledge UI configures access, reviews, merges, and activates an exact Git diff", async ({
   page,
 }) => {

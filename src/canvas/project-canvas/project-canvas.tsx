@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils';
 import { apiFetch } from '@/framework/resilience';
 import { safeJsonParse } from '@/framework/resilience';
 import { computeAutoLayout } from '@/canvas/layout';
+import { useT } from '@/components/providers/language-provider';
 import type { ProjectNodeSummary } from '@/lib/workspace/node';
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ type RenameState = {
 function CanvasContextMenu({
   edges,
   menu,
+  nodeTitleById,
   onClose,
   onConnectNode,
   onDeleteNode,
@@ -56,6 +58,7 @@ function CanvasContextMenu({
 }: {
   edges: NodeEdge[];
   menu: ContextMenuState;
+  nodeTitleById: Map<string, string>;
   onClose: () => void;
   onConnectNode: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
@@ -64,6 +67,7 @@ function CanvasContextMenu({
   onOpenNode: (nodeId: string) => void;
   onStartRename: (nodeId: string, currentTitle: string) => void;
 }) {
+  const t = useT();
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -103,7 +107,7 @@ function CanvasContextMenu({
           const result: typeof items = [
             {
               icon: FileText,
-              label: '打开',
+              label: t('canvas.open'),
               onClick: () => {
                 onOpenNode(menu.nodeId);
                 onClose();
@@ -111,7 +115,7 @@ function CanvasContextMenu({
             },
             {
               icon: Pencil,
-              label: '重命名',
+              label: t('canvas.rename'),
               onClick: () => {
                 onStartRename(menu.nodeId, menu.title);
                 onClose();
@@ -120,7 +124,7 @@ function CanvasContextMenu({
             { kind: 'separator' },
             {
               icon: Plus,
-              label: '连接到…',
+              label: t('canvas.connectTo'),
               onClick: () => {
                 onConnectNode(menu.nodeId);
                 onClose();
@@ -129,9 +133,11 @@ function CanvasContextMenu({
           ];
           for (const edge of nodeEdges) {
             const otherNodeId = edge.sourceNodeId === menu.nodeId ? edge.targetNodeId : edge.sourceNodeId;
+            const otherNodeTitle =
+              nodeTitleById.get(otherNodeId)?.trim() || t('canvas.untitled');
             result.push({
               icon: Trash2,
-              label: `断开连接 (${otherNodeId.slice(0, 6)}…)`,
+              label: t('canvas.disconnectFrom', { title: otherNodeTitle }),
               danger: true,
               onClick: () => {
                 onDisconnectNode(menu.nodeId, edge.id);
@@ -142,7 +148,7 @@ function CanvasContextMenu({
           result.push({ kind: 'separator' });
           result.push({
             icon: Trash2,
-            label: '删除',
+            label: t('canvas.delete'),
             danger: true,
             onClick: () => {
               onDeleteNode(menu.nodeId);
@@ -154,7 +160,7 @@ function CanvasContextMenu({
       : [
           {
             icon: Plus,
-            label: '新建内容',
+            label: t('canvas.newItem'),
             onClick: () => {
               onNewNode();
               onClose();
@@ -165,7 +171,7 @@ function CanvasContextMenu({
   return (
     <div
       ref={ref}
-      aria-label="画布操作"
+      aria-label={t('canvas.actionsAria')}
       className="fixed z-50 min-w-[160px] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95 motion-reduce:animate-none"
       role="menu"
       style={{ left: menu.x, top: menu.y }}
@@ -205,6 +211,7 @@ function RenameOverlay({
   onConfirm: (nodeId: string, newTitle: string) => void;
   rename: RenameState;
 }) {
+  const t = useT();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [value, setValue] = React.useState('');
 
@@ -232,8 +239,8 @@ function RenameOverlay({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4 backdrop-blur-[2px]">
       <div aria-labelledby="canvas-rename-title" aria-modal="true" className="w-full max-w-80 rounded-lg border bg-popover p-4 shadow-lg" role="dialog">
-        <p className="mb-2 text-sm font-medium" id="canvas-rename-title">重命名</p>
-        <label className="sr-only" htmlFor="canvas-rename-input">新名称</label>
+        <p className="mb-2 text-sm font-medium" id="canvas-rename-title">{t('canvas.rename')}</p>
+        <label className="sr-only" htmlFor="canvas-rename-input">{t('canvas.newTitleLabel')}</label>
         <input
           autoComplete="off"
           id="canvas-rename-input"
@@ -253,14 +260,14 @@ function RenameOverlay({
             className="min-h-10 rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
             onClick={onCancel}
           >
-            取消
+            {t('canvas.cancel')}
           </button>
           <button
             type="button"
             className="min-h-10 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
             onClick={handleSubmit}
           >
-            确认
+            {t('canvas.confirm')}
           </button>
         </div>
       </div>
@@ -490,6 +497,7 @@ export function ProjectCanvas({
   projectId: string;
   projectTitle: string;
 }) {
+  const t = useT();
   const editorRef = React.useRef<Editor | null>(null);
   const canvasMetaRef = React.useRef<CanvasMetaMap>({});
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -499,7 +507,23 @@ export function ProjectCanvas({
   const [rename, setRename] = React.useState<RenameState>(null);
   const [edges, setEdges] = React.useState<NodeEdge[]>([]);
   const [connectSourceId, setConnectSourceId] = React.useState<string | null>(null);
-  const [edgePositions, setEdgePositions] = React.useState<Record<string, { x: number; y: number }>>({}); 
+  const [edgePositions, setEdgePositions] = React.useState<Record<string, { x: number; y: number }>>({});
+  const [cameraState, setCameraState] = React.useState<{
+    viewportH: number;
+    viewportW: number;
+    x: number;
+    y: number;
+    z: number;
+  }>({ viewportH: 0, viewportW: 0, x: 0, y: 0, z: 1 });
+  const [titleOverrides, setTitleOverrides] = React.useState<Record<string, string>>({});
+
+  const nodeTitleById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const node of nodes) {
+      map.set(node.id, titleOverrides[node.id] ?? node.title);
+    }
+    return map;
+  }, [nodes, titleOverrides]);
 
   // Load canvas meta on mount
   React.useEffect(() => {
@@ -601,6 +625,40 @@ export function ProjectCanvas({
         }
       };
 
+      const syncCamera = () => {
+        const camera = editor.getCamera();
+        const bounds = editor.getViewportScreenBounds();
+        setCameraState((prev) =>
+          prev.x === camera.x &&
+          prev.y === camera.y &&
+          prev.z === camera.z &&
+          prev.viewportW === bounds.w &&
+          prev.viewportH === bounds.h
+            ? prev
+            : {
+                viewportH: bounds.h,
+                viewportW: bounds.w,
+                x: camera.x,
+                y: camera.y,
+                z: camera.z,
+              }
+        );
+      };
+
+      const syncShapePositions = () => {
+        const allShapes = editor.getCurrentPageShapes();
+        const pos: Record<string, { x: number; y: number }> = {};
+        for (const shape of allShapes) {
+          if (shape.type !== NODE_CARD_TYPE) continue;
+          const nodeCard = shape as NodeCardShape;
+          pos[nodeCard.props.nodeId] = {
+            x: shape.x + nodeCard.props.w / 2,
+            y: shape.y + nodeCard.props.h / 2,
+          };
+        }
+        setEdgePositions(pos);
+      };
+
       // tldraw uses store.listen for tracking changes
       const cleanup = editor.store.listen(handleChange, {
         scope: 'document',
@@ -608,39 +666,34 @@ export function ProjectCanvas({
       });
 
       // Sync edge positions whenever shapes change
-      const posSync = editor.store.listen(
-        () => {
-          const allShapes = editor.getCurrentPageShapes();
-          const pos: Record<string, { x: number; y: number }> = {};
-          for (const shape of allShapes) {
-            if (shape.type !== NODE_CARD_TYPE) continue;
-            const nodeCard = shape as NodeCardShape;
-            pos[nodeCard.props.nodeId] = {
-              x: shape.x + nodeCard.props.w / 2,
-              y: shape.y + nodeCard.props.h / 2,
-            };
-          }
-          setEdgePositions(pos);
-        },
-        { scope: 'document', source: 'all' }
-      );
+      const posSync = editor.store.listen(syncShapePositions, {
+        scope: 'document',
+        source: 'all',
+      });
 
-      // Initial position sync
-      const allShapes = editor.getCurrentPageShapes();
-      const pos: Record<string, { x: number; y: number }> = {};
-      for (const shape of allShapes) {
-        if (shape.type !== NODE_CARD_TYPE) continue;
-        const nodeCard = shape as NodeCardShape;
-        pos[nodeCard.props.nodeId] = {
-          x: shape.x + nodeCard.props.w / 2,
-          y: shape.y + nodeCard.props.h / 2,
-        };
+      // Sync edge screen coordinates whenever tldraw camera pans or zooms
+      const cameraSync = editor.store.listen(syncCamera, {
+        scope: 'session',
+        source: 'all',
+      });
+
+      let resizeObserver: ResizeObserver | null = null;
+      if (typeof ResizeObserver !== 'undefined') {
+        resizeObserver = new ResizeObserver(() => {
+          syncCamera();
+        });
+        resizeObserver.observe(editor.getContainer());
       }
-      setEdgePositions(pos);
+
+      // Initial sync
+      syncShapePositions();
+      syncCamera();
 
       return () => {
         if (typeof cleanup === 'function') cleanup();
         posSync();
+        cameraSync();
+        resizeObserver?.disconnect();
       };
     },
     [nodes, scheduleSave]
@@ -701,8 +754,9 @@ export function ProjectCanvas({
 
   const handleDeleteNode = React.useCallback(
     (nodeId: string) => {
-      const title = nodes.find((node) => node.id === nodeId)?.title || '该内容';
-      if (!window.confirm(`删除“${title}”？此操作不可撤销。`)) {
+      const title =
+        nodeTitleById.get(nodeId)?.trim() || t('canvas.fallbackNodeTitle');
+      if (!window.confirm(t('canvas.deleteConfirm', { title }))) {
         return;
       }
 
@@ -716,12 +770,13 @@ export function ProjectCanvas({
         editor.deleteShapes([shapeId]);
       }
     },
-    [nodes, onDeleteNode]
+    [nodeTitleById, onDeleteNode, t]
   );
 
   const handleRenameConfirm = React.useCallback(
     (nodeId: string, newTitle: string) => {
       setRename(null);
+      setTitleOverrides((prev) => ({ ...prev, [nodeId]: newTitle }));
       if (onRenameNode) {
         onRenameNode(nodeId, newTitle);
       }
@@ -798,6 +853,13 @@ export function ProjectCanvas({
   // Compute screen-space edge positions from tldraw camera
   const screenEdges = React.useMemo(() => {
     if (!canvasEditor || edges.length === 0) return [];
+    // Reference cameraState fields so React recomputes whenever tldraw pans, zooms, or resizes.
+    const { viewportH, viewportW, x, y, z } = cameraState;
+    void viewportH;
+    void viewportW;
+    void x;
+    void y;
+    void z;
 
     return edges
       .map((edge) => {
@@ -817,12 +879,12 @@ export function ProjectCanvas({
         };
       })
       .filter(Boolean) as Array<{ id: string; x1: number; y1: number; x2: number; y2: number }>;
-  }, [canvasEditor, edges, edgePositions]);
+  }, [cameraState, canvasEditor, edges, edgePositions]);
 
   if (!ready) {
     return (
       <div aria-live="polite" className="flex h-full w-full items-center justify-center text-muted-foreground" role="status">
-        Loading canvas…
+        {t('canvas.loading')}
       </div>
     );
   }
@@ -838,13 +900,13 @@ export function ProjectCanvas({
           className="absolute left-1/2 top-3 z-20 -translate-x-1/2 rounded-md bg-primary/90 px-4 py-1.5 text-sm font-medium text-primary-foreground shadow-lg"
           role="status"
         >
-          点击目标节点完成连接…
+          {t('canvas.connectPrompt')}
           <button
             type="button"
             className="ml-3 min-h-10 rounded-sm px-2 text-xs underline opacity-80 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground sm:min-h-8"
             onClick={() => setConnectSourceId(null)}
           >
-            取消
+            {t('canvas.cancel')}
           </button>
         </div>
       )}
@@ -882,6 +944,7 @@ export function ProjectCanvas({
         <svg
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 z-[5]"
+          data-testid="project-canvas-edges"
           width="100%"
           height="100%"
         >
@@ -904,6 +967,7 @@ export function ProjectCanvas({
           {screenEdges.map((edge) => (
             <line
               key={edge.id}
+              data-testid={`project-canvas-edge-${edge.id}`}
               x1={edge.x1}
               y1={edge.y1}
               x2={edge.x2}
@@ -920,6 +984,7 @@ export function ProjectCanvas({
       <CanvasContextMenu
         edges={edges}
         menu={contextMenu}
+        nodeTitleById={nodeTitleById}
         onClose={closeMenu}
         onConnectNode={handleConnectNode}
         onDeleteNode={handleDeleteNode}

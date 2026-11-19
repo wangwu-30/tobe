@@ -1,26 +1,45 @@
+'use client';
+
 import * as React from 'react';
 import { AlertCircle, BookOpen, CheckCircle2, LoaderCircle, TriangleAlert } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { useT } from '@/components/providers/language-provider';
 import { useNavigationBlocker } from '@/lib/navigation/navigation-guard';
 
-const STATUS_LABELS: Record<string, string> = {
-  approved: 'Approved',
-  conflicted: 'Needs attention',
-  failed: 'Index failed',
-  merged: 'Merged',
-  pending_review: 'Awaiting review',
-  queued: 'Merge queued',
-  rejected: 'Rejected',
-  running: 'Merging and indexing',
-  succeeded: 'Index ready',
-};
+type Translator = ReturnType<typeof useT>;
+
+export function formatKnowledgeStatusLabel(status: string, t: Translator): string {
+  switch (status) {
+    case 'approved':
+      return t('knowledge.statusApproved');
+    case 'conflicted':
+      return t('knowledge.statusConflicted');
+    case 'failed':
+      return t('knowledge.statusFailed');
+    case 'merged':
+      return t('knowledge.statusMerged');
+    case 'pending_review':
+      return t('knowledge.statusPendingReview');
+    case 'queued':
+      return t('knowledge.statusQueued');
+    case 'rejected':
+      return t('knowledge.statusRejected');
+    case 'running':
+      return t('knowledge.statusRunning');
+    case 'succeeded':
+      return t('knowledge.statusSucceeded');
+    default:
+      return humanize(status);
+  }
+}
 
 export function KnowledgeStatusBadge({ status }: { status: string }) {
+  const t = useT();
   const danger = ['rejected', 'conflicted', 'failed'].includes(status);
   const success = ['merged', 'succeeded'].includes(status);
   const active = ['queued', 'running'].includes(status);
-  const label = STATUS_LABELS[status] || humanize(status);
+  const label = formatKnowledgeStatusLabel(status, t);
   return (
     <Badge
       className="max-w-full whitespace-normal break-words text-left [overflow-wrap:anywhere]"
@@ -76,6 +95,7 @@ export function KnowledgeNotice({
   onDismiss?: () => void;
   tone: 'success' | 'error';
 }) {
+  const t = useT();
   return (
     <div
       className={
@@ -98,8 +118,10 @@ export function KnowledgeNotice({
           onClick={onDismiss}
           type="button"
         >
-          <span className="sr-only">Dismiss {tone === 'error' ? 'error' : 'notification'}</span>
-          <span aria-hidden="true">Dismiss</span>
+          <span className="sr-only">
+            {tone === 'error' ? t('knowledge.dismissErrorAria') : t('knowledge.dismissNoticeAria')}
+          </span>
+          <span aria-hidden="true">{t('knowledge.dismiss')}</span>
         </button>
       ) : null}
     </div>

@@ -1,13 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { GitBranch, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ArrowRight, GitBranch, Info, RefreshCw, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 
 import { AppShell } from '@/components/layout/app-shell';
 import { Button } from '@/components/ui/button';
 import { ZoneErrorBoundary } from '@/framework/resilience';
 import { useAppRouter, useAppSearchParams } from '@/lib/app-router';
+import { useT } from '@/components/providers/language-provider';
 import {
   getKnowledgeChangeRequestClient,
   getKnowledgeActorSummaryClient,
@@ -35,6 +36,7 @@ const ACTIVE_OPERATION_STATUSES = new Set(['queued', 'running']);
 const EMPTY_PRIMARY_ERRORS: PrimaryErrors = { bindings: null, changes: null, spaces: null };
 
 export function KnowledgeCenter() {
+  const t = useT();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
   const view: View = searchParams.get('view') === 'configuration' ? 'configuration' : 'reviews';
@@ -109,13 +111,13 @@ export function KnowledgeCenter() {
         spaces: spaceResult.ok ? null : spaceResult.error,
       });
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'Knowledge data could not be loaded.';
+      const message = caught instanceof Error ? caught.message : t('knowledge.loadFailed');
       setPrimaryErrors({ bindings: message, changes: message, spaces: message });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [t]);
 
   const loadOptions = React.useCallback(async (background = false) => {
     if (!background) setOptionsLoading(true);
@@ -127,16 +129,20 @@ export function KnowledgeCenter() {
       if (agentResult.ok) setAgents(agentResult.data);
       if (workspaceResult.ok) setWorkspaces(workspaceResult.data);
       const failures = [
-        !agentResult.ok ? `Agents: ${agentResult.error}` : null,
-        !workspaceResult.ok ? `Deliverables: ${workspaceResult.error}` : null,
+        !agentResult.ok ? t('knowledge.optionsAgentsPrefix', { error: agentResult.error }) : null,
+        !workspaceResult.ok ? t('knowledge.optionsDeliverablesPrefix', { error: workspaceResult.error }) : null,
       ].filter((message): message is string => Boolean(message));
-      setOptionsError(failures.length ? `Some configuration choices could not be loaded. ${failures.join(' ')}` : null);
+      setOptionsError(
+        failures.length
+          ? t('knowledge.optionsPartialFailed', { details: failures.join(' ') })
+          : null
+      );
     } catch (caught) {
-      setOptionsError(caught instanceof Error ? caught.message : 'Configuration choices could not be loaded.');
+      setOptionsError(caught instanceof Error ? caught.message : t('knowledge.optionsLoadFailed'));
     } finally {
       if (!background) setOptionsLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const loadDetail = React.useCallback(async (id: string, background = false) => {
     if (!background) {
@@ -162,7 +168,7 @@ export function KnowledgeCenter() {
       }
       return result;
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : 'The proposal detail could not be loaded.';
+      const message = caught instanceof Error ? caught.message : t('knowledge.detailLoadFailed');
       if (selectedIdRef.current === id) {
         if (background) setPollError(message);
         else setDetailError(message);
@@ -171,7 +177,7 @@ export function KnowledgeCenter() {
     } finally {
       if (selectedIdRef.current === id) setDetailLoading(false);
     }
-  }, []);
+  }, [t]);
 
   React.useEffect(() => {
     void Promise.all([loadPrimary(), loadOptions()]);
@@ -227,8 +233,8 @@ export function KnowledgeCenter() {
   const proposerLabel = React.useMemo(() => {
     if (!proposerAgentId) return null;
     const agent = agents.find((item) => item.id === proposerAgentId);
-    return agent?.name || `Agent ${proposerAgentId.slice(0, 8)}`;
-  }, [agents, proposerAgentId]);
+    return agent?.name || t('knowledge.agentFallback', { id: proposerAgentId.slice(0, 8) });
+  }, [agents, proposerAgentId, t]);
 
   const shouldPoll = Boolean(
     detail &&
@@ -281,12 +287,12 @@ export function KnowledgeCenter() {
         setError(result.error);
         return false;
       }
-      setNotice(action === 'approve' ? 'Proposal approved. It is ready for trusted merge.' : 'Proposal rejected and kept in the audit trail.');
+      setNotice(action === 'approve' ? t('knowledge.approveNotice') : t('knowledge.rejectNotice'));
       explicitFocusDetailIdRef.current = result.data.id;
       await refreshDetail(result.data.id);
       return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The review could not be saved.');
+      setError(caught instanceof Error ? caught.message : t('knowledge.reviewSaveFailed'));
       return false;
     } finally {
       setBusyAction(null);
@@ -305,12 +311,12 @@ export function KnowledgeCenter() {
         setError(result.error);
         return false;
       }
-      setNotice('Trusted merge queued. This review will update as merge and indexing finish.');
+      setNotice(t('knowledge.mergeQueuedNotice'));
       explicitFocusDetailIdRef.current = currentDetail.changeRequest.id;
       await refreshDetail(currentDetail.changeRequest.id);
       return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The trusted merge could not be queued.');
+      setError(caught instanceof Error ? caught.message : t('knowledge.mergeQueueFailed'));
       return false;
     } finally {
       setBusyAction(null);
@@ -319,19 +325,19 @@ export function KnowledgeCenter() {
 
   return (
     <AppShell
-      title="Knowledge"
-      subtitle="Turn reviewed agent proposals into trusted, indexed context"
+      title={t('knowledge.title')}
+      subtitle={t('knowledge.subtitle')}
       actions={
         <Button
           aria-busy={refreshing}
-          aria-label={refreshing ? 'Refreshing Knowledge data' : 'Refresh Knowledge data'}
+          aria-label={refreshing ? t('knowledge.refreshingAria') : t('knowledge.refreshAria')}
           variant="outline"
           size="sm"
           onClick={() => void refresh()}
           disabled={loading || refreshing}
         >
           <RefreshCw aria-hidden="true" className={refreshing ? 'motion-safe:animate-spin' : ''} />
-          {refreshing ? 'Refreshing…' : 'Refresh'}
+          {refreshing ? t('knowledge.refreshing') : t('knowledge.refresh')}
         </Button>
       }
     >
@@ -339,32 +345,56 @@ export function KnowledgeCenter() {
         <main className="h-full min-w-0 touch-pan-y overflow-y-auto overscroll-y-contain">
           <div className="mx-auto w-full max-w-[1440px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
             <header className="max-w-3xl">
-              <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Trusted context</div>
-              <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Review once, then follow the same proposal to activation.</h1>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">Agent changes stay isolated until a person approves the exact Git diff. A trusted worker then merges, indexes, and activates that reviewed revision.</p>
+              <div className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{t('knowledge.eyebrow')}</div>
+              <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">{t('knowledge.headline')}</h1>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('knowledge.lead')}</p>
             </header>
 
-            <nav className="mt-6 flex flex-col gap-2 border-b pb-4 sm:flex-row" aria-label="Knowledge views">
+            <aside
+              aria-labelledby="knowledge-boundary-title"
+              className="mt-4 flex flex-col gap-3 rounded-xl border border-border/70 bg-muted/30 px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between"
+              data-testid="knowledge-boundary-guide"
+            >
+              <div className="flex min-w-0 items-start gap-3">
+                <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground" id="knowledge-boundary-title">
+                    {t('knowledge.boundaryTitle')}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    {t('knowledge.boundaryBody')}
+                  </p>
+                </div>
+              </div>
+              <Button asChild className="shrink-0 self-start sm:self-center" size="sm" variant="outline">
+                <Link href="/">
+                  {t('knowledge.boundaryWikiLink')}
+                  <ArrowRight aria-hidden="true" className="size-3.5" />
+                </Link>
+              </Button>
+            </aside>
+
+            <nav className="mt-6 flex flex-col gap-2 border-b pb-4 sm:flex-row" aria-label={t('knowledge.viewsNavAria')}>
               <Button asChild className="w-full justify-start sm:w-auto" data-testid="knowledge-reviews-tab" variant={view === 'reviews' ? 'secondary' : 'ghost'}>
                 <Link aria-current={view === 'reviews' ? 'page' : undefined} href={knowledgeHref('reviews', selectedId || requestedChangeId)} scroll={false}>
-                  <ShieldCheck aria-hidden="true" /> Review queue
+                  <ShieldCheck aria-hidden="true" /> {t('knowledge.tabReviews')}
                 </Link>
               </Button>
               <Button asChild className="w-full justify-start sm:w-auto" data-testid="knowledge-configuration-tab" variant={view === 'configuration' ? 'secondary' : 'ghost'}>
                 <Link aria-current={view === 'configuration' ? 'page' : undefined} href={knowledgeHref('configuration', selectedId)} scroll={false}>
-                  <GitBranch aria-hidden="true" /> Repositories &amp; access
+                  <GitBranch aria-hidden="true" /> {t('knowledge.tabConfiguration')}
                 </Link>
               </Button>
             </nav>
             {busyAction || refreshing ? (
               <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
                 {busyAction === 'approve'
-                  ? 'Approving proposal.'
+                  ? t('knowledge.liveApproving')
                   : busyAction === 'reject'
-                    ? 'Rejecting proposal.'
+                    ? t('knowledge.liveRejecting')
                     : busyAction === 'merge'
-                      ? 'Queueing trusted merge.'
-                      : 'Refreshing Knowledge data.'}
+                      ? t('knowledge.liveQueueingMerge')
+                      : t('knowledge.liveRefreshing')}
               </div>
             ) : null}
             {notice ? <KnowledgeNotice tone="success" onDismiss={() => setNotice(null)}>{notice}</KnowledgeNotice> : null}
