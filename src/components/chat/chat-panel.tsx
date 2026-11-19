@@ -63,6 +63,7 @@ export function ChatPanel({
   emptyState,
   composerHint,
   composerPlaceholder,
+  formatAssistantMessage,
   variant = 'workspace',
   onMessagesChange,
   onChatErrorChange,
@@ -103,6 +104,7 @@ export function ChatPanel({
   emptyState?: { description: string; title: string } | null;
   composerHint?: string | null;
   composerPlaceholder?: string;
+  formatAssistantMessage?: (content: string) => string;
   variant?: 'home' | 'workspace';
   onMessagesChange?: (messages: ChatMessageData[]) => void;
 }) {
@@ -596,7 +598,14 @@ export function ChatPanel({
             {visibleMessages.map((message) => (
               <ChatMessage
                 key={message.id}
-                message={message}
+                message={
+                  formatAssistantMessage && message.role === 'assistant'
+                    ? {
+                        ...message,
+                        content: formatAssistantMessage(message.content),
+                      }
+                    : message
+                }
                 onBranch={
                   message.content.trim().length > 0 && !isLoading
                     ? onBranchConversation

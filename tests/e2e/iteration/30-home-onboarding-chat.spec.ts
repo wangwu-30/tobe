@@ -413,3 +413,79 @@ test('home onboarding can start a new conversation after restore fetch rejects',
     )
     .toBe(freshConversationId);
 });
+
+test('home onboarding assistant renders a structured Wiki Space proposal card that prefills confirmation without auto-creating', async ({
+  page,
+}) => {
+  const conversationId = 'structured-proposal-onboarding-conv';
+  const proposedTitle = 'Engineering Decisions';
+  const proposedPurpose = 'Track architecture choices, tradeoffs, and postmortems.';
+  let createWorkspacePostCount = 0;
+
+  await primeClientState(page);
+  await page.route('**/api/agent/run', async (route) => {
+    const body = [
+      'A dedicated space will keep your technical choices searchable over time.',
+      '',
+      '```wiki-space-proposal',
+      JSON.stringify({ purpose: proposedPurpose, title: proposedTitle }),
+      '```',
+    ].join('\n');
+
+    await route.fulfill({
+      body,
+      contentType: 'text/plain; charset=utf-8',
+      headers: {
+        'x-dao-conversation-id': conversationId,
+      },
+      status: 200,
+    });
+  });
+  await page.route('**/api/workspaces', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+
+    createWorkspacePostCount += 1;
+    await route.abort();
+  });
+
+  await page.goto('/');
+  await expect(page.getByTestId('home-onboarding-proposal-card')).toHaveCount(0);
+
+  await page
+    .getByTestId('agent-composer-input')
+    .fill('I want a space for engineering decisions and postmortems.');
+  await page.getByTestId('agent-composer-input').press('Enter');
+
+  await expect(
+    page.getByText('A dedicated space will keep your technical choices searchable over time.')
+  ).toBeVisible();
+  await expect(page.getByText('wiki-space-proposal')).toHaveCount(0);
+
+  const proposalCard = page.getByTestId('home-onboarding-proposal-card');
+  await expect(proposalCard).toBeVisible();
+  await expect(
+    proposalCard.getByTestId('home-onboarding-proposal-title')
+  ).toHaveText(proposedTitle);
+  await expect(
+    proposalCard.getByTestId('home-onboarding-proposal-purpose')
+  ).toHaveText(proposedPurpose);
+  expect(createWorkspacePostCount).toBe(0);
+
+  await proposalCard.getByTestId('home-onboarding-proposal-action').click();
+  const dialog = page.getByTestId('wiki-create-confirmation-dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('wiki-create-name-input')).toHaveValue(
+    proposedTitle
+  );
+  await expect(dialog.getByTestId('wiki-create-purpose-input')).toHaveValue(
+    proposedPurpose
+  );
+  await expect(
+    dialog.getByTestId('wiki-create-session-continuation')
+  ).toBeVisible();
+  expect(createWorkspacePostCount).toBe(0);
+});
+

@@ -18,10 +18,6 @@ import {
   type WorkspaceCreateContext,
   type WorkspaceCreateValues,
 } from '@/lib/workspace/create-request';
-import {
-  GoalComposerDialog,
-  type GoalComposerValues,
-} from '@/components/workspace/goal-composer-dialog';
 import { DeliverableSidebar } from '@/components/workspace/deliverable-sidebar';
 import { useT } from '@/components/providers/language-provider';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
@@ -47,7 +43,6 @@ function HomePageContent() {
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
   const [homeProjects, setHomeProjects] = React.useState<ProjectSummaryData[] | null>(null);
-  const [goalDialogOpen, setGoalDialogOpen] = React.useState(false);
   const [wikiDialogOpen, setWikiDialogOpen] = React.useState(false);
   const [wikiCreateProposal, setWikiCreateProposal] = React.useState<{
     conversationId: string | null;
@@ -62,8 +57,6 @@ function HomePageContent() {
     React.useState<WorkspaceCreateValues | null>(null);
   const [workspaceCreateContext, setWorkspaceCreateContext] =
     React.useState<WorkspaceCreateContext | null>(null);
-  const [goalDialogSeedValues, setGoalDialogSeedValues] =
-    React.useState<Partial<GoalComposerValues> | null>(null);
   const [pendingCreateEntry, setPendingCreateEntry] = React.useState<
     WorkspaceCreateContext | 'workspace' | null
   >(null);
@@ -126,37 +119,27 @@ function HomePageContent() {
   const openWorkspaceCreateEntry = React.useCallback(
     (
       context: WorkspaceCreateContext | null = null,
-      initialValues: Partial<GoalComposerValues> | null = null
+      initialValues: { goal?: string; title?: string } | null = null
     ) => {
       if (createWorkspaceRecoveryActive) {
-        if (workspaceCreateContext?.projectId) {
-          setGoalDialogOpen(true);
-        } else {
-          setWikiCreateProposal({
-            conversationId: workspaceCreateContext?.conversationId || null,
-            goal: createWorkspaceRecoveryValues?.goal || '',
-            title:
-              createWorkspaceRecoveryValues?.title?.trim() ||
-              createWorkspaceRecoveryValues?.goal.trim() ||
-              '',
-          });
-          setWikiDialogOpen(true);
-        }
+        setWikiCreateProposal({
+          conversationId: workspaceCreateContext?.conversationId || null,
+          goal: createWorkspaceRecoveryValues?.goal || '',
+          title:
+            createWorkspaceRecoveryValues?.title?.trim() ||
+            createWorkspaceRecoveryValues?.goal.trim() ||
+            '',
+        });
+        setWikiDialogOpen(true);
         return;
       }
 
       setWorkspaceCreateContext(context);
       setCreateWorkspaceError(null);
-      if (context?.projectId) {
-        setGoalDialogSeedValues(initialValues);
-        setGoalDialogOpen(true);
-        return;
-      }
-
       setWikiCreateProposal({
         conversationId: context?.conversationId || null,
         goal: initialValues?.goal?.trim() || '',
-        title: '',
+        title: initialValues?.title?.trim() || '',
       });
       setWikiDialogOpen(true);
     },
@@ -208,10 +191,8 @@ function HomePageContent() {
         setCreateWorkspaceRecoveryActive(false);
         setCreateWorkspaceRecoveryValues(null);
         setWorkspaceCreateContext(null);
-        setGoalDialogSeedValues(null);
         setWikiCreateProposal(null);
         createWorkspaceRequestIdRef.current = null;
-        setGoalDialogOpen(false);
         setWikiDialogOpen(false);
         if (context?.conversationId) {
           clearOnboardingConversationId(context.conversationId);
@@ -266,21 +247,6 @@ function HomePageContent() {
     [router, t]
   );
 
-  const handleGoalDialogOpenChange = React.useCallback((open: boolean) => {
-    if (!open) {
-      if (!createWorkspaceRecoveryActive) {
-        clearWorkspaceCreateRecovery();
-        setCreateWorkspaceError(null);
-        setCreateWorkspaceRecoveryValues(null);
-        setWorkspaceCreateContext(null);
-        setGoalDialogSeedValues(null);
-        createWorkspaceRequestIdRef.current = null;
-      }
-    }
-
-    setGoalDialogOpen(open);
-  }, [createWorkspaceRecoveryActive]);
-
   const handleWikiDialogOpenChange = React.useCallback(
     (open: boolean) => {
       if (!open && !createWorkspaceRecoveryActive) {
@@ -299,14 +265,22 @@ function HomePageContent() {
 
   const confirmWikiCreation = React.useCallback(
     async (payload: WikiCreateConfirmationPayload) => {
+      const isPageMode = Boolean(workspaceCreateContext?.projectId);
       const context = createWorkspaceRecoveryActive
         ? workspaceCreateContext
-        : {
-            conversationId: payload.conversationId,
-            projectFolderId: null,
-            projectId: null,
-            projectTitle: null,
-          };
+        : isPageMode
+          ? {
+              conversationId: null,
+              projectFolderId: workspaceCreateContext?.projectFolderId || null,
+              projectId: workspaceCreateContext?.projectId || null,
+              projectTitle: workspaceCreateContext?.projectTitle || null,
+            }
+          : {
+              conversationId: payload.conversationId,
+              projectFolderId: null,
+              projectId: null,
+              projectTitle: null,
+            };
       const values =
         createWorkspaceRecoveryActive && createWorkspaceRecoveryValues
           ? createWorkspaceRecoveryValues
@@ -324,7 +298,9 @@ function HomePageContent() {
             };
 
       if (createWorkspaceRecoveryActive && (!context || !createWorkspaceRecoveryValues)) {
-        setCreateWorkspaceError(t('goal.createProjectFailed'));
+        setCreateWorkspaceError(
+          t(isPageMode ? 'goal.createDeliverableFailed' : 'goal.createProjectFailed')
+        );
         return;
       }
 
@@ -341,6 +317,7 @@ function HomePageContent() {
   );
 
   const hasProjects = Boolean(homeProjects?.length);
+  const isPageCreationMode = Boolean(workspaceCreateContext?.projectId);
 
   return (
     <AppShell
@@ -348,7 +325,7 @@ function HomePageContent() {
         <DeliverableSidebar
           collapsed={collapsed}
           currentWorkspaceId={null}
-          onCreateWorkspace={openWorkspaceCreateEntry}
+          onCreateWorkspace={() => openWorkspaceCreateEntry(null)}
           onNavigate={onNavigate}
           onProjectsChange={setHomeProjects}
           onRequestExpand={onExpandSidebar}
@@ -362,7 +339,7 @@ function HomePageContent() {
       <main className="h-full overflow-y-auto px-4 py-5 sm:px-6 sm:py-7">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-10">
           <HomeOnboardingChat
-            onCreateWiki={({ conversationId, goal }) =>
+            onCreateWiki={({ conversationId, goal, title }) =>
               openWorkspaceCreateEntry(
                 {
                   conversationId,
@@ -370,7 +347,7 @@ function HomePageContent() {
                   projectId: null,
                   projectTitle: null,
                 },
-                goal ? { goal } : null
+                goal || title ? { goal, title } : null
               )
             }
           />
@@ -408,35 +385,21 @@ function HomePageContent() {
         </div>
       </main>
 
-      <GoalComposerDialog
-        creationMode={workspaceCreateContext?.projectId ? 'deliverable' : 'project'}
-        currentProjectTitle={workspaceCreateContext?.projectTitle || null}
-        disableInputs={createWorkspaceRecoveryActive}
-        open={goalDialogOpen}
-        errorMessage={createWorkspaceError}
-        initialValues={
-          createWorkspaceRecoveryValues || goalDialogSeedValues || undefined
-        }
-        onOpenChange={handleGoalDialogOpenChange}
-        isSubmitting={isCreatingWorkspace}
-        submitLabel={
-          createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
-        }
-        onSubmit={(values) => createWorkspace(values, workspaceCreateContext)}
-        workflowContextId={null}
-      />
-
       <WikiCreateConfirmationDialog
         confirmLabel={
           createWorkspaceRecoveryActive ? t('goal.retryProjectCheck') : undefined
         }
-        conversationId={wikiCreateProposal?.conversationId || null}
+        conversationId={
+          isPageCreationMode ? null : wikiCreateProposal?.conversationId || null
+        }
         disableInputs={createWorkspaceRecoveryActive}
         errorMessage={createWorkspaceError}
         isSubmitting={isCreatingWorkspace}
+        mode={isPageCreationMode ? 'page' : 'space'}
         onConfirm={confirmWikiCreation}
         onOpenChange={handleWikiDialogOpenChange}
         open={wikiDialogOpen}
+        parentProjectTitle={workspaceCreateContext?.projectTitle || null}
         suggestedGoal={wikiCreateProposal?.goal || ''}
         suggestedTitle={wikiCreateProposal?.title || ''}
       />

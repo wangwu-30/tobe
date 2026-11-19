@@ -1,15 +1,19 @@
 'use client';
 
 import * as React from 'react';
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Sparkles } from 'lucide-react';
 
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/framework/resilience';
 import { getStoredAISettingsHeader } from '@/lib/client/ai-settings';
-import { useT } from '@/components/providers/language-provider';
+import { useAppLanguage, useT } from '@/components/providers/language-provider';
 import type { ChatMessageData } from '@/types';
 
+import {
+  deriveOnboardingWikiProposal,
+  stripOnboardingProposalBlocks,
+} from './onboarding-proposal';
 import {
   clearOnboardingConversationId,
   findLastUserGoal,
@@ -18,13 +22,34 @@ import {
 } from './onboarding-session';
 
 type HomeOnboardingChatProps = {
-  onCreateWiki: (context: { conversationId: string | null; goal: string }) => void;
+  onCreateWiki: (context: {
+    conversationId: string | null;
+    goal: string;
+    title?: string;
+  }) => void;
 };
 
+const PROPOSAL_CARD_COPY = {
+  'en-US': {
+    action: 'Review & Create',
+    assistantEyebrow: 'Suggested Wiki Space',
+    hint: 'Review the name and purpose before creating. Your conversation stays attached.',
+    summaryEyebrow: 'Ready to start a Wiki Space?',
+  },
+  'zh-CN': {
+    action: '确认并创建',
+    assistantEyebrow: '建议创建的 Wiki 空间',
+    hint: '点击后需确认名称与用途才会创建，当前对话会自动延续。',
+    summaryEyebrow: '准备沉淀为 Wiki 空间？',
+  },
+} as const;
+
 export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
+  const language = useAppLanguage();
   const t = useT();
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<ChatMessageData[]>([]);
+  const [liveMessages, setLiveMessages] = React.useState<ChatMessageData[]>([]);
   const [lastGoal, setLastGoal] = React.useState('');
   const [isRestoring, setIsRestoring] = React.useState(true);
   const [isBusy, setIsBusy] = React.useState(false);
@@ -58,6 +83,7 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
           clearOnboardingConversationId(restoredConversationId);
           setConversationId(null);
           setMessages([]);
+          setLiveMessages([]);
           setLastGoal('');
           return;
         }
@@ -65,6 +91,7 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
         const messagePayload = await messagesResponse.json().catch(() => []);
         const restoredMessages = Array.isArray(messagePayload) ? messagePayload : [];
         setMessages(restoredMessages);
+        setLiveMessages(restoredMessages);
         setLastGoal(findLastUserGoal(restoredMessages));
       })
       .catch(() => {
@@ -94,6 +121,7 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
   );
 
   const handleMessagesChange = React.useCallback((nextMessages: ChatMessageData[]) => {
+    setLiveMessages(nextMessages);
     const nextGoal = findLastUserGoal(nextMessages);
     if (!nextGoal) {
       return;
@@ -108,9 +136,16 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
     clearOnboardingConversationId(conversationId);
     setConversationId(null);
     setMessages([]);
+    setLiveMessages([]);
     setLastGoal('');
     setRestoreError(false);
   }, [conversationId]);
+
+  const proposal = React.useMemo(
+    () => deriveOnboardingWikiProposal(liveMessages),
+    [liveMessages]
+  );
+  const proposalCopy = PROPOSAL_CARD_COPY[language];
 
   return (
     <section
@@ -151,6 +186,7 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
             composerPlaceholder={t('home.chatPlaceholder')}
             conversationId={conversationId}
             emptyState={null}
+            formatAssistantMessage={stripOnboardingProposalBlocks}
             initialMessages={messages}
             onMessagesChange={handleMessagesChange}
             onBusyChange={setIsBusy}
@@ -162,6 +198,57 @@ export function HomeOnboardingChat({ onCreateWiki }: HomeOnboardingChatProps) {
           />
         )}
       </div>
+
+      {!isRestoring && !restoreError && !isBusy && proposal ? (
+        <div
+          className="mt-4 rounded-xl border border-border bg-card/90 p-4 shadow-sm"
+          data-testid="home-onboarding-proposal-card"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                <Sparkles aria-hidden="true" className="h-3.5 w-3.5 text-brand" />
+                <span>
+                  {proposal.source === 'assistant-structured'
+                    ? proposalCopy.assistantEyebrow
+                    : proposalCopy.summaryEyebrow}
+                </span>
+              </div>
+              <div
+                className="truncate text-sm font-semibold text-foreground"
+                data-testid="home-onboarding-proposal-title"
+              >
+                {proposal.title}
+              </div>
+              {proposal.purpose ? (
+                <p
+                  className="line-clamp-2 text-xs leading-5 text-muted-foreground"
+                  data-testid="home-onboarding-proposal-purpose"
+                >
+                  {proposal.purpose}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">{proposalCopy.hint}</p>
+            </div>
+            <Button
+              className="min-h-11 shrink-0 gap-1.5 sm:min-h-9"
+              data-testid="home-onboarding-proposal-action"
+              onClick={() =>
+                onCreateWiki({
+                  conversationId,
+                  goal: proposal.purpose || lastGoal,
+                  title: proposal.title,
+                })
+              }
+              size="sm"
+              type="button"
+            >
+              <BookOpen aria-hidden="true" className="h-3.5 w-3.5" />
+              {proposalCopy.action}
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {!isRestoring && !restoreError ? (
         <div className="flex justify-center pt-2">

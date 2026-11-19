@@ -52,7 +52,7 @@ export const controlPlaneTestGroups = [
     id: 'home',
     config: 'src/surfaces/home/playwright.config.ts',
     testDir: 'src/surfaces/home',
-    testMatch: ['onboarding-session.test.ts'],
+    testMatch: ['onboarding-proposal.test.ts', 'onboarding-session.test.ts'],
   },
   {
     id: 'execution-daemon',

@@ -17,6 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 
+import { suggestTitleFromGoal } from './onboarding-proposal';
+
 export type WikiCreateConfirmationPayload = {
   conversationId: string | null;
   purpose: string;
@@ -45,33 +47,65 @@ export type WikiCreateConfirmationDialogProps = {
   disableInputs?: boolean;
   errorMessage?: string | null;
   isSubmitting?: boolean;
+  mode?: 'page' | 'space';
   onConfirm: (payload: WikiCreateConfirmationPayload) => void | Promise<void>;
   onOpenChange: (open: boolean) => void;
   open: boolean;
+  parentProjectTitle?: string | null;
   suggestedGoal?: string | null;
   suggestedTitle?: string | null;
 };
 
 const LOCAL_COPY = {
   'en-US': {
-    description:
-      'Review the name and purpose before creating this Wiki Space. Nothing is created until you confirm.',
-    nameLabel: 'Wiki name',
-    purposeHint: 'Optional. Keep this to one short description of what belongs here.',
-    purposeLabel: 'Purpose',
-    purposePlaceholder: 'What should this Wiki help you keep or build?',
-    sessionContinuation:
-      'This Wiki Space will continue the same conversation, keeping its messages and context together.',
-    title: 'Create this Wiki Space?',
+    page: {
+      confirm: 'Create Page',
+      description: 'Add a new Page inside this Wiki Space.',
+      descriptionWithParent: (parent: string) =>
+        `This Page continues inside ${parent}.`,
+      nameLabel: 'Page name',
+      namePlaceholder: 'e.g. Architecture Notes, FAQ, Release Checklist',
+      nameRequired: 'Enter a page name or goal first.',
+      purposeHint: 'Optional. Briefly note what this Page should cover.',
+      purposeLabel: 'Goal',
+      purposePlaceholder: 'What should this Page cover or help you build?',
+      title: 'Create a new Page',
+    },
+    space: {
+      description:
+        'Review the name and purpose before creating this Wiki Space. Nothing is created until you confirm.',
+      nameLabel: 'Wiki name',
+      purposeHint: 'Optional. Keep this to one short description of what belongs here.',
+      purposeLabel: 'Purpose',
+      purposePlaceholder: 'What should this Wiki help you keep or build?',
+      sessionContinuation:
+        'This Wiki Space will continue the same conversation, keeping its messages and context together.',
+      title: 'Create this Wiki Space?',
+    },
   },
   'zh-CN': {
-    description: '创建前请确认名称和用途。只有你点击确认后，才会创建这个 Wiki 空间。',
-    nameLabel: 'Wiki 名称',
-    purposeHint: '选填。用一句话说明这里要长期沉淀或推进什么。',
-    purposeLabel: '用途',
-    purposePlaceholder: '这个 Wiki 要帮助你沉淀或完成什么？',
-    sessionContinuation: '创建后会在 Wiki 空间中继续同一对话，并保留当前消息和上下文。',
-    title: '确认创建这个 Wiki 空间？',
+    page: {
+      confirm: '创建页面',
+      description: '在当前 Wiki 空间里新增一个页面。',
+      descriptionWithParent: (parent: string) =>
+        `新页面会沿着「${parent}」继续展开。`,
+      nameLabel: '页面名称',
+      namePlaceholder: '例如：架构说明、FAQ、发布清单',
+      nameRequired: '请先填写页面名称或目标。',
+      purposeHint: '选填。用一句话说明这个页面要记录或推进什么。',
+      purposeLabel: '目标',
+      purposePlaceholder: '这个页面要沉淀或完成什么？',
+      title: '新建页面',
+    },
+    space: {
+      description: '创建前请确认名称和用途。只有你点击确认后，才会创建这个 Wiki 空间。',
+      nameLabel: 'Wiki 名称',
+      purposeHint: '选填。用一句话说明这里要长期沉淀或推进什么。',
+      purposeLabel: '用途',
+      purposePlaceholder: '这个 Wiki 要帮助你沉淀或完成什么？',
+      sessionContinuation: '创建后会在 Wiki 空间中继续同一对话，并保留当前消息和上下文。',
+      title: '确认创建这个 Wiki 空间？',
+    },
   },
 } as const;
 
@@ -82,9 +116,11 @@ export function WikiCreateConfirmationDialog({
   disableInputs = false,
   errorMessage = null,
   isSubmitting = false,
+  mode = 'space',
   onConfirm,
   onOpenChange,
   open,
+  parentProjectTitle = null,
   suggestedGoal = null,
   suggestedTitle = null,
 }: WikiCreateConfirmationDialogProps) {
@@ -100,9 +136,32 @@ export function WikiCreateConfirmationDialog({
   const [purpose, setPurpose] = React.useState('');
   const [nameError, setNameError] = React.useState<string | null>(null);
 
-  const copy = React.useMemo<WikiCreateConfirmationCopy>(
-    () => ({
-      ...LOCAL_COPY[language],
+  const copy = React.useMemo<WikiCreateConfirmationCopy>(() => {
+    const localized = LOCAL_COPY[language];
+    if (mode === 'page') {
+      const normalizedParent = parentProjectTitle?.trim() || '';
+      return {
+        cancel: t('common.cancel'),
+        confirm: localized.page.confirm,
+        description: normalizedParent
+          ? localized.page.descriptionWithParent(normalizedParent)
+          : localized.page.description,
+        nameLabel: localized.page.nameLabel,
+        namePlaceholder: localized.page.namePlaceholder,
+        nameRequired: localized.page.nameRequired,
+        purposeHint: localized.page.purposeHint,
+        purposeLabel: localized.page.purposeLabel,
+        purposePlaceholder: localized.page.purposePlaceholder,
+        sessionContinuation: localized.space.sessionContinuation,
+        submitting: t('goal.creatingDeliverable'),
+        title: localized.page.title,
+        ...copyOverrides,
+        ...(confirmLabel ? { confirm: confirmLabel } : {}),
+      };
+    }
+
+    return {
+      ...localized.space,
       cancel: t('common.cancel'),
       confirm: t('home.createWikiSpace'),
       namePlaceholder: t('sidebar.renameProjectPlaceholder'),
@@ -110,9 +169,8 @@ export function WikiCreateConfirmationDialog({
       submitting: t('goal.creatingProject'),
       ...copyOverrides,
       ...(confirmLabel ? { confirm: confirmLabel } : {}),
-    }),
-    [confirmLabel, copyOverrides, language, t]
-  );
+    };
+  }, [confirmLabel, copyOverrides, language, mode, parentProjectTitle, t]);
 
   React.useEffect(() => {
     if (!open) {
@@ -135,13 +193,21 @@ export function WikiCreateConfirmationDialog({
     [isSubmitting, onOpenChange]
   );
 
+  const canSubmit =
+    mode === 'page'
+      ? Boolean(title.trim() || purpose.trim())
+      : Boolean(title.trim());
+
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (isSubmitting) {
       return;
     }
 
-    const normalizedTitle = title.trim();
+    const normalizedPurpose = purpose.trim();
+    const normalizedTitle =
+      title.trim() ||
+      (mode === 'page' ? suggestTitleFromGoal(normalizedPurpose) : '');
     if (!normalizedTitle) {
       setNameError(copy.nameRequired);
       window.requestAnimationFrame(() => nameRef.current?.focus());
@@ -150,8 +216,8 @@ export function WikiCreateConfirmationDialog({
 
     setNameError(null);
     void onConfirm({
-      conversationId: conversationId?.trim() || null,
-      purpose: purpose.trim(),
+      conversationId: mode === 'space' ? conversationId?.trim() || null : null,
+      purpose: normalizedPurpose,
       title: normalizedTitle,
     });
   };
@@ -182,7 +248,7 @@ export function WikiCreateConfirmationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {conversationId ? (
+        {mode === 'space' && conversationId ? (
           <div
             className="flex min-w-0 items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3 text-sm"
             data-testid="wiki-create-session-continuation"
@@ -218,7 +284,7 @@ export function WikiCreateConfirmationDialog({
               }}
               placeholder={copy.namePlaceholder}
               ref={nameRef}
-              required
+              required={mode === 'space'}
               value={title}
             />
             {nameError ? (
@@ -238,7 +304,12 @@ export function WikiCreateConfirmationDialog({
               id={purposeId}
               maxLength={2000}
               name="wikiPurpose"
-              onChange={(event) => setPurpose(event.target.value)}
+              onChange={(event) => {
+                setPurpose(event.target.value);
+                if (nameError && mode === 'page' && event.target.value.trim()) {
+                  setNameError(null);
+                }
+              }}
               placeholder={copy.purposePlaceholder}
               value={purpose}
             />
@@ -273,7 +344,7 @@ export function WikiCreateConfirmationDialog({
               aria-describedby={isSubmitting ? submitStatusId : undefined}
               className="w-full sm:w-auto"
               data-testid="wiki-create-confirm"
-              disabled={isSubmitting || !title.trim()}
+              disabled={isSubmitting || !canSubmit}
               type="submit"
             >
               {isSubmitting ? (

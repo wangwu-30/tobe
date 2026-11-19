@@ -354,7 +354,8 @@ test('home Wiki rows can continue the next deliverable inside the same project',
 
   await page.getByTestId(`home-project-next-${firstWorkspace.workspace.id}`).click();
 
-  const dialog = page.getByRole('dialog');
+  const dialog = page.getByTestId('wiki-create-confirmation-dialog');
+  await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(projectTitle);
   await expect(dialog).toContainText(/沿着|continues inside/i);
   await expect(
@@ -363,15 +364,6 @@ test('home Wiki rows can continue the next deliverable inside the same project',
 
   await dialog.getByLabel(/目标|Goal/).fill('沿着当前项目继续下一份摘要交付物。');
   await dialog.getByRole('button', { name: /创建页面|Create Page/ }).click();
-  const clarifyAfterNextDeliverable = dialog.getByTestId('goal-intent-option-document');
-  if (
-    await clarifyAfterNextDeliverable
-      .waitFor({ state: 'visible', timeout: 1500 })
-      .then(() => true)
-      .catch(() => false)
-  ) {
-    await clarifyAfterNextDeliverable.getByRole('button', { name: /选择|Select/ }).click();
-  }
 
   const nextRoute = await waitForWorkspaceRoute(page, {
     excludeConversationId: firstWorkspace.conversation.id,
