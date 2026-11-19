@@ -46,6 +46,8 @@ import {
 import { canAccessProjectFromProject } from '@/objects/project-mount';
 import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 import { createStartExecutionJobTool } from '@/agent/tools/execution/start-execution-job';
+import { createReadKnowledgeDocTool } from '@/agent/tools/knowledge/read-knowledge-doc';
+import { createSearchKnowledgeTool } from '@/agent/tools/knowledge/search-knowledge';
 import { createPublishTeamTaskTool } from '@/agent/tools/team-task/publish-team-task';
 import { createProposeDocumentChangeTool } from '@/agent/tools/document/propose-document-change';
 import {
@@ -1402,6 +1404,20 @@ export function createWorkspaceAgentTools({
         };
       },
     }),
+    createSearchKnowledgeTool({
+      onAudit: onToolAudit,
+      organizationId,
+      rememberSummary: rememberToolSummary,
+      resolveProjectId: async () => (await loadCurrentProjectContext())?.id ?? null,
+      workspaceId,
+    }) as unknown as WorkspaceAgentTool,
+    createReadKnowledgeDocTool({
+      onAudit: onToolAudit,
+      organizationId,
+      rememberSummary: rememberToolSummary,
+      resolveProjectId: async () => (await loadCurrentProjectContext())?.id ?? null,
+      workspaceId,
+    }) as unknown as WorkspaceAgentTool,
   ];
 
   return {

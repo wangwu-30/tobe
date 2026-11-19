@@ -23,6 +23,7 @@ import {
   readKnowledgeIndexArtifactV1,
   type KnowledgeIndexArtifactV1,
 } from "@/agent/knowledge/index-builder";
+import { searchKnowledgeIndexArtifact } from "@/agent/knowledge/search";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { safeJsonParse } from "@/framework/resilience/safe-data";
 import { plateToMarkdown } from "@/lib/ai/serializer";
@@ -99,6 +100,7 @@ export class PrismaRoomHostContextSourceV1 implements RoomHostContextSourceV1 {
   private readonly knowledgeHitCharacters: number;
   private readonly knowledgeArtifactMaxBytes: number;
   private readonly readKnowledgeArtifact: RoomKnowledgeArtifactReaderV1;
+  private readonly hasCustomKnowledgeReader: boolean;
 
   constructor(options: PrismaRoomHostContextSourceOptionsV1) {
     this.organizationId = requireText(options.organizationId, "organizationId");
@@ -169,6 +171,7 @@ export class PrismaRoomHostContextSourceV1 implements RoomHostContextSourceV1 {
       "knowledgeArtifactMaxBytes",
       128 * 1024 * 1024,
     );
+    this.hasCustomKnowledgeReader = options.readKnowledgeArtifact !== undefined;
     this.readKnowledgeArtifact =
       options.readKnowledgeArtifact ?? readKnowledgeIndexArtifactV1;
   }
@@ -338,9 +341,11 @@ export class PrismaRoomHostContextSourceV1 implements RoomHostContextSourceV1 {
             now,
             organizationId: this.organizationId,
             projectId: session.room.projectId,
+            queryText: current.text,
             readArtifact: this.readKnowledgeArtifact,
             roomSessionId: session.id,
             searchTerms,
+            useCustomReader: this.hasCustomKnowledgeReader,
           })
         : [];
 
@@ -1064,9 +1069,11 @@ async function loadKnowledgeHits(
     hitLimit: number;
     maximumCharacters: number;
     artifactMaxBytes: number;
+    queryText: string;
     searchTerms: readonly string[];
     now: Date;
     readArtifact: RoomKnowledgeArtifactReaderV1;
+    useCustomReader: boolean;
   },
 ): Promise<RoomContextRetrievalHitInputV1[]> {
   const rows = await tx.$queryRaw<KnowledgeBindingRow[]>`
@@ -1131,6 +1138,61 @@ async function loadKnowledgeHits(
     ) {
       continue;
     }
+    const policyVersion = [
+      "ready-knowledge-v1",
+      toIso(row.bindingUpdatedAt),
+      toIso(row.spaceUpdatedAt),
+      toIso(row.readyAt),
+      row.artifactSha256,
+    ].join(":");
+
+    if (!input.useCustomReader && row.artifactPath.endsWith(".sqlite")) {
+      try {
+        const hits = await searchKnowledgeIndexArtifact({
+          artifactPath: row.artifactPath,
+          expectedCommitSha: row.commitSha,
+          expectedIndexVersion: row.indexVersion,
+          expectedSha256: row.artifactSha256,
+          limit: input.hitLimit,
+          maxArtifactBytes: input.artifactMaxBytes,
+          maxSnippetChars: input.maximumCharacters,
+          query: input.queryText,
+        });
+        for (const hit of hits) {
+          const sourceId = `${row.spaceId}:${hit.path}`;
+          candidates.push({
+            hitId: `hit_${hashRoomContextValueV1({
+              snapshotId: row.snapshotId,
+              path: hit.path,
+              contentSha256: hit.contentSha256,
+              start: hit.startOffset,
+            }).slice(0, 24)}`,
+            score: hit.score,
+            indexId: row.snapshotId,
+            indexVersion: row.indexVersion,
+            content: hit.snippet,
+            source: {
+              type: "knowledge",
+              id: sourceId,
+              revision: row.commitSha,
+              title: hit.heading ? `${hit.path} (${hit.heading})` : hit.path,
+            },
+            acl: resourceAcl({
+              agentId: input.agentId,
+              authorizationRef: row.bindingId,
+              organizationId: input.organizationId,
+              policyVersion,
+              resource: { type: "knowledge", sourceId },
+              roomSessionId: input.roomSessionId,
+            }),
+          });
+        }
+      } catch {
+        continue;
+      }
+      continue;
+    }
+
     let artifact: KnowledgeIndexArtifactV1;
     try {
       const metadata = await stat(row.artifactPath);
@@ -1146,13 +1208,6 @@ async function loadKnowledgeHits(
     ) {
       continue;
     }
-    const policyVersion = [
-      "ready-knowledge-v1",
-      toIso(row.bindingUpdatedAt),
-      toIso(row.spaceUpdatedAt),
-      toIso(row.readyAt),
-      row.artifactSha256,
-    ].join(":");
     for (const document of artifact.documents.slice(
       0,
       MAX_INDEX_DOCUMENTS_CONSIDERED,

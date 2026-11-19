@@ -16,6 +16,7 @@ export const controlPlaneTestGroups = [
       'src/agent/execution/registry.test.ts',
       'src/agent/execution/runtime-plugin-loader.test.ts',
       'src/agent/execution/workspace-lifecycle.test.ts',
+      'src/agent/knowledge/fts5-search.test.ts',
       'src/agent/knowledge/git-worktree.test.ts',
       'src/agent/knowledge/trusted-merge.test.ts',
       'src/agent/room-runtime/adapters/pi-agent-core.test.ts',

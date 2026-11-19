@@ -35,6 +35,8 @@ export type KnowledgeMergeOperationStatus =
   (typeof KNOWLEDGE_MERGE_OPERATION_STATUSES)[number];
 
 export const KNOWLEDGE_INDEX_VERSION_V1 = 'knowledge-index-v1' as const;
+export const KNOWLEDGE_INDEX_VERSION_V2_FTS5 = 'knowledge-index-v2-fts5' as const;
+export const DEFAULT_KNOWLEDGE_INDEX_VERSION = KNOWLEDGE_INDEX_VERSION_V2_FTS5;
 
 export type KnowledgeJsonValue =
   | boolean

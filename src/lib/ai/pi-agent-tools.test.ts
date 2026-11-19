@@ -131,6 +131,16 @@ const EXPECTED_TOOL_POLICIES: Record<
     safetyLevel: 'safe',
     writePolicy: 'workspace-write',
   },
+  search_knowledge: {
+    confirmationPolicy: 'automatic',
+    safetyLevel: 'safe',
+    writePolicy: 'read-only',
+  },
+  read_knowledge_doc: {
+    confirmationPolicy: 'automatic',
+    safetyLevel: 'safe',
+    writePolicy: 'read-only',
+  },
 };
 
 const ORG_A = 'gov-org-a';
