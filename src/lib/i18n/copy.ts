@@ -1361,6 +1361,17 @@ const COPY = {
     'knowledge.checkActivation': 'Check activation',
     'knowledge.activeSummary':
       'This reviewed revision is merged, indexed, and active for retrieval.',
+    'knowledge.proposeToWikiTitle': 'Propose to Wiki',
+    'knowledge.proposeToWikiHint':
+      'Stage a file from this active Git Knowledge snapshot into a bound Wiki Space as a reviewable proposal without altering the live draft.',
+    'knowledge.proposeToWikiFileAria': 'Knowledge file to propose',
+    'knowledge.proposeToWikiWorkspaceAria': 'Target Wiki Space',
+    'knowledge.proposeToWikiAction': 'Stage Wiki Proposal',
+    'knowledge.proposeToWikiBusy': 'Staging proposal…',
+    'knowledge.proposeToWikiSuccess':
+      'Staged "{path}" as a pending Wiki proposal. Review and apply it inside the Wiki Space.',
+    'knowledge.proposeToWikiOpenLink': 'Review in Wiki',
+    'knowledge.proposeToWikiFailed': 'Failed to stage Wiki proposal.',
     'knowledge.proposalStatusSummary': 'This proposal is {status}.',
     'knowledge.pipelineTitle': 'Trust pipeline',
     'knowledge.stageProposal': 'Proposal',
@@ -3137,6 +3148,17 @@ const COPY = {
     'knowledge.mergedIndexFinishing': '合入已完成，受信工作器正在完成索引激活。',
     'knowledge.checkActivation': '检查激活状态',
     'knowledge.activeSummary': '此已审阅修订已完成合入、索引并在检索中生效。',
+    'knowledge.proposeToWikiTitle': '提案写入 Wiki',
+    'knowledge.proposeToWikiHint':
+      '将当前生效 Git 知识快照中的文件作为待审提案提交到已绑定的 Wiki 空间，不会直接修改草稿。',
+    'knowledge.proposeToWikiFileAria': '要提案写入的知识文件',
+    'knowledge.proposeToWikiWorkspaceAria': '目标 Wiki 空间',
+    'knowledge.proposeToWikiAction': '生成 Wiki 审阅提案',
+    'knowledge.proposeToWikiBusy': '正在生成提案…',
+    'knowledge.proposeToWikiSuccess':
+      '已将“{path}”提交为待审 Wiki 提案，请前往对应 Wiki 空间审阅并应用。',
+    'knowledge.proposeToWikiOpenLink': '前往 Wiki 审阅',
+    'knowledge.proposeToWikiFailed': '提交 Wiki 提案失败。',
     'knowledge.proposalStatusSummary': '当前提案状态：{status}。',
     'knowledge.pipelineTitle': '受信流水线',
     'knowledge.stageProposal': '提案',

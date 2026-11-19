@@ -29,7 +29,11 @@ import {
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useT } from '@/components/providers/language-provider';
-import type { KnowledgeChangeRequestDetail } from '@/lib/knowledge/client';
+import {
+  proposeKnowledgeToWikiClient,
+  type KnowledgeChangeRequestDetail,
+  type KnowledgeWorkspaceOption,
+} from '@/lib/knowledge/client';
 import { formatStableDateTime } from '@/lib/time';
 import type { KnowledgeChangeRequestDto, KnowledgeMergeOperationDto } from '@/objects/knowledge';
 
@@ -44,6 +48,7 @@ import {
 type BusyAction = 'approve' | 'merge' | 'reject' | null;
 
 export function KnowledgeReviewWorkspace({
+  boundWorkspaces = [],
   busyAction,
   changes,
   detail,
@@ -60,6 +65,7 @@ export function KnowledgeReviewWorkspace({
   queueError,
   selectedId,
 }: {
+  boundWorkspaces?: KnowledgeWorkspaceOption[];
   busyAction: BusyAction;
   changes: KnowledgeChangeRequestDto[];
   detail: KnowledgeChangeRequestDetail | null;
@@ -155,7 +161,7 @@ export function KnowledgeReviewWorkspace({
             title={t('knowledge.detailErrorTitle')}
           />
         ) : detail ? (
-          <KnowledgeReviewDetail busyAction={busyAction} detail={detail} onMerge={onMerge} onRefresh={onRefresh} onReview={onReview} pollError={pollError} proposalGoal={proposalGoal} proposerLabel={proposerLabel} />
+          <KnowledgeReviewDetail boundWorkspaces={boundWorkspaces} busyAction={busyAction} detail={detail} onMerge={onMerge} onRefresh={onRefresh} onReview={onReview} pollError={pollError} proposalGoal={proposalGoal} proposerLabel={proposerLabel} />
         ) : (
           <KnowledgeState text={changes.length ? t('knowledge.selectProposalPrompt') : t('knowledge.noProposalSelected')} />
         )}
@@ -165,6 +171,7 @@ export function KnowledgeReviewWorkspace({
 }
 
 function KnowledgeReviewDetail({
+  boundWorkspaces,
   busyAction,
   detail,
   onMerge,
@@ -174,6 +181,7 @@ function KnowledgeReviewDetail({
   proposalGoal,
   proposerLabel,
 }: {
+  boundWorkspaces: KnowledgeWorkspaceOption[];
   busyAction: BusyAction;
   detail: KnowledgeChangeRequestDetail;
   onMerge: () => Promise<boolean>;
@@ -188,7 +196,30 @@ function KnowledgeReviewDetail({
   const [note, setNote] = React.useState(change.reviewNote ?? '');
   const [rejectDialogOpen, setRejectDialogOpen] = React.useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = React.useState(false);
-  React.useEffect(() => setNote(change.reviewNote ?? ''), [change.id, change.reviewNote]);
+  const metadata = readDiffMetadata(change.diffMetadata);
+  const [bridgeFile, setBridgeFile] = React.useState(metadata.files[0] ?? '');
+  const [bridgeWorkspaceId, setBridgeWorkspaceId] = React.useState(
+    boundWorkspaces[0]?.id ?? ''
+  );
+  const [bridgeBusy, setBridgeBusy] = React.useState(false);
+  const [bridgeError, setBridgeError] = React.useState<string | null>(null);
+  const [bridgeResult, setBridgeResult] = React.useState<{
+    documentPath: string;
+    workspaceId: string;
+  } | null>(null);
+  React.useEffect(() => {
+    setNote(change.reviewNote ?? '');
+    setBridgeFile(readDiffMetadata(change.diffMetadata).files[0] ?? '');
+    setBridgeError(null);
+    setBridgeResult(null);
+  }, [change.diffMetadata, change.id, change.reviewNote]);
+  React.useEffect(() => {
+    setBridgeWorkspaceId((current) =>
+      boundWorkspaces.some((item) => item.id === current)
+        ? current
+        : (boundWorkspaces[0]?.id ?? '')
+    );
+  }, [boundWorkspaces]);
   const savedNote = change.reviewNote ?? '';
   const noteDirty = note !== savedNote;
   const busy = busyAction !== null;
@@ -200,8 +231,42 @@ function KnowledgeReviewDetail({
   const operation = detail.mergeOperations[0];
   const queueBusy = operation?.status === 'queued' || operation?.status === 'running';
   const operationMatchesRevision = operation?.expectedRevision === change.revision;
-  const activeForProposal = detail.activeSnapshot?.commitSha === change.headCommit;
-  const metadata = readDiffMetadata(change.diffMetadata);
+  const activeForProposal =
+    detail.activeSnapshot !== null &&
+    (detail.activeSnapshot.commitSha === change.headCommit ||
+      (change.mergedCommit !== null &&
+        detail.activeSnapshot.commitSha === change.mergedCommit));
+  const canProposeToWiki =
+    activeForProposal &&
+    metadata.files.length > 0 &&
+    boundWorkspaces.length > 0;
+  const handleProposeToWiki = async () => {
+    if (!bridgeFile || !bridgeWorkspaceId || bridgeBusy) return;
+    setBridgeBusy(true);
+    setBridgeError(null);
+    setBridgeResult(null);
+    try {
+      const result = await proposeKnowledgeToWikiClient({
+        documentPath: bridgeFile,
+        spaceId: detail.space.id,
+        workspaceId: bridgeWorkspaceId,
+      });
+      if (!result.ok) {
+        setBridgeError(result.error);
+      } else {
+        setBridgeResult({
+          documentPath: result.data.source.documentPath,
+          workspaceId: result.data.workspaceId,
+        });
+      }
+    } catch (caught) {
+      setBridgeError(
+        caught instanceof Error ? caught.message : t('knowledge.proposeToWikiFailed')
+      );
+    } finally {
+      setBridgeBusy(false);
+    }
+  };
   const changeStatusLabel = formatKnowledgeStatusLabel(change.status, t);
   const operationStatusLabel = operation
     ? formatKnowledgeStatusLabel(operation.status, t)
@@ -388,9 +453,95 @@ function KnowledgeReviewDetail({
         ) : change.status === 'merged' && !activeForProposal ? (
           <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-muted-foreground">{operation?.status === 'failed' ? t('knowledge.mergedIndexFailed') : t('knowledge.mergedIndexFinishing')}</p><Button onClick={() => void onRefresh()} variant="outline"><RefreshCw aria-hidden="true" /> {t('knowledge.checkActivation')}</Button></div>
         ) : (
-          <p className="text-sm text-muted-foreground">
-            {activeForProposal ? t('knowledge.activeSummary') : t('knowledge.proposalStatusSummary', { status: changeStatusLabel.toLowerCase() })}
-          </p>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {activeForProposal ? t('knowledge.activeSummary') : t('knowledge.proposalStatusSummary', { status: changeStatusLabel.toLowerCase() })}
+            </p>
+            {canProposeToWiki ? (
+              <div
+                className="rounded-lg border bg-muted/20 p-4"
+                data-testid="knowledge-propose-to-wiki"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">
+                      {t('knowledge.proposeToWikiTitle')}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      {t('knowledge.proposeToWikiHint')}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      aria-label={t('knowledge.proposeToWikiFileAria')}
+                      className="h-9 rounded-md border border-input bg-background px-2.5 text-xs text-foreground"
+                      disabled={bridgeBusy}
+                      onChange={(event) => setBridgeFile(event.target.value)}
+                      value={bridgeFile}
+                    >
+                      {metadata.files.map((file) => (
+                        <option key={file} value={file}>
+                          {file}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={t('knowledge.proposeToWikiWorkspaceAria')}
+                      className="h-9 rounded-md border border-input bg-background px-2.5 text-xs text-foreground"
+                      disabled={bridgeBusy}
+                      onChange={(event) => setBridgeWorkspaceId(event.target.value)}
+                      value={bridgeWorkspaceId}
+                    >
+                      {boundWorkspaces.map((workspace) => (
+                        <option key={workspace.id} value={workspace.id}>
+                          {workspace.title}
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      aria-busy={bridgeBusy}
+                      data-testid="knowledge-propose-to-wiki-button"
+                      disabled={bridgeBusy || !bridgeFile || !bridgeWorkspaceId}
+                      onClick={() => void handleProposeToWiki()}
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                    >
+                      {bridgeBusy ? (
+                        <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
+                      ) : null}
+                      {bridgeBusy
+                        ? t('knowledge.proposeToWikiBusy')
+                        : t('knowledge.proposeToWikiAction')}
+                    </Button>
+                  </div>
+                </div>
+                {bridgeError ? (
+                  <p className="mt-2 text-xs text-destructive" role="alert">
+                    {bridgeError}
+                  </p>
+                ) : null}
+                {bridgeResult ? (
+                  <div
+                    className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300"
+                    data-testid="knowledge-propose-to-wiki-success"
+                    role="status"
+                  >
+                    <span>
+                      {t('knowledge.proposeToWikiSuccess', {
+                        path: bridgeResult.documentPath,
+                      })}
+                    </span>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={`/workspace/${bridgeResult.workspaceId}`}>
+                        {t('knowledge.proposeToWikiOpenLink')}
+                      </Link>
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         )}
       </div>
     </article>

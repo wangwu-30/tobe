@@ -405,6 +405,18 @@ export function KnowledgeCenter() {
             {error ? <KnowledgeNotice tone="error" onDismiss={() => setError(null)}>{error}</KnowledgeNotice> : null}
             {view === 'reviews' ? (
               <KnowledgeReviewWorkspace
+                boundWorkspaces={
+                  detail
+                    ? workspaces.filter((workspace) =>
+                        bindings.some(
+                          (binding) =>
+                            binding.spaceId === detail.space.id &&
+                            binding.workspaceId === workspace.id &&
+                            binding.agentId === null
+                        )
+                      )
+                    : []
+                }
                 busyAction={busyAction}
                 changes={changes}
                 detail={detail}

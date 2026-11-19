@@ -47,6 +47,10 @@ export class TrustedKnowledgeGitError extends Error {
   }
 }
 
+export type TrustedKnowledgeMergeStrategyV1 =
+  | 'fast-forward-only'
+  | 'non-overlapping-three-way';
+
 export type TrustedKnowledgeMergeInputV1 = {
   repositoryPath: string;
   defaultBranch: string;
@@ -54,6 +58,7 @@ export type TrustedKnowledgeMergeInputV1 = {
   baseCommit: string;
   headCommit: string;
   expectedPatchSha256?: string | null;
+  mergeStrategy?: TrustedKnowledgeMergeStrategyV1;
 };
 
 export type TrustedKnowledgeDiffV1 = {
@@ -127,8 +132,19 @@ export class LocalTrustedKnowledgeGitPortV1
     if (current === validated.headCommit) {
       return { schemaVersion: 1, mergedCommit: current, replayed: true };
     }
+    const strategy = input.mergeStrategy ?? 'fast-forward-only';
     if (current !== validated.baseCommit) {
-      throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+      if (strategy !== 'non-overlapping-three-way') {
+        throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+      }
+      return this.mergeNonOverlappingThreeWay({
+        baseCommit: validated.baseCommit,
+        currentCommit: current,
+        defaultRef,
+        headCommit: validated.headCommit,
+        proposalBranch: input.proposalBranch,
+        repositoryPath: validated.repositoryPath,
+      });
     }
 
     try {
@@ -158,6 +174,136 @@ export class LocalTrustedKnowledgeGitPortV1
         conflict: true,
       });
     }
+  }
+
+  private async mergeNonOverlappingThreeWay(input: {
+    baseCommit: string;
+    currentCommit: string;
+    defaultRef: string;
+    headCommit: string;
+    proposalBranch: string;
+    repositoryPath: string;
+  }): Promise<TrustedKnowledgeMergeResultV1> {
+    const alreadyMerged = await this.git(
+      input.repositoryPath,
+      ['merge-base', '--is-ancestor', input.headCommit, input.currentCommit],
+      [0, 1]
+    );
+    if (alreadyMerged.exitCode === 0) {
+      return {
+        schemaVersion: 1,
+        mergedCommit: input.currentCommit,
+        replayed: true,
+      };
+    }
+
+    const baseIsAncestor = await this.git(
+      input.repositoryPath,
+      ['merge-base', '--is-ancestor', input.baseCommit, input.currentCommit],
+      [0, 1]
+    );
+    if (baseIsAncestor.exitCode !== 0) {
+      throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+    }
+
+    const [currentChanged, proposalChanged] = await Promise.all([
+      this.changedFileSet(input.repositoryPath, input.baseCommit, input.currentCommit),
+      this.changedFileSet(input.repositoryPath, input.baseCommit, input.headCommit),
+    ]);
+    for (const filePath of proposalChanged) {
+      if (currentChanged.has(filePath)) {
+        throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+      }
+    }
+
+    const mergeBase = await this.git(
+      input.repositoryPath,
+      ['merge-base', input.currentCommit, input.headCommit],
+      [0, 1]
+    );
+    if (
+      mergeBase.exitCode !== 0 ||
+      mergeBase.stdout.toString('utf8').trim().toLowerCase() !== input.baseCommit
+    ) {
+      throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+    }
+
+    const mergeTree = await this.git(
+      input.repositoryPath,
+      ['merge-tree', '--write-tree', input.currentCommit, input.headCommit],
+      [0, 1]
+    );
+    if (mergeTree.exitCode !== 0) {
+      throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+    }
+    const mergedTreeOid = mergeTree.stdout
+      .toString('utf8')
+      .split(/\r?\n/)[0]
+      ?.trim()
+      .toLowerCase();
+    if (!mergedTreeOid || !OBJECT_ID.test(mergedTreeOid)) {
+      throw new TrustedKnowledgeGitError('default-ref-changed', { conflict: true });
+    }
+
+    const commitResult = await this.git(input.repositoryPath, [
+      '-c',
+      'user.name=Chengxing Knowledge Merge Worker',
+      '-c',
+      'user.email=knowledge-merge@local',
+      'commit-tree',
+      mergedTreeOid,
+      '-p',
+      input.currentCommit,
+      '-p',
+      input.headCommit,
+      '-m',
+      `Merge knowledge proposal ${input.proposalBranch}`,
+    ]);
+    const mergeCommit = commitResult.stdout.toString('utf8').trim().toLowerCase();
+    if (!OBJECT_ID.test(mergeCommit)) {
+      throw new TrustedKnowledgeGitError('git-command-failed');
+    }
+
+    try {
+      await this.git(input.repositoryPath, [
+        'update-ref',
+        input.defaultRef,
+        mergeCommit,
+        input.currentCommit,
+      ]);
+      return {
+        schemaVersion: 1,
+        mergedCommit: mergeCommit,
+        replayed: false,
+      };
+    } catch (error) {
+      throw new TrustedKnowledgeGitError('default-ref-changed', {
+        cause: error,
+        conflict: true,
+      });
+    }
+  }
+
+  private async changedFileSet(
+    repositoryPath: string,
+    baseCommit: string,
+    targetCommit: string
+  ): Promise<Set<string>> {
+    const diff = await this.git(repositoryPath, [
+      'diff',
+      '--name-only',
+      '-z',
+      '--no-renames',
+      baseCommit,
+      targetCommit,
+      '--',
+    ]);
+    return new Set(
+      diff.stdout
+        .toString('utf8')
+        .split('\0')
+        .filter((entry) => entry.length > 0)
+    );
   }
 
   private async validate(input: TrustedKnowledgeMergeInputV1) {

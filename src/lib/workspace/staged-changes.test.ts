@@ -8,6 +8,10 @@ import { promisify } from 'node:util';
 import { createClient, type Client, type InValue } from '@libsql/client';
 import { expect, test } from '@playwright/test';
 
+import {
+  KNOWLEDGE_INDEX_VERSION_V2_FTS5,
+  LocalKnowledgeIndexBuilderV1,
+} from '@/agent/knowledge/index-builder';
 import type { StagedChangePatchInput } from '@/lib/workspace/planning';
 import type { StagedChangePatchData, StagedChangeSetData } from '@/types';
 import type * as StagedChangesTestBackend from './staged-changes-test-entry';
@@ -89,6 +93,11 @@ test.describe.serial('staged document proposal acceptance', () => {
     await client.execute('DROP TRIGGER IF EXISTS drift_comment_source_file');
     await client.execute('DROP TRIGGER IF EXISTS drift_comment_source_document');
     await client.execute('DROP TRIGGER IF EXISTS drift_workspace_version_document');
+    await client.execute('DELETE FROM "KnowledgeMergeOperation"');
+    await client.execute('DELETE FROM "KnowledgeSnapshot"');
+    await client.execute('DELETE FROM "KnowledgeChangeRequest"');
+    await client.execute('DELETE FROM "KnowledgeBinding"');
+    await client.execute('DELETE FROM "KnowledgeSpace"');
     await client.execute('DELETE FROM "MutationRequest"');
     await client.execute('DELETE FROM "StagedChangeSet"');
     await client.execute('DELETE FROM "Label"');
@@ -1036,6 +1045,212 @@ test.describe.serial('staged document proposal acceptance', () => {
       [proposal.id]
     )).toMatchObject({ revision: 2, status: 'applied' });
   });
+
+  test('allowNonOverlappingRebase applies unrelated file changes after draftRevision drift but still rejects touched-file drift', async () => {
+    const proposal = await createProposal([
+      updateOperation({
+        content: NOTES_CONTENT,
+        fileId: NOTES_FILE_ID,
+        name: 'notes.md',
+        nextContent: 'Rebased notes update',
+        revision: 5,
+      }),
+    ]);
+
+    // Simulate an unrelated edit on main.md that bumped Document.draftRevision.
+    await execute(
+      `UPDATE "WorkspaceFile"
+       SET "content" = '# Unrelated human edit', "revision" = 4
+       WHERE "id" = ?`,
+      [PRIMARY_FILE_ID]
+    );
+    await execute(
+      `UPDATE "Document"
+       SET "content" = '# Unrelated human edit', "draftRevision" = 9
+       WHERE "id" = ?`,
+      [WORKSPACE_ID]
+    );
+
+    // Default apply remains strict fail-closed on draftRevision drift.
+    await expectConflict(
+      backend.applyStagedChangeSet(ACTOR, {
+        changeSetId: proposal.id,
+        expectedRevision: proposal.revision,
+        workspaceId: WORKSPACE_ID,
+      })
+    );
+
+    // Opt-in non-overlapping rebase succeeds because notes.md preimage still matches.
+    const applied = await backend.applyStagedChangeSet(ACTOR, {
+      allowNonOverlappingRebase: true,
+      changeSetId: proposal.id,
+      expectedRevision: proposal.revision,
+      workspaceId: WORKSPACE_ID,
+    });
+    expect(applied.status).toBe('applied');
+    expect(await readDocument()).toMatchObject({
+      content: '# Unrelated human edit',
+      draftRevision: 10,
+      revision: 2,
+    });
+    expect(await queryOne(
+      `SELECT "content", "revision" FROM "WorkspaceFile" WHERE "id" = ?`,
+      [NOTES_FILE_ID]
+    )).toMatchObject({ content: 'Rebased notes update', revision: 6 });
+    expect(await queryOne(
+      `SELECT "content", "revision" FROM "WorkspaceFile" WHERE "id" = ?`,
+      [PRIMARY_FILE_ID]
+    )).toMatchObject({ content: '# Unrelated human edit', revision: 4 });
+
+    // A second proposal targeting notes.md MUST still conflict even with allowNonOverlappingRebase=true
+    // when notes.md itself has drifted since the proposal was staged.
+    const staleProposal = await createProposal(
+      [
+        updateOperation({
+          content: 'Rebased notes update',
+          fileId: NOTES_FILE_ID,
+          name: 'notes.md',
+          nextContent: 'Stale notes overwrite',
+          revision: 6,
+        }),
+      ],
+      { baseDraftRevision: 10 }
+    );
+    await execute(
+      `UPDATE "WorkspaceFile"
+       SET "content" = 'Human edited notes concurrently', "revision" = 7
+       WHERE "id" = ?`,
+      [NOTES_FILE_ID]
+    );
+    await execute(
+      `UPDATE "Document" SET "draftRevision" = 11 WHERE "id" = ?`,
+      [WORKSPACE_ID]
+    );
+    await expectConflict(
+      backend.applyStagedChangeSet(ACTOR, {
+        allowNonOverlappingRebase: true,
+        changeSetId: staleProposal.id,
+        expectedRevision: staleProposal.revision,
+        workspaceId: WORKSPACE_ID,
+      })
+    );
+    expect(await queryOne(
+      `SELECT "content", "revision" FROM "WorkspaceFile" WHERE "id" = ?`,
+      [NOTES_FILE_ID]
+    )).toMatchObject({ content: 'Human edited notes concurrently', revision: 7 });
+  });
+
+  test('proposeKnowledgeToWikiChangeSet stages verified bound FTS5 knowledge as pending StagedChangeSet and fails closed when unbound', async () => {
+    const repoPath = path.join(temporaryRoot, 'bridge-knowledge-repo');
+    const artifactRoot = path.join(temporaryRoot, 'bridge-knowledge-indexes');
+    await fs.mkdir(path.join(repoPath, 'docs'), { recursive: true });
+    await run('git', ['init'], { cwd: repoPath });
+    await run('git', ['checkout', '-b', 'main'], { cwd: repoPath });
+    await fs.writeFile(
+      path.join(repoPath, 'docs', 'architecture.md'),
+      '# Architecture Notes\n\nVerified knowledge from Git space.\n',
+      'utf8'
+    );
+    await run('git', ['add', '.'], { cwd: repoPath });
+    await run(
+      'git',
+      ['-c', 'user.name=Test', '-c', 'user.email=test@example.test', 'commit', '-m', 'seed knowledge'],
+      { cwd: repoPath }
+    );
+    const commitSha = (await run('git', ['rev-parse', 'HEAD'], { cwd: repoPath })).stdout.trim();
+
+    const builder = new LocalKnowledgeIndexBuilderV1({ artifactRoot });
+    const built = await builder.build({
+      commitSha,
+      indexVersion: KNOWLEDGE_INDEX_VERSION_V2_FTS5,
+      repositoryPath: repoPath,
+      spaceId: 'bridge-space',
+    });
+
+    const now = '2026-08-22T10:00:00.000Z';
+    await client.executeMultiple(`
+      INSERT INTO "KnowledgeSpace"
+        ("id", "organizationId", "scope", "repoPath", "defaultBranch",
+         "readPolicy", "writePolicy", "createdAt", "updatedAt")
+      VALUES
+        ('bridge-space', '${ORGANIZATION_ID}', 'team', '${repoPath}', 'main',
+         'team', 'propose', '${now}', '${now}'),
+        ('unbound-space', '${ORGANIZATION_ID}', 'team', '${repoPath}', 'main',
+         'team', 'propose', '${now}', '${now}');
+
+      INSERT INTO "KnowledgeChangeRequest"
+        ("id", "organizationId", "jobId", "attemptId", "spaceId",
+         "baseCommit", "headCommit", "branchName", "status",
+         "reviewerId", "reviewedAt", "mergedCommit", "mergedAt",
+         "createdAt", "updatedAt")
+      VALUES
+        ('bridge-cr', '${ORGANIZATION_ID}', 'job-1', 'attempt-1', 'bridge-space',
+         '${commitSha}', '${commitSha}', 'proposal/bridge', 'merged',
+         '${USER_ID}', '${now}', '${commitSha}', '${now}',
+         '${now}', '${now}'),
+        ('unbound-cr', '${ORGANIZATION_ID}', 'job-2', 'attempt-2', 'unbound-space',
+         '${commitSha}', '${commitSha}', 'proposal/unbound', 'merged',
+         '${USER_ID}', '${now}', '${commitSha}', '${now}',
+         '${now}', '${now}');
+
+      INSERT INTO "KnowledgeSnapshot"
+        ("id", "organizationId", "spaceId", "changeRequestId", "commitSha",
+         "indexVersion", "artifactPath", "artifactSha256", "readyAt", "createdAt")
+      VALUES
+        ('bridge-snap', '${ORGANIZATION_ID}', 'bridge-space', 'bridge-cr', '${commitSha}',
+         '${KNOWLEDGE_INDEX_VERSION_V2_FTS5}', '${built.artifactPath}', '${built.artifactSha256}', '${now}', '${now}'),
+        ('unbound-snap', '${ORGANIZATION_ID}', 'unbound-space', 'unbound-cr', '${commitSha}',
+         '${KNOWLEDGE_INDEX_VERSION_V2_FTS5}', '${built.artifactPath}', '${built.artifactSha256}', '${now}', '${now}');
+
+      UPDATE "KnowledgeSpace" SET "activeSnapshotId" = 'bridge-snap' WHERE "id" = 'bridge-space';
+      UPDATE "KnowledgeSpace" SET "activeSnapshotId" = 'unbound-snap' WHERE "id" = 'unbound-space';
+
+      INSERT INTO "KnowledgeBinding"
+        ("id", "organizationId", "workspaceId", "spaceId", "mountPath", "access", "createdAt", "updatedAt")
+      VALUES
+        ('bridge-binding', '${ORGANIZATION_ID}', '${WORKSPACE_ID}', 'bridge-space', 'knowledge/arch', 'read', '${now}', '${now}');
+    `);
+
+    const filesBefore = await readFiles();
+
+    // Unbound space MUST fail closed (404 NotFound).
+    await expect(
+      backend.proposeKnowledgeToWikiChangeSet(ACTOR, {
+        documentPath: 'docs/architecture.md',
+        spaceId: 'unbound-space',
+        workspaceId: WORKSPACE_ID,
+      })
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    // Bound space stages a pending StagedChangeSet without mutating the live draft.
+    const staged = await backend.proposeKnowledgeToWikiChangeSet(ACTOR, {
+      documentPath: 'docs/architecture.md',
+      spaceId: 'bridge-space',
+      workspaceId: WORKSPACE_ID,
+    });
+    expect(staged.changeSet.status).toBe('pending');
+    expect(staged.changeSet.sourceType).toBe('knowledge-bridge');
+    expect(staged.source).toEqual({
+      commitSha,
+      documentPath: 'docs/architecture.md',
+      snapshotId: 'bridge-snap',
+      spaceId: 'bridge-space',
+    });
+    expect(await readFiles()).toEqual(filesBefore);
+
+    // Human owner applies the staged knowledge import via standard transactional CAS.
+    const applied = await backend.applyStagedChangeSet(ACTOR, {
+      changeSetId: staged.changeSet.id,
+      expectedRevision: staged.changeSet.revision,
+      workspaceId: WORKSPACE_ID,
+    });
+    expect(applied.status).toBe('applied');
+    const filesAfter = await readFiles();
+    const imported = filesAfter.find((file) => file.name === 'architecture.md');
+    expect(imported).toBeDefined();
+    expect(imported?.content).toContain(`<!-- Source: Git Knowledge space=bridge-space path=docs/architecture.md commit=${commitSha.slice(0, 12)} -->`);
+    expect(imported?.content).toContain('Verified knowledge from Git space.');
+  });
 });
 
 function createProposalTool(rememberSummary: (summary: string) => void) {
@@ -1052,10 +1267,10 @@ function createProposalTool(rememberSummary: (summary: string) => void) {
 
 async function createProposal(
   changes: StagedChangePatchInput[],
-  overrides: { baseVersionId?: string } = {}
+  overrides: { baseDraftRevision?: number; baseVersionId?: string } = {}
 ) {
   return backend.createStagedChangeSet(ACTOR, {
-    baseDraftRevision: INITIAL_DRAFT_REVISION,
+    baseDraftRevision: overrides.baseDraftRevision ?? INITIAL_DRAFT_REVISION,
     baseVersionId: overrides.baseVersionId || BASE_VERSION_ID,
     changes,
     conversationId: SESSION_ID,

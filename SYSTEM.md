@@ -130,8 +130,7 @@ singleton Organization
   高级 Git Knowledge 边界。Runtime 只能读取冻结 binding/snapshot，并在 attempt 专属 isolated
   clone/workspace 和 proposal branch 中提出变更。
 - **KnowledgeChangeRequest / KnowledgeMergeOperation / KnowledgeSnapshot**
-  Git Knowledge 的人工评审、trusted expected-old CAS merge 与确定性索引状态。只有原子激活的
-  `ready` snapshot 可进入普通检索。
+  Git Knowledge 的人工评审、trusted expected-old CAS merge（默认 fast-forward-only，支持显式 opt-in 的无重叠文件 3-way `merge-tree`）与确定性索引状态（默认 `knowledge-index-v2-fts5` SQLite FTS5 BM25 + CJK trigram 快照，向下兼容 `knowledge-index-v1` JSON 校验）。只有原子激活的 `ready` snapshot 可进入普通检索与受治理的 `search_knowledge` / `read_knowledge_doc` 只读工具；owner 可将已绑定 ready snapshot 中的文档经受控桥接提案为待审 `StagedChangeSet`（`sourceType: 'knowledge-bridge'`）写入 Wiki，但仍须走人工审阅与事务 CAS apply，绝不直写 live draft。
 
 ## Agent 生命周期
 
@@ -159,7 +158,7 @@ capacity 或恢复语义。Chat 是产品默认入口；Room 不是第四种生�
 
 - AI 准备 **Suggested changes**，human owner **applies**。AI、Room Agent、Runtime 不得直接把建议修改写入 live Page draft。
 - human apply 对文件变更、Page revision、recovery checkpoint 和 suggested-change transition 使用单事务 CAS；
-  authorization/revision drift 或 late failure 不得留下部分效果。
+  默认严格要求 exact `draftRevision` 一致，显式 opt-in `allowNonOverlappingRebase: true` 仅允许无关文件推进 `draftRevision`，仍严格校验 `draftBaseVersionId` 与每个被改文件的 exact preimage revision/content hash；authorization/revision drift 或 late failure 不得留下部分效果。
 - `Version/State` 一旦创建不可修改；`Draft` 是唯一可变内容容器；`Label` 是版本分类机制。
 - 当前 draft comment 只对 exact revision 取得 source mutation authority。inherited comment 只是 review context。
 - Execution admission 只能接受由 owner 显式 `aligned` 的可见不可变 Page 版本；prompt、Room 消息、
@@ -176,14 +175,14 @@ capacity 或恢复语义。Chat 是产品默认入口；Room 不是第四种生�
 - OpenHands 在协议验证完成前保持 disabled、offline、capacity-zero 并 fail closed。
 - Git Knowledge 只有 read + propose 权限。Agent、Runtime、execution daemon 和普通 Web route 无权批准、
   更新 default ref 或激活索引。
-- trusted merge worker 必须重验 proposal/default ref 与 patch hash，再以 expected-old CAS 更新默认 ref。
+- trusted merge worker 必须重验 proposal/default ref 与 patch hash，再以 expected-old CAS 更新默认 ref；显式启用 `non-overlapping-three-way` 时仅在改动文件集完全不相交且无工作树 `git merge-tree --write-tree` 干净通过后才生成 merge commit 并继续使用 expected-old CAS 推进。
 - dirty/partial/drifted attempt workspace 进入 quarantine；不得猜测性接管或 force 覆盖未知状态。
 - `waiting-for-human` 是 durable suspension protocol，不得退化成重启 non-resumable Runtime。
 
 ### Context、授权与持久化
 
 - Room/Page/Git Knowledge context 必须有显式预算、稳定排序、ACL recheck、provenance、trust 和 truncation
-  记录；summary/cache 不是事实源。
+  记录；summary/cache 不是事实源。Room 预算总量与各类别上限保持无饥饿平衡（活跃 `Note` / `WorkflowPlaybook` 与 FTS5 Git Knowledge 命中桥接进入 Room 上下文），Studio Chat/Comment/Suggestion 按 `deliverable > project > user` 优先级施加有界字符与条数上限。
 - trusted local identity tuple 在进程启动时冻结。header 是 transport receipt，不是登录或认证。
 - `TeamTask`、Agent、Room、Execution 和 Knowledge 数据都按 singleton Organization 隔离；客户端不能覆盖
   server-resolved context。

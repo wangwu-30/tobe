@@ -1196,6 +1196,12 @@
 - 为什么：`LanguageProvider` 为保证 SSR 水合一致，首帧默认以 `'zh-CN'` 渲染，挂载后立即在 `useEffect` 中读取 `localStorage` 切换到 `'en-US'`，从而生成新的 `t` 函数引用。若数据拉取回调依赖 `t`，页面挂载后语言水合瞬间就会触发 `AbortController.abort()` 并重发第二次 API 请求，不仅造成多余网络往返，还会在测试拦截首请求（如 `deferInitialList`、请求计数断言或 `reloadResponse.json()`）时引发竞态失败。
 - 默认做法：纯派生文案的 `useMemo(..., [t])` 保留 `[t]` 以响应实时语言切换；所有驱动 `useEffect` 网络加载的 `load*` 回调统一用 `tRef.current(...)` 读错误兜底文案，确保切换 UI 语言永不中止或重发数据请求。
 
+### 59. SQLite FTS5 快照字节确定性、非重叠 Rebase/Merge 的 Opt-in 契约与 Plate Autoformat 光标定位
+
+- 结论：构建内容寻址的 `.sqlite` FTS5 知识索引快照时，必须显式固定 `PRAGMA page_size = 4096; PRAGMA journal_mode = DELETE; PRAGMA synchronous = FULL;`，按确定性顺序插入并使用单引号 `INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')` + `VACUUM;` 才能保证跨次构建 SHA-256 字节一致；同时，放宽 `StagedChangeSet` apply 或 Git Knowledge merge 的严格 CAS 时必须采用显式 opt-in 开关（`allowNonOverlappingRebase`、`mergeStrategy: 'non-overlapping-three-way'`）并保持默认严格 fail-closed，且永远继续校验被修改文件的精确 preimage/disjoint 集合；另外，测试 Plate Autoformat（如输入 `## ` 转 H2）时不要对段落文本直接 `.click()`（默认点在元素几何中心导致插入在句中），必须显式移至行尾换行并断言新空块已创建后再输入 Markdown 触发前缀。
+- 为什么：SQLite FTS5 若不固化页大小、关闭 WAL 并执行 `rebuild + VACUUM`，页内空闲字节会导致同一提交两次构建出不同 SHA-256，破坏索引幂等校验；双引号 `"rebuild"` 在标准 SQLite 语法中会被当成列名报错（`no such column: rebuild`）；若默认放宽 CAS 会破坏历史并发冲突与竞态安全契约；而 Playwright `.click()` 落在文本中间会把 `## ` 插成 `Draft sta## Quick Headingrter line`，偶发触发 Autoformat E2E 假失败。
+- 默认做法：为 `.sqlite` 索引提供重复构建字节 SHA-256 相等单测、英文 BM25 + 中日韩 trigram/双字降级检索单测；把所有放宽型 rebase/3-way merge 做成显式 opt-in 并配套“非重叠成功 + 重叠仍 409/conflict”双测；Plate 编辑器格式化 E2E 统一采用 `ControlOrMeta+a -> ArrowRight -> Enter` + `expect(blocks).toHaveCount(2)` 再键入前缀。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

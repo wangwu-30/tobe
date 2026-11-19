@@ -74,6 +74,7 @@ export const PATCH = defineRoute(async function PATCH(
 
   try {
     const applied = await applyStagedChangeSet(actor, {
+      allowNonOverlappingRebase: body.allowNonOverlappingRebase === true,
       changeSetId,
       checkpointTitle: body.checkpointTitle,
       expectedRevision: body.expectedRevision,

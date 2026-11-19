@@ -47,6 +47,89 @@ test('concurrent same-base proposals use CAS: one merges and one conflicts', asy
   expect(winner.value.mergedCommit).toMatch(/^[0-9a-f]{40}$/);
 });
 
+test('non-overlapping-three-way merges disjoint proposals cleanly and replays idempotently', async () => {
+  const fixture = await createFixture();
+  const first = await createProposal(
+    fixture.repoPath,
+    fixture.baseCommit,
+    'proposal/disjoint-a',
+    'docs/alpha.md',
+    '# Alpha\nFirst note\n'
+  );
+  const second = await createProposal(
+    fixture.repoPath,
+    fixture.baseCommit,
+    'proposal/disjoint-b',
+    'docs/beta.md',
+    '# Beta\nSecond note\n'
+  );
+  const port = new LocalTrustedKnowledgeGitPortV1();
+
+  const mergedFirst = await port.merge(first);
+  expect(mergedFirst).toEqual({
+    schemaVersion: 1,
+    mergedCommit: first.headCommit,
+    replayed: false,
+  });
+
+  const mergedSecond = await port.merge({
+    ...second,
+    mergeStrategy: 'non-overlapping-three-way',
+  });
+  expect(mergedSecond.replayed).toBe(false);
+  expect(mergedSecond.mergedCommit).toMatch(/^[0-9a-f]{40}$/);
+  expect(mergedSecond.mergedCommit).not.toBe(first.headCommit);
+  expect(mergedSecond.mergedCommit).not.toBe(second.headCommit);
+
+  // Verify the resulting main tree contains both disjoint files and the original README.
+  expect(await git(fixture.repoPath, ['show', `${mergedSecond.mergedCommit}:docs/alpha.md`])).toBe('# Alpha\nFirst note');
+  expect(await git(fixture.repoPath, ['show', `${mergedSecond.mergedCommit}:docs/beta.md`])).toBe('# Beta\nSecond note');
+  expect(await git(fixture.repoPath, ['show', `${mergedSecond.mergedCommit}:README.md`])).toBe('# Knowledge');
+
+  // Replaying the same proposal after merge-commit inclusion succeeds idempotently.
+  const replayed = await port.merge({
+    ...second,
+    mergeStrategy: 'non-overlapping-three-way',
+  });
+  expect(replayed).toEqual({
+    schemaVersion: 1,
+    mergedCommit: mergedSecond.mergedCommit,
+    replayed: true,
+  });
+});
+
+test('non-overlapping-three-way fails closed when both proposals touch the same file', async () => {
+  const fixture = await createFixture();
+  const first = await createProposal(
+    fixture.repoPath,
+    fixture.baseCommit,
+    'proposal/overlap-a',
+    'docs/shared.md',
+    '# Shared\nVersion A\n'
+  );
+  const second = await createProposal(
+    fixture.repoPath,
+    fixture.baseCommit,
+    'proposal/overlap-b',
+    'docs/shared.md',
+    '# Shared\nVersion B\n'
+  );
+  const port = new LocalTrustedKnowledgeGitPortV1();
+
+  await port.merge(first);
+
+  await expect(
+    port.merge({
+      ...second,
+      mergeStrategy: 'non-overlapping-three-way',
+    })
+  ).rejects.toMatchObject({
+    code: 'default-ref-changed',
+    conflict: true,
+  });
+  expect(await git(fixture.repoPath, ['rev-parse', 'refs/heads/main'])).toBe(first.headCommit);
+});
+
 test('exact replay succeeds after the default ref already reached the approved head', async () => {
   const fixture = await createFixture();
   const proposal = await createProposal(

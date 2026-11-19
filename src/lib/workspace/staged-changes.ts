@@ -33,6 +33,7 @@ type HumanActorContext = {
 };
 
 export type ApplyStagedChangeSetInput = {
+  allowNonOverlappingRebase?: boolean;
   changeSetId: string;
   checkpointTitle?: string;
   expectedRevision: number;
@@ -141,7 +142,15 @@ export async function applyStagedChangeSetInTransaction(
   });
   if (!workspace) throw new NotFoundError('Workspace not found.');
 
-  if (workspace.draftRevision !== proposal.baseDraftRevision) {
+  const allowNonOverlappingRebase = input.allowNonOverlappingRebase === true;
+  const expectedDraftRevision = allowNonOverlappingRebase
+    ? workspace.draftRevision
+    : proposal.baseDraftRevision!;
+  if (allowNonOverlappingRebase) {
+    if (workspace.draftRevision < proposal.baseDraftRevision!) {
+      proposalConflict('The document draft revision moved behind this proposal.');
+    }
+  } else if (workspace.draftRevision !== proposal.baseDraftRevision) {
     proposalConflict('The document draft revision no longer matches this proposal.');
   }
   if (workspace.draftBaseVersionId !== proposal.baseVersionId) {
@@ -172,7 +181,7 @@ export async function applyStagedChangeSetInTransaction(
     where: {
       deletedAt: null,
       draftBaseVersionId: proposal.baseVersionId,
-      draftRevision: proposal.baseDraftRevision!,
+      draftRevision: expectedDraftRevision,
       id: workspace.id,
       organizationId: actor.organizationId,
       ...(input.expectedWorkspaceRevision !== undefined
