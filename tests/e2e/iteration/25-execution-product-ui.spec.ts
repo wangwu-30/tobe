@@ -47,6 +47,8 @@ type CreateJobResponse = {
 
 let fixtures: ExecutionUiFixtures;
 
+test.use({ locale: "en-US" });
+
 test.describe.serial("Execution product UI with the real backend", () => {
   test.beforeAll(async ({}, testInfo) => {
     fixtures = await seedExecutionUiFixtures(baseURL(testInfo));

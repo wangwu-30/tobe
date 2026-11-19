@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { MessagesSquare, Sparkles } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import type { RoomAgent } from '@/lib/room/client';
 import type { RoomEventDtoV1, RoomMessageDtoV1 } from '@/objects/room';
 import type { PendingRoomMessage } from '@/surfaces/room/use-project-room';
@@ -64,6 +65,7 @@ export function RoomFeed({
   pendingMessages,
   renderEvent,
 }: RoomFeedProps) {
+  const t = useT();
   const scrollerRef = React.useRef<HTMLDivElement>(null);
   const contentRef = React.useRef<HTMLDivElement>(null);
   const shouldStickRef = React.useRef(true);
@@ -195,7 +197,7 @@ export function RoomFeed({
 
     let nextAnnouncement = '';
     if (messages.length > previousMessageCountRef.current) {
-      nextAnnouncement = '收到一条新的 Room 消息。';
+      nextAnnouncement = t('room.announceNewMessage');
     } else {
       const changedPending = [...pendingMessages]
         .reverse()
@@ -204,25 +206,25 @@ export function RoomFeed({
             previousPendingStatusRef.current.get(message.correlationId) !== message.status
         );
       if (changedPending?.status === 'error') {
-        nextAnnouncement = '消息发送失败，请重试或移除。';
+        nextAnnouncement = t('room.announceSendError');
       } else if (changedPending?.status === 'accepted') {
-        nextAnnouncement = '消息已接收，正在同步。';
+        nextAnnouncement = t('room.announceAccepted');
       } else if (changedPending?.status === 'pending') {
-        nextAnnouncement = '正在发送消息…';
+        nextAnnouncement = t('room.announceSending');
       }
     }
 
     previousMessageCountRef.current = messages.length;
     previousPendingStatusRef.current = nextPendingStatuses;
     if (nextAnnouncement) setAnnouncement(nextAnnouncement);
-  }, [durableItems.length, isLoading, messages.length, pendingMessages]);
+  }, [durableItems.length, isLoading, messages.length, pendingMessages, t]);
 
   return (
     <div className="relative min-h-0 flex-1">
       <div
         aria-atomic="false"
         aria-busy={isLoading}
-        aria-label="Room 消息记录"
+        aria-label={t('room.feedAria')}
         aria-live={isNearBottom ? 'polite' : 'off'}
         aria-relevant="additions text"
         className="min-h-0 h-full overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -237,7 +239,7 @@ export function RoomFeed({
         </span>
         <span aria-live="polite" className="sr-only">
           {!isNearBottom && unreadCount > 0
-            ? `有 ${unreadCount} 条新消息。使用“回到最新消息”可跳转到底部。`
+            ? t('room.unreadAnnouncement', { count: unreadCount })
             : ''}
         </span>
         <div
@@ -254,7 +256,7 @@ export function RoomFeed({
               className="mx-auto max-w-md px-6 py-16 text-center text-sm leading-6 text-muted-foreground"
               role="status"
             >
-              无法完整加载 Room 记录。请使用上方“重试”重新加载。
+              {t('room.historyLoadIncomplete')}
             </div>
           ) : messages.length === 0 &&
             pendingMessages.length === 0 &&
@@ -280,7 +282,7 @@ export function RoomFeed({
                   />
                 ) : (
                   <div
-                    aria-label="Durable Room event"
+                    aria-label={t('room.durableEventAria')}
                     aria-posinset={index + 1}
                     aria-setsize={durableItems.length}
                     data-testid="room-durable-event-feed"
@@ -311,7 +313,7 @@ export function RoomFeed({
             onClick={() => scrollToLatest()}
             type="button"
           >
-            <span className="truncate">回到最新消息</span>
+            <span className="truncate">{t('room.jumpToLatest')}</span>
             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
               {unreadCount}
             </span>
@@ -323,6 +325,7 @@ export function RoomFeed({
 }
 
 function EmptyRoom({ host }: { host: RoomAgent | null }) {
+  const t = useT();
   return (
     <div className="mx-auto flex max-w-md flex-col items-center px-6 py-16 text-center">
       <div
@@ -331,32 +334,34 @@ function EmptyRoom({ host }: { host: RoomAgent | null }) {
       >
         <MessagesSquare className="size-5 text-muted-foreground" />
       </div>
-      <h2 className="mt-4 text-base font-semibold">开始团队讨论</h2>
+      <h2 className="mt-4 text-base font-semibold">{t('room.emptyTitle')}</h2>
       <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
         {host ? (
           <>
-            默认由 <span className="font-medium text-foreground">{host.name}</span>{' '}
-            协调。输入 @ 可同时邀请多个专业 Agent。
+            {t('room.emptyBodyWithHostPrefix')}
+            <span className="font-medium text-foreground">{host.name}</span>
+            {t('room.emptyBodyWithHostSuffix')}
           </>
         ) : (
-          '发送第一条消息，或输入 @ 邀请专业 Agent。'
+          t('room.emptyBodyNoHost')
         )}
       </p>
       <div className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
         <Sparkles className="size-3" />
-        未点名时协调 Agent 会回应
+        {t('room.emptyCoordinatorHint')}
       </div>
     </div>
   );
 }
 
 function RoomFeedSkeleton({ isSlowLoading }: { isSlowLoading: boolean }) {
+  const t = useT();
   return (
     <div aria-live="polite" className="space-y-5 px-5 py-8" role="status">
-      <span className="sr-only">正在加载 Room 消息…</span>
+      <span className="sr-only">{t('room.loadingMessagesSr')}</span>
       {isSlowLoading ? (
         <p className="text-center text-xs leading-5 text-muted-foreground">
-          加载时间比预期更长。你可以等待，或使用上方刷新按钮重试。
+          {t('room.slowLoadingHint')}
         </p>
       ) : null}
       <div aria-hidden="true" className="space-y-5">

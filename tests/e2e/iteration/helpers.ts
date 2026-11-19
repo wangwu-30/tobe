@@ -182,11 +182,12 @@ export async function primeClientState(
   page: Page,
   options?: {
     commentAgents?: CommentAgentConfigData[];
+    language?: 'en-US' | 'zh-CN';
   }
 ) {
   await page.addInitScript((payload) => {
     const aiSettings = {
-      language: 'zh-CN',
+      language: payload.language,
       ...(payload.commentAgents.length > 0
         ? { commentAgents: payload.commentAgents }
         : {}),
@@ -197,6 +198,7 @@ export async function primeClientState(
     }
   }, {
     commentAgents: options?.commentAgents || [],
+    language: options?.language || 'zh-CN',
   });
 }
 

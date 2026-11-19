@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
@@ -72,6 +73,7 @@ export function RoomComposer({
   onSubmit,
   replyTo = null,
 }: RoomComposerProps) {
+  const t = useT();
   const [draft, setDraft] = React.useState<RoomComposerDraft>(EMPTY_DRAFT);
   const [selection, setSelection] = React.useState<RoomTextSelection>({
     end: 0,
@@ -190,7 +192,7 @@ export function RoomComposer({
         text: draft.text,
       });
       if (!accepted) {
-        setSubmitError('消息未发送，请检查连接后重试。');
+        setSubmitError(t('room.composerNotAccepted'));
         return;
       }
       setDraft(EMPTY_DRAFT);
@@ -198,14 +200,14 @@ export function RoomComposer({
       onCancelReply?.();
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
     } catch {
-      setSubmitError('消息发送失败，请检查连接后重试。');
+      setSubmitError(t('room.composerSendFailed'));
     } finally {
       setIsSubmitting(false);
       requestAnimationFrame(() =>
         textareaRef.current?.focus({ preventScroll: true })
       );
     }
-  }, [disabled, draft, isSubmitting, onCancelReply, onSubmit, replyTo?.messageId]);
+  }, [disabled, draft, isSubmitting, onCancelReply, onSubmit, replyTo?.messageId, t]);
 
   const focusAgentOption = React.useCallback(
     (nextIndex: number) => {
@@ -280,13 +282,15 @@ export function RoomComposer({
           <div className="flex items-start gap-2 border-b bg-muted/35 px-3 py-2 text-xs">
             <CornerDownLeft className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
             <div className="min-w-0 flex-1">
-              <span className="font-medium">回复 {actorName(replyTo)}</span>
+              <span className="font-medium">
+                {t('room.composerReplyingTo', { name: actorName(replyTo, t) })}
+              </span>
               <p className="mt-0.5 truncate text-muted-foreground">
                 {replyTo.text}
               </p>
             </div>
             <button
-              aria-label="取消回复"
+              aria-label={t('room.composerCancelReplyAria')}
               className="-mr-2 flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:-mr-1 sm:size-7"
               onClick={onCancelReply}
               type="button"
@@ -298,14 +302,15 @@ export function RoomComposer({
 
         {draft.mentions.length > 0 ? (
           <div
-            aria-label="已选择的 Agent"
+            aria-label={t('room.composerSelectedAgentsAria')}
             className="flex flex-wrap gap-1.5 px-3 pt-3"
           >
             {draft.mentions.map((mention) => {
               const agent = agents.find((item) => item.id === mention.agentId);
+              const displayName = agent?.name || mention.handle;
               return (
                 <button
-                  aria-label={`移除 ${agent?.name || mention.handle}`}
+                  aria-label={t('room.composerRemoveAgentAria', { name: displayName })}
                   className="inline-flex min-h-9 max-w-full items-center gap-1 rounded-full bg-violet-50 px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 motion-reduce:transition-none dark:bg-violet-950/40 dark:text-violet-300 sm:min-h-7"
                   key={mention.agentId}
                   onClick={() => {
@@ -316,7 +321,7 @@ export function RoomComposer({
                   type="button"
                 >
                   <Bot className="size-3" />
-                  <span className="truncate">{agent?.name || mention.handle}</span>
+                  <span className="truncate">{displayName}</span>
                   <X className="size-3" />
                 </button>
               );
@@ -325,7 +330,7 @@ export function RoomComposer({
         ) : null}
 
         <label className="sr-only" htmlFor={messageInputId}>
-          Room 消息
+          {t('room.composerInputLabel')}
         </label>
         <textarea
           aria-busy={isSubmitting}
@@ -350,15 +355,15 @@ export function RoomComposer({
           onKeyUp={updateSelection}
           placeholder={
             host
-              ? `和 ${host.name} 协调，或用 @ 选择专业 Agent…`
-              : '发送消息，或用 @ 选择专业 Agent…'
+              ? t('room.composerPlaceholderWithHost', { name: host.name })
+              : t('room.composerPlaceholderNoHost')
           }
           readOnly={isSubmitting}
           ref={textareaRef}
           value={draft.text}
         />
 
-        <div className="flex items-center justify-between gap-3 border-t px-2 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t px-2 py-2">
           <div className="flex min-w-0 items-center gap-1">
             <Popover open={agentMenuOpen} onOpenChange={setAgentMenuOpen}>
               <PopoverTrigger asChild>
@@ -366,8 +371,8 @@ export function RoomComposer({
                   aria-controls={agentMenuOpen ? agentMenuId : undefined}
                   aria-expanded={agentMenuOpen}
                   aria-haspopup="listbox"
-                  aria-label="选择 Agent"
-                  className="text-muted-foreground"
+                  aria-label={t('room.composerSelectAgent')}
+                  className="shrink-0 text-muted-foreground"
                   onKeyDown={(event) => {
                     if (
                       (event.key === 'ArrowDown' ||
@@ -392,7 +397,7 @@ export function RoomComposer({
                   variant="ghost"
                 >
                   <AtSign />
-                  <span className="hidden sm:inline">选择 Agent</span>
+                  <span className="hidden sm:inline">{t('room.composerSelectAgent')}</span>
                 </Button>
               </PopoverTrigger>
               <PopoverContent
@@ -410,10 +415,10 @@ export function RoomComposer({
                   className="px-2 pb-1.5 pt-1 text-xs font-medium text-foreground"
                   id={agentMenuHeadingId}
                 >
-                  选择 Agent
+                  {t('room.composerSelectAgent')}
                 </div>
                 <div className="px-2 pb-1.5 text-xs text-muted-foreground">
-                  可同时选择多个 Agent；选择后会写入结构化 mention。
+                  {t('room.composerSelectAgentHelp')}
                 </div>
                 <div
                   aria-labelledby={agentMenuHeadingId}
@@ -477,7 +482,7 @@ export function RoomComposer({
                             <span className="truncate">{agent.name}</span>
                             {agent.id === hostAgentId ? (
                               <span className="text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                                协调者
+                                {t('room.coordinatorRole')}
                               </span>
                             ) : null}
                           </span>
@@ -496,7 +501,7 @@ export function RoomComposer({
                       className="px-2 py-5 text-center text-xs text-muted-foreground"
                       role="status"
                     >
-                      没有匹配的 Agent
+                      {t('room.composerNoMatchingAgents')}
                     </div>
                   )}
                 </div>
@@ -504,33 +509,35 @@ export function RoomComposer({
             </Popover>
             <span className="hidden truncate text-xs text-muted-foreground md:inline">
               {draft.mentions.length === 0
-                ? '未点名时由协调 Agent 回应'
-                : `${draft.mentions.length} 位 Agent 将收到消息`}
+                ? t('room.composerDefaultCoordinatorHint')
+                : t('room.composerMentionCount', { count: draft.mentions.length })}
             </span>
             <span className="sr-only" id={composerHintId}>
-              输入 @ 可筛选 Agent 候选；按方向键进入候选列表，Command 或 Control 加 Enter 发送。
+              {t('room.composerHintSr')}
             </span>
             <span aria-live="polite" className="sr-only" id={mentionStatusId}>
               {agentMenuOpen && mentionQuery
                 ? filteredAgents.length > 0
-                  ? `已打开 Agent 候选，共 ${filteredAgents.length} 项。`
-                  : '没有匹配的 Agent。'
+                  ? t('room.composerCandidatesOpenedSr', { count: filteredAgents.length })
+                  : t('room.composerNoCandidatesSr')
                 : ''}
             </span>
             <span aria-live="polite" className="sr-only">
               {draft.mentions.length === 0
-                ? '未选择 Agent，将由协调 Agent 回应。'
-                : `已选择 ${draft.mentions.length} 位 Agent。`}
+                ? t('room.composerSelectedNoneSr')
+                : t('room.composerSelectedCountSr', { count: draft.mentions.length })}
             </span>
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
             <span className="hidden text-[11px] text-muted-foreground sm:inline">
-              ⌘&nbsp;/&nbsp;Ctrl&nbsp;+&nbsp;Enter 发送
+              {t('room.composerSendShortcut')}
             </span>
             <Button
               aria-busy={isSubmitting}
-              aria-label={isSubmitting ? '正在发送消息…' : '发送消息'}
+              aria-label={
+                isSubmitting ? t('room.composerSendingAria') : t('room.composerSendAria')
+              }
               data-testid="room-send-button"
               disabled={disabled || isSubmitting || !draft.text.trim()}
               size="icon-sm"
@@ -556,12 +563,12 @@ export function RoomComposer({
   );
 }
 
-function actorName(message: RoomMessageDtoV1) {
+function actorName(message: RoomMessageDtoV1, t: ReturnType<typeof useT>) {
   if (message.actor.type === 'human') {
-    return message.actor.displayName || '你';
+    return message.actor.displayName || t('room.actorYou');
   }
   if (message.actor.type === 'agent') {
     return message.actor.displayName || message.actor.handle;
   }
-  return '系统';
+  return t('room.actorSystem');
 }

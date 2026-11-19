@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { LoaderCircle, LockKeyhole } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -40,7 +41,6 @@ const HANDLE_PATTERN = /^@[a-z0-9][a-z0-9_-]*$/;
 const FORM_ERROR_ID = 'agent-editor-error';
 const SKILLS_HELP_ID = 'agent-skills-help';
 const SUBMIT_STATUS_ID = 'agent-editor-submit-status';
-const UNSAVED_CHANGES_CONFIRM = 'You have unsaved agent changes. Discard them?';
 
 function serializeAgentDraft({
   description,
@@ -67,6 +67,7 @@ export function AgentEditorDialog({
   onSaved,
   open,
 }: AgentEditorDialogProps) {
+  const t = useT();
   const [name, setName] = React.useState('');
   const [handle, setHandle] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -85,11 +86,12 @@ export function AgentEditorDialog({
   const editing = Boolean(agent);
   const readOnly = !canManage;
   const builtin = agent?.builtin === true;
+  const unsavedConfirm = t('agents.unsavedConfirm');
   const currentDraft = serializeAgentDraft({ description, enabled, handle, name, runtimeId, skills });
   const isDirty =
     open && !isSubmitting && draftBaseline !== null && currentDraft !== draftBaseline;
 
-  useNavigationBlocker(isDirty, UNSAVED_CHANGES_CONFIRM);
+  useNavigationBlocker(isDirty, unsavedConfirm);
 
   React.useEffect(() => {
     if (!open) return;
@@ -155,18 +157,15 @@ export function AgentEditorDialog({
     const cleanRuntimeId = runtimeId.trim();
 
     if (!cleanName) {
-      setValidationError('name', 'Enter a name for this agent.');
+      setValidationError('name', t('agents.validationName'));
       return;
     }
     if (!HANDLE_PATTERN.test(cleanHandle)) {
-      setValidationError(
-        'handle',
-        'Use a handle such as @researcher with letters, numbers, underscores, or hyphens.'
-      );
+      setValidationError('handle', t('agents.validationHandle'));
       return;
     }
     if (!cleanRuntimeId) {
-      setValidationError('runtime', 'Enter a Room runtime ID.');
+      setValidationError('runtime', t('agents.validationRuntime'));
       return;
     }
 
@@ -201,18 +200,14 @@ export function AgentEditorDialog({
             handle: cleanHandle,
           });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The agent could not be saved.');
+      setError(caught instanceof Error ? caught.message : t('agents.saveFailed'));
       setIsSubmitting(false);
       window.requestAnimationFrame(() => errorRef.current?.focus());
       return;
     }
 
     if (!result.ok) {
-      setError(
-        result.status === 409
-          ? 'This agent changed since you opened it. Close the editor, refresh, and try again.'
-          : result.error
-      );
+      setError(result.status === 409 ? t('agents.saveConflict') : result.error);
       setIsSubmitting(false);
       window.requestAnimationFrame(() => errorRef.current?.focus());
       return;
@@ -233,7 +228,7 @@ export function AgentEditorDialog({
       !isSubmitting &&
       isDirty &&
       !allowSavedCloseRef.current &&
-      !window.confirm(UNSAVED_CHANGES_CONFIRM)
+      !window.confirm(unsavedConfirm)
     ) {
       return;
     }
@@ -252,11 +247,13 @@ export function AgentEditorDialog({
         }}
       >
         <DialogHeader className="border-b px-5 py-5 pr-16 text-left sm:px-6">
-          <DialogTitle>{editing ? 'Edit agent' : 'Create agent'}</DialogTitle>
+          <DialogTitle>
+            {editing ? t('agents.dialogEditTitle') : t('agents.dialogCreateTitle')}
+          </DialogTitle>
           <DialogDescription>
             {readOnly
-              ? 'You can inspect this profile, but your account cannot change it.'
-              : 'Define how teammates find this agent and what it can help with.'}
+              ? t('agents.dialogReadOnlyDescription')
+              : t('agents.dialogEditDescription')}
           </DialogDescription>
         </DialogHeader>
 
@@ -268,10 +265,7 @@ export function AgentEditorDialog({
                 data-testid="builtin-agent-protection"
               >
                 <LockKeyhole aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                <p>
-                  This built-in agent must stay enabled and its handle cannot change.
-                  You can still update its name, description, skills, and runtime.
-                </p>
+                <p>{t('agents.builtinProtection')}</p>
               </div>
             ) : null}
 
@@ -292,7 +286,7 @@ export function AgentEditorDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="agent-name">Name</Label>
+                <Label htmlFor="agent-name">{t('agents.fieldName')}</Label>
                 <Input
                   aria-describedby={invalidField === 'name' ? FORM_ERROR_ID : undefined}
                   aria-invalid={invalidField === 'name' || undefined}
@@ -306,7 +300,7 @@ export function AgentEditorDialog({
                     setName(event.target.value);
                     clearFieldError('name');
                   }}
-                  placeholder="Example: Research partner…"
+                  placeholder={t('agents.fieldNamePlaceholder')}
                   required
                   readOnly={readOnly}
                   ref={nameRef}
@@ -316,7 +310,7 @@ export function AgentEditorDialog({
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="agent-handle">Handle</Label>
+                <Label htmlFor="agent-handle">{t('agents.fieldHandle')}</Label>
                 <Input
                   aria-describedby={invalidField === 'handle' ? FORM_ERROR_ID : undefined}
                   aria-invalid={invalidField === 'handle' || undefined}
@@ -333,7 +327,7 @@ export function AgentEditorDialog({
                     setHandle(event.target.value);
                     clearFieldError('handle');
                   }}
-                  placeholder="Example: @researcher…"
+                  placeholder={t('agents.fieldHandlePlaceholder')}
                   required
                   readOnly={readOnly || builtin}
                   ref={handleRef}
@@ -344,7 +338,7 @@ export function AgentEditorDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="agent-description">Description</Label>
+              <Label htmlFor="agent-description">{t('agents.fieldDescription')}</Label>
               <Textarea
                 autoCapitalize="sentences"
                 autoComplete="off"
@@ -353,7 +347,7 @@ export function AgentEditorDialog({
                 maxLength={1000}
                 name="description"
                 onChange={(event) => setDescription(event.target.value)}
-                placeholder="Example: Summarizes research and checks sources…"
+                placeholder={t('agents.fieldDescriptionPlaceholder')}
                 readOnly={readOnly}
                 spellCheck={true}
                 value={description}
@@ -361,7 +355,7 @@ export function AgentEditorDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="agent-skills">Skills</Label>
+              <Label htmlFor="agent-skills">{t('agents.fieldSkills')}</Label>
               <Input
                 aria-describedby={SKILLS_HELP_ID}
                 autoCapitalize="none"
@@ -370,22 +364,22 @@ export function AgentEditorDialog({
                 id="agent-skills"
                 name="skills"
                 onChange={(event) => setSkills(event.target.value)}
-                placeholder="Example: research, writing, planning…"
+                placeholder={t('agents.fieldSkillsPlaceholder')}
                 readOnly={readOnly}
                 spellCheck={false}
                 value={skills}
               />
               <p className="text-xs leading-5 text-muted-foreground" id={SKILLS_HELP_ID}>
-                Separate skills with commas. These labels help people choose the right agent.
+                {t('agents.fieldSkillsHelp')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label id="agent-enabled-label">Availability</Label>
+              <Label id="agent-enabled-label">{t('agents.fieldAvailability')}</Label>
               <button
                 aria-checked={enabled}
                 aria-describedby={builtin ? 'agent-enabled-help' : undefined}
-                aria-label="Availability"
+                aria-label={t('agents.fieldAvailability')}
                 className={cn(
                   'flex min-h-11 w-full items-center justify-between gap-4 rounded-lg border px-3 text-left outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none sm:min-h-10',
                   enabled ? 'bg-background' : 'bg-muted/35',
@@ -399,12 +393,12 @@ export function AgentEditorDialog({
               >
                 <span className="min-w-0">
                   <span className="block text-sm font-medium" id="agent-enabled-state">
-                    {enabled ? 'Enabled' : 'Disabled'}
+                    {enabled ? t('agents.enabled') : t('agents.disabled')}
                   </span>
                   <span className="block text-xs text-muted-foreground">
                     {enabled
-                      ? 'Available for Room and task assignment.'
-                      : 'Kept in the registry but unavailable for new work.'}
+                      ? t('agents.availabilityEnabledHelp')
+                      : t('agents.availabilityDisabledHelp')}
                   </span>
                 </span>
                 <span
@@ -424,7 +418,7 @@ export function AgentEditorDialog({
               </button>
               {builtin ? (
                 <p className="text-xs text-muted-foreground" id="agent-enabled-help">
-                  Built-in agents are always enabled.
+                  {t('agents.builtinAlwaysEnabled')}
                 </p>
               ) : null}
             </div>
@@ -434,17 +428,17 @@ export function AgentEditorDialog({
               data-testid="agent-runtime-details"
             >
               <summary className="flex min-h-11 min-w-0 list-none items-center gap-3 overflow-hidden px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none [&::-webkit-details-marker]:hidden">
-                <span className="shrink-0">Runtime configuration</span>
+                <span className="shrink-0">{t('agents.runtimeConfigSummary')}</span>
                 <span
                   className="min-w-0 flex-1 truncate text-right font-mono text-xs font-normal text-muted-foreground"
-                  title={runtimeId || 'Not set'}
+                  title={runtimeId || t('agents.runtimeNotSet')}
                   translate="no"
                 >
-                  {runtimeId || 'Not set'}
+                  {runtimeId || t('agents.runtimeNotSet')}
                 </span>
               </summary>
               <div className="min-w-0 space-y-2 border-t px-3 py-3">
-                <Label htmlFor="agent-runtime">Room runtime ID</Label>
+                <Label htmlFor="agent-runtime">{t('agents.fieldRuntimeId')}</Label>
                 <Input
                   aria-describedby={invalidField === 'runtime' ? FORM_ERROR_ID : undefined}
                   aria-invalid={invalidField === 'runtime' || undefined}
@@ -465,7 +459,7 @@ export function AgentEditorDialog({
                   value={runtimeId}
                 />
                 <p className="text-xs leading-5 text-muted-foreground">
-                  Advanced: selects the Room runtime adapter. Configuration version 1 is used.
+                  {t('agents.runtimeHelp')}
                 </p>
               </div>
             </details>
@@ -479,7 +473,7 @@ export function AgentEditorDialog({
               type="button"
               variant="ghost"
             >
-              {readOnly ? 'Close' : 'Cancel'}
+              {readOnly ? t('agents.close') : t('agents.cancel')}
             </Button>
             {!readOnly ? (
               <Button
@@ -496,12 +490,12 @@ export function AgentEditorDialog({
                       aria-hidden="true"
                       className="animate-spin motion-reduce:animate-none"
                     />
-                    Saving…
+                    {t('agents.saving')}
                   </>
                 ) : editing ? (
-                  'Save changes'
+                  t('agents.saveChanges')
                 ) : (
-                  'Create agent'
+                  t('agents.createAgent')
                 )}
               </Button>
             ) : null}
@@ -513,7 +507,7 @@ export function AgentEditorDialog({
             id={SUBMIT_STATUS_ID}
             role="status"
           >
-            {isSubmitting ? 'Saving agent.' : ''}
+            {isSubmitting ? t('agents.savingStatus') : ''}
           </p>
         </form>
       </DialogContent>

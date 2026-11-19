@@ -25,12 +25,14 @@ type Agent = {
   updatedAt: string;
 };
 
+test.use({ locale: 'en-US' });
+
 test.describe('Agent management', () => {
   test('keeps search and availability filters in the URL across reload and browser navigation', async ({
     page,
   }) => {
     await mockAgentApi(page);
-    await primeClientState(page);
+    await primeClientState(page, { language: 'en-US' });
     await page.goto('/agents');
 
     const search = page.getByLabel('Search agents');
@@ -65,7 +67,7 @@ test.describe('Agent management', () => {
     page,
   }) => {
     const api = await mockAgentApi(page);
-    await primeClientState(page);
+    await primeClientState(page, { language: 'en-US' });
     await page.goto('/agents');
 
     await expect(page).toHaveURL(/\/agents$/);
@@ -178,7 +180,7 @@ test.describe('Agent management', () => {
     const editedName = `Durable Lead ${suffix}`;
     const editedDescription = `Persisted through the real Agent API (${suffix}).`;
 
-    await primeClientState(page);
+    await primeClientState(page, { language: 'en-US' });
     const initialListResponsePromise = page.waitForResponse(isRealAgentListResponse);
     await page.goto('/agents');
 
@@ -350,7 +352,7 @@ test.describe('Agent management', () => {
     await mockAgentApi(page);
     await page.setViewportSize({ height: 844, width: 390 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await primeClientState(page);
+    await primeClientState(page, { language: 'en-US' });
     await page.goto('/agents');
 
     const surface = page.getByTestId('agent-management-page');
@@ -397,7 +399,7 @@ test.describe('Agent management', () => {
     page,
   }) => {
     await mockAgentApi(page);
-    await primeClientState(page);
+    await primeClientState(page, { language: 'en-US' });
     await page.goto('/agents');
 
     await page.getByTestId('create-agent-button').click();
@@ -445,7 +447,7 @@ test.describe('Agent management', () => {
     page,
   }) => {
     const api = await mockAgentApi(page, { deferInitialList: true });
-    await primeClientState(page);
+    await primeClientState(page, { language: 'en-US' });
     await page.goto('/agents');
 
     await api.initialListRequested;

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import { renderExecutionRoomEvent } from '@/components/execution/execution-room-event';
+import { useT } from '@/components/providers/language-provider';
 import { RoomComposer } from '@/components/room/room-composer';
 import { RoomFeed } from '@/components/room/room-feed';
 import { RoomGrants } from '@/components/room/room-grants';
@@ -46,6 +47,7 @@ export function ProjectRoomSurface({
   projectId = null,
   showPresence = true,
 }: ProjectRoomSurfaceProps) {
+  const t = useT();
   const state = useProjectRoom(projectId);
   const [replyTo, setReplyTo] = React.useState<RoomMessageDtoV1 | null>(null);
   const [isSlowLoading, setIsSlowLoading] = React.useState(false);
@@ -76,7 +78,7 @@ export function ProjectRoomSurface({
 
   return (
     <section
-      aria-label="Project Room"
+      aria-label={t('room.surfaceAria')}
       className={cn(
         'flex h-full min-h-0 min-w-0 overflow-hidden bg-background',
         className
@@ -84,7 +86,7 @@ export function ProjectRoomSurface({
       data-testid="project-room-surface"
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex min-h-14 shrink-0 items-center justify-between gap-3 border-b px-3 sm:px-5">
+        <header className="flex min-h-14 shrink-0 items-center justify-between gap-2 border-b px-3 py-2 sm:px-5">
           <div className="flex min-w-0 items-center gap-3">
             <div
               aria-hidden="true"
@@ -93,14 +95,16 @@ export function ProjectRoomSurface({
               <Users className="size-4 text-muted-foreground" />
             </div>
             <div className="min-w-0">
-              <div className="flex min-w-0 items-center gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                 <h1 className="truncate text-sm font-semibold text-balance">
-                  {state.room?.name || 'Project Room'}
+                  {state.room?.name || t('room.fallbackTitle')}
                 </h1>
                 {coordinator ? (
-                  <span className="hidden shrink-0 items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 sm:inline-flex">
-                    <Sparkles className="size-2.5" />
-                    {coordinator.name} 协调
+                  <span className="hidden max-w-full items-center gap-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 sm:inline-flex">
+                    <Sparkles className="size-2.5 shrink-0" />
+                    <span className="truncate">
+                      {t('room.coordinatorBadge', { name: coordinator.name })}
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -115,7 +119,7 @@ export function ProjectRoomSurface({
                   </>
                 ) : null}
                 <span className="truncate tabular-nums">
-                  {state.agents.length} 个可用 Agent
+                  {t('room.availableAgents', { count: state.agents.length })}
                 </span>
               </div>
             </div>
@@ -134,7 +138,7 @@ export function ProjectRoomSurface({
             <Popover>
               <PopoverTrigger asChild>
                 <Button
-                  aria-label="查看 Agent 活动"
+                  aria-label={t('room.viewAgentActivityAria')}
                   className={cn('size-11 sm:size-8', showPresence && 'xl:hidden')}
                   size="icon-sm"
                   type="button"
@@ -153,13 +157,13 @@ export function ProjectRoomSurface({
               </PopoverContent>
             </Popover>
             <Button
-              aria-label="刷新 Room"
+              aria-label={t('room.refreshRoomAria')}
               aria-busy={state.isLoading || state.isRefreshing}
               className="size-11 sm:size-8"
               disabled={state.isLoading || state.isRefreshing}
               onClick={state.refresh}
               size="icon-sm"
-              title="刷新"
+              title={t('room.refreshTitle')}
               type="button"
               variant="ghost"
             >
@@ -180,14 +184,14 @@ export function ProjectRoomSurface({
           >
             <AlertCircle className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 break-words">
-              {state.loadError} 请重试；若问题持续，请检查连接。
+              {t('room.loadErrorSuffix', { error: state.loadError })}
             </span>
             <button
               className="min-h-10 shrink-0 rounded-md px-2 font-medium underline underline-offset-2 hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive sm:min-h-8"
               onClick={state.refresh}
               type="button"
             >
-              重试
+              {t('room.retry')}
             </button>
           </div>
         ) : null}
@@ -238,14 +242,15 @@ function ConnectionLabel({
   error: string | null;
   state: RoomConnectionState;
 }) {
+  const t = useT();
   if (state === 'live') {
     return (
       <span
         aria-live="polite"
-        className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400"
+        className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-emerald-700 dark:text-emerald-400"
         role="status"
       >
-        <Wifi className="size-3" /> 实时同步
+        <Wifi className="size-3 shrink-0" /> {t('room.connectionLive')}
       </span>
     );
   }
@@ -256,9 +261,9 @@ function ConnectionLabel({
         className="inline-flex min-w-0 items-center gap-1 text-amber-700 dark:text-amber-400"
         role="status"
       >
-        <RefreshCw className="size-3 animate-spin motion-reduce:animate-none" />
-        <span className="truncate">正在轮询同步</span>
-        {error ? <span className="sr-only">原因：{error}</span> : null}
+        <RefreshCw className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
+        <span className="truncate">{t('room.connectionPolling')}</span>
+        {error ? <span className="sr-only">{t('room.connectionReason', { error })}</span> : null}
       </span>
     );
   }
@@ -269,16 +274,20 @@ function ConnectionLabel({
         className="inline-flex min-w-0 items-center gap-1 text-destructive"
         role="status"
       >
-        <CircleOff className="size-3" />
-        <span className="truncate">连接不可用，等待重连</span>
-        {error ? <span className="sr-only">原因：{error}</span> : null}
+        <CircleOff className="size-3 shrink-0" />
+        <span className="truncate">{t('room.connectionOffline')}</span>
+        {error ? <span className="sr-only">{t('room.connectionReason', { error })}</span> : null}
       </span>
     );
   }
   return (
-    <span aria-live="polite" className="inline-flex items-center gap-1" role="status">
-      <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
-      正在连接…
+    <span
+      aria-live="polite"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap"
+      role="status"
+    >
+      <LoaderCircle className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
+      {t('room.connectionConnecting')}
     </span>
   );
 }
@@ -288,11 +297,12 @@ function MobileAgentActivity({
 }: {
   activity: ReturnType<typeof useProjectRoom>['agentActivity'];
 }) {
+  const t = useT();
   return (
     <div>
       <div className="flex items-center justify-between px-2 py-1">
-        <span className="text-xs font-semibold">Agent 活动</span>
-        <span className="text-xs text-muted-foreground">基于公开事件推断</span>
+        <span className="text-xs font-semibold">{t('room.mobileActivityTitle')}</span>
+        <span className="text-xs text-muted-foreground">{t('room.mobileActivityHint')}</span>
       </div>
       {activity.length > 0 ? (
         <div className="mt-1 max-h-72 overflow-y-auto overscroll-contain">
@@ -321,14 +331,14 @@ function MobileAgentActivity({
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {item.state === 'responding'
-                    ? '已收到回应请求'
+                    ? t('room.activityResponding')
                     : item.state === 'observing'
-                      ? '正在观察讨论'
+                      ? t('room.activityObserving')
                       : item.state === 'recent'
-                        ? '最近发言'
+                        ? t('room.activityRecentShort')
                         : item.isCoordinator
-                          ? '等待协调'
-                          : '尚未参与'}
+                          ? t('room.activityWaitingCoordinator')
+                          : t('room.activityIdle')}
                 </span>
               </span>
               {item.state === 'responding' || item.state === 'recent' ? (
@@ -347,7 +357,7 @@ function MobileAgentActivity({
         </div>
       ) : (
         <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-          暂无可用 Agent 活动
+          {t('room.noAgentActivity')}
         </p>
       )}
     </div>

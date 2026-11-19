@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Bot, Circle, Info, Radio, Sparkles } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import { cn } from '@/lib/utils';
 import type { RoomAgentActivity } from '@/lib/room/activity';
 
@@ -11,6 +12,7 @@ export type RoomPresenceProps = {
 };
 
 export function RoomPresence({ activity }: RoomPresenceProps) {
+  const t = useT();
   const [now, setNow] = React.useState(() => Date.now());
 
   React.useEffect(() => {
@@ -20,14 +22,14 @@ export function RoomPresence({ activity }: RoomPresenceProps) {
 
   return (
     <aside
-      aria-label="Room Agent 活动"
+      aria-label={t('room.presenceAria')}
       className="hidden w-64 shrink-0 overflow-y-auto border-l bg-muted/10 xl:block"
       data-testid="room-presence"
     >
       <div className="p-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Agents
+            {t('room.presenceHeading')}
           </h2>
           <span className="text-xs tabular-nums text-muted-foreground">
             {activity.length}
@@ -64,7 +66,7 @@ export function RoomPresence({ activity }: RoomPresenceProps) {
                       </span>
                       {item.isCoordinator ? (
                         <span className="shrink-0 text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                          协调者
+                          {t('room.coordinatorRole')}
                         </span>
                       ) : null}
                     </div>
@@ -75,15 +77,15 @@ export function RoomPresence({ activity }: RoomPresenceProps) {
                 </div>
                 <div className="mt-2 flex items-center gap-1.5 pl-9 text-xs text-muted-foreground">
                   <ActivityDot state={item.state} />
-                  <span>{activityLabel(item, now)}</span>
+                  <span>{activityLabel(item, now, t)}</span>
                 </div>
                 {item.roomSessionId ? (
                   <div className="mt-1 break-all pl-9 font-mono text-[11px] text-muted-foreground">
-                    <span className="sr-only">Room session </span>
-                    <span aria-hidden="true">session </span>
+                    <span className="sr-only">{t('room.sessionSrPrefix')}</span>
+                    <span aria-hidden="true">{t('room.sessionPrefix')}</span>
                     {item.roomSessionId}
                     {item.deliverySequence !== null
-                      ? ` · delivery ${item.deliverySequence}`
+                      ? t('room.deliverySuffix', { sequence: item.deliverySequence })
                       : ''}
                   </div>
                 ) : null}
@@ -92,13 +94,13 @@ export function RoomPresence({ activity }: RoomPresenceProps) {
           </div>
         ) : (
           <p className="mt-3 rounded-lg border border-dashed px-3 py-5 text-center text-xs text-muted-foreground">
-            暂无可用 Agent 活动
+            {t('room.noAgentActivity')}
           </p>
         )}
 
         <div className="mt-4 flex gap-2 rounded-lg border bg-background/70 p-2.5 text-xs leading-5 text-muted-foreground">
           <Info className="mt-0.5 size-3 shrink-0" />
-          <span>活动状态根据公开消息与投递事件推断，不代表实时在线或运行租约。</span>
+          <span>{t('room.activityDisclaimer')}</span>
         </div>
       </div>
     </aside>
@@ -118,20 +120,36 @@ function ActivityDot({ state }: Pick<RoomAgentActivity, 'state'>) {
   return <Circle className="size-2 fill-muted-foreground/30 text-muted-foreground/30" />;
 }
 
-function activityLabel(activity: RoomAgentActivity, now: number) {
-  if (activity.state === 'responding') return '已收到回应请求';
-  if (activity.state === 'observing') return '正在观察讨论';
+function activityLabel(
+  activity: RoomAgentActivity,
+  now: number,
+  t: ReturnType<typeof useT>
+) {
+  if (activity.state === 'responding') return t('room.activityResponding');
+  if (activity.state === 'observing') return t('room.activityObserving');
   if (activity.state === 'recent') {
-    return `最近发言${relativeTime(activity.lastActivityAt, now)}`;
+    return t('room.activityRecent', {
+      relative: relativeTime(activity.lastActivityAt, now, t),
+    });
   }
-  return activity.isCoordinator ? '等待协调' : '尚未参与';
+  return activity.isCoordinator
+    ? t('room.activityWaitingCoordinator')
+    : t('room.activityIdle');
 }
 
-function relativeTime(value: string | null, now: number) {
+function relativeTime(
+  value: string | null,
+  now: number,
+  t: ReturnType<typeof useT>
+) {
   if (!value) return '';
   const delta = now - Date.parse(value);
-  if (!Number.isFinite(delta) || delta < 60_000) return ' · 刚刚';
-  if (delta < 3_600_000) return ` · ${Math.floor(delta / 60_000)} 分钟前`;
-  if (delta < 86_400_000) return ` · ${Math.floor(delta / 3_600_000)} 小时前`;
+  if (!Number.isFinite(delta) || delta < 60_000) return t('room.relativeJustNow');
+  if (delta < 3_600_000) {
+    return t('room.relativeMinutesAgo', { count: Math.floor(delta / 60_000) });
+  }
+  if (delta < 86_400_000) {
+    return t('room.relativeHoursAgo', { count: Math.floor(delta / 3_600_000) });
+  }
   return '';
 }

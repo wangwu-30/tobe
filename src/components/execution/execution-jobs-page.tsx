@@ -5,6 +5,7 @@ import { AlertCircle, Bot, ChevronRight, LoaderCircle, RefreshCw } from 'lucide-
 import Link from 'next/link';
 
 import { AppShell } from '@/components/layout/app-shell';
+import { useT } from '@/components/providers/language-provider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,6 +17,11 @@ import { formatStableDateTime } from '@/lib/time';
 import { ExecutionStatusBadge } from './execution-status';
 
 export function ExecutionJobsPage() {
+  const t = useT();
+  const tRef = React.useRef(t);
+  React.useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const pathname = useAppPathname();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
@@ -115,7 +121,7 @@ export function ExecutionJobsPage() {
       ) {
         return;
       }
-      setError('Execution jobs could not be loaded. Try again.');
+      setError(tRef.current('jobs.loadFailed'));
     } finally {
       if (
         controller.signal.aborted ||
@@ -138,29 +144,40 @@ export function ExecutionJobsPage() {
     };
   }, [load]);
 
+  const statusSummary = loading
+    ? t('jobs.loadingStatus')
+    : search
+      ? t(items.length === 1 ? 'jobs.shownSingleQuery' : 'jobs.shownPluralQuery', {
+          count: items.length,
+          query: search,
+        })
+      : t(items.length === 1 ? 'jobs.shownSingle' : 'jobs.shownPlural', {
+          count: items.length,
+        });
+
   return (
-    <AppShell title="Execution jobs" subtitle="Durable agent work">
+    <AppShell title={t('jobs.shellTitle')} subtitle={t('jobs.shellSubtitle')}>
       <ZoneErrorBoundary zone="execution-jobs">
         <main className="h-full overflow-y-auto">
           <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
             <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                  <Bot aria-hidden="true" className="size-3.5" /> Durable execution
+                  <Bot aria-hidden="true" className="size-3.5" /> {t('jobs.eyebrow')}
                 </div>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight">Jobs</h1>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight">{t('jobs.heading')}</h1>
                 <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-                  Follow attempts, runtime events, human input requests, and artifacts.
+                  {t('jobs.lead')}
                 </p>
               </div>
               <Button aria-busy={loading || loadingMore} disabled={loading || loadingMore} onClick={() => void load()} variant="outline">
-                <RefreshCw className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> Refresh
+                <RefreshCw className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> {t('jobs.refresh')}
               </Button>
             </header>
 
             <div className="mt-6">
               <label className="sr-only" htmlFor={searchInputId}>
-                Search execution jobs
+                {t('jobs.searchLabel')}
               </label>
               <Input
                 aria-describedby={`${searchHintId} ${searchStatusId}`}
@@ -173,12 +190,12 @@ export function ExecutionJobsPage() {
                   setSearchDraft(event.target.value);
                   replaceSearchQuery(event.target.value);
                 }}
-                placeholder="Search by goal, id, kind, status, or runtime…"
+                placeholder={t('jobs.searchPlaceholder')}
                 type="search"
                 value={searchDraft}
               />
               <p className="mt-2 max-w-2xl text-xs text-muted-foreground" id={searchHintId}>
-                Filter by goal, job ID, execution kind, status, or runtime.
+                {t('jobs.searchHint')}
               </p>
               <p
                 aria-live="polite"
@@ -186,9 +203,7 @@ export function ExecutionJobsPage() {
                 id={searchStatusId}
                 role="status"
               >
-                {loading
-                  ? 'Loading execution jobs.'
-                  : `${items.length} job${items.length === 1 ? '' : 's'} shown${search ? ` for "${search}".` : '.'}`}
+                {statusSummary}
               </p>
             </div>
 
@@ -201,16 +216,16 @@ export function ExecutionJobsPage() {
 
             <section
               aria-busy={loading || loadingMore}
-              aria-label="Execution job results"
+              aria-label={t('jobs.resultsAria')}
               className="mt-5 space-y-3"
               data-testid="execution-job-list"
             >
               {loading ? (
                 <div aria-live="polite" className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground" role="status">
-                  <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> Loading execution jobs…
+                  <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> {t('jobs.loadingText')}
                 </div>
               ) : items.length === 0 ? (
-                <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">No execution jobs found.</CardContent></Card>
+                <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">{t('jobs.empty')}</CardContent></Card>
               ) : items.map((job) => (
                 <Link
                   className="block w-full rounded-xl text-left outline-none ring-ring transition hover:bg-muted/30 focus-visible:ring-2 motion-reduce:transition-none"
@@ -227,8 +242,8 @@ export function ExecutionJobsPage() {
                         </div>
                         <h2 className="mt-2 break-words font-medium [overflow-wrap:anywhere]">{job.goal}</h2>
                         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                          <span>{job.attemptCount}/{job.maxAttempts} attempts</span>
-                          <span className="break-all">{job.selectedRuntimeId || 'Runtime pending'}</span>
+                          <span>{t('jobs.attemptsRatio', { count: job.attemptCount, max: job.maxAttempts })}</span>
+                          <span className="break-all">{job.selectedRuntimeId || t('jobs.runtimePending')}</span>
                           <span>{formatStableDateTime(job.updatedAt)}</span>
                         </div>
                       </div>
@@ -243,7 +258,7 @@ export function ExecutionJobsPage() {
               <div className="mt-5 flex justify-center">
                 <Button aria-busy={loadingMore} disabled={loadingMore} onClick={() => void load(cursor)} variant="outline">
                   {loadingMore ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null}
-                  Load more
+                  {t('jobs.loadMore')}
                 </Button>
               </div>
             ) : null}

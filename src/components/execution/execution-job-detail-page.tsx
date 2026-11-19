@@ -5,6 +5,7 @@ import { AlertCircle, ArrowLeft, ExternalLink, FileJson, LoaderCircle, RefreshCw
 import Link from 'next/link';
 
 import { AppShell } from '@/components/layout/app-shell';
+import { useT } from '@/components/providers/language-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,10 +41,13 @@ import { canCancelExecution, ExecutionStatusBadge } from './execution-status';
 
 const DETAIL_TABS = ['events', 'logs', 'attempts', 'artifacts'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
-const MISSING_REVISION_MESSAGE =
-  'This job response is missing its revision. Refresh the job before cancelling it or answering an input request.';
 
 export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
+  const t = useT();
+  const tRef = React.useRef(t);
+  React.useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
   const [detail, setDetail] = React.useState<ExecutionJobDetail | null>(null);
@@ -55,6 +59,7 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
   const requestedTab = searchParams.get('tab');
   const activeTab: DetailTab = isDetailTab(requestedTab) ? requestedTab : 'events';
   const revision = getRevision(detail);
+  const missingRevisionMessage = t('jobs.missingRevision');
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -64,7 +69,7 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
       if (result.ok) setDetail(result.data);
       else setError(result.error);
     } catch {
-      setError('Execution job details could not be loaded. Try again.');
+      setError(tRef.current('jobs.detailLoadFailed'));
     } finally {
       setLoading(false);
     }
@@ -75,7 +80,7 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
   const cancel = async () => {
     if (revision === null) {
       setCancelConfirmationOpen(false);
-      setError(MISSING_REVISION_MESSAGE);
+      setError(missingRevisionMessage);
       return;
     }
     setBusy('cancel');
@@ -89,7 +94,7 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
         await load();
       }
     } catch {
-      setError('The execution job could not be cancelled. Try again.');
+      setError(t('jobs.cancelFailed'));
     } finally {
       setBusy(null);
     }
@@ -113,39 +118,42 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
             disabled={busy !== null || revision === null}
             onClick={() => setCancelConfirmationOpen(true)}
             size="sm"
-            title={revision === null ? MISSING_REVISION_MESSAGE : undefined}
+            title={revision === null ? missingRevisionMessage : undefined}
             variant="destructive"
           >
-            <StopCircle aria-hidden="true" /> Cancel
+            <StopCircle aria-hidden="true" /> {t('jobs.cancel')}
           </Button>
         ) : null}
-        subtitle="Execution job"
-        title={detail?.job.goal || 'Job detail'}
+        subtitle={t('jobs.detailSubtitle')}
+        title={detail?.job.goal || t('jobs.detailTitleFallback')}
       >
         <main className="h-full overflow-y-auto">
           <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
             <p aria-live="polite" className="sr-only" id={detailStatusId} role="status">
               {loading && !detail
-                ? 'Loading execution job details.'
+                ? t('jobs.liveLoading')
                 : busy === 'cancel'
-                  ? 'Cancelling execution job.'
+                  ? t('jobs.liveCancelling')
                   : busy
-                    ? 'Submitting execution input response.'
+                    ? t('jobs.liveSubmittingInput')
                     : detail
-                      ? `Execution job ${detail.job.id} is ${detail.job.status.replaceAll('_', ' ')}.`
-                      : 'Execution job details unavailable.'}
+                      ? t('jobs.liveStatus', {
+                          id: detail.job.id,
+                          status: detail.job.status.replaceAll('_', ' '),
+                        })
+                      : t('jobs.liveUnavailable')}
             </p>
             <div className="flex items-center justify-between gap-3">
-              <Button asChild variant="ghost"><Link href="/jobs"><ArrowLeft aria-hidden="true" /> All jobs</Link></Button>
-              <Button aria-busy={loading} disabled={loading} onClick={() => void load()} variant="outline"><RefreshCw aria-hidden="true" className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> Refresh</Button>
+              <Button asChild variant="ghost"><Link href="/jobs"><ArrowLeft aria-hidden="true" /> {t('jobs.allJobs')}</Link></Button>
+              <Button aria-busy={loading} disabled={loading} onClick={() => void load()} variant="outline"><RefreshCw aria-hidden="true" className={loading ? 'animate-spin motion-reduce:animate-none' : ''} /> {t('jobs.refresh')}</Button>
             </div>
 
             {error ? <ErrorNotice message={error} /> : null}
-            {detail && revision === null && error !== MISSING_REVISION_MESSAGE ? (
-              <ErrorNotice message={MISSING_REVISION_MESSAGE} />
+            {detail && revision === null && error !== missingRevisionMessage ? (
+              <ErrorNotice message={missingRevisionMessage} />
             ) : null}
             {loading && !detail ? (
-              <div aria-live="polite" className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground" role="status"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> Loading job details…</div>
+              <div aria-live="polite" className="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground" role="status"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> {t('jobs.loadingDetail')}</div>
             ) : detail ? (
               <div className="mt-5 min-w-0 space-y-5" data-testid="execution-job-detail">
                 <JobOverview detail={detail} />
@@ -156,11 +164,11 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
                 />
                 <Tabs className="min-w-0" onValueChange={selectTab} value={activeTab}>
                   <div className="overflow-x-auto pb-1">
-                    <TabsList aria-label="Job detail sections">
-                      <TabsTrigger value="events">Events ({detail.events.items.length})</TabsTrigger>
-                      <TabsTrigger data-testid="execution-job-logs-tab" value="logs">Logs</TabsTrigger>
-                      <TabsTrigger value="attempts">Attempts ({detail.job.attempts?.length || 0})</TabsTrigger>
-                      <TabsTrigger value="artifacts">Artifacts ({detail.artifacts.items.length})</TabsTrigger>
+                    <TabsList aria-label={t('jobs.sectionsAria')}>
+                      <TabsTrigger value="events">{t('jobs.tabEvents', { count: detail.events.items.length })}</TabsTrigger>
+                      <TabsTrigger data-testid="execution-job-logs-tab" value="logs">{t('jobs.tabLogs')}</TabsTrigger>
+                      <TabsTrigger value="attempts">{t('jobs.tabAttempts', { count: detail.job.attempts?.length || 0 })}</TabsTrigger>
+                      <TabsTrigger value="artifacts">{t('jobs.tabArtifacts', { count: detail.artifacts.items.length })}</TabsTrigger>
                     </TabsList>
                   </div>
                   <TabsContent value="events"><EventsPanel detail={detail} setDetail={setDetail} setError={setError} /></TabsContent>
@@ -176,16 +184,16 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
       <Dialog open={cancelConfirmationOpen} onOpenChange={(nextOpen) => busy === null && setCancelConfirmationOpen(nextOpen)}>
         <DialogContent className="sm:max-w-md" data-testid="execution-cancel-confirmation">
           <DialogHeader>
-            <DialogTitle>Cancel execution job?</DialogTitle>
+            <DialogTitle>{t('jobs.cancelDialogTitle')}</DialogTitle>
             <DialogDescription>
-              The runtime will be asked to stop. Work already performed may remain in the job history.
+              {t('jobs.cancelDialogDescription')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button disabled={busy !== null} onClick={() => setCancelConfirmationOpen(false)} type="button" variant="ghost">Keep running</Button>
+            <Button disabled={busy !== null} onClick={() => setCancelConfirmationOpen(false)} type="button" variant="ghost">{t('jobs.keepRunning')}</Button>
             <Button aria-busy={busy === 'cancel'} disabled={busy !== null} onClick={() => void cancel()} type="button" variant="destructive">
               {busy === 'cancel' ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : <StopCircle aria-hidden="true" />}
-              {busy === 'cancel' ? 'Cancelling…' : 'Cancel job'}
+              {busy === 'cancel' ? t('jobs.cancelling') : t('jobs.cancelJob')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -195,6 +203,7 @@ export function ExecutionJobDetailPage({ jobId }: { jobId: string }) {
 }
 
 function JobOverview({ detail }: { detail: ExecutionJobDetail }) {
+  const t = useT();
   const job = detail.job;
   return (
     <Card className="gap-4">
@@ -203,19 +212,19 @@ function JobOverview({ detail }: { detail: ExecutionJobDetail }) {
         <CardTitle className="break-words text-xl [overflow-wrap:anywhere]">{job.goal}</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-        <Meta label="Job ID" mono value={job.id} />
-        <Meta label="Runtime" value={job.selectedRuntimeId || 'Pending'} />
-        <Meta label="Queued" value={formatStableDateTime(job.queuedAt)} />
-        <Meta label="Updated" value={formatStableDateTime(job.updatedAt)} />
-        <Meta label="Revision" value={getRevision(detail)?.toString() || 'Unavailable'} />
-        <Meta label="Attempts" value={`${job.attempts?.length ?? 0}/${job.maxAttempts ?? 1}`} />
-        <Meta label="Started" value={formatStableDateTime(job.startedAt)} />
-        <Meta label="Finished" value={formatStableDateTime(job.finishedAt)} />
+        <Meta label={t('jobs.metaJobId')} mono value={job.id} />
+        <Meta label={t('jobs.metaRuntime')} value={job.selectedRuntimeId || t('jobs.metaPending')} />
+        <Meta label={t('jobs.metaQueued')} value={formatStableDateTime(job.queuedAt)} />
+        <Meta label={t('jobs.metaUpdated')} value={formatStableDateTime(job.updatedAt)} />
+        <Meta label={t('jobs.metaRevision')} value={getRevision(detail)?.toString() || t('jobs.metaUnavailable')} />
+        <Meta label={t('jobs.metaAttempts')} value={`${job.attempts?.length ?? 0}/${job.maxAttempts ?? 1}`} />
+        <Meta label={t('jobs.metaStarted')} value={formatStableDateTime(job.startedAt)} />
+        <Meta label={t('jobs.metaFinished')} value={formatStableDateTime(job.finishedAt)} />
       </CardContent>
       {(job.result !== null && job.result !== undefined) || (job.error !== null && job.error !== undefined) ? (
         <CardContent className="grid gap-3 border-t pt-5 md:grid-cols-2">
-          {job.result !== null && job.result !== undefined ? <JsonBlock label="Result" value={job.result} /> : null}
-          {job.error !== null && job.error !== undefined ? <JsonBlock label="Error" value={job.error} /> : null}
+          {job.result !== null && job.result !== undefined ? <JsonBlock label={t('jobs.jsonResult')} value={job.result} /> : null}
+          {job.error !== null && job.error !== undefined ? <JsonBlock label={t('jobs.jsonError')} value={job.error} /> : null}
         </CardContent>
       ) : null}
     </Card>
@@ -229,11 +238,12 @@ function InputRequests({ detail, onChange, setBusy, setError, busy }: {
   setError: (value: string | null) => void;
   busy: string | null;
 }) {
+  const t = useT();
   const pending = detail.inputRequests.items.filter((request) => request.status === 'pending');
   const revision = getRevision(detail);
   if (pending.length === 0) return null;
   return (
-    <section aria-label="Pending execution input requests" className="space-y-3">
+    <section aria-label={t('jobs.inputRequestsAria')} className="space-y-3">
       {pending.map((request) => (
         <InputRequestCard
           busy={busy !== null}
@@ -241,7 +251,7 @@ function InputRequests({ detail, onChange, setBusy, setError, busy }: {
           key={request.id}
           onAnswer={async (response) => {
             if (revision === null) {
-              setError(MISSING_REVISION_MESSAGE);
+              setError(t('jobs.missingRevision'));
               return;
             }
             setBusy(request.id);
@@ -256,7 +266,7 @@ function InputRequests({ detail, onChange, setBusy, setError, busy }: {
               if (result.ok) onChange(result.data);
               else setError(result.error);
             } catch {
-              setError('The input response could not be submitted. Try again.');
+              setError(t('jobs.inputSubmitFailed'));
             } finally {
               setBusy(null);
             }
@@ -269,6 +279,7 @@ function InputRequests({ detail, onChange, setBusy, setError, busy }: {
 }
 
 function InputRequestCard({ busy, disabled, onAnswer, prompt }: { busy: boolean; disabled: boolean; onAnswer: (response: JsonValue) => Promise<void>; prompt: string }) {
+  const t = useT();
   const [answer, setAnswer] = React.useState('');
   const promptId = React.useId();
   const hintId = React.useId();
@@ -280,7 +291,7 @@ function InputRequestCard({ busy, disabled, onAnswer, prompt }: { busy: boolean;
   return (
     <Card className="gap-4 border-amber-500/30 bg-amber-500/5" data-testid="execution-input-request">
       <CardHeader>
-        <CardTitle className="text-base">Input required</CardTitle>
+        <CardTitle className="text-base">{t('jobs.inputRequiredTitle')}</CardTitle>
         <p className="break-words text-sm text-muted-foreground [overflow-wrap:anywhere]" id={promptId}>{prompt}</p>
       </CardHeader>
       <CardContent>
@@ -293,7 +304,7 @@ function InputRequestCard({ busy, disabled, onAnswer, prompt }: { busy: boolean;
         >
           <Textarea
             aria-describedby={`${promptId} ${hintId}`}
-            aria-label="Execution input answer"
+            aria-label={t('jobs.inputAnswerAria')}
             autoComplete="off"
             disabled={busy || disabled}
             name="answer"
@@ -305,15 +316,15 @@ function InputRequestCard({ busy, disabled, onAnswer, prompt }: { busy: boolean;
                 submitAnswer();
               }
             }}
-            placeholder="Type your answer…"
+            placeholder={t('jobs.inputAnswerPlaceholder')}
             value={answer}
           />
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs text-muted-foreground" id={hintId}>
-              Press Ctrl+Enter or Command+Enter to resume.
+              {t('jobs.inputAnswerHint')}
             </p>
             <Button aria-busy={busy} disabled={busy || disabled || !answer.trim()} type="submit">
-              {busy ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} Resume job
+              {busy ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} {t('jobs.resumeJob')}
             </Button>
           </div>
         </form>
@@ -323,6 +334,7 @@ function InputRequestCard({ busy, disabled, onAnswer, prompt }: { busy: boolean;
 }
 
 function EventsPanel({ detail, setDetail, setError }: { detail: ExecutionJobDetail; setDetail: React.Dispatch<React.SetStateAction<ExecutionJobDetail | null>>; setError: (value: string | null) => void }) {
+  const t = useT();
   const [loading, setLoading] = React.useState(false);
   const loadMore = async () => {
     const cursor = detail.events.pageInfo.nextCursor;
@@ -333,7 +345,7 @@ function EventsPanel({ detail, setDetail, setError }: { detail: ExecutionJobDeta
       if (!result.ok) setError(result.error);
       else setDetail((current) => current ? ({ ...current, events: { items: [...current.events.items, ...result.data.items], pageInfo: result.data.pageInfo } }) : current);
     } catch {
-      setError('More execution events could not be loaded. Try again.');
+      setError(t('jobs.eventsMoreFailed'));
     } finally {
       setLoading(false);
     }
@@ -341,20 +353,25 @@ function EventsPanel({ detail, setDetail, setError }: { detail: ExecutionJobDeta
   return (
     <Card aria-busy={loading} className="gap-0 overflow-hidden py-0">
       <div className="divide-y">
-        {detail.events.items.length === 0 ? <Empty text="No runtime events yet." /> : detail.events.items.map((event) => (
+        {detail.events.items.length === 0 ? <Empty text={t('jobs.eventsEmpty')} /> : detail.events.items.map((event) => (
           <div className="grid gap-3 p-4 sm:grid-cols-[6rem_11rem_1fr]" key={event.id}>
             <span className="font-mono text-xs text-muted-foreground">#{event.sequence}</span>
             <div><Badge variant="outline">{event.type}</Badge><div className="mt-1 text-xs text-muted-foreground">{formatStableDateTime(event.occurredAt)}</div></div>
-            {event.payloadValid ? <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 text-xs">{pretty(event.payload)}</pre> : <span className="text-sm text-destructive">Stored payload is invalid and was withheld.</span>}
+            {event.payloadValid ? <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3 text-xs">{pretty(event.payload)}</pre> : <span className="text-sm text-destructive">{t('jobs.invalidPayload')}</span>}
           </div>
         ))}
       </div>
-      {detail.events.pageInfo.hasNextPage ? <div className="border-t p-3 text-center"><Button aria-busy={loading} disabled={loading} onClick={() => void loadMore()} variant="outline">{loading ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} Load more events</Button></div> : null}
+      {detail.events.pageInfo.hasNextPage ? <div className="border-t p-3 text-center"><Button aria-busy={loading} disabled={loading} onClick={() => void loadMore()} variant="outline">{loading ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} {t('jobs.loadMoreEvents')}</Button></div> : null}
     </Card>
   );
 }
 
 function LogsPanel({ jobId }: { jobId: string }) {
+  const t = useT();
+  const tRef = React.useRef(t);
+  React.useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const [items, setItems] = React.useState<ExecutionLog[]>([]);
   const [pageInfo, setPageInfo] = React.useState<ExecutionPageInfo>({
     hasNextPage: false,
@@ -376,7 +393,7 @@ function LogsPanel({ jobId }: { jobId: string }) {
         setError(result.error);
       }
     } catch {
-      setError('Execution logs could not be loaded. Try again.');
+      setError(tRef.current('jobs.logsLoadFailed'));
     } finally {
       setLoading(false);
     }
@@ -397,7 +414,7 @@ function LogsPanel({ jobId }: { jobId: string }) {
         setError(result.error);
       }
     } catch {
-      setError('More execution logs could not be loaded. Try again.');
+      setError(t('jobs.logsMoreFailed'));
     } finally {
       setLoadingMore(false);
     }
@@ -406,11 +423,11 @@ function LogsPanel({ jobId }: { jobId: string }) {
   return (
     <Card aria-busy={loading || loadingMore} className="gap-0 overflow-hidden py-0" data-testid="execution-job-logs">
       {loading ? (
-        <div aria-live="polite" className="flex items-center justify-center gap-2 p-10 text-sm text-muted-foreground" role="status"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> Loading logs…</div>
+        <div aria-live="polite" className="flex items-center justify-center gap-2 p-10 text-sm text-muted-foreground" role="status"><LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> {t('jobs.logsLoading')}</div>
       ) : error && items.length === 0 ? (
-        <div className="space-y-3 p-10 text-center text-sm"><p className="text-destructive" role="alert">{error}</p><Button onClick={() => void loadInitial()} size="sm" variant="outline">Retry</Button></div>
+        <div className="space-y-3 p-10 text-center text-sm"><p className="text-destructive" role="alert">{error}</p><Button onClick={() => void loadInitial()} size="sm" variant="outline">{t('jobs.retry')}</Button></div>
       ) : items.length === 0 ? (
-        <Empty text="No runtime logs yet." />
+        <Empty text={t('jobs.logsEmpty')} />
       ) : (
         <div className="divide-y">
           {items.map((log) => (
@@ -421,27 +438,28 @@ function LogsPanel({ jobId }: { jobId: string }) {
                 {log.percent !== null ? <div className="text-xs font-medium">{log.percent}%</div> : null}
               </div>
               <div className="min-w-0 space-y-2">
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>{formatStableDateTime(log.occurredAt)}</span><span>{log.source}</span>{log.attemptId ? <span className="font-mono">attempt {log.attemptId}</span> : null}</div>
-                {log.payloadValid ? <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs text-foreground">{log.text}</pre> : <p className="text-sm text-destructive">Stored log payload is invalid and was withheld.</p>}
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>{formatStableDateTime(log.occurredAt)}</span><span>{log.source}</span>{log.attemptId ? <span className="font-mono">{t('jobs.logAttempt', { id: log.attemptId })}</span> : null}</div>
+                {log.payloadValid ? <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-xs text-foreground">{log.text}</pre> : <p className="text-sm text-destructive">{t('jobs.invalidLogPayload')}</p>}
               </div>
             </div>
           ))}
         </div>
       )}
       {error && items.length > 0 ? <div className="border-t p-3 text-center text-sm text-destructive" role="alert">{error}</div> : null}
-      {pageInfo.hasNextPage ? <div className="border-t p-3 text-center"><Button aria-busy={loadingMore} disabled={loadingMore} onClick={() => void loadMore()} variant="outline">{loadingMore ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} Load more logs</Button></div> : null}
+      {pageInfo.hasNextPage ? <div className="border-t p-3 text-center"><Button aria-busy={loadingMore} disabled={loadingMore} onClick={() => void loadMore()} variant="outline">{loadingMore ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} {t('jobs.loadMoreLogs')}</Button></div> : null}
     </Card>
   );
 }
 
 function AttemptsPanel({ detail }: { detail: ExecutionJobDetail }) {
+  const t = useT();
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      {(detail.job.attempts || []).length === 0 ? <Empty text="No attempts yet." /> : (detail.job.attempts || []).map((attempt) => (
+      {(detail.job.attempts || []).length === 0 ? <Empty text={t('jobs.attemptsEmpty')} /> : (detail.job.attempts || []).map((attempt) => (
         <div className="border-l-2 border-l-muted p-4 [&+&]:border-t" key={attempt.id}>
-          <div className="flex flex-wrap items-center gap-2"><strong>Attempt {attempt.number}</strong><ExecutionStatusBadge status={attempt.status} /><span className="text-xs text-muted-foreground">generation {attempt.generation}</span></div>
-          <div className="mt-2 grid min-w-0 gap-2 text-xs text-muted-foreground sm:grid-cols-3"><span className="break-all">{attempt.runtimeId || 'No runtime'}</span><span>Started {formatStableDateTime(attempt.startedAt)}</span><span>Finished {formatStableDateTime(attempt.finishedAt)}</span></div>
-          {attempt.error !== null ? <div className="mt-3"><JsonBlock label="Attempt error" value={attempt.error} /></div> : null}
+          <div className="flex flex-wrap items-center gap-2"><strong>{t('jobs.attemptTitle', { number: attempt.number })}</strong><ExecutionStatusBadge status={attempt.status} /><span className="text-xs text-muted-foreground">{t('jobs.attemptGeneration', { generation: attempt.generation })}</span></div>
+          <div className="mt-2 grid min-w-0 gap-2 text-xs text-muted-foreground sm:grid-cols-3"><span className="break-all">{attempt.runtimeId || t('jobs.attemptNoRuntime')}</span><span>{t('jobs.attemptStarted', { time: formatStableDateTime(attempt.startedAt) })}</span><span>{t('jobs.attemptFinished', { time: formatStableDateTime(attempt.finishedAt) })}</span></div>
+          {attempt.error !== null ? <div className="mt-3"><JsonBlock label={t('jobs.attemptError')} value={attempt.error} /></div> : null}
         </div>
       ))}
     </Card>
@@ -449,6 +467,7 @@ function AttemptsPanel({ detail }: { detail: ExecutionJobDetail }) {
 }
 
 function ArtifactsPanel({ detail, setDetail, setError }: { detail: ExecutionJobDetail; setDetail: React.Dispatch<React.SetStateAction<ExecutionJobDetail | null>>; setError: (value: string | null) => void }) {
+  const t = useT();
   const [contents, setContents] = React.useState<Record<string, JsonValue | null>>({});
   const [busy, setBusy] = React.useState<string | null>(null);
   const loadContent = async (artifact: ExecutionArtifact) => {
@@ -458,7 +477,7 @@ function ArtifactsPanel({ detail, setDetail, setError }: { detail: ExecutionJobD
       if (result.ok) setContents((current) => ({ ...current, [artifact.id]: result.data }));
       else setError(result.error);
     } catch {
-      setError('Artifact content could not be loaded. Try again.');
+      setError(t('jobs.artifactContentFailed'));
     } finally {
       setBusy(null);
     }
@@ -472,30 +491,30 @@ function ArtifactsPanel({ detail, setDetail, setError }: { detail: ExecutionJobD
       if (!result.ok) setError(result.error);
       else setDetail((current) => current ? ({ ...current, artifacts: { items: [...current.artifacts.items, ...result.data.items], pageInfo: result.data.pageInfo } }) : current);
     } catch {
-      setError('More artifacts could not be loaded. Try again.');
+      setError(t('jobs.artifactsMoreFailed'));
     } finally {
       setBusy(null);
     }
   };
   return (
     <div aria-busy={busy !== null} className="space-y-3">
-      {detail.artifacts.items.length === 0 ? <Card><Empty text="No artifacts yet." /></Card> : detail.artifacts.items.map((artifact) => (
+      {detail.artifacts.items.length === 0 ? <Card><Empty text={t('jobs.artifactsEmpty')} /></Card> : detail.artifacts.items.map((artifact) => (
         <Card className="gap-3" key={artifact.id}>
           <CardHeader className="gap-2"><div className="flex min-w-0 items-start justify-between gap-3"><CardTitle className="flex min-w-0 items-start gap-2 text-base"><FileJson aria-hidden="true" className="mt-0.5 size-4 shrink-0" /><span className="break-words [overflow-wrap:anywhere]">{artifact.name}</span></CardTitle><Badge className="shrink-0" variant="outline">{artifact.kind}</Badge></div></CardHeader>
           <CardContent className="space-y-3 text-xs text-muted-foreground">
-            <div className="flex flex-wrap gap-x-4 gap-y-1"><span>{artifact.mimeType || 'Unknown media type'}</span><span>{formatBytes(artifact.sizeBytes)}</span><span>{artifact.storage}</span><span>{formatStableDateTime(artifact.createdAt)}</span></div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1"><span>{artifact.mimeType || t('jobs.unknownMediaType')}</span><span>{formatBytes(artifact.sizeBytes, t('jobs.unknownSize'))}</span><span>{artifact.storage}</span><span>{formatStableDateTime(artifact.createdAt)}</span></div>
             {artifact.sha256 ? <div className="break-all font-mono">SHA-256 {artifact.sha256}</div> : null}
-            {artifact.metadataValid && artifact.metadata !== null ? <JsonBlock label="Metadata" value={artifact.metadata} /> : null}
-            {Object.prototype.hasOwnProperty.call(contents, artifact.id) ? <JsonBlock label="Content" value={contents[artifact.id]} /> : null}
+            {artifact.metadataValid && artifact.metadata !== null ? <JsonBlock label={t('jobs.jsonMetadata')} value={artifact.metadata} /> : null}
+            {Object.prototype.hasOwnProperty.call(contents, artifact.id) ? <JsonBlock label={t('jobs.jsonContent')} value={contents[artifact.id]} /> : null}
             <div className="flex flex-wrap gap-2">
-              {artifact.contentAvailable ? <Button aria-busy={busy === artifact.id} disabled={busy === artifact.id} onClick={() => void loadContent(artifact)} size="sm" variant="outline">{busy === artifact.id ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} View safe content</Button> : null}
-              {safeExternalArtifactUrl(artifact.externalUrl) ? <Button asChild size="sm" variant="outline"><a href={safeExternalArtifactUrl(artifact.externalUrl) ?? undefined} rel="noopener noreferrer" target="_blank"><ExternalLink aria-hidden="true" /> Open external artifact</a></Button> : null}
-              {!artifact.contentAvailable && !artifact.externalUrl ? <span>{artifact.contentUnavailableReason || 'Content is not available for safe display.'}</span> : null}
+              {artifact.contentAvailable ? <Button aria-busy={busy === artifact.id} disabled={busy === artifact.id} onClick={() => void loadContent(artifact)} size="sm" variant="outline">{busy === artifact.id ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} {t('jobs.viewSafeContent')}</Button> : null}
+              {safeExternalArtifactUrl(artifact.externalUrl) ? <Button asChild size="sm" variant="outline"><a href={safeExternalArtifactUrl(artifact.externalUrl) ?? undefined} rel="noopener noreferrer" target="_blank"><ExternalLink aria-hidden="true" /> {t('jobs.openExternalArtifact')}</a></Button> : null}
+              {!artifact.contentAvailable && !artifact.externalUrl ? <span>{artifact.contentUnavailableReason || t('jobs.contentUnavailableDefault')}</span> : null}
             </div>
           </CardContent>
         </Card>
       ))}
-      {detail.artifacts.pageInfo.hasNextPage ? <div className="text-center"><Button aria-busy={busy === 'more'} disabled={busy === 'more'} onClick={() => void loadMore()} variant="outline">{busy === 'more' ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} Load more artifacts</Button></div> : null}
+      {detail.artifacts.pageInfo.hasNextPage ? <div className="text-center"><Button aria-busy={busy === 'more'} disabled={busy === 'more'} onClick={() => void loadMore()} variant="outline">{busy === 'more' ? <LoaderCircle aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : null} {t('jobs.loadMoreArtifacts')}</Button></div> : null}
     </div>
   );
 }
@@ -536,8 +555,8 @@ function pretty(value: JsonValue | null) {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 }
 
-function formatBytes(value: number | null) {
-  if (value === null) return 'Unknown size';
+function formatBytes(value: number | null, unknownLabel: string) {
+  if (value === null) return unknownLabel;
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
