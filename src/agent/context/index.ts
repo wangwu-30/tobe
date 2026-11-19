@@ -3,8 +3,11 @@ export {
   ROOM_CONTEXT_CATEGORIES_V1,
   RoomContextBudgetErrorV1,
   createRoomContextBudgetUsageV1,
+  isRoomContextBudgetStarvationFreeV1,
+  summarizeRoomContextBudgetV1,
   validateRoomContextBudgetV1,
 } from './budget';
+export type { RoomContextBudgetSummaryV1 } from './budget';
 export {
   DeterministicRoomContextBuilderV1,
   RoomContextBuildErrorV1,

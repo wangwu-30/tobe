@@ -9,8 +9,10 @@ import {
   createRoomContextSummaryExpectationV1,
   createRoomContextSummaryV1,
   hashRoomContextValueV1,
+  isRoomContextBudgetStarvationFreeV1,
   sha256RoomContextV1,
   stableRoomContextJsonV1,
+  summarizeRoomContextBudgetV1,
   type BuildRoomContextInputV1,
   type RoomContextAclDecisionV1,
   type RoomContextAclResourceV1,
@@ -724,3 +726,88 @@ test('returns a snapshot that does not alias mutable source inputs', () => {
   assert.equal(block.acl.principal.agentId, session.agent.agentId);
   assert.deepEqual(block.acl.resource, { type: 'room', roomId: session.roomId });
 });
+
+test('default budget is starvation-free so saturated conversation categories never starve documents or retrieval', () => {
+  const summaryInfo = summarizeRoomContextBudgetV1(DEFAULT_ROOM_CONTEXT_BUDGET_V1);
+  assert.equal(isRoomContextBudgetStarvationFreeV1(DEFAULT_ROOM_CONTEXT_BUDGET_V1), true);
+  assert.equal(summaryInfo.categoryCharactersSum, 20_000);
+  assert.equal(summaryInfo.categoryBlocksSum, 34);
+  assert.equal(summaryInfo.maxTotalCharacters, 20_000);
+  assert.equal(summaryInfo.maxTotalBlocks, 34);
+
+  const summaryMessages = [message(1, 'early')];
+  const summaryAcl = acl();
+  const expectedSource = createRoomContextSummaryExpectationV1({
+    messages: summaryMessages,
+    aclDecisions: [summaryAcl],
+  });
+  const summary = createRoomContextSummaryV1({
+    summaryId: 'summary-saturated',
+    organizationId: session.organizationId,
+    roomId: session.roomId,
+    content: 'S'.repeat(3_000),
+    source: {
+      ...expectedSource,
+      configVersion: DEFAULT_ROOM_CONTEXT_BUDGET_V1.summaryConfigVersion,
+    },
+  });
+
+  // Build an 8-message reply chain (8 * 375 = 3,000 chars) and 12-message delta (12 * 333 = 3,996 chars)
+  const replyChain: RoomContextMessageInputV1[] = [];
+  let parentId: string | undefined;
+  for (let index = 0; index < 8; index += 1) {
+    const seq = 10 + index;
+    const item = messageInput(seq, 'R'.repeat(375), parentId ? { replyToMessageId: parentId } : {});
+    replyChain.push(item);
+    parentId = item.message.messageId;
+  }
+  const delta: RoomContextMessageInputV1[] = [];
+  for (let index = 0; index < 12; index += 1) {
+    delta.push(messageInput(30 + index, 'D'.repeat(333)));
+  }
+
+  const result = buildRoomContextV1({
+    session,
+    currentMessage: messageInput(100, 'C'.repeat(4_000), { replyToMessageId: parentId }),
+    summary: { summary, expectedSource, acl: summaryAcl },
+    replyChain,
+    relevantRoomDelta: delta,
+    documentSlices: Array.from({ length: 6 }, (_, index) => ({
+      sliceId: `doc-slice-${index}`,
+      documentId: `doc-${index}`,
+      revision: 'rev-1',
+      start: 0,
+      end: 580,
+      content: 'W'.repeat(580),
+      relevanceScore: 10 - index,
+      acl: acl({ type: 'document', documentId: `doc-${index}` }),
+    })),
+    retrievalHits: Array.from({ length: 6 }, (_, index) => ({
+      hitId: `ret-hit-${index}`,
+      rank: index + 1,
+      score: 10 - index,
+      indexId: 'idx-1',
+      indexVersion: 'v1',
+      content: 'K'.repeat(416),
+      source: { type: 'knowledge', id: `space:doc-${index}.md` },
+      acl: acl({ type: 'knowledge', sourceId: `space:doc-${index}.md` }),
+    })),
+  });
+
+  assert.equal(result.trace.budget.categories['current-message'].includedBlocks, 1);
+  assert.equal(result.trace.budget.categories.summary.includedBlocks, 1);
+  assert.equal(result.trace.budget.categories['reply-chain'].includedBlocks, 8);
+  assert.equal(result.trace.budget.categories['room-delta'].includedBlocks, 12);
+  assert.equal(result.trace.budget.categories['document-slice'].includedBlocks, 6);
+  assert.equal(result.trace.budget.categories['retrieval-hit'].includedBlocks, 6);
+  assert.equal(result.trace.budget.includedBlocks, 34);
+  assert.equal(
+    result.trace.exclusions.some(
+      (entry) =>
+        (entry.category === 'document-slice' || entry.category === 'retrieval-hit') &&
+        (entry.reason === 'total-character-budget' || entry.reason === 'total-block-budget')
+    ),
+    false
+  );
+});
+

@@ -8,6 +8,10 @@ import { promisify } from "node:util";
 import { expect, test } from "@playwright/test";
 
 import {
+  buildRoomContextV1,
+  type RoomContextDocumentSliceInputV1,
+} from "../context";
+import {
   PrismaRoomHostContextSourceV1,
   ensureDefaultRoom,
   postRoomMessage,
@@ -167,6 +171,171 @@ test.describe.serial("production Room context source", () => {
     expect(restarted.documentSlices).toEqual(first.documentSlices);
     expect(restarted.retrievalHits).toEqual(first.retrievalHits);
     expect(persisted.contentHash).toBe(first.summary?.summary.contentHash);
+  });
+
+  test("bridges active project/deliverable Notes and active WorkflowPlaybook while excluding inactive, draft, and cross-org items", async () => {
+    await prisma.organization.create({
+      data: {
+        id: "foreign-context-org",
+        name: "Foreign Context Org",
+        slug: "foreign-context-org",
+      },
+    });
+    await prisma.note.createMany({
+      data: [
+        {
+          id: "note-project-active",
+          organizationId: ACTOR.organizationId,
+          scope: "project",
+          scopeId: projectId,
+          kind: "knowledge",
+          title: "Pilot Launch Guardrail",
+          content: "Never exceed 42 credits without CFO approval.",
+          active: true,
+        },
+        {
+          id: "note-deliverable-active",
+          organizationId: ACTOR.organizationId,
+          scope: "deliverable",
+          scopeId: "context-document",
+          kind: "preference",
+          title: "Tone",
+          content: "Keep launch pricing copy concise and executive-ready.",
+          active: true,
+        },
+        {
+          id: "note-inactive",
+          organizationId: ACTOR.organizationId,
+          scope: "project",
+          scopeId: projectId,
+          kind: "knowledge",
+          title: "Inactive Secret",
+          content: "INACTIVE_NOTE_MUST_NOT_LEAK",
+          active: false,
+        },
+        {
+          id: "note-foreign-org",
+          organizationId: "foreign-context-org",
+          scope: "project",
+          scopeId: projectId,
+          kind: "knowledge",
+          title: "Cross Org Secret",
+          content: "CROSS_ORG_NOTE_MUST_NOT_LEAK",
+          active: true,
+        },
+      ],
+    });
+    await prisma.workflowPlaybook.createMany({
+      data: [
+        {
+          id: "playbook-active",
+          organizationId: ACTOR.organizationId,
+          documentId: "context-document",
+          title: "Launch Readiness Review",
+          status: "active",
+          summary: "Verify pilot pricing and launch runbook before release.",
+          steps: "1. Check pricing decision\n2. Run checklist",
+          constraints: "Require human approval for all external pricing changes.",
+        },
+        {
+          id: "playbook-draft",
+          organizationId: ACTOR.organizationId,
+          documentId: projectId,
+          title: "Draft Playbook",
+          status: "draft",
+          summary: "DRAFT_PLAYBOOK_MUST_NOT_LEAK",
+        },
+      ],
+    });
+    await prisma.workspacePlan.create({
+      data: {
+        id: "plan-context-doc",
+        organizationId: ACTOR.organizationId,
+        documentId: "context-document",
+        activeWorkflowPlaybookId: "playbook-active",
+        goal: "Ship launch pricing",
+        stagesJson: "[]",
+      },
+    });
+    await prisma.workspacePlan.create({
+      data: {
+        id: "plan-context-project-draft",
+        organizationId: ACTOR.organizationId,
+        documentId: projectId,
+        activeWorkflowPlaybookId: "playbook-draft",
+        goal: "Draft plan",
+        stagesJson: "[]",
+      },
+    });
+
+    try {
+      const loaded = await loadContext();
+      const slices: RoomContextDocumentSliceInputV1[] = loaded.documentSlices ?? [];
+
+      expect(slices.some((slice) => slice.sliceId.startsWith("doc_"))).toBe(true);
+      expect(
+        slices.some(
+          (slice) =>
+            slice.sliceId.startsWith("note_") &&
+            slice.content.includes("CFO approval"),
+        ),
+      ).toBe(true);
+      expect(
+        slices.some(
+          (slice) =>
+            slice.sliceId.startsWith("note_") &&
+            slice.content.includes("executive-ready"),
+        ),
+      ).toBe(true);
+      expect(
+        slices.some(
+          (slice) =>
+            slice.sliceId.startsWith("playbook_") &&
+            slice.content.includes("Launch Readiness Review") === false &&
+            (slice.title ?? "").includes("Launch Readiness Review") &&
+            slice.content.includes("Require human approval"),
+        ),
+      ).toBe(true);
+
+      const allText = slices.map((slice) => `${slice.title ?? ""}\n${slice.content}`).join("\n");
+      expect(allText).not.toContain("INACTIVE_NOTE_MUST_NOT_LEAK");
+      expect(allText).not.toContain("CROSS_ORG_NOTE_MUST_NOT_LEAK");
+      expect(allText).not.toContain("DRAFT_PLAYBOOK_MUST_NOT_LEAK");
+
+      const built = buildRoomContextV1(loaded);
+      const docBlocks = built.blocks.filter((block) => block.category === "document-slice");
+      expect(docBlocks.length).toBe(slices.length);
+      expect(
+        built.trace.exclusions.filter(
+          (entry) =>
+            entry.category === "document-slice" &&
+            (entry.reason === "acl-binding-mismatch" ||
+              entry.reason === "duplicate-source"),
+        ),
+      ).toEqual([]);
+    } finally {
+      await prisma.workspacePlan.deleteMany({
+        where: { id: { in: ["plan-context-doc", "plan-context-project-draft"] } },
+      });
+      await prisma.workflowPlaybook.deleteMany({
+        where: { id: { in: ["playbook-active", "playbook-draft"] } },
+      });
+      await prisma.note.deleteMany({
+        where: {
+          id: {
+            in: [
+              "note-project-active",
+              "note-deliverable-active",
+              "note-inactive",
+              "note-foreign-org",
+            ],
+          },
+        },
+      });
+      await prisma.organization.deleteMany({
+        where: { id: "foreign-context-org" },
+      });
+    }
   });
 
   test("rechecks live ACL and excludes revoked or tampered knowledge", async () => {

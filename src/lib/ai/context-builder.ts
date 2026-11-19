@@ -1,4 +1,9 @@
 import { prisma } from '@/lib/db/prisma';
+import {
+  STUDIO_CONTEXT_BUDGET_V1,
+  selectBoundedNoteLines,
+  truncateBoundedText,
+} from '@/lib/ai/context-budget';
 import { buildReplyLanguageInstruction } from '@/lib/ai/language';
 import {
   formatProjectAiContext,
@@ -102,8 +107,14 @@ export async function buildCommentContext(params: {
       userId,
       workspaceId: wikiId,
     }),
+    take: STUDIO_CONTEXT_BUDGET_V1.noteQueryTakeLimit,
   });
   const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
+  const boundedWiki = truncateBoundedText(
+    wikiContent,
+    STUDIO_CONTEXT_BUDGET_V1.comment.maxWikiChars,
+    { anchorText }
+  );
 
   const systemParts: string[] = [
     'You are the review agent inside 成形. You are responding to a local revision request on a deliverable draft or visible version.',
@@ -112,28 +123,44 @@ export async function buildCommentContext(params: {
     buildReplyLanguageInstruction(params.language),
     '',
     '## Wiki Content',
-    wikiContent,
+    boundedWiki.content,
     '',
     '## Highlighted Text',
     `"${anchorText}"`,
   ];
 
-  if (memoryNotes.length > 0) {
-    systemParts.push('', '## Memories to Apply');
-    memoryNotes.forEach((memory) => {
-      systemParts.push(
-        `- [${resolveContextScopeLabel(memory, wikiId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
-      );
-    });
+  const boundedMemories = selectBoundedNoteLines({
+    formatLine: (memory) =>
+      `- [${resolveContextScopeLabel(memory, wikiId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`,
+    label: 'memories',
+    maxChars: STUDIO_CONTEXT_BUDGET_V1.comment.maxMemoriesChars,
+    maxItems: STUDIO_CONTEXT_BUDGET_V1.comment.maxMemoriesItems,
+    notes: memoryNotes,
+    projectId: projectContext?.id || null,
+    workspaceId: wikiId,
+  });
+  if (boundedMemories.lines.length > 0) {
+    systemParts.push('', '## Memories to Apply', ...boundedMemories.lines);
+    if (boundedMemories.omissionNotice) {
+      systemParts.push(boundedMemories.omissionNotice);
+    }
   }
 
-  if (knowledgeNotes.length > 0) {
-    systemParts.push('', '## Knowledge Base');
-    knowledgeNotes.forEach((item) => {
-      systemParts.push(
-        `- [${resolveContextScopeLabel(item, wikiId, projectContext?.id || null)}] **${item.title || 'Untitled'}**: ${item.content}`
-      );
-    });
+  const boundedKnowledge = selectBoundedNoteLines({
+    formatLine: (item) =>
+      `- [${resolveContextScopeLabel(item, wikiId, projectContext?.id || null)}] **${item.title || 'Untitled'}**: ${item.content}`,
+    label: 'knowledge notes',
+    maxChars: STUDIO_CONTEXT_BUDGET_V1.comment.maxKnowledgeNotesChars,
+    maxItems: STUDIO_CONTEXT_BUDGET_V1.comment.maxKnowledgeNotesItems,
+    notes: knowledgeNotes,
+    projectId: projectContext?.id || null,
+    workspaceId: wikiId,
+  });
+  if (boundedKnowledge.lines.length > 0) {
+    systemParts.push('', '## Knowledge Base', ...boundedKnowledge.lines);
+    if (boundedKnowledge.omissionNotice) {
+      systemParts.push(boundedKnowledge.omissionNotice);
+    }
   }
 
   return {
@@ -189,6 +216,7 @@ export async function buildChatSystemPrompt(params: {
       userId: params.userId || null,
       workspaceId,
     }),
+    take: STUDIO_CONTEXT_BUDGET_V1.noteQueryTakeLimit,
   });
   const { knowledgeNotes, memoryNotes } = splitNotesByKind(notes);
 
@@ -228,22 +256,38 @@ export async function buildChatSystemPrompt(params: {
     );
   }
 
-  if (memoryNotes.length > 0) {
-    parts.push('', '## Memories to Always Apply');
-    memoryNotes.forEach((memory) => {
-      parts.push(
-        `- [${resolveContextScopeLabel(memory, workspaceId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
-      );
-    });
+  const boundedMemories = selectBoundedNoteLines({
+    formatLine: (memory) =>
+      `- [${resolveContextScopeLabel(memory, workspaceId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`,
+    label: 'memories',
+    maxChars: STUDIO_CONTEXT_BUDGET_V1.chat.maxMemoriesChars,
+    maxItems: STUDIO_CONTEXT_BUDGET_V1.chat.maxMemoriesItems,
+    notes: memoryNotes,
+    projectId: projectContext?.id || null,
+    workspaceId,
+  });
+  if (boundedMemories.lines.length > 0) {
+    parts.push('', '## Memories to Always Apply', ...boundedMemories.lines);
+    if (boundedMemories.omissionNotice) {
+      parts.push(boundedMemories.omissionNotice);
+    }
   }
 
-  if (knowledgeNotes.length > 0) {
-    parts.push('', '## Knowledge to Reuse');
-    knowledgeNotes.forEach((item) => {
-      parts.push(
-        `- [${resolveContextScopeLabel(item, workspaceId, projectContext?.id || null)}] ${item.title || 'Untitled'}: ${item.content}`
-      );
-    });
+  const boundedKnowledge = selectBoundedNoteLines({
+    formatLine: (item) =>
+      `- [${resolveContextScopeLabel(item, workspaceId, projectContext?.id || null)}] ${item.title || 'Untitled'}: ${item.content}`,
+    label: 'knowledge notes',
+    maxChars: STUDIO_CONTEXT_BUDGET_V1.chat.maxKnowledgeNotesChars,
+    maxItems: STUDIO_CONTEXT_BUDGET_V1.chat.maxKnowledgeNotesItems,
+    notes: knowledgeNotes,
+    projectId: projectContext?.id || null,
+    workspaceId,
+  });
+  if (boundedKnowledge.lines.length > 0) {
+    parts.push('', '## Knowledge to Reuse', ...boundedKnowledge.lines);
+    if (boundedKnowledge.omissionNotice) {
+      parts.push(boundedKnowledge.omissionNotice);
+    }
   }
 
   if (projectContext) {
@@ -255,21 +299,23 @@ export async function buildChatSystemPrompt(params: {
   }
 
   if (activePlan?.activeWorkflowPlaybook?.status === 'active') {
-    parts.push('', '## Active Workflow Playbook');
-    parts.push(
-      formatWorkflowPlaybookForPrompt({
-        title: activePlan.activeWorkflowPlaybook.title,
-        summary: activePlan.activeWorkflowPlaybook.summary,
-        steps: parseStructuredList(activePlan.activeWorkflowPlaybook.steps),
-        constraints: parseStructuredList(activePlan.activeWorkflowPlaybook.constraints),
-        checklist: parseStructuredList(activePlan.activeWorkflowPlaybook.checklist),
-        extensionHints: resolveWorkflowExtensionHints({
-          originDeviceId: activePlan.activeWorkflowPlaybook.originDeviceId || null,
-          serialized: activePlan.activeWorkflowPlaybook.extensionHints,
-        }),
-        content: activePlan.activeWorkflowPlaybook.content,
-      })
+    const formattedPlaybook = formatWorkflowPlaybookForPrompt({
+      title: activePlan.activeWorkflowPlaybook.title,
+      summary: activePlan.activeWorkflowPlaybook.summary,
+      steps: parseStructuredList(activePlan.activeWorkflowPlaybook.steps),
+      constraints: parseStructuredList(activePlan.activeWorkflowPlaybook.constraints),
+      checklist: parseStructuredList(activePlan.activeWorkflowPlaybook.checklist),
+      extensionHints: resolveWorkflowExtensionHints({
+        originDeviceId: activePlan.activeWorkflowPlaybook.originDeviceId || null,
+        serialized: activePlan.activeWorkflowPlaybook.extensionHints,
+      }),
+      content: activePlan.activeWorkflowPlaybook.content,
+    });
+    const boundedPlaybook = truncateBoundedText(
+      formattedPlaybook,
+      STUDIO_CONTEXT_BUDGET_V1.chat.maxPlaybookChars
     );
+    parts.push('', '## Active Workflow Playbook', boundedPlaybook.content);
   }
 
   return parts.join('\n');
@@ -300,8 +346,14 @@ export async function buildSuggestionContext(params: {
       userId,
       workspaceId: wikiId,
     }),
+    take: STUDIO_CONTEXT_BUDGET_V1.noteQueryTakeLimit,
   });
   const { memoryNotes } = splitNotesByKind(notes);
+  const boundedWiki = truncateBoundedText(
+    wikiContent,
+    STUDIO_CONTEXT_BUDGET_V1.suggestion.maxWikiChars,
+    { anchorText }
+  );
 
   const parts: string[] = [
     'You are an AI editor for 成形.',
@@ -309,7 +361,7 @@ export async function buildSuggestionContext(params: {
     'Return only the replacement text. Do not include explanation.',
     '',
     '## Full Wiki',
-    wikiContent,
+    boundedWiki.content,
     '',
     '## Text to Replace',
     `"${anchorText}"`,
@@ -318,13 +370,21 @@ export async function buildSuggestionContext(params: {
     threadDiscussion,
   ];
 
-  if (memoryNotes.length > 0) {
-    parts.push('', '## Memories');
-    memoryNotes.forEach((memory) => {
-      parts.push(
-        `- [${resolveContextScopeLabel(memory, wikiId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`
-      );
-    });
+  const boundedMemories = selectBoundedNoteLines({
+    formatLine: (memory) =>
+      `- [${resolveContextScopeLabel(memory, wikiId, projectContext?.id || null)} / ${memory.kind}] ${memory.content}`,
+    label: 'memories',
+    maxChars: STUDIO_CONTEXT_BUDGET_V1.suggestion.maxMemoriesChars,
+    maxItems: STUDIO_CONTEXT_BUDGET_V1.suggestion.maxMemoriesItems,
+    notes: memoryNotes,
+    projectId: projectContext?.id || null,
+    workspaceId: wikiId,
+  });
+  if (boundedMemories.lines.length > 0) {
+    parts.push('', '## Memories', ...boundedMemories.lines);
+    if (boundedMemories.omissionNotice) {
+      parts.push(boundedMemories.omissionNotice);
+    }
   }
 
   return parts.join('\n');
