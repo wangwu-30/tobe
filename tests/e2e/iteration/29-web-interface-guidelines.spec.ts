@@ -29,7 +29,10 @@ test('default workspace Chat has no automated WCAG A or AA violations', async ({
   await expect
     .poll(() => new URL(page.url()).searchParams.get('node'))
     .toBe(workspace.id);
-  await expect(page.getByTestId('workspace-start-agent')).toBeEnabled();
+  await expect(
+    page.getByTestId('workspace-advanced-actions-trigger')
+  ).toBeEnabled();
+  await expect(page.getByTestId('workspace-start-agent')).toHaveCount(0);
   await expectNoAccessibilityViolations(page, 'workspace Chat');
 });
 

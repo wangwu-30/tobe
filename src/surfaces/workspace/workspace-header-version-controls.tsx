@@ -1,12 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import { Bot, CircleHelp, LoaderCircle } from 'lucide-react';
+import { Bot, CircleHelp, LoaderCircle, SlidersHorizontal } from 'lucide-react';
 
 import { ExecutionJobDialog } from '@/components/execution/execution-job-dialog';
 import { useT } from '@/components/providers/language-provider';
 import { DeliverableVersionControls } from '@/components/workspace/deliverable-version-controls';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { requestSelectionCommentComposerOpen } from '@/lib/comments/constants';
 import { cn } from '@/lib/utils';
 import { alignWorkspaceVersion } from '@/lib/workspace/version-client';
@@ -178,17 +184,48 @@ export function WorkspaceHeaderVersionControls({
           </span>
         </div>
       ) : null}
-      <Button
-        aria-haspopup="dialog"
-        size="sm"
-        className="h-8 gap-1.5"
-        onClick={() => setIsExecutionDialogOpen(true)}
-        disabled={!workspaceId || !interactionsEnabled}
-        data-testid="workspace-start-agent"
-      >
-        <Bot className="h-3.5 w-3.5" />
-        {t('tasks.startAgent')}
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            aria-label={t('sidebar.advanced')}
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1.5"
+            disabled={!workspaceId || !interactionsEnabled}
+            data-testid="workspace-advanced-actions-trigger"
+          >
+            <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('sidebar.advanced')}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[11rem]">
+          <DropdownMenuItem
+            data-testid="workspace-start-agent"
+            disabled={!workspaceId || !interactionsEnabled}
+            onSelect={() => setIsExecutionDialogOpen(true)}
+          >
+            <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('tasks.startAgent')}
+          </DropdownMenuItem>
+          {!currentVersionId ? (
+            <DropdownMenuItem
+              data-testid="workspace-publish-task"
+              disabled={!workspaceId || !interactionsEnabled || isLoadingTaskAgents}
+              onSelect={() => void openTaskComposer()}
+            >
+              {isLoadingTaskAgents ? (
+                <LoaderCircle
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
+                />
+              ) : (
+                <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              {t('tasks.publishTask')}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
       <span
         aria-live="polite"
         className="sr-only"
@@ -201,37 +238,15 @@ export function WorkspaceHeaderVersionControls({
             : t('execution.notAligned')}
       </span>
       {!currentVersionId ? (
-        <>
-          <Button
-            aria-busy={isLoadingTaskAgents}
-            aria-haspopup="dialog"
-            size="sm"
-            variant="ghost"
-            className="h-8 gap-1.5"
-            onClick={() => void openTaskComposer()}
-            disabled={!workspaceId || !interactionsEnabled || isLoadingTaskAgents}
-            data-testid="workspace-publish-task"
-          >
-            {isLoadingTaskAgents ? (
-              <LoaderCircle
-                aria-hidden="true"
-                className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
-              />
-            ) : (
-              <CircleHelp className="h-3.5 w-3.5" />
-            )}
-            {t('tasks.publishTask')}
-          </Button>
-          <TaskComposerDialog
-            agents={taskAgents}
-            defaultKind="help"
-            onOpenChange={setIsTaskComposerOpen}
-            open={isTaskComposerOpen}
-            projectId={projectId}
-            sourceTitle={sourceTitle}
-            workspaceId={workspaceId}
-          />
-        </>
+        <TaskComposerDialog
+          agents={taskAgents}
+          defaultKind="help"
+          onOpenChange={setIsTaskComposerOpen}
+          open={isTaskComposerOpen}
+          projectId={projectId}
+          sourceTitle={sourceTitle}
+          workspaceId={workspaceId}
+        />
       ) : null}
       <ExecutionJobDialog
         alignedVersionId={

@@ -9,6 +9,8 @@ export function SplitView({
   className,
   defaultRatio = 0.38,
   leftLabel,
+  maxRatio = 0.8,
+  minRatio = 0.2,
   mobilePaneRequest,
   resetKey,
   rightLabel,
@@ -18,11 +20,17 @@ export function SplitView({
   className?: string;
   defaultRatio?: number;
   leftLabel: string;
+  maxRatio?: number;
+  minRatio?: number;
   mobilePaneRequest?: 'left' | 'right';
   resetKey?: string;
   rightLabel: string;
 }) {
-  const [splitRatio, setSplitRatio] = React.useState(defaultRatio);
+  const clampRatio = React.useCallback(
+    (ratio: number) => Math.max(minRatio, Math.min(maxRatio, ratio)),
+    [maxRatio, minRatio]
+  );
+  const [splitRatio, setSplitRatio] = React.useState(() => clampRatio(defaultRatio));
   const [isDragging, setIsDragging] = React.useState(false);
   const [mobilePane, setMobilePane] = React.useState<'left' | 'right'>(
     mobilePaneRequest ?? (defaultRatio >= 0.5 ? 'left' : 'right')
@@ -32,9 +40,9 @@ export function SplitView({
   const rightPaneId = React.useId();
 
   React.useEffect(() => {
-    setSplitRatio(defaultRatio);
+    setSplitRatio(clampRatio(defaultRatio));
     setMobilePane(defaultRatio >= 0.5 ? 'left' : 'right');
-  }, [defaultRatio, resetKey]);
+  }, [clampRatio, defaultRatio, resetKey]);
 
   React.useEffect(() => {
     if (mobilePaneRequest) {
@@ -42,14 +50,17 @@ export function SplitView({
     }
   }, [mobilePaneRequest, resetKey]);
 
-  const updateRatioFromPointer = React.useCallback((clientX: number) => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const ratio = (clientX - rect.left) / rect.width;
-    setSplitRatio(Math.max(0.2, Math.min(0.6, ratio)));
-  }, []);
+  const updateRatioFromPointer = React.useCallback(
+    (clientX: number) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const ratio = (clientX - rect.left) / rect.width;
+      setSplitRatio(clampRatio(ratio));
+    },
+    [clampRatio]
+  );
 
   const handlePointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -80,22 +91,25 @@ export function SplitView({
     []
   );
 
-  const handleSeparatorKeyDown = React.useCallback((event: React.KeyboardEvent) => {
-    const step = event.shiftKey ? 0.1 : 0.02;
-    if (event.key === 'Home') {
-      event.preventDefault();
-      setSplitRatio(0.2);
-    } else if (event.key === 'End') {
-      event.preventDefault();
-      setSplitRatio(0.6);
-    } else if (event.key === 'ArrowLeft') {
-      event.preventDefault();
-      setSplitRatio((current) => Math.max(0.2, current - step));
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      setSplitRatio((current) => Math.min(0.6, current + step));
-    }
-  }, []);
+  const handleSeparatorKeyDown = React.useCallback(
+    (event: React.KeyboardEvent) => {
+      const step = event.shiftKey ? 0.1 : 0.02;
+      if (event.key === 'Home') {
+        event.preventDefault();
+        setSplitRatio(minRatio);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        setSplitRatio(maxRatio);
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        setSplitRatio((current) => clampRatio(current - step));
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        setSplitRatio((current) => clampRatio(current + step));
+      }
+    },
+    [clampRatio, maxRatio, minRatio]
+  );
 
   return (
     <div
@@ -159,8 +173,8 @@ export function SplitView({
       <div
         aria-label="Resize panels"
         aria-orientation="vertical"
-        aria-valuemax={60}
-        aria-valuemin={20}
+        aria-valuemax={Math.round(maxRatio * 100)}
+        aria-valuemin={Math.round(minRatio * 100)}
         aria-valuenow={Math.round(splitRatio * 100)}
         className="hidden w-2 flex-shrink-0 touch-none cursor-col-resize bg-transparent transition-colors hover:bg-primary/10 focus-visible:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring active:bg-primary/20 motion-reduce:transition-none md:block"
         onKeyDown={handleSeparatorKeyDown}

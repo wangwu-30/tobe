@@ -7,16 +7,19 @@ test('Knowledge dirty guard covers shell link navigation and restores back and f
   await primeClientState(page);
 
   await page.goto('/settings');
-  await expect(page.getByTestId('sidebar-advanced-toggle')).toHaveAttribute(
-    'aria-expanded',
-    'true'
+  await expect(page.getByTestId('sidebar-settings-link')).toHaveAttribute(
+    'aria-current',
+    'page'
   );
-  const advancedNavigation = page
-    .getByTestId('sidebar-advanced-toggle')
-    .locator('xpath=..');
+  const advancedToggle = page.getByTestId('sidebar-advanced-toggle');
+  await expect(advancedToggle).toHaveAttribute('aria-expanded', 'false');
+  await advancedToggle.click();
+  await expect(advancedToggle).toHaveAttribute('aria-expanded', 'true');
+  const advancedNavigation = advancedToggle.locator('xpath=..');
   await advancedNavigation
     .getByRole('link', { name: /Git 知识|Git Knowledge/, exact: true })
     .click();
+  await expect(page).toHaveURL(/\/knowledge\?view=reviews/);
   const configurationTab = page.getByTestId('knowledge-configuration-tab');
   await configurationTab.click();
   await expect(configurationTab).toHaveAttribute('aria-current', 'page');

@@ -65,6 +65,7 @@ export function SidebarIconButton({
   icon,
   label,
   onClick,
+  testId,
 }: {
   active?: boolean;
   ariaLabel?: string;
@@ -72,6 +73,7 @@ export function SidebarIconButton({
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  testId?: string;
 }) {
   return (
     <Tooltip>
@@ -85,6 +87,7 @@ export function SidebarIconButton({
             active && 'border-border bg-background shadow-sm',
             className
           )}
+          data-testid={testId}
           onClick={onClick}
           aria-label={ariaLabel || label}
         >

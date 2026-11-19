@@ -38,7 +38,7 @@ type AdvancedNavigationItem = {
   testId?: string;
 };
 
-const ADVANCED_ROUTES = ['/knowledge', '/tasks', '/agents', '/jobs', '/settings'];
+const ADVANCED_ROUTES = ['/knowledge', '/tasks', '/agents', '/jobs'];
 
 export function AdvancedNavigation({
   collapsed = false,
@@ -74,11 +74,13 @@ function AdvancedNavigationContent({
     return `${pathname}?${nextSearchParams.toString()}`;
   }, [pathname, searchParams]);
   const isRoomRoute = roomHref !== null && assistantParam === 'room';
-  const isAdvancedRoute = isRoomRoute || ADVANCED_ROUTES.some((route) =>
-    route === '/settings' ? pathname === route : pathname.startsWith(route)
-  );
+  const isSettingsRoute = pathname === '/settings';
+  const isAdvancedRoute =
+    isRoomRoute ||
+    ADVANCED_ROUTES.some((route) => pathname.startsWith(route));
   const [open, setOpen] = React.useState(isAdvancedRoute);
-  const label = `${t('sidebar.advanced')} / ${t('common.settings')}`;
+  const advancedLabel = t('sidebar.advanced');
+  const settingsLabel = t('common.settings');
   const items = React.useMemo<AdvancedNavigationItem[]>(
     () => [
       ...(roomHref
@@ -116,12 +118,6 @@ function AdvancedNavigationContent({
         icon: History,
         label: t('sidebar.jobs'),
       },
-      {
-        active: pathname === '/settings',
-        href: '/settings',
-        icon: Settings,
-        label: t('common.settings'),
-      },
     ],
     [isRoomRoute, pathname, roomHref, t]
   );
@@ -134,89 +130,131 @@ function AdvancedNavigationContent({
 
   if (collapsed) {
     return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            aria-label={label}
-            className={cn(
-              'h-10 w-10 rounded-xl border border-transparent',
-              isAdvancedRoute && 'border-border bg-background shadow-sm'
-            )}
-            data-testid="sidebar-advanced-toggle"
-            size="icon-sm"
-            title={label}
-            variant={isAdvancedRoute ? 'secondary' : 'ghost'}
+      <div className="flex flex-col items-center gap-1.5">
+        <Button
+          asChild
+          className={cn(
+            'h-10 w-10 rounded-xl border border-transparent',
+            isSettingsRoute && 'border-border bg-background shadow-sm'
+          )}
+          size="icon-sm"
+          title={settingsLabel}
+          variant={isSettingsRoute ? 'secondary' : 'ghost'}
+        >
+          <Link
+            aria-current={isSettingsRoute ? 'page' : undefined}
+            aria-label={settingsLabel}
+            data-testid="sidebar-settings-link"
+            href="/settings"
+            onClick={onNavigate}
           >
-            <SlidersHorizontal className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" side="right">
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <DropdownMenuItem asChild key={item.href}>
-                <Link
-                  aria-current={item.active ? 'page' : undefined}
-                  href={item.href}
-                  onClick={onNavigate}
-                  data-testid={item.testId}
-                >
-                  <Icon className="h-4 w-4" />
-                  {item.label}
-                </Link>
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <Settings className="h-4 w-4" aria-hidden="true" />
+          </Link>
+        </Button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              aria-label={advancedLabel}
+              className={cn(
+                'h-10 w-10 rounded-xl border border-transparent',
+                isAdvancedRoute && 'border-border bg-background shadow-sm'
+              )}
+              data-testid="sidebar-advanced-toggle"
+              size="icon-sm"
+              title={advancedLabel}
+              variant={isAdvancedRoute ? 'secondary' : 'ghost'}
+            >
+              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="right">
+            {items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <DropdownMenuItem asChild key={item.href}>
+                  <Link
+                    aria-current={item.active ? 'page' : undefined}
+                    href={item.href}
+                    onClick={onNavigate}
+                    data-testid={item.testId}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {item.label}
+                  </Link>
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     );
   }
 
   return (
-    <div className="min-w-0">
+    <div className="min-w-0 space-y-1">
       <Button
-        aria-controls={disclosureId}
-        aria-expanded={open}
+        asChild
         className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-        data-testid="sidebar-advanced-toggle"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-        variant={isAdvancedRoute ? 'secondary' : 'ghost'}
+        variant={isSettingsRoute ? 'secondary' : 'ghost'}
       >
-        <SlidersHorizontal className="h-4 w-4 shrink-0" />
-        <span className="truncate">{label}</span>
-        <ChevronDown
-          className={cn(
-            'ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none',
-            open && 'rotate-180'
-          )}
-        />
+        <Link
+          aria-current={isSettingsRoute ? 'page' : undefined}
+          data-testid="sidebar-settings-link"
+          href="/settings"
+          onClick={onNavigate}
+        >
+          <Settings className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">{settingsLabel}</span>
+        </Link>
       </Button>
-      {open ? (
-        <div className="mt-1 space-y-1 pl-3" id={disclosureId}>
-          {items.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Button
-                asChild
-                className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
-                key={item.href}
-                variant={item.active ? 'secondary' : 'ghost'}
-              >
-                <Link
-                  aria-current={item.active ? 'page' : undefined}
-                  href={item.href}
-                  onClick={onNavigate}
-                  data-testid={item.testId}
+
+      <div className="min-w-0">
+        <Button
+          aria-controls={disclosureId}
+          aria-expanded={open}
+          className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+          data-testid="sidebar-advanced-toggle"
+          onClick={() => setOpen((current) => !current)}
+          type="button"
+          variant={isAdvancedRoute ? 'secondary' : 'ghost'}
+        >
+          <SlidersHorizontal className="h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">{advancedLabel}</span>
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              'ml-auto h-4 w-4 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none',
+              open && 'rotate-180'
+            )}
+          />
+        </Button>
+        {open ? (
+          <div className="mt-1 space-y-1 pl-3" id={disclosureId}>
+            {items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Button
+                  asChild
+                  className="w-full min-w-0 max-w-full justify-start gap-2 overflow-hidden rounded-xl"
+                  key={item.href}
+                  variant={item.active ? 'secondary' : 'ghost'}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              </Button>
-            );
-          })}
-        </div>
-      ) : null}
+                  <Link
+                    aria-current={item.active ? 'page' : undefined}
+                    href={item.href}
+                    onClick={onNavigate}
+                    data-testid={item.testId}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                </Button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -44,6 +44,7 @@ export function WorkspaceSidebar({
   onReorderDeliverable,
   onReorderProjectFolder,
   onReorderSupportFile,
+  onRequestExpand,
   outlineItems,
   projectDeliverables,
   projectFolders,
@@ -103,6 +104,7 @@ export function WorkspaceSidebar({
     fileId: string,
     direction: 'up' | 'down'
   ) => Promise<void> | void;
+  onRequestExpand?: () => void;
   outlineItems: DeliverableOutlineItem[];
   projectDeliverables: ProjectDeliverableItem[];
   projectFolders: ProjectFolderItem[];
@@ -195,6 +197,7 @@ export function WorkspaceSidebar({
       onDeleteProjectFolder={
         isVersionView ? undefined : (folderId) => void onDeleteProjectFolder(folderId)
       }
+      onRequestExpand={onRequestExpand}
       projectFolders={projectFolders}
       projectDeliverables={projectDeliverables}
       supportFiles={supportFiles}

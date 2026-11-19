@@ -400,6 +400,7 @@ test("draft execution action fails closed until an immutable version exists", as
 
   const statusTab = page.getByTestId("assistant-tab-status");
   await expect(statusTab).toHaveAttribute("data-state", "active");
+  await page.getByTestId("workspace-advanced-actions-trigger").click();
   await page.getByTestId("workspace-start-agent").click();
 
   const dialog = page.getByTestId("workspace-execution-dialog");
@@ -505,6 +506,7 @@ test("selected-version Start Agent request preserves the immutable version conte
   );
 
   await expect(page.getByTestId("first-use-guide-version")).toBeVisible();
+  await page.getByTestId("workspace-advanced-actions-trigger").click();
   await page.getByTestId("workspace-start-agent").click();
 
   const dialog = page.getByTestId("workspace-execution-dialog");
@@ -562,6 +564,7 @@ test("aligned document action preserves the active chat and its existing draft",
   await expect(chatTab).toHaveAttribute("data-state", "active");
   await expect(composerInput).toBeVisible();
   await composerInput.fill(existingDraft);
+  await page.getByTestId("workspace-advanced-actions-trigger").click();
   await page.getByTestId("workspace-start-agent").click();
 
   await expect(page.getByTestId("workspace-execution-dialog")).toBeVisible();
@@ -580,6 +583,7 @@ test("document task composer loads organization Agents", async ({ page }) => {
       encodeURIComponent(workspace.conversationId),
   );
 
+  await page.getByTestId("workspace-advanced-actions-trigger").click();
   await page.getByTestId("workspace-publish-task").click();
   const composer = page.getByTestId("task-composer-dialog");
   await composer.getByTestId("task-assignee-select").click();
