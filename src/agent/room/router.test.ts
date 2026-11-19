@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import type { RoomAgentMentionV1 } from '@/agent/room-runtime';
 
@@ -34,7 +35,7 @@ test('routes a default unaddressed message to the coordinator without inferring 
     text: 'Please ask @researcher, but this is ordinary text.',
   });
 
-  expect(result).toEqual({
+  assert.deepEqual(result, {
     accepted: true,
     mentions: [],
     deliveries: [
@@ -65,9 +66,9 @@ test('routes multiple typed mentions to responders and the quiet host as observe
     text,
   });
 
-  expect(result.accepted).toBe(true);
+  assert.equal(result.accepted, true);
   if (!result.accepted) return;
-  expect(result.deliveries.map(compactDelivery)).toEqual([
+  assert.deepEqual(result.deliveries.map(compactDelivery), [
     ['researcher', 'respond', 'typed-mention'],
     ['reviewer', 'respond', 'typed-mention'],
     ['host', 'observe', 'room-observation'],
@@ -83,9 +84,9 @@ test('does not add an observation when the host itself is explicitly mentioned',
     text: '@host',
   });
 
-  expect(result.accepted).toBe(true);
+  assert.equal(result.accepted, true);
   if (!result.accepted) return;
-  expect(result.deliveries.map(compactDelivery)).toEqual([
+  assert.deepEqual(result.deliveries.map(compactDelivery), [
     ['host', 'respond', 'typed-mention'],
   ]);
 });
@@ -108,13 +109,13 @@ test('routes a reply to its agent author and lets a different host observe', () 
     text: 'Could you expand on that?',
   });
 
-  expect(result.accepted).toBe(true);
+  assert.equal(result.accepted, true);
   if (!result.accepted) return;
-  expect(result.deliveries.map(compactDelivery)).toEqual([
+  assert.deepEqual(result.deliveries.map(compactDelivery), [
     ['researcher', 'respond', 'system'],
     ['host', 'observe', 'room-observation'],
   ]);
-  expect(result.deliveries[0]?.cause).toEqual({
+  assert.deepEqual(result.deliveries[0]?.cause, {
     type: 'system',
     reason: 'reply-to-agent',
   });
@@ -132,12 +133,13 @@ test('rejects an invalid mention set without producing partial deliveries', () =
     text: '@researcher and @researcher',
   });
 
-  expect(result.accepted).toBe(false);
+  assert.equal(result.accepted, false);
   if (result.accepted) return;
-  expect(result.issues.some((issue) => issue.code === 'duplicate-agent')).toBe(
+  assert.equal(
+    result.issues.some((issue) => issue.code === 'duplicate-agent'),
     true
   );
-  expect('deliveries' in result).toBe(false);
+  assert.equal('deliveries' in result, false);
 });
 
 function mention(

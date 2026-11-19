@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import type { RoomEventDtoV1 } from '@/objects/room';
 
 import { parseExecutionRoomEvent } from './room-events';
@@ -25,7 +26,7 @@ for (const [type, jobStatus] of inputCases) {
   test(`strictly parses ${type}`, () => {
     const event = roomEvent(type, inputPayload(jobStatus));
 
-    expect(parseExecutionRoomEvent(event)).toEqual({
+    assert.deepEqual(parseExecutionRoomEvent(event), {
       data: inputPayload(jobStatus),
       eventId: 'event-7',
       roomId: 'room-1',
@@ -39,13 +40,13 @@ for (const [type, jobStatus] of inputCases) {
       const parsed = parseExecutionRoomEvent(
         roomEvent(type, inputPayload(candidate))
       );
-      expect(parsed === null).toBe(candidate !== jobStatus);
+      assert.equal(parsed === null, candidate !== jobStatus);
     }
 
     for (const field of ['requestId', 'inputRevision'] as const) {
       const payload = inputPayload(jobStatus);
       delete payload[field];
-      expect(parseExecutionRoomEvent(roomEvent(type, payload))).toBeNull();
+      assert.equal(parseExecutionRoomEvent(roomEvent(type, payload)), null);
     }
   });
 }
@@ -53,68 +54,77 @@ for (const [type, jobStatus] of inputCases) {
 test('strictly parses terminal execution.completed variants', () => {
   for (const jobStatus of ['cancelled', 'failed', 'succeeded'] as const) {
     const payload = completedPayload(jobStatus);
-    expect(parseExecutionRoomEvent(roomEvent('execution.completed', payload))).toEqual({
-      data: payload,
-      eventId: 'event-7',
-      roomId: 'room-1',
-      sequence: 7,
-      type: 'execution.completed',
-    });
+    assert.deepEqual(
+      parseExecutionRoomEvent(roomEvent('execution.completed', payload)),
+      {
+        data: payload,
+        eventId: 'event-7',
+        roomId: 'room-1',
+        sequence: 7,
+        type: 'execution.completed',
+      }
+    );
   }
 
   for (const jobStatus of JOB_STATUSES.filter(
     (status) => !['cancelled', 'failed', 'succeeded'].includes(status)
   )) {
-    expect(
+    assert.equal(
       parseExecutionRoomEvent(
         roomEvent('execution.completed', completedPayload(jobStatus))
-      )
-    ).toBeNull();
+      ),
+      null
+    );
   }
 });
 
 test('accepts only a non-empty optional teamTaskId', () => {
   const payload = { ...completedPayload('succeeded'), teamTaskId: 'task-1' };
-  expect(
+  assert.equal(
     parseExecutionRoomEvent(roomEvent('execution.completed', payload))?.data
-      .teamTaskId
-  ).toBe('task-1');
+      .teamTaskId,
+    'task-1'
+  );
 
   for (const teamTaskId of [null, '', '   ', 1]) {
-    expect(
+    assert.equal(
       parseExecutionRoomEvent(
         roomEvent('execution.completed', {
           ...completedPayload('succeeded'),
           teamTaskId,
         })
-      )
-    ).toBeNull();
+      ),
+      null
+    );
   }
 });
 
 test('rejects unrelated types, unknown fields, and cross-variant fields', () => {
-  expect(
+  assert.equal(
     parseExecutionRoomEvent(
       roomEvent('execution.started', completedPayload('succeeded'))
-    )
-  ).toBeNull();
-  expect(
+    ),
+    null
+  );
+  assert.equal(
     parseExecutionRoomEvent(
       roomEvent('execution.completed', {
         ...completedPayload('succeeded'),
         extra: true,
       })
-    )
-  ).toBeNull();
-  expect(
+    ),
+    null
+  );
+  assert.equal(
     parseExecutionRoomEvent(
       roomEvent('execution.completed', {
         ...completedPayload('succeeded'),
         inputRevision: 2,
         requestId: 'request-1',
       })
-    )
-  ).toBeNull();
+    ),
+    null
+  );
 });
 
 test('rejects malformed common payload fields', () => {
@@ -135,38 +145,41 @@ test('rejects malformed common payload fields', () => {
   ];
 
   for (const [field, value] of invalidValues) {
-    expect(
+    assert.equal(
       parseExecutionRoomEvent(
         roomEvent('execution.completed', {
           ...completedPayload('succeeded'),
           [field]: value,
         })
       ),
+      null,
       `${field}=${String(value)}`
-    ).toBeNull();
+    );
   }
 });
 
 test('requires positive inputRevision and a non-empty requestId', () => {
   for (const inputRevision of [0, -1, 1.5, Number.POSITIVE_INFINITY]) {
-    expect(
+    assert.equal(
       parseExecutionRoomEvent(
         roomEvent('execution.input_requested', {
           ...inputPayload('waiting_input'),
           inputRevision,
         })
-      )
-    ).toBeNull();
+      ),
+      null
+    );
   }
   for (const requestId of ['', '   ', null, 1]) {
-    expect(
+    assert.equal(
       parseExecutionRoomEvent(
         roomEvent('execution.input_requested', {
           ...inputPayload('waiting_input'),
           requestId,
         })
-      )
-    ).toBeNull();
+      ),
+      null
+    );
   }
 });
 

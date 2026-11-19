@@ -9,6 +9,7 @@ import { controlPlaneTestGroups } from './control-plane-test-inventory.mjs';
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(scriptPath), '..');
 const playwrightCli = path.join(repoRoot, 'node_modules', 'playwright', 'cli.js');
+const nodeTsRegisterPath = path.join(repoRoot, 'scripts', 'node-ts-register.mjs');
 const artifactsRoot = path.join(repoRoot, '.tmp', 'control-plane-tests');
 
 export const controlPlaneInventoryRoots = [
@@ -33,7 +34,13 @@ const sourceExtensions = new Set([
 ]);
 
 export const controlPlaneConfigs = controlPlaneTestGroups.map(
-  ({ config, id }) => ({ id, path: config })
+  ({ config, id, runner = 'playwright', testDir, testMatch }) => ({
+    id,
+    path: config,
+    runner,
+    testDir,
+    testMatch,
+  })
 );
 
 export const controlPlaneBuilds = [
@@ -49,6 +56,7 @@ export const scriptTests = [
   'scripts/bootstrap-local-db.test.mjs',
   'scripts/browser-preflight.test.mjs',
   'scripts/check-web-interface-guidelines.test.mjs',
+  'scripts/dev-all.test.mjs',
   'scripts/oauth-credential-file.test.mjs',
   'scripts/test-ai-inspector.test.mjs',
   'scripts/test-control-plane.test.mjs',
@@ -173,17 +181,43 @@ export function findForbiddenTestModifiers(source, file = 'source.ts') {
   return violations;
 }
 
+export function buildControlPlaneGroupCommand(config, root = repoRoot) {
+  if (config.runner === 'node') {
+    const testDirectory = path.resolve(root, config.testDir);
+    const files = config.testMatch.map((match) =>
+      path.relative(root, path.resolve(testDirectory, match))
+    );
+    return [process.execPath, '--import', nodeTsRegisterPath, '--test', ...files];
+  }
+  return [
+    process.execPath,
+    playwrightCli,
+    'test',
+    `--config=${config.path}`,
+  ];
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const inventoryOnly = args.length === 1 && args[0] === '--inventory-only';
-  if (args.length > 0 && !inventoryOnly) {
+  const unitOnly = args.length === 1 && args[0] === '--unit-only';
+  if (args.length > 0 && !inventoryOnly && !unitOnly) {
     throw new Error(
-      `Unknown arguments: ${args.join(' ')}. Expected no arguments or --inventory-only.`
+      `Unknown arguments: ${args.join(' ')}. Expected no arguments, --inventory-only, or --unit-only.`
     );
   }
 
   if (inventoryOnly) {
     await checkControlPlaneInventory();
+    return;
+  }
+  if (unitOnly) {
+    await checkControlPlaneInventory();
+    for (const config of controlPlaneConfigs.filter(
+      (group) => group.runner === 'node'
+    )) {
+      await runStep(`tests:${config.id}`, buildControlPlaneGroupCommand(config));
+    }
     return;
   }
   await runControlPlaneGate();
@@ -203,12 +237,7 @@ export async function runControlPlaneGate(options = {}) {
     await run(`build:${build.id}`, build.command);
   }
   for (const config of controlPlaneConfigs) {
-    await run(`tests:${config.id}`, [
-      process.execPath,
-      playwrightCli,
-      'test',
-      `--config=${config.path}`,
-    ]);
+    await run(`tests:${config.id}`, buildControlPlaneGroupCommand(config));
   }
 }
 

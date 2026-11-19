@@ -83,7 +83,15 @@ The Quickstart launches the Web application only. Advanced durable execution add
 | Room Session Host | Low-latency multi-Agent Room sessions and replayable events | `npm run room:host:build` then `npm run room:host:start` |
 | Knowledge merge worker | Human-approved Git Knowledge merge and ready-snapshot activation | `npm run knowledge:merge-worker:build` then `npm run knowledge:merge-worker:start` |
 
-Run them as separate processes and point every process at the same `DAO_APP_DATA_ROOT` or `DATABASE_URL`. The execution daemon requires an absolute `DAO_EXECUTION_DAEMON_CONFIG_PATH`; the Room host requires an absolute `DAO_ROOM_SESSION_HOST_CONFIG_PATH`; the knowledge worker requires `DAO_KNOWLEDGE_ORGANIZATION_ID` and an absolute `DAO_KNOWLEDGE_INDEX_ROOT`. See the [Agent Room and durable execution workstream](./docs/agent-room-execution-workstream.md) for deployment details.
+Run them as separate processes and point every process at the same `DAO_APP_DATA_ROOT` or `DATABASE_URL`, or use the one-command local dev orchestrator to bootstrap the SQLite WAL database, build missing daemon bundles, start Web + all 3 Node daemons together, report per-service readiness health, and shut down cleanly on `Ctrl+C`:
+
+```bash
+npm run dev:all
+# Daemons only (without Next.js Web):
+npm run dev:all -- --no-web
+```
+
+The execution daemon requires an absolute `DAO_EXECUTION_DAEMON_CONFIG_PATH`; the Room host requires an absolute `DAO_ROOM_SESSION_HOST_CONFIG_PATH`; the knowledge worker requires `DAO_KNOWLEDGE_ORGANIZATION_ID` and an absolute `DAO_KNOWLEDGE_INDEX_ROOT` (`npm run dev:all` generates local dev defaults under `.tmp/dev-all/` automatically if those env vars are unset). See the [Agent Room and durable execution workstream](./docs/agent-room-execution-workstream.md) for deployment details.
 
 Chat/Room Sessions and durable Execution Jobs deliberately have separate lifecycles. Git Knowledge snapshots have a third readiness and merge lifecycle. None of these advanced lifecycles changes the Wiki Space/Page product model.
 
@@ -112,12 +120,13 @@ This starts the Web process. Add the three standalone services above only when d
 ## Validation
 
 ```bash
+npm run test:unit
 npm run verify:iteration:static
 npm run test:control-plane
 npm run verify:iteration
 ```
 
-The full gate runs static checks, the control-plane inventory and three Node-service suites, WAL-enforcing database bootstrap, the production Web build, browser preflight, and browser E2E. A dated verification record is authoritative only for the exact tree it tested. Historical gate counts are retained in the handoff and workstream documents and must not be presented as proof of the current Wiki-first workstream.
+`npm run test:unit` runs decoupled pure-logic TypeScript unit tests directly on Node's native `node:test` runner (zero Playwright overhead) while preserving the deterministic control-plane inventory and forbidden-modifier (`skip`/`only`/`todo`/`fixme`) AST checks. The full gate runs static checks, the control-plane inventory and three Node-service suites, WAL-enforcing database bootstrap, the production Web build, browser preflight, and browser E2E. A dated verification record is authoritative only for the exact tree it tested. Historical gate counts are retained in the handoff and workstream documents and must not be presented as proof of the current Wiki-first workstream.
 
 ## Documentation
 

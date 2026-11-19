@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   buildCreatedWorkspaceLocation,
@@ -14,20 +15,22 @@ import {
 } from './route';
 
 test('workspace assistant routes use Chat as the implicit canonical default', () => {
-  expect(parseWorkspaceAssistantTab(null)).toBe('chat');
-  expect(parseWorkspaceAssistantTab('unknown')).toBe('chat');
-  expect(
-    buildWorkspaceRoute({ assistant: 'chat', projectId: 'wiki-1' })
-  ).toBe('/workspace/wiki-1');
-  expect(
-    buildWorkspaceRoute({ assistant: 'room', projectId: 'wiki-1' })
-  ).toBe('/workspace/wiki-1?assistant=room');
+  assert.equal(parseWorkspaceAssistantTab(null), 'chat');
+  assert.equal(parseWorkspaceAssistantTab('unknown'), 'chat');
+  assert.equal(
+    buildWorkspaceRoute({ assistant: 'chat', projectId: 'wiki-1' }),
+    '/workspace/wiki-1'
+  );
+  assert.equal(
+    buildWorkspaceRoute({ assistant: 'room', projectId: 'wiki-1' }),
+    '/workspace/wiki-1?assistant=room'
+  );
 
-  expect(isCanonicalWorkspaceAssistantParam([])).toBe(true);
-  expect(isCanonicalWorkspaceAssistantParam(['room'])).toBe(true);
-  expect(isCanonicalWorkspaceAssistantParam(['chat'])).toBe(false);
-  expect(isCanonicalWorkspaceAssistantParam(['unknown'])).toBe(false);
-  expect(isCanonicalWorkspaceAssistantParam(['room', 'status'])).toBe(false);
+  assert.equal(isCanonicalWorkspaceAssistantParam([]), true);
+  assert.equal(isCanonicalWorkspaceAssistantParam(['room']), true);
+  assert.equal(isCanonicalWorkspaceAssistantParam(['chat']), false);
+  assert.equal(isCanonicalWorkspaceAssistantParam(['unknown']), false);
+  assert.equal(isCanonicalWorkspaceAssistantParam(['room', 'status']), false);
 });
 
 test('created workspace locations preserve the active assistant tab', () => {
@@ -39,10 +42,10 @@ test('created workspace locations preserve the active assistant tab', () => {
   });
 
   const url = new URL(location, 'http://local.test');
-  expect(url.pathname).toBe('/workspace/project-1');
-  expect(url.searchParams.get('assistant')).toBe('status');
-  expect(url.searchParams.get('conversationId')).toBe('conversation-1');
-  expect(url.searchParams.get('node')).toBe('workspace-1');
+  assert.equal(url.pathname, '/workspace/project-1');
+  assert.equal(url.searchParams.get('assistant'), 'status');
+  assert.equal(url.searchParams.get('conversationId'), 'conversation-1');
+  assert.equal(url.searchParams.get('node'), 'workspace-1');
 });
 
 test('created workspace locations keep the chat tab implicit by default', () => {
@@ -52,8 +55,8 @@ test('created workspace locations keep the chat tab implicit by default', () => 
   });
 
   const url = new URL(location, 'http://local.test');
-  expect(url.pathname).toBe('/workspace/workspace-1');
-  expect(url.searchParams.has('assistant')).toBe(false);
+  assert.equal(url.pathname, '/workspace/workspace-1');
+  assert.equal(url.searchParams.has('assistant'), false);
 });
 
 test('created workspace locations keep the room tab explicit', () => {
@@ -64,73 +67,83 @@ test('created workspace locations keep the room tab explicit', () => {
   });
 
   const url = new URL(location, 'http://local.test');
-  expect(url.searchParams.get('assistant')).toBe('room');
+  assert.equal(url.searchParams.get('assistant'), 'room');
 });
 
 test('workspace create errors distinguish stable rejection from unknown outcome', () => {
-  expect(
+  assert.equal(
     classifyWorkspaceCreateError({
       code: 'ONBOARDING_CONVERSATION_NOT_ADOPTABLE',
       kind: 'http',
       message: 'Conversation is no longer adoptable.',
       responsePresent: true,
       status: 409,
-    })
-  ).toBe('rejected');
-  expect(
+    }),
+    'rejected'
+  );
+  assert.equal(
     classifyWorkspaceCreateError({
       kind: 'http',
       message: 'Temporary server error.',
       responsePresent: true,
       status: 503,
-    })
-  ).toBe('unknown');
-  expect(
+    }),
+    'unknown'
+  );
+  assert.equal(
     classifyWorkspaceCreateError({
       kind: 'network',
       responsePresent: false,
       status: null,
-    })
-  ).toBe('unknown');
-  expect(
+    }),
+    'unknown'
+  );
+  assert.equal(
     classifyWorkspaceCreateError({
       kind: 'parse',
       responsePresent: true,
       status: 200,
-    })
-  ).toBe('unknown');
-  expect(
+    }),
+    'unknown'
+  );
+  assert.equal(
     classifyWorkspaceCreateError({
       code: 'WORKSPACE_CREATE_IN_PROGRESS',
       kind: 'http',
       message: 'Localized message independent from the contract code.',
       responsePresent: true,
       status: 409,
-    })
-  ).toBe('unknown');
-  expect(
+    }),
+    'unknown'
+  );
+  assert.equal(
     classifyWorkspaceCreateError({
       kind: 'http',
       responsePresent: true,
       status: 408,
-    })
-  ).toBe('unknown');
-  expect(
+    }),
+    'unknown'
+  );
+  assert.equal(
     hasUnknownWorkspaceCreateOutcome(
       new WorkspaceCreateRequestError('Conflict', 'rejected')
-    )
-  ).toBe(false);
-  expect(
+    ),
+    false
+  );
+  assert.equal(
     hasUnknownWorkspaceCreateOutcome(
       new WorkspaceCreateRequestError('Temporary failure', 'unknown')
-    )
-  ).toBe(true);
-  expect(
+    ),
+    true
+  );
+  assert.equal(
     hasUnknownWorkspaceCreateOutcome(
       new WorkspaceCreateActionError('Malformed success response')
-    )
-  ).toBe(true);
-  expect(hasUnknownWorkspaceCreateOutcome(new Error('Connection reset'))).toBe(
+    ),
+    true
+  );
+  assert.equal(
+    hasUnknownWorkspaceCreateOutcome(new Error('Connection reset')),
     true
   );
 });

@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test, { describe } from 'node:test';
 
 import type { NoteData } from '@/types';
 import {
@@ -28,7 +29,7 @@ function makeNote(
   };
 }
 
-test.describe('Studio AI context budgeting', () => {
+describe('Studio AI context budgeting', () => {
   test('prioritizes deliverable > project > user notes and emits explicit omission notice when capped', () => {
     const notes: NoteData[] = [
       makeNote({ id: 'user-1', scope: 'user', scopeId: 'u-1', content: 'User preference A' }),
@@ -47,13 +48,13 @@ test.describe('Studio AI context budgeting', () => {
       workspaceId: 'w-1',
     });
 
-    expect(selected.includedCount).toBe(2);
-    expect(selected.omittedCount).toBe(2);
-    expect(selected.lines).toEqual([
+    assert.equal(selected.includedCount, 2);
+    assert.equal(selected.omittedCount, 2);
+    assert.deepEqual(selected.lines, [
       '- [deliverable] Deliverable rule C',
       '- [project] Project rule B',
     ]);
-    expect(selected.omissionNotice).toContain('2 additional active memories omitted');
+    assert.ok(selected.omissionNotice?.includes('2 additional active memories omitted'));
   });
 
   test('enforces character ceiling and cleanly truncates oversized note entries', () => {
@@ -82,12 +83,12 @@ test.describe('Studio AI context budgeting', () => {
       workspaceId: 'w-1',
     });
 
-    expect(selected.includedCount).toBe(1);
-    expect(selected.truncatedCount).toBe(1);
-    expect(selected.omittedCount).toBe(1);
-    expect(selected.usedChars).toBeLessThanOrEqual(120);
-    expect(selected.lines[0]).toContain('[...truncated]');
-    expect(selected.omissionNotice).toContain('1 additional active knowledge notes omitted');
+    assert.equal(selected.includedCount, 1);
+    assert.equal(selected.truncatedCount, 1);
+    assert.equal(selected.omittedCount, 1);
+    assert.ok(selected.usedChars <= 120);
+    assert.ok(selected.lines[0]?.includes('[...truncated]'));
+    assert.ok(selected.omissionNotice?.includes('1 additional active knowledge notes omitted'));
   });
 
   test('preserves anchor text window when truncating long wiki content', () => {
@@ -98,19 +99,19 @@ test.describe('Studio AI context budgeting', () => {
 
     const bounded = truncateBoundedText(fullContent, 600, { anchorText: anchor });
 
-    expect(bounded.truncated).toBe(true);
-    expect(bounded.originalLength).toBe(fullContent.length);
-    expect(bounded.content).toContain(anchor);
-    expect(bounded.content).toContain('[...earlier content omitted]');
-    expect(bounded.content).toContain('[...later content omitted]');
-    expect(bounded.content.length).toBeLessThanOrEqual(620);
+    assert.equal(bounded.truncated, true);
+    assert.equal(bounded.originalLength, fullContent.length);
+    assert.ok(bounded.content.includes(anchor));
+    assert.ok(bounded.content.includes('[...earlier content omitted]'));
+    assert.ok(bounded.content.includes('[...later content omitted]'));
+    assert.ok(bounded.content.length <= 620);
   });
 
   test('exposes explicit positive caps for chat, comment, and suggestion surfaces', () => {
-    expect(STUDIO_CONTEXT_BUDGET_V1.noteQueryTakeLimit).toBeGreaterThanOrEqual(32);
-    expect(STUDIO_CONTEXT_BUDGET_V1.chat.maxMemoriesChars).toBeGreaterThan(0);
-    expect(STUDIO_CONTEXT_BUDGET_V1.chat.maxKnowledgeNotesChars).toBeGreaterThan(0);
-    expect(STUDIO_CONTEXT_BUDGET_V1.comment.maxWikiChars).toBeGreaterThan(0);
-    expect(STUDIO_CONTEXT_BUDGET_V1.suggestion.maxWikiChars).toBeGreaterThan(0);
+    assert.ok(STUDIO_CONTEXT_BUDGET_V1.noteQueryTakeLimit >= 32);
+    assert.ok(STUDIO_CONTEXT_BUDGET_V1.chat.maxMemoriesChars > 0);
+    assert.ok(STUDIO_CONTEXT_BUDGET_V1.chat.maxKnowledgeNotesChars > 0);
+    assert.ok(STUDIO_CONTEXT_BUDGET_V1.comment.maxWikiChars > 0);
+    assert.ok(STUDIO_CONTEXT_BUDGET_V1.suggestion.maxWikiChars > 0);
   });
 });

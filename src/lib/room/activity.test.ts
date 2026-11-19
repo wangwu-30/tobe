@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import type { RoomEventDtoV1, RoomMessageDtoV1 } from '@/objects/room';
 
 import { deriveRoomAgentActivity } from './activity';
@@ -59,19 +60,38 @@ test('derives session activity without claiming authoritative online presence', 
     messages: [],
   });
 
-  expect(activity.map((item) => item.agent.id)).toEqual(['host', 'researcher']);
-  expect(activity[0]).toMatchObject({
-    deliverySequence: 4,
-    isCoordinator: true,
-    roomSessionId: 'session-host',
-    source: 'event',
-    state: 'observing',
-  });
-  expect(activity[1]).toMatchObject({
-    deliverySequence: 8,
-    roomSessionId: 'session-researcher',
-    state: 'responding',
-  });
+  assert.deepEqual(
+    activity.map((item) => item.agent.id),
+    ['host', 'researcher']
+  );
+  assert.deepEqual(
+    {
+      deliverySequence: activity[0]?.deliverySequence,
+      isCoordinator: activity[0]?.isCoordinator,
+      roomSessionId: activity[0]?.roomSessionId,
+      source: activity[0]?.source,
+      state: activity[0]?.state,
+    },
+    {
+      deliverySequence: 4,
+      isCoordinator: true,
+      roomSessionId: 'session-host',
+      source: 'event',
+      state: 'observing',
+    }
+  );
+  assert.deepEqual(
+    {
+      deliverySequence: activity[1]?.deliverySequence,
+      roomSessionId: activity[1]?.roomSessionId,
+      state: activity[1]?.state,
+    },
+    {
+      deliverySequence: 8,
+      roomSessionId: 'session-researcher',
+      state: 'responding',
+    }
+  );
 });
 
 test('a later agent message replaces responding with recent activity', () => {
@@ -101,9 +121,17 @@ test('a later agent message replaces responding with recent activity', () => {
     messages: [message],
   });
 
-  expect(activity.find((item) => item.agent.id === 'researcher')).toMatchObject({
-    lastActivityAt: '2026-08-21T10:01:00.000Z',
-    source: 'message',
-    state: 'recent',
-  });
+  const researcher = activity.find((item) => item.agent.id === 'researcher');
+  assert.deepEqual(
+    {
+      lastActivityAt: researcher?.lastActivityAt,
+      source: researcher?.source,
+      state: researcher?.state,
+    },
+    {
+      lastActivityAt: '2026-08-21T10:01:00.000Z',
+      source: 'message',
+      state: 'recent',
+    }
+  );
 });
