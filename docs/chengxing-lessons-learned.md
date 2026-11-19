@@ -1178,6 +1178,12 @@
 - 为什么：整页重载会触发白屏闪烁并丢失用户未发送的 Chat 输入与滚动上下文；若成功提示只挂在 `DeliverableVersionControls` 局部状态中，空工作区丢弃最后一条变更集时 `DeliverablePanel` 切换回空态分支会卸载控件并瞬间丢失提示；仅在 `hovering` 时挂载按钮会让纯键盘用户永远无法 Tab 到达接受/拒绝动作；Slate 默认 `opacity: 0.333` 与缺少 `aria-label` 的评论输入框/版本下拉框会直接触发 `axe-core` WCAG 2.1 A/AA 违规。
 - 默认做法：为 `DeliverableVersionControls` 透传 `onStagedChangeDecided` 回调刷新工作区并由外层持久通知栏承接成功提示（同时避免与弹窗内提示重复 `data-testid`），在清空待审队列后平滑关闭弹窗；建议与评论按钮常驻 DOM 并保留足够触控尺寸与完整对比度，用 E2E 断言零主帧重载（`framenavigated === 0`）、未发送草稿保留、纯键盘 Focus + Enter 接受建议以及 `axe-core` 零 WCAG 违规。
 
+### 56. Coordinator 全部工具必须统一经 `enforceGovernedAgentTool` 治理，且 E2E 路径不得绕过 Staging 契约
+
+- 结论：`createWorkspaceAgentTools` 暴露的每一个工具（含读工具与内联写工具）都必须经 `enforceGovernedAgentTool` 包装并显式声明 `safetyLevel`、`confirmationPolicy`、`writePolicy`；`confirm`/`privileged` 级别工具在策略层强制 fail-closed，绝不允许配置成 `automatic` 降级执行；所有按 ID 查询/更新的写工具（如 `lock_current_wiki`、`reply_to_comment`、`resolve_comment`）必须校验 `organizationId + documentId + deletedAt: null`；同时，Web 评论的 Prompt 与 `DAO_E2E` 路径必须共同遵守 `propose_document_change` / `StagedChangeSet` 人类主权契约，禁止在 E2E 分支用 `updateWorkspaceFile` 掩盖真实工具面的协议冲突。
+- 为什么：仅对个别工具接入策略层会导致其余写工具绕过确认门禁与审计；用 `findUnique({ where: { id } })` 会放行跨文档/跨组织/已软删记录越权写；在 E2E 分支直接写 live draft 会让“Prompt 要求直接改草稿但真实工具只支持 Staging”的线上协议矛盾长期被测试掩盖。
+- 默认做法：用 `isGovernedAgentTool` 与全量工具策略表单测守住 `createWorkspaceAgentTools` 零未治理工具；把高影响状态关闭/锁定工具（`lock_current_wiki`、`resolve_comment`、`start_execution_job`）统一收口为 `confirm + required`；在 E2E 测试中完整断言“AI 回复后 live draft 未被改写 + Pending `StagedChangeSet` 已生成 -> 人类 owner 通过审阅 UI 应用 -> 预览与继承线程同步更新”；将纯 Prompt 构造拆入无 `server-only` 依赖的模块以便在控制面单测中直接校验。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

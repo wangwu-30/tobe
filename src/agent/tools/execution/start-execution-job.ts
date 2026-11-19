@@ -3,6 +3,7 @@ import { Value } from 'typebox/value';
 
 import {
   enforceGovernedAgentTool,
+  type AgentToolAuditEvent,
   type AgentToolConfirmationAuthority,
   type GovernedAgentTool,
 } from '@/agent/tool-policy';
@@ -86,6 +87,7 @@ type CreateStartExecutionJobToolParams = {
   confirmationAuthority?: AgentToolConfirmationAuthority;
   conversationId?: string | null;
   idempotencyScope?: string;
+  onAudit?: (event: AgentToolAuditEvent) => void;
   organizationId: string;
   originDeviceId?: string;
   originRoomId?: string | null;
@@ -99,6 +101,7 @@ export function createStartExecutionJobTool({
   confirmationAuthority,
   conversationId,
   idempotencyScope,
+  onAudit,
   organizationId,
   originDeviceId,
   originRoomId,
@@ -182,7 +185,11 @@ export function createStartExecutionJobTool({
     },
   };
 
-  return enforceGovernedAgentTool(tool, confirmationAuthority);
+  return enforceGovernedAgentTool(
+    tool,
+    confirmationAuthority,
+    onAudit ? { onAudit } : undefined
+  );
 }
 
 export type StartExecutionJobParametersV1 = Static<

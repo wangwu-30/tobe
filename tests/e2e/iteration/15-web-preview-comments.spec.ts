@@ -147,7 +147,7 @@ test('web preview bridge supports selection comments and review refocus', async 
     .toBe('hero-copy');
 });
 
-test('web-component @assistant replies use the revision path and refresh preview output', async ({
+test('web-component @assistant replies stage a reviewable proposal and refresh preview after human apply', async ({
   page,
 }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL);
@@ -166,7 +166,7 @@ test('web-component @assistant replies use the revision path and refresh preview
     const request = response.request();
     return request.method() === 'POST' && new URL(response.url()).pathname === '/api/threads';
   });
-  await submitPreviewSelectionComment(page, '@assistant 请直接改这里的网页实现并刷新预览。');
+  await submitPreviewSelectionComment(page, '@assistant 请为这里的网页实现生成可审阅的修改建议。');
   const createdThread = (await (await createdThreadResponse).json()) as { id: string };
   expect(createdThread?.id).toBeTruthy();
 
@@ -186,7 +186,38 @@ test('web-component @assistant replies use the revision path and refresh preview
 
       return latestAssistantMessage?.content || null;
     }, { timeout: 30_000 })
-    .toContain('已按评论更新');
+    .toContain('已按评论生成');
+
+  // Human Sovereignty invariant: AI reply stages a proposal and never mutates
+  // the live draft before explicit human approval.
+  const filesBeforeApply = await apiRequest<
+    Array<{ content: string; id: string; path: string }>
+  >(baseURL, `/api/workspaces/${setup.workspace.id}/files`);
+  expect(
+    filesBeforeApply.find((file) => file.id === setup.indexFileId)?.content || ''
+  ).not.toContain('（已按评论更新）');
+
+  const stagedChanges = await apiRequest<
+    Array<{ id: string; status: string; changes: Array<{ fileId: string | null; nextContent: string | null }> }>
+  >(baseURL, `/api/workspaces/${setup.workspace.id}/staged-changes`);
+  const pendingProposal = stagedChanges.find((item) => item.status === 'pending');
+  expect(pendingProposal).toBeTruthy();
+  expect(
+    pendingProposal?.changes.some(
+      (change) =>
+        change.fileId === setup.indexFileId &&
+        Boolean(change.nextContent?.includes('（已按评论更新）'))
+    )
+  ).toBe(true);
+
+  // Human owner reviews and applies the staged change through the browser UI.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('staged-review-trigger')).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId('staged-review-trigger').click();
+  const reviewDialog = page.getByTestId('staged-review-panel');
+  await expect(reviewDialog).toBeVisible();
+  await reviewDialog.getByTestId(`staged-change-apply-${pendingProposal!.id}`).click();
+  await expect(page.getByTestId('staged-change-notice')).toBeVisible({ timeout: 15_000 });
 
   const workspaceView = await apiRequest<{
     workspace: { draftRevision: number };
@@ -228,7 +259,7 @@ test('web-component @assistant replies use the revision path and refresh preview
       inheritanceState: 'actionable',
       inheritedFromVersionId: null,
       inheritedFromVersionTitle: null,
-      reply: expect.stringContaining('已按评论更新'),
+      reply: expect.stringContaining('已按评论生成'),
       scope: 'inherited',
       sourceVersionId: null,
     });

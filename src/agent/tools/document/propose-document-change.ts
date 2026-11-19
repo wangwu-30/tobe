@@ -2,6 +2,7 @@ import { Type, type Static } from 'typebox';
 
 import {
   enforceGovernedAgentTool,
+  type AgentToolAuditEvent,
   type GovernedAgentTool,
 } from '@/agent/tool-policy';
 import { ConflictError } from '@/framework/resilience/app-error';
@@ -59,6 +60,7 @@ export type ProposeDocumentChangeParametersV1 = Static<
 
 export type CreateProposeDocumentChangeToolParamsV1 = {
   actorUserId: string;
+  onAudit?: (event: AgentToolAuditEvent) => void;
   organizationId: string;
   originDeviceId: string;
   rememberSummary: (summary: string) => void;
@@ -141,7 +143,11 @@ export function createProposeDocumentChangeTool(
     },
   };
 
-  return enforceGovernedAgentTool(tool);
+  return enforceGovernedAgentTool(
+    tool,
+    undefined,
+    options.onAudit ? { onAudit: options.onAudit } : undefined
+  );
 }
 
 export function assertProposalOperationShape(

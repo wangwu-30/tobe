@@ -48,13 +48,25 @@ import { ensureWorkspaceEditable } from '@/objects/workspace/commands';
 import { createStartExecutionJobTool } from '@/agent/tools/execution/start-execution-job';
 import { createPublishTeamTaskTool } from '@/agent/tools/team-task/publish-team-task';
 import { createProposeDocumentChangeTool } from '@/agent/tools/document/propose-document-change';
-import type { AgentToolConfirmationAuthority } from '@/agent/tool-policy';
+import {
+  enforceGovernedAgentTool,
+  type AgentToolAuditEvent,
+  type AgentToolConfirmationAuthority,
+  type GovernedAgentTool,
+} from '@/agent/tool-policy';
+import type { TSchema } from 'typebox';
 import type { SearchProvider } from '@/lib/search/types';
 import type {
   DeliverableType,
   RenderAs,
   ResearchMode,
 } from '@/types';
+
+export type WorkspaceAgentTool = AgentTool &
+  Pick<
+    GovernedAgentTool<TSchema>,
+    'confirmationPolicy' | 'getPendingConfirmation' | 'safetyLevel' | 'writePolicy'
+  >;
 
 type DebugWorkspacePlanDetails = {
   activeStageId: string | null;
@@ -80,6 +92,7 @@ type CreateWorkspaceAgentToolsParams = {
   actorUserId: string;
   confirmationAuthority?: AgentToolConfirmationAuthority;
   conversationId: string;
+  onToolAudit?: (event: AgentToolAuditEvent) => void;
   organizationId: string;
   originDeviceId: string;
   researchMode?: ResearchMode;
@@ -92,6 +105,7 @@ export function createWorkspaceAgentTools({
   actorUserId,
   confirmationAuthority,
   conversationId,
+  onToolAudit,
   organizationId,
   originDeviceId,
   researchMode = 'light',
@@ -100,11 +114,20 @@ export function createWorkspaceAgentTools({
   searchProvider,
 }: CreateWorkspaceAgentToolsParams): {
   getLatestToolSummary: () => string | null;
-  tools: AgentTool[];
+  tools: WorkspaceAgentTool[];
 } {
   const wikiId = workspaceId;
   const toolSummaries: string[] = [];
   let remainingSearchBudget = searchBudget;
+
+  const governInlineTool = <TParameters extends TSchema>(
+    tool: GovernedAgentTool<TParameters>
+  ): WorkspaceAgentTool =>
+    enforceGovernedAgentTool(
+      tool,
+      confirmationAuthority,
+      onToolAudit ? { onAudit: onToolAudit } : undefined
+    ) as unknown as WorkspaceAgentTool;
 
   const rememberToolSummary = (summary: string) => {
     const normalized = summary.trim();
@@ -468,12 +491,15 @@ export function createWorkspaceAgentTools({
     };
   };
 
-  const tools: AgentTool[] = [
-    {
+  const tools: WorkspaceAgentTool[] = [
+    governInlineTool({
       name: 'get_workspace_context',
       label: 'Get Workspace Context',
       description:
         'Inspect the current deliverable workspace, including project deliverable summaries, the live draft, shared brief, visible versions, staged changes, review threads, and reusable notes.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({}),
       async execute() {
         const [
@@ -711,12 +737,15 @@ export function createWorkspaceAgentTools({
           },
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'list_project_nodes',
       label: 'List Project Nodes',
       description:
         'List nodes in the current project, or in a mounted project when `projectId` is provided, including workspace ids for follow-up reads.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({
         projectId: Type.Optional(Type.String({ minLength: 1 })),
       }),
@@ -727,12 +756,15 @@ export function createWorkspaceAgentTools({
           }
         );
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'read_node_content',
       label: 'Read Node Content',
       description:
         'Read the primary file or a specific file from another node in the current project, or from a mounted project when `projectId` is provided.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({
         fileId: Type.Optional(Type.String({ minLength: 1 })),
         nodeId: Type.String({ minLength: 1 }),
@@ -749,16 +781,23 @@ export function createWorkspaceAgentTools({
           }
         );
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'lock_current_wiki',
       label: 'Lock Current Wiki',
       description:
-        'Save the current draft as a visible milestone and lock the document for review.',
+        'Save the current draft as a visible milestone and lock the document for review after explicit human confirmation.',
+      safetyLevel: 'confirm',
+      confirmationPolicy: 'required',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({}),
       async execute() {
-        const wiki = await prisma.document.findUnique({
-          where: { id: wikiId },
+        const wiki = await prisma.document.findFirst({
+          where: {
+            deletedAt: null,
+            id: wikiId,
+            organizationId,
+          },
         });
 
         if (!wiki) {
@@ -791,12 +830,15 @@ export function createWorkspaceAgentTools({
           },
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'list_files',
       label: 'List Files',
       description:
         'List the files and folders in the current workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({}),
       async execute() {
         const files = await listWorkspaceFiles({
@@ -822,12 +864,15 @@ export function createWorkspaceAgentTools({
           details: files,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'read_file',
       label: 'Read File',
       description:
         'Read the content of one file in the current workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({
         fileId: Type.Optional(Type.String({ minLength: 1 })),
         path: Type.Optional(Type.String({ minLength: 1 })),
@@ -861,12 +906,15 @@ export function createWorkspaceAgentTools({
           details: file,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'list_workspace_runs',
       label: 'List Workspace Runs',
       description:
         'Inspect recent preview and command runs for the current workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({}),
       async execute() {
         const runs = await listWorkspaceRuns({
@@ -892,21 +940,25 @@ export function createWorkspaceAgentTools({
           details: runs,
         };
       },
-    },
+    }),
     createProposeDocumentChangeTool({
       actorUserId,
+      onAudit: onToolAudit,
       organizationId,
       originDeviceId,
       rememberSummary: rememberToolSummary,
       sessionId: conversationId,
       sourceType: 'workspace-assistant',
       workspaceId,
-    }) as AgentTool,
-    {
+    }) as unknown as WorkspaceAgentTool,
+    governInlineTool({
       name: 'start_preview',
       label: 'Start Preview',
       description:
         'Start the product preview for the current workspace draft or a selected version.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({
         versionId: Type.Optional(Type.String({ minLength: 1 })),
       }),
@@ -941,12 +993,15 @@ export function createWorkspaceAgentTools({
           details: run,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'stop_preview',
       label: 'Stop Preview',
       description:
         'Stop any running preview for the current workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({}),
       async execute() {
         const stopped = await stopWorkspacePreview(organizationId, workspaceId);
@@ -968,12 +1023,15 @@ export function createWorkspaceAgentTools({
           details: stopped,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'list_versions',
       label: 'List Versions',
       description:
         'List saved versions for the current workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({}),
       async execute() {
         const versions = await listWorkspaceVersions({
@@ -999,12 +1057,15 @@ export function createWorkspaceAgentTools({
           details: versions,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'create_version',
       label: 'Save Version',
       description:
         'Save the current workspace files as a visible milestone version.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({
         title: Type.Optional(Type.String({ minLength: 1 })),
       }),
@@ -1027,12 +1088,15 @@ export function createWorkspaceAgentTools({
           details: version,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'branch_conversation',
       label: 'Continue in New Chat',
       description:
         'Create a new conversation from a message in the current thread.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'organization-scoped-append',
       parameters: Type.Object({
         messageId: Type.String({ minLength: 1 }),
         title: Type.Optional(Type.String({ minLength: 1 })),
@@ -1062,75 +1126,85 @@ export function createWorkspaceAgentTools({
           details: result,
         };
       },
-    },
+    }),
     createPublishTeamTaskTool({
       actorUserId,
+      onAudit: onToolAudit,
       organizationId,
       originDeviceId,
       rememberSummary: rememberToolSummary,
       resolveProjectId: async () => (await loadCurrentProjectContext())?.id || null,
       workspaceId,
-    }) as AgentTool,
+    }) as unknown as WorkspaceAgentTool,
     createStartExecutionJobTool({
       actorUserId,
       confirmationAuthority,
       conversationId,
+      onAudit: onToolAudit,
       organizationId,
       originDeviceId,
       rememberSummary: rememberToolSummary,
       workspaceId,
-    }) as AgentTool,
+    }) as unknown as WorkspaceAgentTool,
     ...(searchProvider
-      ? [{
-          name: 'search_web',
-          label: 'Search Web',
-          description:
-            'Search the web for up-to-date information and return citations.',
-          parameters: Type.Object({
-            maxResults: Type.Optional(Type.Number()),
-            query: Type.String({ minLength: 1 }),
-          }),
-          async execute(_toolCallId: string, params: unknown) {
-            if (researchMode === 'light' && remainingSearchBudget <= 0) {
+      ? [
+          governInlineTool({
+            name: 'search_web',
+            label: 'Search Web',
+            description:
+              'Search the web for up-to-date information and return citations.',
+            safetyLevel: 'safe',
+            confirmationPolicy: 'automatic',
+            writePolicy: 'read-only',
+            parameters: Type.Object({
+              maxResults: Type.Optional(Type.Number()),
+              query: Type.String({ minLength: 1 }),
+            }),
+            async execute(_toolCallId: string, params: unknown) {
+              if (researchMode === 'light' && remainingSearchBudget <= 0) {
+                return {
+                  content: [
+                    {
+                      type: 'text',
+                      text: '[System] 联网搜索预算已耗尽，请基于现有搜索结果和已有知识继续完成任务。',
+                    },
+                  ],
+                  details: {
+                    budgetExhausted: true,
+                  },
+                };
+              }
+
+              const input = params as { maxResults?: number; query: string };
+              const result = await searchProvider.search({
+                maxResults: input.maxResults,
+                query: input.query,
+              });
+              if (researchMode === 'light') {
+                remainingSearchBudget -= 1;
+              }
+
               return {
                 content: [
                   {
                     type: 'text',
-                    text: '[System] 联网搜索预算已耗尽，请基于现有搜索结果和已有知识继续完成任务。',
+                    text: formatSearchResult(result),
                   },
                 ],
-                details: {
-                  budgetExhausted: true,
-                },
+                details: result,
               };
-            }
-
-            const input = params as { maxResults?: number; query: string };
-            const result = await searchProvider.search({
-              maxResults: input.maxResults,
-              query: input.query,
-            });
-            if (researchMode === 'light') {
-              remainingSearchBudget -= 1;
-            }
-
-            return {
-              content: [
-                {
-                  type: 'text',
-                  text: formatSearchResult(result),
-                },
-              ],
-              details: result,
-            };
-          },
-        } satisfies AgentTool]
+            },
+          }),
+        ]
       : []),
-    {
+    governInlineTool({
       name: 'list_comment_threads',
       label: 'List Comment Threads',
       description:
         'List review threads for the current deliverable.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'read-only',
       parameters: Type.Object({
         status: Type.Optional(
           Type.Union([
@@ -1178,18 +1252,34 @@ export function createWorkspaceAgentTools({
           },
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'reply_to_comment',
       label: 'Reply To Comment',
       description:
-        'Append an assistant reply to a review thread.',
+        'Append an assistant reply to a review thread in the current workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({
         content: Type.String({ minLength: 1 }),
         threadId: Type.String({ minLength: 1 }),
       }),
       async execute(_toolCallId, params) {
         const input = params as { content: string; threadId: string };
+        const existingThread = await prisma.commentThread.findFirst({
+          where: {
+            deletedAt: null,
+            documentId: wikiId,
+            id: input.threadId,
+            organizationId,
+          },
+          select: { id: true },
+        });
+        if (!existingThread) {
+          throw new Error('Thread not found in current workspace.');
+        }
+
         const message = await prisma.commentMessage.create({
           data: {
             content: input.content,
@@ -1198,12 +1288,12 @@ export function createWorkspaceAgentTools({
             organizationId,
             originDeviceId,
             role: 'assistant',
-            threadId: input.threadId,
+            threadId: existingThread.id,
           },
         });
 
         await prisma.commentThread.update({
-          where: { id: input.threadId },
+          where: { id: existingThread.id },
           data: {
             originDeviceId,
             revision: {
@@ -1218,19 +1308,27 @@ export function createWorkspaceAgentTools({
           details: message,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'resolve_comment',
       label: 'Resolve Comment',
       description:
-        'Resolve a review thread and move it out of the active list.',
+        'Resolve a review thread in the current workspace and move it out of the active list after explicit human confirmation.',
+      safetyLevel: 'confirm',
+      confirmationPolicy: 'required',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({
         threadId: Type.String({ minLength: 1 }),
       }),
       async execute(_toolCallId, params) {
         const input = params as { threadId: string };
-        const existingThread = await prisma.commentThread.findUnique({
-          where: { id: input.threadId },
+        const existingThread = await prisma.commentThread.findFirst({
+          where: {
+            deletedAt: null,
+            documentId: wikiId,
+            id: input.threadId,
+            organizationId,
+          },
           select: {
             documentId: true,
             id: true,
@@ -1239,7 +1337,7 @@ export function createWorkspaceAgentTools({
         });
 
         if (!existingThread) {
-          throw new Error('Thread not found.');
+          throw new Error('Thread not found in current workspace.');
         }
 
         const versionId =
@@ -1247,7 +1345,7 @@ export function createWorkspaceAgentTools({
           (await getBoundVersionIdForWiki(existingThread.documentId));
 
         const thread = await prisma.commentThread.update({
-          where: { id: input.threadId },
+          where: { id: existingThread.id },
           data: {
             originDeviceId,
             resolvedAt: new Date(),
@@ -1271,12 +1369,15 @@ export function createWorkspaceAgentTools({
           details: thread,
         };
       },
-    },
-    {
+    }),
+    governInlineTool({
       name: 'add_knowledge_item',
       label: 'Add Knowledge Item',
       description:
         'Save a reusable knowledge note for the current deliverable workspace.',
+      safetyLevel: 'safe',
+      confirmationPolicy: 'automatic',
+      writePolicy: 'workspace-write',
       parameters: Type.Object({
         content: Type.String({ minLength: 1 }),
         title: Type.String({ minLength: 1 }),
@@ -1300,7 +1401,7 @@ export function createWorkspaceAgentTools({
           details: item,
         };
       },
-    },
+    }),
   ];
 
   return {

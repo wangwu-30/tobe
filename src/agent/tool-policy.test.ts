@@ -4,6 +4,8 @@ import { Type } from 'typebox';
 import {
   AgentToolConfirmationRequiredError,
   enforceGovernedAgentTool,
+  isGovernedAgentTool,
+  type AgentToolAuditEvent,
   type AgentToolPendingConfirmationDescriptorV1,
   type GovernedAgentTool,
 } from './tool-policy';
@@ -213,4 +215,135 @@ test('automatic delegate errors remain errors', async () => {
   await expect(tool.execute('automatic-error', { value: 'x' })).rejects.toBe(
     delegateError
   );
+});
+
+test('confirm and privileged tools fail closed if misconfigured as automatic', async () => {
+  let executeCalls = 0;
+  const audits: AgentToolAuditEvent[] = [];
+
+  for (const safetyLevel of ['confirm', 'privileged'] as const) {
+    const downgraded: GovernedAgentTool<typeof PARAMETERS> = {
+      ...createTool('automatic', async () => {
+        executeCalls += 1;
+        return { content: [], details: null };
+      }),
+      safetyLevel,
+    };
+    const tool = enforceGovernedAgentTool(
+      downgraded,
+      { consumeConfirmation: () => true },
+      { onAudit: (event) => audits.push(event) }
+    );
+
+    await expect(
+      tool.execute(`downgraded-${safetyLevel}`, { value: 'x' })
+    ).rejects.toThrow(AgentToolConfirmationRequiredError);
+  }
+
+  expect(executeCalls).toBe(0);
+  expect(audits).toEqual([
+    {
+      confirmationPolicy: 'automatic',
+      outcome: 'confirmation_required',
+      safetyLevel: 'confirm',
+      toolCallId: 'downgraded-confirm',
+      toolName: 'test_tool',
+      writePolicy: 'organization-scoped-append',
+    },
+    {
+      confirmationPolicy: 'automatic',
+      outcome: 'confirmation_required',
+      safetyLevel: 'privileged',
+      toolCallId: 'downgraded-privileged',
+      toolName: 'test_tool',
+      writePolicy: 'organization-scoped-append',
+    },
+  ]);
+});
+
+test('audit observer records executed, confirmation_required, and failed outcomes without breaking execution', async () => {
+  const events: AgentToolAuditEvent[] = [];
+
+  const safeTool = enforceGovernedAgentTool(
+    createTool('automatic', async (_id, params) => {
+      if (params.value === 'boom') {
+        throw new Error('simulated failure');
+      }
+      return { content: [], details: params };
+    }),
+    undefined,
+    { onAudit: (event) => events.push(event) }
+  );
+
+  const confirmTool = enforceGovernedAgentTool(
+    createTool('required', async () => ({ content: [], details: 'ok' })),
+    { consumeConfirmation: () => false },
+    { onAudit: (event) => events.push(event) }
+  );
+
+  const throwingObserverTool = enforceGovernedAgentTool(
+    createTool('automatic', async () => ({ content: [], details: 'survived' })),
+    undefined,
+    {
+      onAudit: () => {
+        throw new Error('observer crash');
+      },
+    }
+  );
+
+  await safeTool.execute('call-ok', { value: 'ok' });
+  await expect(safeTool.execute('call-fail', { value: 'boom' })).rejects.toThrow(
+    'simulated failure'
+  );
+  await expect(
+    confirmTool.execute('call-denied', { value: 'x' })
+  ).rejects.toThrow(AgentToolConfirmationRequiredError);
+  const survived = await throwingObserverTool.execute('call-survived', {
+    value: 'ok',
+  });
+
+  expect(survived.details).toBe('survived');
+  expect(events).toEqual([
+    {
+      confirmationPolicy: 'automatic',
+      outcome: 'executed',
+      safetyLevel: 'safe',
+      toolCallId: 'call-ok',
+      toolName: 'test_tool',
+      writePolicy: 'organization-scoped-append',
+    },
+    {
+      confirmationPolicy: 'automatic',
+      errorMessage: 'simulated failure',
+      outcome: 'failed',
+      safetyLevel: 'safe',
+      toolCallId: 'call-fail',
+      toolName: 'test_tool',
+      writePolicy: 'organization-scoped-append',
+    },
+    {
+      confirmationPolicy: 'required',
+      outcome: 'confirmation_required',
+      safetyLevel: 'confirm',
+      toolCallId: 'call-denied',
+      toolName: 'test_tool',
+      writePolicy: 'organization-scoped-append',
+    },
+  ]);
+});
+
+test('isGovernedAgentTool distinguishes enforced governed tools from raw tools', () => {
+  const raw = {
+    description: 'Raw tool',
+    execute: async () => ({ content: [], details: null }),
+    label: 'Raw',
+    name: 'raw_tool',
+    parameters: PARAMETERS,
+  };
+  const governed = enforceGovernedAgentTool(
+    createTool('automatic', async () => ({ content: [], details: null }))
+  );
+
+  expect(isGovernedAgentTool(raw)).toBe(false);
+  expect(isGovernedAgentTool(governed)).toBe(true);
 });

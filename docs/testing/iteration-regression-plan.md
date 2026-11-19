@@ -105,7 +105,7 @@ browser operator / blackbox acceptance 不属于日常 `verify:iteration`，而�
   - 创建 version 后即使文案变化，只要稳定 selector 仍存在，继承的 web 线程仍应保持 `actionable` 并能从 `Review` 回放高亮
   - 如果元素迁移后用户已经在新位置留下新的 direct 评论，旧 inherited web 线程必须变成 `superseded` 并移入 `Earlier Context`，不能和当前可执行线程并列
   - 如果旧 web 线程的 selector / excerpt / domContext 都已漂移，即使页面里还残留无关 selector token 或同名 id 片段，线程也必须变成 `stale` 并移入 `Earlier Context`
-- `web-component` 线程里的 `@assistant` 必须走可修改 live draft 的 revision run，而不是只返回文本建议；评论后预览源码和 bridge 结果都要同步更新
+- `web-component` 线程里的 `@assistant` 必须走可提交结构化建议修改（`propose_document_change` / `StagedChangeSet`）的 revision run，不得绕过人类审阅直接修改 live draft；人类 owner 应用建议修改后，预览源码、thread inheritance 与 bridge 结果都要同步更新
 - 启动 preview 后即使立刻刷新页面，web 结果面也不能卡在“预览已启动”空态；iframe 需要能基于当前 view / runs 恢复 bridge 预览，即使 bridge 首次请求短暂返回 `502` 也必须自动回稳
 - 编辑器块级线程
   - 带 comment mark 的块级讨论可以正常渲染

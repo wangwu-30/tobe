@@ -6,10 +6,15 @@ import { buildCommentContext } from '@/lib/ai/context-builder';
 import { prisma } from '@/lib/db/prisma';
 import { streamWithPi, toPiContextMessages } from '@/lib/ai/pi-runtime';
 import { parseReviewAnchor } from '@/lib/comments/review-anchor';
-import { startWorkspacePreview } from '@/lib/platform/run-service';
+import {
+  buildWebCommentRunRequest,
+  WEB_COMMENT_STAGING_SYSTEM_PROMPT_LINES,
+} from '@/lib/comments/web-comment-prompt';
+import { createStagedChangeSet } from '@/lib/workspace/planning';
 import { refreshCommentAgentBindingsState } from '@/objects/comment/agent-bindings';
 import { createConversationForWorkspace } from '@/objects/conversation/commands';
-import { updateWorkspaceFile } from '@/objects/file/commands';
+
+export { buildWebCommentRunRequest, WEB_COMMENT_STAGING_SYSTEM_PROMPT_LINES };
 
 type ActorContext = {
   deviceId: string;
@@ -160,10 +165,7 @@ export async function runToolEnabledWebCommentReply(params: {
       params.activeAgent.systemPrompt,
       '',
       '## Review Thread Execution',
-      'This is a web-component review thread. Do not stop at advice-only feedback.',
-      'Use workspace tools to inspect the current deliverable, update the live draft implementation, and then summarize the concrete changes.',
-      'If you changed the web-facing output, call `start_preview` before finishing so the preview is refreshed.',
-      'If the anchor maps imperfectly, use the review anchor payload and workspace files to locate the implementation instead of claiming uncertainty too early.',
+      ...WEB_COMMENT_STAGING_SYSTEM_PROMPT_LINES,
     ].join('\n'),
     toolMessages: [
       {
@@ -178,6 +180,20 @@ export async function runToolEnabledWebCommentReply(params: {
     ],
     workspaceId: params.workspaceId,
   });
+}
+
+function normalizeStagedFileKind(
+  kind: string
+): 'richtext' | 'markdown' | 'text' | 'code' {
+  if (
+    kind === 'richtext' ||
+    kind === 'markdown' ||
+    kind === 'text' ||
+    kind === 'code'
+  ) {
+    return kind;
+  }
+  return 'code';
 }
 
 export async function runE2EWebCommentReply(params: {
@@ -199,16 +215,29 @@ export async function runE2EWebCommentReply(params: {
     throw new Error('Web review thread is missing a source file mapping.');
   }
 
-  const targetFile = await prisma.workspaceFile.findFirst({
-    where: {
-      deletedAt: null,
-      documentId: params.workspaceId,
-      id: targetFileId,
-      organizationId: params.actor.organizationId,
-    },
-  });
+  const [workspace, targetFile] = await Promise.all([
+    prisma.document.findFirst({
+      where: {
+        deletedAt: null,
+        id: params.workspaceId,
+        organizationId: params.actor.organizationId,
+      },
+      select: {
+        draftBaseVersionId: true,
+        draftRevision: true,
+      },
+    }),
+    prisma.workspaceFile.findFirst({
+      where: {
+        deletedAt: null,
+        documentId: params.workspaceId,
+        id: targetFileId,
+        organizationId: params.actor.organizationId,
+      },
+    }),
+  ]);
 
-  if (!targetFile) {
+  if (!workspace || !targetFile) {
     throw new Error('Web review source file not found.');
   }
 
@@ -224,20 +253,33 @@ export async function runE2EWebCommentReply(params: {
       : targetFile.content;
 
   if (nextContent !== targetFile.content) {
-    await updateWorkspaceFile(params.actor, {
-      content: nextContent,
-      fileId: targetFile.id,
+    await createStagedChangeSet(params.actor, {
+      baseDraftRevision: workspace.draftRevision,
+      baseVersionId: workspace.draftBaseVersionId,
+      changes: [
+        {
+          fileId: targetFile.id,
+          kind: normalizeStagedFileKind(targetFile.kind),
+          name: targetFile.name,
+          nextContent,
+          operation: 'update',
+          preimage: {
+            content: targetFile.content,
+            revision: targetFile.revision,
+          },
+          summary: `根据评论更新 ${targetFile.path} 中的预览文案`,
+        },
+      ],
+      sourceType: 'comment-assistant',
+      summary: `基于网页评论为 ${targetFile.path} 生成待审阅的建议修改。`,
+      title: buildCommentRunTitle(params.anchorText),
       workspaceId: params.workspaceId,
     });
   }
 
-  await startWorkspacePreview(params.actor, {
-    workspaceId: params.workspaceId,
-  });
-
   const summary = [
-    `已按评论更新 ${targetFile.path} 中对应的预览文案，并刷新了预览。`,
-    `当前定位仍锚定在 ${readReviewSelector(params.reviewAnchor) || '该组件'}，可以继续在 Review 中回放验证。`,
+    `已按评论生成 ${targetFile.path} 的建议修改，请在审阅队列中确认应用到草稿并刷新预览。`,
+    `当前定位仍锚定在 ${readReviewSelector(params.reviewAnchor) || '该组件'}，应用后可继续在 Review 中回放验证。`,
   ].join(' ');
 
   await persistCommentAgentReply({
@@ -360,35 +402,6 @@ function buildCommentRunTitle(anchorText: string) {
   }
 
   return normalized.length > 48 ? `${normalized.slice(0, 45)}...` : normalized;
-}
-
-function buildWebCommentRunRequest(params: {
-  anchorText: string;
-  reviewAnchor: ReturnType<typeof parseReviewAnchor>;
-  threadMessages: CommentThreadMessage[];
-}) {
-  const discussion = params.threadMessages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .map((message) => `${message.role === 'assistant' ? 'Assistant' : 'User'}: ${message.content}`)
-    .join('\n\n');
-
-  return [
-    'Handle the current review request as a concrete implementation change on the live draft.',
-    `Highlighted request anchor: "${params.anchorText}"`,
-    params.reviewAnchor
-      ? `Review anchor payload:\n${JSON.stringify(params.reviewAnchor, null, 2)}`
-      : 'Review anchor payload: unavailable',
-    '',
-    'Thread discussion:',
-    discussion || '(no prior discussion)',
-    '',
-    'Requirements:',
-    '- Inspect the current workspace files with tools before editing.',
-    '- Modify the live draft directly instead of replying with advice only.',
-    '- Stay anchored to the review request, selector, excerpt, and surrounding DOM context.',
-    '- If you changed the previewed output, refresh preview before finishing.',
-    '- End with a concise comment-thread summary of the concrete implementation changes.',
-  ].join('\n');
 }
 
 function readReviewSelector(reviewAnchor: ReturnType<typeof parseReviewAnchor>) {
