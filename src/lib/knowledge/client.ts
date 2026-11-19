@@ -154,6 +154,28 @@ export async function createKnowledgeBindingClient(input: {
   );
 }
 
+export type ProposeKnowledgeToWikiClientResponse = {
+  changeSet: { id: string; status: string; title: string };
+  source: {
+    commitSha: string;
+    documentPath: string;
+    snapshotId: string;
+    spaceId: string;
+  };
+  workspaceId: string;
+};
+
+export async function proposeKnowledgeToWikiClient(input: {
+  documentPath: string;
+  spaceId: string;
+  workspaceId: string;
+}) {
+  return call<ProposeKnowledgeToWikiClientResponse>(
+    '/api/knowledge/propose-to-wiki',
+    request('POST', input)
+  );
+}
+
 async function call<TResponse, TResult = TResponse>(
   url: string,
   options?: RequestInit,
