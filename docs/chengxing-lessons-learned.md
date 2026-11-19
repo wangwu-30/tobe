@@ -1202,6 +1202,12 @@
 - 为什么：SQLite FTS5 若不固化页大小、关闭 WAL 并执行 `rebuild + VACUUM`，页内空闲字节会导致同一提交两次构建出不同 SHA-256，破坏索引幂等校验；双引号 `"rebuild"` 在标准 SQLite 语法中会被当成列名报错（`no such column: rebuild`）；若默认放宽 CAS 会破坏历史并发冲突与竞态安全契约；而 Playwright `.click()` 落在文本中间会把 `## ` 插成 `Draft sta## Quick Headingrter line`，偶发触发 Autoformat E2E 假失败。
 - 默认做法：为 `.sqlite` 索引提供重复构建字节 SHA-256 相等单测、英文 BM25 + 中日韩 trigram/双字降级检索单测；把所有放宽型 rebase/3-way merge 做成显式 opt-in 并配套“非重叠成功 + 重叠仍 409/conflict”双测；Plate 编辑器格式化 E2E 统一采用 `ControlOrMeta+a -> ArrowRight -> Enter` + `expect(blocks).toHaveCount(2)` 再键入前缀。
 
+### 60. 原生 `node:test` 解耦 TS 单测的 ESM 解析边界，以及 `dev:all` 在空库拉起 `execution-daemon` 的前置组织引导
+
+- 结论：用 Node 22.15+/24 原生 `module.registerHooks` + `typescript`（`scripts/node-ts-register.mjs`）脱离 Playwright 运行纯逻辑 TS 单测时，hook 除解析 `@/` 路径别名和无后缀相对 `.ts/.tsx` 导入外，还必须显式将 `server-only` 映射为空模块并将无后缀 `next/server` 转发至 `next/server.js`；同时，多进程开发编排器（`scripts/dev-all.mjs`）在全新空 SQLite 库上启动 `execution-daemon` 前，必须先创建 `--app-data-root` 目录并幂等写入 singleton `Organization`（`id='local-org', slug='local'`），否则 `execution-daemon` 会在首条 Web 请求到来前因 `prisma.executionRuntime.upsert()` 触发 `P2003` 外键失败。
+- 为什么：Next.js 的 `next/server` 缺少现代 ESM `exports` 映射，纯 Node ESM 加载 `src/framework/resilience/route-handler.ts` 等传递依赖会直接报 `ERR_MODULE_NOT_FOUND`；而 `scripts/bootstrap-local-db.mjs` 在 `fs.mkdirSync` 之前就调用 `createClient({ url })` 且只负责建表不负责写入 singleton `Organization`，独立拉起守护进程（如 `npm run dev:all -- --no-web`）会直接撞上外键约束。
+- 默认做法：新写纯逻辑单测优先直接用 `node:test` + `node:assert/strict` 并挂入 `scripts/control-plane-test-inventory.mjs` 的 `unit` 组（`runner: 'node'`），与 Playwright 控制面测试共享同一套 1:1 inventory 与 `skip/only/todo/fixme` AST 护栏；对 `scripts/dev-all.mjs` 同时维护 mock 生命周期单测与面向全新隔离临时库的真实 3 守护进程 `ready -> SIGTERM` 冒烟验证。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

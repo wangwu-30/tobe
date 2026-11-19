@@ -13,6 +13,7 @@ export const controlPlaneTestGroups = [
       'src/lib/room/mentions.test.ts',
       'src/lib/room/sse.test.ts',
       'src/lib/workspace/create-request.test.ts',
+      'src/objects/workspace/web-starter-template.test.ts',
     ],
   },
   {
