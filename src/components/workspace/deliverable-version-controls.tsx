@@ -53,6 +53,7 @@ export function DeliverableVersionControls({
   onContinueFromVersion,
   onCreateVersion,
   onRestoreVersion,
+  onStagedChangeDecided,
   onSwitchToVersionBranch,
   onTogglePin,
   onSelectVersion,
@@ -67,6 +68,7 @@ export function DeliverableVersionControls({
   onContinueFromVersion?: (version: WorkspaceVersionData) => Promise<void> | void;
   onCreateVersion: () => void;
   onRestoreVersion: (versionId: string) => Promise<void> | void;
+  onStagedChangeDecided?: (action: 'apply' | 'discard') => Promise<void> | void;
   onSwitchToVersionBranch?: (version: WorkspaceVersionData) => Promise<void> | void;
   onTogglePin: (versionId: string, pinned: boolean) => Promise<void> | void;
   onSelectVersion: (versionId: string | null) => void;
@@ -210,17 +212,30 @@ export function DeliverableVersionControls({
         return;
       }
 
+      const noticeText =
+        action === 'apply'
+          ? t('workspace.appliedStagedChanges')
+          : t('workspace.discardedStagedChanges');
       setStagedChangeNotice({
         tone: 'success',
-        text:
-          action === 'apply'
-            ? t('workspace.appliedStagedChanges')
-            : t('workspace.discardedStagedChanges'),
+        text: noticeText,
       });
-      setStagedChangeBusy(null);
-      window.setTimeout(() => window.location.reload(), 500);
+
+      const remainingPendingCount = pendingStagedChanges.filter(
+        (item) => item.id !== changeSet.id
+      ).length;
+
+      try {
+        await Promise.all([loadVersions(), onStagedChangeDecided?.(action)]);
+      } finally {
+        setStagedChangeBusy(null);
+      }
+
+      if (remainingPendingCount === 0) {
+        setReviewOpen(false);
+      }
     },
-    [t, workspaceId]
+    [loadVersions, onStagedChangeDecided, pendingStagedChanges, t, workspaceId]
   );
   const visibleVersionTree = React.useMemo(
     () =>
@@ -510,6 +525,7 @@ export function DeliverableVersionControls({
             className="h-8"
             data-testid={`version-continue-${version.id}`}
             onClick={() => void handleContinue(version)}
+            title={t('version.continueHereHint')}
             disabled={
               isContinuingId === version.id || draftBaseVersionId === version.id
             }
@@ -552,6 +568,7 @@ export function DeliverableVersionControls({
           variant="outline"
           className="h-8"
           onClick={() => void handleRestore(version.id)}
+          title={t('version.restoreHint')}
           disabled={isRestoringId === version.id}
         >
           <RotateCcw className="mr-1 h-3.5 w-3.5" />
@@ -582,6 +599,7 @@ export function DeliverableVersionControls({
             className="h-8"
             data-testid={`version-continue-${version.id}`}
             onClick={() => void handleContinue(version)}
+            title={t('version.continueHereHint')}
             disabled={isContinuingId === version.id}
           >
             {isContinuingId === version.id
@@ -594,6 +612,7 @@ export function DeliverableVersionControls({
           variant="outline"
           className="h-8"
           onClick={() => void handleRestore(version.id)}
+          title={t('version.restoreHint')}
           disabled={isRestoringId === version.id}
         >
           <RotateCcw className="mr-1 h-3.5 w-3.5" />
@@ -729,7 +748,7 @@ export function DeliverableVersionControls({
               )}
             </div>
           </div>
-          {stagedChangeNotice ? (
+          {stagedChangeNotice && (stagedChangeNotice.tone === 'error' || !onStagedChangeDecided) ? (
             <div
               className={`border-t px-5 py-3 text-sm ${
                 stagedChangeNotice.tone === 'error'
@@ -756,6 +775,7 @@ export function DeliverableVersionControls({
             <div className="flex items-center gap-3">
               <Select value={compareLeftId} onValueChange={setCompareLeftId}>
                 <SelectTrigger
+                  aria-label={t('version.compareLeftVersion')}
                   className="h-8 w-[240px] text-xs"
                   data-testid="version-compare-left-select"
                 >
@@ -775,6 +795,7 @@ export function DeliverableVersionControls({
               <GitCompareArrows className="h-3.5 w-3.5 text-muted-foreground" />
               <Select value={compareRightId} onValueChange={setCompareRightId}>
                 <SelectTrigger
+                  aria-label={t('version.compareRightVersion')}
                   className="h-8 w-[240px] text-xs"
                   data-testid="version-compare-right-select"
                 >
@@ -889,7 +910,10 @@ export function DeliverableVersionControls({
                 value={selectedValue}
                 onValueChange={(value) => onSelectVersion(value === 'draft' ? null : value)}
               >
-                <SelectTrigger className="h-8 w-[200px] text-xs">
+                <SelectTrigger
+                  aria-label={t('version.selectVersion')}
+                  className="h-8 w-[200px] text-xs"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -918,14 +942,37 @@ export function DeliverableVersionControls({
             </div>
             <SheetTitle>{t('version.tree')}</SheetTitle>
             <SheetDescription className="text-xs leading-5">
-              {t('version.treeDescription')}
-            </SheetDescription>
-            <p className="text-xs leading-5 text-muted-foreground">
               {t('version.milestoneVsRecoveryHint')}
-            </p>
-            <p className="text-xs leading-5 text-muted-foreground">
-              {t('version.restoreDescription')}
-            </p>
+            </SheetDescription>
+            <div
+              className="grid gap-2 pt-1 sm:grid-cols-3"
+              data-testid="version-layers-summary"
+            >
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
+                <div className="text-xs font-medium text-foreground">
+                  {t('version.currentDraft')}
+                </div>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {t('version.currentDraftLayerHint')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
+                <div className="text-xs font-medium text-foreground">
+                  {t('version.milestone')}
+                </div>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {t('version.milestoneLayerHint')}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
+                <div className="text-xs font-medium text-foreground">
+                  {t('version.recoverySafetyNet')}
+                </div>
+                <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                  {t('version.recoveryLayerHint')}
+                </p>
+              </div>
+            </div>
           </SheetHeader>
 
           <ScrollArea

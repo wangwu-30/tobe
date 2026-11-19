@@ -26,6 +26,7 @@ type WorkspaceScreenNoticeAction = {
 
 type WorkspaceScreenNotice = {
   actions?: WorkspaceScreenNoticeAction[];
+  testId?: string;
   tone: 'error' | 'info' | 'success';
   text: string;
 };
@@ -92,15 +93,18 @@ export function WorkspaceScreen({
       <main className="flex h-full min-h-0 flex-col overflow-hidden">
         {workspaceNotice ? (
           <div
+            aria-live="polite"
             className={cn(
               'border-b px-4 py-2 text-sm',
               workspaceNotice.tone === 'error' &&
                 'border-destructive/20 bg-destructive/5 text-destructive',
               workspaceNotice.tone === 'success' &&
-                'border-emerald-500/20 bg-emerald-500/5 text-emerald-700',
+                'border-emerald-500/20 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300',
               workspaceNotice.tone === 'info' &&
                 'border-border bg-muted/20 text-foreground'
             )}
+            data-testid={workspaceNotice.testId}
+            role={workspaceNotice.tone === 'error' ? 'alert' : 'status'}
           >
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">{workspaceNotice.text}</div>

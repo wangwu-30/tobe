@@ -37,6 +37,7 @@ export function WorkspaceHeaderVersionControls({
   onCreateVersion,
   onRestoreVersion,
   onSelectVersion,
+  onStagedChangeDecided,
   onSwitchToVersionBranch,
   onTogglePin,
   stagedChangeSets = [],
@@ -56,6 +57,7 @@ export function WorkspaceHeaderVersionControls({
   onCreateVersion: () => void;
   onRestoreVersion: (versionId: string) => Promise<void> | void;
   onSelectVersion: (versionId: string | null) => void;
+  onStagedChangeDecided?: (action: 'apply' | 'discard') => Promise<void> | void;
   onSwitchToVersionBranch?: (version: WorkspaceVersionData) => Promise<void> | void;
   onTogglePin: (versionId: string, pinned: boolean) => Promise<void> | void;
   stagedChangeSets?: StagedChangeSetData[];
@@ -281,6 +283,7 @@ export function WorkspaceHeaderVersionControls({
         onContinueFromVersion={onContinueFromVersion}
         onCreateVersion={onCreateVersion}
         onRestoreVersion={onRestoreVersion}
+        onStagedChangeDecided={onStagedChangeDecided}
         onSwitchToVersionBranch={onSwitchToVersionBranch}
         onTogglePin={onTogglePin}
         onSelectVersion={onSelectVersion}

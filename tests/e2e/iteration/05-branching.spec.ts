@@ -768,6 +768,10 @@ test('staged document proposal review shows multi-file diff and applies through 
   await page.goto(`/workspace/${workspace.id}?conversationId=${workspace.conversationId}`);
   await dismissVisibleFirstUseGuidance(page);
 
+  const composerInput = page.getByTestId('agent-composer-input');
+  const unsentDraft = 'Preserve this unsent chat note while applying staged changes.';
+  await composerInput.fill(unsentDraft);
+
   const reviewTrigger = page.getByTestId('staged-review-trigger');
   await expect(reviewTrigger).toBeVisible();
   await expect(reviewTrigger).toContainText('1');
@@ -804,7 +808,12 @@ test('staged document proposal review shows multi-file diff and applies through 
       new URL(response.url()).pathname === decisionPath &&
       response.request().method() === 'PATCH'
   );
-  const reloadPromise = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame());
+  let mainFrameNavigations = 0;
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) {
+      mainFrameNavigations += 1;
+    }
+  });
   await reviewDialog.getByTestId(`staged-change-apply-${proposalId}`).click();
   const decisionResponse = await decisionResponsePromise;
 
@@ -821,7 +830,9 @@ test('staged document proposal review shows multi-file diff and applies through 
   await expect(page.getByTestId('staged-change-notice')).toContainText(
     /已将建议修改应用到当前页面草稿|Applied Suggested changes to the current Page draft/
   );
-  await reloadPromise;
+  await expect(reviewDialog).toBeHidden();
+  expect(mainFrameNavigations).toBe(0);
+  await expect(composerInput).toHaveValue(unsentDraft);
 
   await expect(page.getByTestId('staged-review-trigger')).toHaveCount(0);
   await expectWorkspaceSurfaceText(page, appliedPrimaryText, {

@@ -77,6 +77,7 @@ type WorkspaceNoticeAction = {
 };
 type WorkspaceNotice = {
   actions?: WorkspaceNoticeAction[];
+  testId?: string;
   tone: 'error' | 'info' | 'success';
   text: string;
 };
@@ -780,6 +781,17 @@ function WorkspacePageContent() {
       onCreateVersion={createVersion}
       onRestoreVersion={restoreVersion}
       onSelectVersion={(versionId) => syncLocation({ versionId })}
+      onStagedChangeDecided={async (action) => {
+        setWorkspaceNotice({
+          testId: 'staged-change-notice',
+          text:
+            action === 'apply'
+              ? t('workspace.appliedStagedChanges')
+              : t('workspace.discardedStagedChanges'),
+          tone: 'success',
+        });
+        await Promise.all([loadWorkspace(), loadThreads()]);
+      }}
       onSwitchToVersionBranch={switchConversationToVersionBranch}
       onTogglePin={toggleRecoveryPointPin}
       projectId={currentProjectId}

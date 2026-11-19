@@ -102,8 +102,6 @@ export function BlockSuggestionCard({
     });
   };
 
-  const [hovering, setHovering] = React.useState(false);
-
   const suggestionText2Array = (text: string) => {
     if (text === BLOCK_SUGGESTION) return ['line breaks'];
 
@@ -115,12 +113,11 @@ export function BlockSuggestionCard({
   return (
     <div
       key={`${suggestion.suggestionId}-${idx}`}
-      className="relative"
-      onMouseEnter={() => setHovering(true)}
-      onMouseLeave={() => setHovering(false)}
+      className="group relative"
+      data-testid={`block-suggestion-card-${suggestion.suggestionId}`}
     >
       <div className="flex flex-col p-4">
-        <div className="relative flex items-center">
+        <div className="relative flex items-center pr-20">
           {/* Replace to your own backend or refer to potion */}
           <Avatar className="size-5">
             <AvatarImage alt={userInfo?.name} src={userInfo?.avatarUrl} />
@@ -167,7 +164,7 @@ export function BlockSuggestionCard({
                     <React.Fragment key={index}>
                       <div
                         key={index}
-                        className="flex items-start gap-2 text-brand/80"
+                        className="flex items-start gap-2 text-brand"
                       >
                         <span className="text-sm">with:</span>
                         <span className="text-sm">{text || 'line breaks'}</span>
@@ -220,27 +217,31 @@ export function BlockSuggestionCard({
           />
         ))}
 
-        {hovering && (
-          <div className="absolute top-4 right-4 flex gap-2">
-            <Button
-              aria-label={t('comments.acceptSuggestion')}
-              variant="ghost"
-              className="size-6 p-1 text-muted-foreground"
-              onClick={() => accept(suggestion)}
-            >
-              <CheckIcon className="size-4" />
-            </Button>
+        <div className="absolute top-3 right-3 flex items-center gap-1">
+          <Button
+            aria-label={t('comments.acceptSuggestion')}
+            className="size-8 p-1.5 text-muted-foreground hover:text-foreground"
+            data-testid={`suggestion-accept-${suggestion.suggestionId}`}
+            onClick={() => accept(suggestion)}
+            title={t('comments.acceptSuggestion')}
+            type="button"
+            variant="ghost"
+          >
+            <CheckIcon aria-hidden="true" className="size-4" />
+          </Button>
 
-            <Button
-              aria-label={t('comments.rejectSuggestion')}
-              variant="ghost"
-              className="size-6 p-1 text-muted-foreground"
-              onClick={() => reject(suggestion)}
-            >
-              <XIcon className="size-4" />
-            </Button>
-          </div>
-        )}
+          <Button
+            aria-label={t('comments.rejectSuggestion')}
+            className="size-8 p-1.5 text-muted-foreground hover:text-foreground"
+            data-testid={`suggestion-reject-${suggestion.suggestionId}`}
+            onClick={() => reject(suggestion)}
+            title={t('comments.rejectSuggestion')}
+            type="button"
+            variant="ghost"
+          >
+            <XIcon aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
 
         <CommentCreateForm discussionId={suggestion.suggestionId} />
       </div>

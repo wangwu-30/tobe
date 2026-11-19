@@ -143,12 +143,15 @@ const BlockCommentContent = function BlockCommentContent({
               <Popover open={suggestionsOpen} onOpenChange={setSuggestionsOpen}>
                 <PopoverTrigger asChild>
                   <Button
+                    aria-label={`Suggestions (${suggestionsCount})`}
                     variant="ghost"
                     className="!px-1.5 flex h-6 gap-1 py-0 text-muted-foreground hover:text-foreground data-[active=true]:bg-muted"
                     data-active={suggestionsOpen}
+                    data-testid="block-suggestion-trigger"
                     contentEditable={false}
+                    type="button"
                   >
-                    <PencilLineIcon className="size-4 shrink-0" />
+                    <PencilLineIcon aria-hidden="true" className="size-4 shrink-0" />
                     <span className="font-semibold text-xs">{suggestionsCount}</span>
                   </Button>
                 </PopoverTrigger>
