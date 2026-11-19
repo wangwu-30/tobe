@@ -2,6 +2,7 @@ import { Type } from 'typebox';
 
 import {
   enforceGovernedAgentTool,
+  type AgentToolAuditEvent,
   type GovernedAgentTool,
 } from '@/agent/tool-policy';
 import { createTeamTask, ensureBuiltinAgentProfiles } from '@/objects/task';
@@ -17,6 +18,7 @@ const PUBLISH_TEAM_TASK_PARAMETERS = Type.Object({
 
 type CreatePublishTeamTaskToolParams = {
   actorUserId: string;
+  onAudit?: (event: AgentToolAuditEvent) => void;
   organizationId: string;
   originDeviceId?: string;
   resolveProjectId: () => Promise<string | null>;
@@ -26,6 +28,7 @@ type CreatePublishTeamTaskToolParams = {
 
 export function createPublishTeamTaskTool({
   actorUserId,
+  onAudit,
   organizationId,
   originDeviceId,
   rememberSummary,
@@ -81,5 +84,5 @@ export function createPublishTeamTaskTool({
     },
   };
 
-  return enforceGovernedAgentTool(tool);
+  return enforceGovernedAgentTool(tool, undefined, onAudit ? { onAudit } : undefined);
 }

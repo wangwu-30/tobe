@@ -10,6 +10,7 @@ export {
   createStagedChangeSet,
   sha256,
 } from '@/lib/workspace/planning';
+export { createWorkspaceAgentTools } from '@/lib/ai/pi-agent-tools';
 export { applyStagedChangeSet } from '@/lib/workspace/staged-changes';
 export { createWorkspaceVersion } from '@/objects/state/commands';
 export { resolveDraftBaseVersionIdForVersion } from '@/objects/state/queries';

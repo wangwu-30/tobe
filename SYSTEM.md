@@ -83,20 +83,20 @@ singleton Organization
 - **WikiSpace facade / canonical Project root**
   Wiki Space 的稳定身份、标题、Page tree 边界、Chat scope 和 mount scope。根必须与普通 Page 一样受
   organization、deleted-state 与 canonical-root 校验保护。
-- **Page facade / Document** `{ id, projectId, parentDocumentId?, title, draftRevision, ... }`
-  Wiki Space 内的内容单元。`projectId` 指向 canonical root；`parentDocumentId + treeSortOrder` 表达 Page tree。
-- **ProjectFolder** `{ projectId, parentId?, title, treeSortOrder }`
-  兼容目录结构，不拥有 Page 的版本或评审生命周期。
+- **Page facade / Document** `{ id, projectId, projectFolderId?, treeSortOrder, title, draftBaseVersionId?, draftRevision, ... }`
+  Wiki Space 内的内容单元。`projectId` 指向 canonical root；当前运行时通过 `ProjectFolder + projectFolderId + treeSortOrder` 组织 Page tree（schema 中 `parentDocumentId` 为预留字段，当前未用于运行时建树）。
+- **ProjectFolder** `{ id, projectId, parentId?, title, treeSortOrder }`
+  Wiki Space 内的目录分组结构，与 `Document.projectFolderId` 共同承载 Page tree，不拥有 Page 的版本或评审生命周期。
 - **ProjectMount** `{ sourceProjectId, targetProjectId }`
   Wiki Space 间的显式只读引用。AI 默认只看到标题索引，按预算和权限按需读取目标 Pages。
-- **WorkspaceFile** `{ documentId, parentId?, path, kind, purpose, content, revision }`
-  Page 的实现文件或支持资料。`purpose` 区分 output 与 reference。
+- **WorkspaceFile** `{ documentId, parentId?, name, type, kind, role, path, content, isPrimary, revision }`
+  Page 的实现文件或支持资料。`role`（`deliverable | support`）区分主交付文件与支持参考资料。
 - **Version / State**
   Page 的不可变内容快照。创建后不可修改。
-- **Label** `{ stateId, kind, name }`
-  指向不可变版本的命名指针；`milestone | head | recovery | pinned | aligned` 承担可见版本、回退点和
+- **Label** `{ versionId, kind, name }`
+  指向不可变 `Version` 的命名指针；`milestone | head | recovery | pinned | aligned` 承担可见版本、回退点和
   execution admission 语义。
-- **Draft** `{ documentId, baseVersionId, files[], revision }`
+- **Draft**（物化在 `Document { draftBaseVersionId?, draftRevision, content }` 与其可变 `WorkspaceFile[]` 上）
   每个 Page 唯一的可编辑区。
 
 ### 会话与评审层
