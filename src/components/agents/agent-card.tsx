@@ -2,6 +2,7 @@
 
 import { Bot, Check, LockKeyhole, Pencil, Power } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -20,6 +21,7 @@ export function AgentCard({
   onToggleEnabled: (agent: AgentProfileDtoV1) => void;
   updating: boolean;
 }) {
+  const t = useT();
   const titleId = `agent-${agent.id}-name`;
   const descriptionId = `agent-${agent.id}-description`;
 
@@ -68,12 +70,12 @@ export function AgentCard({
               variant="outline"
             >
               {agent.enabled ? <Check aria-hidden="true" /> : <Power aria-hidden="true" />}
-              {agent.enabled ? 'Enabled' : 'Disabled'}
+              {agent.enabled ? t('agents.enabled') : t('agents.disabled')}
             </Badge>
             {agent.builtin ? (
               <Badge className="gap-1" variant="secondary">
                 <LockKeyhole aria-hidden="true" />
-                Built-in
+                {t('agents.builtin')}
               </Badge>
             ) : null}
           </div>
@@ -84,12 +86,12 @@ export function AgentCard({
             className="mt-3 line-clamp-3 break-words text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]"
             id={descriptionId}
           >
-            {agent.description || 'No description yet.'}
+            {agent.description || t('agents.noDescription')}
           </p>
         </div>
       </div>
 
-      <div className="mt-4 flex min-w-0 flex-wrap gap-1.5" aria-label="Skills">
+      <div className="mt-4 flex min-w-0 flex-wrap gap-1.5" aria-label={t('agents.skillsAria')}>
         {agent.capabilities.skills.length > 0 ? (
           agent.capabilities.skills.map((skill) => (
             <Badge
@@ -102,7 +104,7 @@ export function AgentCard({
             </Badge>
           ))
         ) : (
-          <span className="text-xs text-muted-foreground">No skills listed</span>
+          <span className="text-xs text-muted-foreground">{t('agents.noSkills')}</span>
         )}
       </div>
 
@@ -112,25 +114,33 @@ export function AgentCard({
           title={agent.config.room.runtimeId}
           translate="no"
         >
-          Runtime · {agent.config.room.runtimeId}
+          {t('agents.runtimeLabel', { runtimeId: agent.config.room.runtimeId })}
         </p>
         <div className="flex shrink-0 gap-1">
           {canManage && !agent.builtin ? (
             <Button
-              aria-label={`${agent.enabled ? 'Disable' : 'Enable'} ${agent.name}`}
+              aria-label={
+                agent.enabled
+                  ? t('agents.disableAria', { name: agent.name })
+                  : t('agents.enableAria', { name: agent.name })
+              }
               className="size-11 sm:size-9"
               data-testid={`agent-toggle-${agent.id}`}
               disabled={updating}
               onClick={() => onToggleEnabled(agent)}
               size="icon"
-              title={agent.enabled ? 'Disable agent' : 'Enable agent'}
+              title={agent.enabled ? t('agents.disableTitle') : t('agents.enableTitle')}
               variant="ghost"
             >
               <Power aria-hidden="true" />
             </Button>
           ) : null}
           <Button
-            aria-label={`${canManage ? 'Edit' : 'View'} ${agent.name}`}
+            aria-label={
+              canManage
+                ? t('agents.editAria', { name: agent.name })
+                : t('agents.viewAria', { name: agent.name })
+            }
             className="min-h-11 px-3 sm:min-h-9"
             data-testid={`agent-edit-${agent.id}`}
             disabled={updating}
@@ -139,7 +149,7 @@ export function AgentCard({
             variant="ghost"
           >
             <Pencil aria-hidden="true" />
-            {canManage ? 'Edit' : 'View'}
+            {canManage ? t('agents.edit') : t('agents.view')}
           </Button>
         </div>
       </div>

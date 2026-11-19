@@ -4,7 +4,7 @@ import * as React from 'react';
 import { AlertCircle, Bot, Plus, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 
 import { AppShell } from '@/components/layout/app-shell';
-import { useAppLanguage } from '@/components/providers/language-provider';
+import { useAppLanguage, useT } from '@/components/providers/language-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,11 @@ const AGENT_STATUS_FILTERS = new Set<StatusFilter>(['all', 'disabled', 'enabled'
 
 export function AgentManagementPage() {
   const language = useAppLanguage();
+  const t = useT();
+  const tRef = React.useRef(t);
+  React.useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const pathname = useAppPathname();
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
@@ -97,30 +102,33 @@ export function AgentManagementPage() {
     []
   );
 
-  const loadAgents = React.useCallback(async (refresh = false, signal?: AbortSignal) => {
-    const generation = ++requestGenerationRef.current;
-    if (refresh) setIsRefreshing(true);
-    else setIsLoading(true);
-    setError(null);
+  const loadAgents = React.useCallback(
+    async (refresh = false, signal?: AbortSignal) => {
+      const generation = ++requestGenerationRef.current;
+      if (refresh) setIsRefreshing(true);
+      else setIsLoading(true);
+      setError(null);
 
-    try {
-      const result = await listAgents({ signal });
-      if (signal?.aborted || generation !== requestGenerationRef.current) return;
-      if (!result.ok) {
-        setError(result.error);
-        return;
+      try {
+        const result = await listAgents({ signal });
+        if (signal?.aborted || generation !== requestGenerationRef.current) return;
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        setAgents(sortAgents(result.data.agents));
+        setCanManage(result.data.permissions.canManage);
+      } catch (caught) {
+        if (signal?.aborted || generation !== requestGenerationRef.current) return;
+        setError(caught instanceof Error ? caught.message : tRef.current('agents.loadFailed'));
+      } finally {
+        if (signal?.aborted || generation !== requestGenerationRef.current) return;
+        if (refresh) setIsRefreshing(false);
+        else setIsLoading(false);
       }
-      setAgents(sortAgents(result.data.agents));
-      setCanManage(result.data.permissions.canManage);
-    } catch (caught) {
-      if (signal?.aborted || generation !== requestGenerationRef.current) return;
-      setError(caught instanceof Error ? caught.message : 'Agents could not be loaded.');
-    } finally {
-      if (signal?.aborted || generation !== requestGenerationRef.current) return;
-      if (refresh) setIsRefreshing(false);
-      else setIsLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   React.useEffect(() => {
     const controller = new AbortController();
@@ -169,7 +177,11 @@ export function AgentManagementPage() {
     setAgents((current) =>
       sortAgents([savedAgent, ...current.filter((agent) => agent.id !== savedAgent.id)])
     );
-    showNotice(created ? `${savedAgent.name} was created.` : `${savedAgent.name} was updated.`);
+    showNotice(
+      created
+        ? t('agents.createdNotice', { name: savedAgent.name })
+        : t('agents.updatedNotice', { name: savedAgent.name })
+    );
   };
 
   const toggleEnabled = async (agent: AgentProfileDtoV1) => {
@@ -185,9 +197,7 @@ export function AgentManagementPage() {
 
       if (!result.ok) {
         setError(
-          result.status === 409
-            ? 'This agent changed elsewhere. Refresh the list before trying again.'
-            : result.error
+          result.status === 409 ? t('agents.conflictError') : result.error
         );
       } else {
         setAgents((current) =>
@@ -196,11 +206,13 @@ export function AgentManagementPage() {
           )
         );
         showNotice(
-          `${result.data.name} is now ${result.data.enabled ? 'enabled' : 'disabled'}.`
+          result.data.enabled
+            ? t('agents.enabledNotice', { name: result.data.name })
+            : t('agents.disabledNotice', { name: result.data.name })
         );
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'The agent could not be updated.');
+      setError(caught instanceof Error ? caught.message : t('agents.updateFailed'));
     } finally {
       setUpdatingIds((current) => {
         const next = new Set(current);
@@ -223,12 +235,12 @@ export function AgentManagementPage() {
             size="sm"
           >
             <Plus aria-hidden="true" />
-            New agent
+            {t('agents.newAgent')}
           </Button>
         ) : undefined
       }
-      subtitle="Create, configure, and pause the agents your team works with"
-      title="Agents"
+      subtitle={t('agents.shellSubtitle')}
+      title={t('agents.shellTitle')}
     >
       <ZoneErrorBoundary zone="agent-management">
         <main className="h-full min-h-0 overflow-y-auto" data-testid="agent-management-page">
@@ -237,29 +249,28 @@ export function AgentManagementPage() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                    Agent directory
+                    {t('agents.heading')}
                   </h1>
                   {!canManage && !isLoading ? (
                     <Badge className="gap-1" variant="secondary">
                       <ShieldCheck aria-hidden="true" />
-                      View only
+                      {t('agents.viewOnly')}
                     </Badge>
                   ) : null}
                 </div>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Keep team agents discoverable, describe what they do, and pause custom agents
-                  without losing their profiles.
+                  {t('agents.lead')}
                 </p>
               </div>
               <dl className="grid shrink-0 grid-cols-2 gap-x-6 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
                 <div>
-                  <dt className="text-xs text-muted-foreground">Enabled</dt>
+                  <dt className="text-xs text-muted-foreground">{t('agents.enabled')}</dt>
                   <dd className="mt-0.5 font-semibold tabular-nums">
                     {numberFormat.format(counts.enabled)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-muted-foreground">Disabled</dt>
+                  <dt className="text-xs text-muted-foreground">{t('agents.disabled')}</dt>
                   <dd className="mt-0.5 font-semibold tabular-nums">
                     {numberFormat.format(counts.disabled)}
                   </dd>
@@ -274,7 +285,7 @@ export function AgentManagementPage() {
                   className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                 />
                 <label className="sr-only" htmlFor="agent-search">
-                  Search agents
+                  {t('agents.searchLabel')}
                 </label>
                 <Input
                   aria-controls="agent-results"
@@ -288,7 +299,7 @@ export function AgentManagementPage() {
                       q: event.target.value.trim() ? event.target.value : '',
                     })
                   }
-                  placeholder="Search name, handle, description, or skill…"
+                  placeholder={t('agents.searchPlaceholder')}
                   spellCheck={false}
                   type="search"
                   value={query}
@@ -296,33 +307,37 @@ export function AgentManagementPage() {
               </div>
 
               <div
-                aria-label="Filter agents by availability"
+                aria-label={t('agents.filterAria')}
                 className="grid grid-cols-3 rounded-lg border bg-muted/20 p-1"
                 role="group"
               >
                 {(['all', 'enabled', 'disabled'] as const).map((value) => (
                   <Button
                     aria-pressed={statusFilter === value}
-                    className="min-h-11 px-3 capitalize sm:min-h-9"
+                    className="min-h-11 px-3 sm:min-h-9"
                     data-testid={`agent-filter-${value}`}
                     key={value}
                     onClick={() => replaceAgentParams({ status: value })}
                     size="sm"
                     variant={statusFilter === value ? 'secondary' : 'ghost'}
                   >
-                    {value}
+                    {value === 'all'
+                      ? t('agents.filterAll')
+                      : value === 'enabled'
+                        ? t('agents.enabled')
+                        : t('agents.disabled')}
                   </Button>
                 ))}
               </div>
 
               <Button
                 aria-busy={isRefreshing}
-                aria-label="Refresh agents"
+                aria-label={t('agents.refreshAria')}
                 className="size-11 shrink-0 sm:size-9"
                 disabled={isLoading || isRefreshing}
                 onClick={() => void loadAgents(true)}
                 size="icon"
-                title="Refresh agents"
+                title={t('agents.refreshAria')}
                 variant="outline"
               >
                 <RefreshCw
@@ -340,10 +355,10 @@ export function AgentManagementPage() {
               role="status"
             >
               {isLoading
-                ? 'Loading agents.'
+                ? t('agents.statusLoading')
                 : isRefreshing
-                  ? 'Refreshing agents.'
-                  : formatAgentResultStatus(filteredAgents.length, agents.length, numberFormat)}
+                  ? t('agents.statusRefreshing')
+                  : formatAgentResultStatus(filteredAgents.length, agents.length, numberFormat, t)}
             </p>
 
             {notice ? (
@@ -377,14 +392,14 @@ export function AgentManagementPage() {
                   size="sm"
                   variant="ghost"
                 >
-                  Retry
+                  {t('agents.retry')}
                 </Button>
               </div>
             ) : null}
 
             <section
               aria-busy={isLoading || isRefreshing}
-              aria-label="Agents"
+              aria-label={t('agents.resultsAria')}
               className="mt-5"
               id="agent-results"
             >
@@ -409,14 +424,14 @@ export function AgentManagementPage() {
                     <Bot aria-hidden="true" className="size-5" />
                   </span>
                   <h2 className="mt-4 text-sm font-semibold">
-                    {hasFilters ? 'No matching agents' : 'No agents yet'}
+                    {hasFilters ? t('agents.emptyFilteredTitle') : t('agents.emptyTitle')}
                   </h2>
                   <p className="mt-1 max-w-sm text-sm leading-6 text-muted-foreground">
                     {hasFilters
-                      ? 'Try another search or show all availability states.'
+                      ? t('agents.emptyFilteredBody')
                       : canManage
-                        ? 'Create an agent profile to make it available to your team.'
-                        : 'There are no agent profiles available to this organization.'}
+                        ? t('agents.emptyManageBody')
+                        : t('agents.emptyReadOnlyBody')}
                   </p>
                   {hasFilters ? (
                     <Button
@@ -425,12 +440,12 @@ export function AgentManagementPage() {
                       size="sm"
                       variant="outline"
                     >
-                      Clear filters
+                      {t('agents.clearFilters')}
                     </Button>
                   ) : canManage ? (
                     <Button className="mt-4 min-h-11 sm:min-h-9" onClick={openCreate} size="sm">
                       <Plus aria-hidden="true" />
-                      Create agent
+                      {t('agents.createAgent')}
                     </Button>
                   ) : null}
                 </div>
@@ -470,9 +485,16 @@ function AgentListLoading() {
   );
 }
 
-function formatAgentResultStatus(visible: number, total: number, numberFormat: Intl.NumberFormat) {
-  const noun = total === 1 ? 'agent' : 'agents';
-  return `Showing ${numberFormat.format(visible)} of ${numberFormat.format(total)} ${noun}.`;
+function formatAgentResultStatus(
+  visible: number,
+  total: number,
+  numberFormat: Intl.NumberFormat,
+  t: ReturnType<typeof useT>
+) {
+  return t(total === 1 ? 'agents.statusCountSingle' : 'agents.statusCountPlural', {
+    total: numberFormat.format(total),
+    visible: numberFormat.format(visible),
+  });
 }
 
 function sortAgents(agents: AgentProfileDtoV1[]) {

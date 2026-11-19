@@ -1190,6 +1190,12 @@
 - 为什么：tldraw 把 camera 状态存放在 session store 而非 document store，漏听 session scope 会导致画布平移/缩放时卡片移动而 SVG 连线停在原位产生视觉错位；水平 SVG `<line>` 的包围盒高度为 `0`，Playwright 中应先断言 `<svg>` 可见再对 `<line>` 用 `toBeAttached()`。
 - 默认做法：为 `ProjectCanvas` 同时维护 shape 位置（`document` scope）与相机/视口状态（`session` scope + `ResizeObserver`），右键菜单通过 `nodeTitleById` 展示人类可读页面标题而非 UUID 截断；保留原有英文全链路 E2E 的精确断言（加 `test.use({ locale: 'en-US' })`），再新增专门的中英文切换 E2E 守护双语渲染与边界引导卡。
 
+### 58. 数据拉取型 `useCallback` / `useEffect` 不得直接依赖 `useT()` 返回函数，防止 `LanguageProvider` 水合时触发二次请求与中止竞态
+
+- 结论：在 `AgentManagementPage`、`ExecutionJobsPage`、`ExecutionJobDetailPage`、`ExecutionRecoveryPanel`、`KnowledgeCenter` 等页面接入 `useT()` 时，切勿把 `t` 放入驱动 `useEffect` 拉取数据的 `useCallback(..., [t])` 依赖数组中；应通过 `tRef`（由 `React.useEffect(() => { tRef.current = t; }, [t])` 同步）在 catch/fallback 分支读取最新翻译函数。
+- 为什么：`LanguageProvider` 为保证 SSR 水合一致，首帧默认以 `'zh-CN'` 渲染，挂载后立即在 `useEffect` 中读取 `localStorage` 切换到 `'en-US'`，从而生成新的 `t` 函数引用。若数据拉取回调依赖 `t`，页面挂载后语言水合瞬间就会触发 `AbortController.abort()` 并重发第二次 API 请求，不仅造成多余网络往返，还会在测试拦截首请求（如 `deferInitialList`、请求计数断言或 `reloadResponse.json()`）时引发竞态失败。
+- 默认做法：纯派生文案的 `useMemo(..., [t])` 保留 `[t]` 以响应实时语言切换；所有驱动 `useEffect` 网络加载的 `load*` 回调统一用 `tRef.current(...)` 读错误兜底文案，确保切换 UI 语言永不中止或重发数据请求。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

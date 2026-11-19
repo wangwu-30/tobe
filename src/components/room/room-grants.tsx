@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { KeyRound, LoaderCircle, ShieldCheck, Trash2 } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -53,6 +54,7 @@ export function RoomGrants({
   hostAgentId,
   roomId,
 }: RoomGrantsProps) {
+  const t = useT();
   const enabledAgents = React.useMemo(
     () => agents.filter((agent) => agent.enabled),
     [agents]
@@ -110,7 +112,7 @@ export function RoomGrants({
   async function issueGrant() {
     if (mutationInFlightRef.current) return;
     if (!sourceId || !selectedTargetId || sourceId === selectedTargetId) {
-      setNotice('请选择两个不同的 Agent。');
+      setNotice(t('room.grantsSameAgentError'));
       setNoticeTone('error');
       return;
     }
@@ -125,7 +127,7 @@ export function RoomGrants({
         targetAgentId: selectedTargetId,
       });
       if (!result.ok) {
-        setNotice(`${result.error} 请检查选择后重试。`);
+        setNotice(t('room.grantsIssueError', { error: result.error }));
         setNoticeTone('error');
         return;
       }
@@ -134,9 +136,9 @@ export function RoomGrants({
         next.set(result.data.id, result.data);
         return next;
       });
-      setNotice('授权已创建。');
+      setNotice(t('room.grantsIssuedNotice'));
     } catch {
-      setNotice('授权创建失败，请检查连接后重试。');
+      setNotice(t('room.grantsIssueNetworkError'));
       setNoticeTone('error');
     } finally {
       mutationInFlightRef.current = false;
@@ -153,7 +155,7 @@ export function RoomGrants({
     try {
       const result = await revokeRoomDelegationGrant(roomId, grantId);
       if (!result.ok) {
-        setNotice(`${result.error} 请稍后重试。`);
+        setNotice(t('room.grantsRevokeError', { error: result.error }));
         setNoticeTone('error');
         return;
       }
@@ -162,10 +164,10 @@ export function RoomGrants({
         next.set(result.data.id, result.data);
         return next;
       });
-      setNotice('授权已撤销。');
+      setNotice(t('room.grantsRevokedNotice'));
       setConfirmGrantId(null);
     } catch {
-      setNotice('授权撤销失败，请检查连接后重试。');
+      setNotice(t('room.grantsRevokeNetworkError'));
       setNoticeTone('error');
     } finally {
       mutationInFlightRef.current = false;
@@ -177,9 +179,9 @@ export function RoomGrants({
     <Popover>
       <PopoverTrigger asChild>
         <Button
-          aria-label="管理 Agent 委托授权"
+          aria-label={t('room.grantsTriggerAria')}
           size="icon-sm"
-          title="委托授权"
+          title={t('room.grantsTitle')}
           type="button"
           variant="ghost"
         >
@@ -193,10 +195,10 @@ export function RoomGrants({
         <div className="border-b p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold text-balance">
             <KeyRound className="size-4" />
-            委托授权
+            {t('room.grantsTitle')}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            允许一个 Agent 在当前 Room 中调用另一个 Agent。
+            {t('room.grantsDescription')}
           </p>
         </div>
 
@@ -209,10 +211,10 @@ export function RoomGrants({
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="min-w-0 space-y-1.5">
-              <Label id={sourceLabelId}>发起 Agent</Label>
+              <Label id={sourceLabelId}>{t('room.grantsFromLabel')}</Label>
               <Select name="fromAgentId" value={sourceId} onValueChange={setFromAgentId}>
                 <SelectTrigger aria-labelledby={sourceLabelId} className="w-full">
-                  <SelectValue placeholder="选择 Agent" />
+                  <SelectValue placeholder={t('room.grantsSelectAgent')} />
                 </SelectTrigger>
                 <SelectContent>
                   {enabledAgents.map((agent) => (
@@ -224,14 +226,14 @@ export function RoomGrants({
               </Select>
             </div>
             <div className="min-w-0 space-y-1.5">
-              <Label id={targetLabelId}>目标 Agent</Label>
+              <Label id={targetLabelId}>{t('room.grantsTargetLabel')}</Label>
               <Select
                 name="targetAgentId"
                 value={selectedTargetId}
                 onValueChange={setTargetAgentId}
               >
                 <SelectTrigger aria-labelledby={targetLabelId} className="w-full">
-                  <SelectValue placeholder="选择 Agent" />
+                  <SelectValue placeholder={t('room.grantsSelectAgent')} />
                 </SelectTrigger>
                 <SelectContent>
                   {targetOptions.map((agent) => (
@@ -244,7 +246,7 @@ export function RoomGrants({
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label id={scopeLabelId}>有效范围</Label>
+            <Label id={scopeLabelId}>{t('room.grantsScopeLabel')}</Label>
             <Select
               name="scope"
               value={scope}
@@ -254,8 +256,8 @@ export function RoomGrants({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="once">单次调用</SelectItem>
-                <SelectItem value="room">当前 Room</SelectItem>
+                <SelectItem value="once">{t('room.grantsScopeOnce')}</SelectItem>
+                <SelectItem value="room">{t('room.grantsScopeRoom')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -266,11 +268,11 @@ export function RoomGrants({
             type="submit"
           >
             {isIssuing ? <LoaderCircle className="animate-spin motion-reduce:animate-none" /> : null}
-            {isIssuing ? '正在创建…' : '创建授权'}
+            {isIssuing ? t('room.grantsCreating') : t('room.grantsCreate')}
           </Button>
           {enabledAgents.length < 2 ? (
             <p className="text-xs text-muted-foreground">
-              至少需要 2 个已启用的 Agent 才能创建委托授权。
+              {t('room.grantsNeedTwoAgents')}
             </p>
           ) : null}
           <p
@@ -285,44 +287,51 @@ export function RoomGrants({
         </form>
 
         <div className="max-h-72 overflow-y-auto overscroll-contain p-2">
-          <p className="px-2 py-1 text-xs font-medium">Room 授权记录</p>
+          <p className="px-2 py-1 text-xs font-medium">{t('room.grantsListTitle')}</p>
           {grants.length ? (
             <ul className="space-y-1">
-              {grants.map((grant) => (
-                <li className="flex min-w-0 items-center gap-2 rounded-md px-2 py-2" key={grant.id}>
-                  <span className="min-w-0 flex-1">
-                    <span className="block break-words text-xs font-medium [overflow-wrap:anywhere]">
-                      {agentNames.get(grant.fromAgentId) || grant.fromAgentId}
-                      {' → '}
-                      {agentNames.get(grant.targetAgentId) || grant.targetAgentId}
+              {grants.map((grant) => {
+                const fromName = agentNames.get(grant.fromAgentId) || grant.fromAgentId;
+                const targetName = agentNames.get(grant.targetAgentId) || grant.targetAgentId;
+                return (
+                  <li className="flex min-w-0 items-center gap-2 rounded-md px-2 py-2" key={grant.id}>
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-xs font-medium [overflow-wrap:anywhere]">
+                        {fromName}
+                        {' → '}
+                        {targetName}
+                      </span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {grant.scope === 'once' ? t('room.grantsScopeOnce') : t('room.grantsScopeRoom')} · {statusLabel(grant.status, t)}
+                      </span>
                     </span>
-                    <span className="block truncate text-[11px] text-muted-foreground">
-                      {grant.scope === 'once' ? '单次调用' : '当前 Room'} · {statusLabel(grant.status)}
-                    </span>
-                  </span>
-                  {grant.status === 'active' ? (
-                    <Button
-                      aria-label={`撤销 ${agentNames.get(grant.fromAgentId) || grant.fromAgentId} 到 ${agentNames.get(grant.targetAgentId) || grant.targetAgentId} 的授权`}
-                      disabled={pendingGrantId !== null}
-                      onClick={() => setConfirmGrantId(grant.id)}
-                      size="icon-xs"
-                      title="撤销授权"
-                      type="button"
-                      variant="ghost"
-                    >
-                      {pendingGrantId === grant.id ? (
-                        <LoaderCircle className="animate-spin motion-reduce:animate-none" />
-                      ) : (
-                        <Trash2 />
-                      )}
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
+                    {grant.status === 'active' ? (
+                      <Button
+                        aria-label={t('room.grantsRevokeAria', {
+                          from: fromName,
+                          target: targetName,
+                        })}
+                        disabled={pendingGrantId !== null}
+                        onClick={() => setConfirmGrantId(grant.id)}
+                        size="icon-xs"
+                        title={t('room.grantsRevokeTitle')}
+                        type="button"
+                        variant="ghost"
+                      >
+                        {pendingGrantId === grant.id ? (
+                          <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+                        ) : (
+                          <Trash2 />
+                        )}
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="px-2 py-5 text-center text-xs text-muted-foreground">
-              暂无授权记录
+              {t('room.grantsEmpty')}
             </p>
           )}
         </div>
@@ -344,10 +353,13 @@ export function RoomGrants({
           showCloseButton={!pendingGrantId}
         >
           <DialogHeader>
-            <DialogTitle>撤销委托授权？</DialogTitle>
+            <DialogTitle>{t('room.grantsRevokeDialogTitle')}</DialogTitle>
             <DialogDescription className="break-words">
               {confirmedGrant
-                ? `${agentNames.get(confirmedGrant.fromAgentId) || confirmedGrant.fromAgentId} 将不能再调用 ${agentNames.get(confirmedGrant.targetAgentId) || confirmedGrant.targetAgentId}。`
+                ? t('room.grantsRevokeDialogDesc', {
+                    from: agentNames.get(confirmedGrant.fromAgentId) || confirmedGrant.fromAgentId,
+                    target: agentNames.get(confirmedGrant.targetAgentId) || confirmedGrant.targetAgentId,
+                  })
                 : ''}
             </DialogDescription>
           </DialogHeader>
@@ -359,7 +371,7 @@ export function RoomGrants({
             ) : null}
             <DialogClose asChild>
               <Button disabled={Boolean(pendingGrantId)} type="button" variant="outline">
-                取消
+                {t('room.grantsCancel')}
               </Button>
             </DialogClose>
             <Button
@@ -374,7 +386,7 @@ export function RoomGrants({
               {pendingGrantId ? (
                 <LoaderCircle className="animate-spin motion-reduce:animate-none" />
               ) : null}
-              {pendingGrantId ? '正在撤销…' : '撤销授权'}
+              {pendingGrantId ? t('room.grantsRevoking') : t('room.grantsRevokeTitle')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -459,8 +471,8 @@ function updateStatus(
   if (grant) grants.set(grantId, { ...grant, status });
 }
 
-function statusLabel(status: GrantStatus) {
-  if (status === 'active') return '有效';
-  if (status === 'consumed') return '已使用';
-  return '已撤销';
+function statusLabel(status: GrantStatus, t: ReturnType<typeof useT>) {
+  if (status === 'active') return t('room.grantsStatusActive');
+  if (status === 'consumed') return t('room.grantsStatusConsumed');
+  return t('room.grantsStatusRevoked');
 }

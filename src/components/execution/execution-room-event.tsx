@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 
+import { useT } from '@/components/providers/language-provider';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
@@ -33,7 +34,8 @@ export function ExecutionRoomEvent({
 }: {
   event: ExecutionRoomLifecycleEvent;
 }) {
-  const presentation = getPresentation(event);
+  const t = useT();
+  const presentation = getPresentation(event, t);
   const Icon = presentation.icon;
 
   return (
@@ -68,33 +70,33 @@ export function ExecutionRoomEvent({
         </p>
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span className="max-w-56 truncate" title={event.data.jobId}>
-            Job <span className="font-mono">{event.data.jobId}</span>
+            {t('jobs.roomEventJobLabel')} <span className="font-mono">{event.data.jobId}</span>
           </span>
-          <span>revision {event.data.jobRevision}</span>
+          <span>{t('jobs.roomEventRevision', { revision: event.data.jobRevision })}</span>
           {event.data.requestId ? (
             <span className="max-w-48 truncate" title={event.data.requestId}>
-              Request <span className="font-mono">{event.data.requestId}</span>
+              {t('jobs.roomEventRequestLabel')} <span className="font-mono">{event.data.requestId}</span>
             </span>
           ) : null}
           {event.data.inputRevision ? (
-            <span>input revision {event.data.inputRevision}</span>
+            <span>{t('jobs.roomEventInputRevision', { revision: event.data.inputRevision })}</span>
           ) : null}
           {event.data.teamTaskId ? (
             <span className="max-w-48 truncate" title={event.data.teamTaskId}>
-              Team task <span className="font-mono">{event.data.teamTaskId}</span>
+              {t('jobs.roomEventTeamTaskLabel')} <span className="font-mono">{event.data.teamTaskId}</span>
             </span>
           ) : null}
         </div>
       </div>
       <Button
         asChild
-        aria-label={`Open execution job ${event.data.jobId}`}
+        aria-label={t('jobs.roomEventOpenAria', { jobId: event.data.jobId })}
         className="shrink-0"
         size="sm"
         variant="ghost"
       >
         <Link href={`/jobs/${encodeURIComponent(event.data.jobId)}`}>
-          Open job
+          {t('jobs.roomEventOpen')}
           <ArrowUpRight aria-hidden="true" />
         </Link>
       </Button>
@@ -102,36 +104,39 @@ export function ExecutionRoomEvent({
   );
 }
 
-function getPresentation(event: ExecutionRoomLifecycleEvent) {
+function getPresentation(
+  event: ExecutionRoomLifecycleEvent,
+  t: ReturnType<typeof useT>
+) {
   if (event.type === 'execution.input_requested') {
     return {
-      description: 'This durable job is waiting for a response before it can continue.',
+      description: t('jobs.roomEventInputRequestedDesc'),
       icon: MessageCircleQuestion,
       iconClassName:
         'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
-      title: 'Execution needs input',
+      title: t('jobs.roomEventInputRequestedTitle'),
     };
   }
   if (event.type === 'execution.input_answered') {
     return {
-      description: 'The response was accepted and the durable job is queued to resume.',
+      description: t('jobs.roomEventInputAnsweredDesc'),
       icon: MessageSquareReply,
       iconClassName:
         'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-300',
-      title: 'Execution input answered',
+      title: t('jobs.roomEventInputAnsweredTitle'),
     };
   }
   if (event.type === 'execution.input_cancelled') {
     return {
-      description: 'The pending input request and its durable job were cancelled.',
+      description: t('jobs.roomEventInputCancelledDesc'),
       icon: CircleX,
       iconClassName:
         'border-muted-foreground/20 bg-muted text-muted-foreground',
-      title: 'Execution input cancelled',
+      title: t('jobs.roomEventInputCancelledTitle'),
     };
   }
   return {
-    description: 'The durable job reached a terminal state. Open it to review the result.',
+    description: t('jobs.roomEventCompletedDesc'),
     icon: CheckCircle2,
     iconClassName: cn(
       event.data.jobStatus === 'succeeded' &&
@@ -141,6 +146,6 @@ function getPresentation(event: ExecutionRoomLifecycleEvent) {
       event.data.jobStatus === 'cancelled' &&
         'border-muted-foreground/20 bg-muted text-muted-foreground'
     ),
-    title: 'Execution completed',
+    title: t('jobs.roomEventCompletedTitle'),
   };
 }

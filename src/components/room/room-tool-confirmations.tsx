@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { AlertTriangle, Check, LoaderCircle, ShieldAlert, X } from 'lucide-react';
 
+import { useT } from '@/components/providers/language-provider';
 import { Button } from '@/components/ui/button';
 import {
   approveRoomToolConfirmation,
@@ -30,6 +31,7 @@ export function RoomToolConfirmations({
   events,
   roomId,
 }: RoomToolConfirmationsProps) {
+  const t = useT();
   const [requests, setRequests] = React.useState<
     RoomToolConfirmationRequestDtoV1[]
   >([]);
@@ -73,11 +75,11 @@ export function RoomToolConfirmations({
         );
         setError('');
       } else {
-        setError(`${result.error} 请重试。`);
+        setError(t('room.confirmLoadError', { error: result.error }));
       }
       setIsLoading(false);
     },
-    [roomId]
+    [roomId, t]
   );
 
   React.useEffect(() => {
@@ -106,7 +108,7 @@ export function RoomToolConfirmations({
       );
       return;
     }
-    setError(`${result.error} 已重新加载最新确认状态。`);
+    setError(t('room.confirmDecideError', { error: result.error }));
     await load();
   }
 
@@ -115,7 +117,7 @@ export function RoomToolConfirmations({
   return (
     <section
       aria-busy={isLoading || Boolean(pendingDecision)}
-      aria-label="待确认工具操作"
+      aria-label={t('room.confirmSectionAria')}
       className="shrink-0 border-b bg-amber-50/60 dark:bg-amber-950/15"
       data-testid="room-tool-confirmations"
     >
@@ -123,12 +125,12 @@ export function RoomToolConfirmations({
         <div className="flex items-center justify-between gap-3">
           <h2 className="flex items-center gap-2 text-xs font-semibold text-amber-900 dark:text-amber-200">
             <ShieldAlert className="size-4" />
-            待确认操作
+            {t('room.confirmHeading')}
           </h2>
           {isLoading ? (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground" role="status">
               <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
-              正在同步…
+              {t('room.confirmSyncing')}
             </span>
           ) : null}
         </div>
@@ -145,7 +147,7 @@ export function RoomToolConfirmations({
               onClick={() => void load()}
               type="button"
             >
-              重试
+              {t('room.retry')}
             </button>
           </div>
         ) : null}
@@ -168,24 +170,28 @@ export function RoomToolConfirmations({
               <div className="flex min-w-0 items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h3 className="break-words text-sm font-semibold" id={titleId}>
-                    Agent 请求执行 {request.toolName}
+                    {t('room.confirmRequestTitle', { toolName: request.toolName })}
                   </h3>
                   <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">
-                    {parameterSummary(request.parameters)}
+                    {parameterSummary(request.parameters, t)}
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                  {safetyLabel(request.safetyLevel)}
+                  {safetyLabel(request.safetyLevel, t)}
                 </span>
               </div>
               <details className="mt-2 text-xs text-muted-foreground">
                 <summary className="min-h-8 cursor-pointer rounded py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  查看精确参数与权限范围
+                  {t('room.confirmInspectDetails')}
                 </summary>
                 <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/50 p-2 text-[11px] leading-5">
-                  {formatParameters(request.parameters)}
+                  {formatParameters(request.parameters, t)}
                 </pre>
-                <p className="mt-1">写入范围：{writePolicyLabel(request.writePolicy)}</p>
+                <p className="mt-1">
+                  {t('room.confirmWriteScope', {
+                    scope: writePolicyLabel(request.writePolicy, t),
+                  })}
+                </p>
               </details>
               <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                 <Button
@@ -202,7 +208,7 @@ export function RoomToolConfirmations({
                   ) : (
                     <X />
                   )}
-                  {rejecting ? '正在拒绝…' : '拒绝'}
+                  {rejecting ? t('room.confirmRejecting') : t('room.confirmReject')}
                 </Button>
                 <Button
                   aria-busy={approving}
@@ -217,7 +223,7 @@ export function RoomToolConfirmations({
                   ) : (
                     <Check />
                   )}
-                  {approving ? '正在批准…' : '批准并执行'}
+                  {approving ? t('room.confirmApproving') : t('room.confirmApprove')}
                 </Button>
               </div>
             </article>
@@ -232,32 +238,38 @@ function isConfirmationEvent(event: RoomEventDtoV1) {
   return event.type.includes('tool_confirmation');
 }
 
-function parameterSummary(value: unknown) {
+function parameterSummary(value: unknown, t: ReturnType<typeof useT>) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const goal = (value as Record<string, unknown>).goal;
     if (typeof goal === 'string' && goal.trim()) return goal;
   }
-  const formatted = formatParameters(value).replace(/\s+/g, ' ').trim();
+  const formatted = formatParameters(value, t).replace(/\s+/g, ' ').trim();
   return formatted.length > 180 ? `${formatted.slice(0, 177)}…` : formatted;
 }
 
-function formatParameters(value: unknown) {
+function formatParameters(value: unknown, t: ReturnType<typeof useT>) {
   try {
     return JSON.stringify(value, null, 2) ?? 'null';
   } catch {
-    return '参数无法显示';
+    return t('room.confirmParamsUnavailable');
   }
 }
 
-function safetyLabel(value: RoomToolConfirmationRequestDtoV1['safetyLevel']) {
-  if (value === 'privileged') return '高权限';
-  if (value === 'confirm') return '需要确认';
-  return '安全操作';
+function safetyLabel(
+  value: RoomToolConfirmationRequestDtoV1['safetyLevel'],
+  t: ReturnType<typeof useT>
+) {
+  if (value === 'privileged') return t('room.confirmSafetyPrivileged');
+  if (value === 'confirm') return t('room.confirmSafetyConfirm');
+  return t('room.confirmSafetySafe');
 }
 
-function writePolicyLabel(value: RoomToolConfirmationRequestDtoV1['writePolicy']) {
-  if (value === 'read-only') return '只读';
-  if (value === 'organization-scoped-append') return '组织内追加';
-  if (value === 'workspace-write') return '工作区写入';
-  return '特权写入';
+function writePolicyLabel(
+  value: RoomToolConfirmationRequestDtoV1['writePolicy'],
+  t: ReturnType<typeof useT>
+) {
+  if (value === 'read-only') return t('room.confirmPolicyReadOnly');
+  if (value === 'organization-scoped-append') return t('room.confirmPolicyOrgAppend');
+  if (value === 'workspace-write') return t('room.confirmPolicyWorkspaceWrite');
+  return t('room.confirmPolicyPrivilegedWrite');
 }

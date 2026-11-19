@@ -37,6 +37,10 @@ const EMPTY_PRIMARY_ERRORS: PrimaryErrors = { bindings: null, changes: null, spa
 
 export function KnowledgeCenter() {
   const t = useT();
+  const tRef = React.useRef(t);
+  React.useEffect(() => {
+    tRef.current = t;
+  }, [t]);
   const router = useAppRouter();
   const searchParams = useAppSearchParams();
   const view: View = searchParams.get('view') === 'configuration' ? 'configuration' : 'reviews';
@@ -111,13 +115,13 @@ export function KnowledgeCenter() {
         spaces: spaceResult.ok ? null : spaceResult.error,
       });
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : t('knowledge.loadFailed');
+      const message = caught instanceof Error ? caught.message : tRef.current('knowledge.loadFailed');
       setPrimaryErrors({ bindings: message, changes: message, spaces: message });
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [t]);
+  }, []);
 
   const loadOptions = React.useCallback(async (background = false) => {
     if (!background) setOptionsLoading(true);
@@ -129,20 +133,20 @@ export function KnowledgeCenter() {
       if (agentResult.ok) setAgents(agentResult.data);
       if (workspaceResult.ok) setWorkspaces(workspaceResult.data);
       const failures = [
-        !agentResult.ok ? t('knowledge.optionsAgentsPrefix', { error: agentResult.error }) : null,
-        !workspaceResult.ok ? t('knowledge.optionsDeliverablesPrefix', { error: workspaceResult.error }) : null,
+        !agentResult.ok ? tRef.current('knowledge.optionsAgentsPrefix', { error: agentResult.error }) : null,
+        !workspaceResult.ok ? tRef.current('knowledge.optionsDeliverablesPrefix', { error: workspaceResult.error }) : null,
       ].filter((message): message is string => Boolean(message));
       setOptionsError(
         failures.length
-          ? t('knowledge.optionsPartialFailed', { details: failures.join(' ') })
+          ? tRef.current('knowledge.optionsPartialFailed', { details: failures.join(' ') })
           : null
       );
     } catch (caught) {
-      setOptionsError(caught instanceof Error ? caught.message : t('knowledge.optionsLoadFailed'));
+      setOptionsError(caught instanceof Error ? caught.message : tRef.current('knowledge.optionsLoadFailed'));
     } finally {
       if (!background) setOptionsLoading(false);
     }
-  }, [t]);
+  }, []);
 
   const loadDetail = React.useCallback(async (id: string, background = false) => {
     if (!background) {
@@ -168,7 +172,7 @@ export function KnowledgeCenter() {
       }
       return result;
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : t('knowledge.detailLoadFailed');
+      const message = caught instanceof Error ? caught.message : tRef.current('knowledge.detailLoadFailed');
       if (selectedIdRef.current === id) {
         if (background) setPollError(message);
         else setDetailError(message);
@@ -177,7 +181,7 @@ export function KnowledgeCenter() {
     } finally {
       if (selectedIdRef.current === id) setDetailLoading(false);
     }
-  }, [t]);
+  }, []);
 
   React.useEffect(() => {
     void Promise.all([loadPrimary(), loadOptions()]);

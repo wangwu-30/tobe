@@ -1,20 +1,26 @@
+'use client';
+
+import { useT } from '@/components/providers/language-provider';
 import { Badge } from '@/components/ui/badge';
+import type { AppCopyKey } from '@/lib/i18n/copy';
 import { cn } from '@/lib/utils';
 
-const STATUS_LABELS: Record<string, string> = {
-  blocked: 'Blocked',
-  cancel_requested: 'Cancelling',
-  cancelled: 'Cancelled',
-  failed: 'Failed',
-  pending: 'Pending',
-  quarantined: 'Quarantined',
-  queued: 'Queued',
-  running: 'Running',
-  succeeded: 'Succeeded',
-  waiting_input: 'Needs input',
+const STATUS_LABEL_KEYS: Record<string, AppCopyKey> = {
+  blocked: 'jobs.statusBlocked',
+  cancel_requested: 'jobs.statusCancelling',
+  cancelled: 'jobs.statusCancelled',
+  failed: 'jobs.statusFailed',
+  pending: 'jobs.statusPending',
+  quarantined: 'jobs.statusQuarantined',
+  queued: 'jobs.statusQueued',
+  running: 'jobs.statusRunning',
+  succeeded: 'jobs.statusSucceeded',
+  waiting_input: 'jobs.statusWaitingInput',
 };
 
 export function ExecutionStatusBadge({ status }: { status: string }) {
+  const t = useT();
+  const labelKey = STATUS_LABEL_KEYS[status];
   return (
     <Badge
       className={cn(
@@ -28,7 +34,7 @@ export function ExecutionStatusBadge({ status }: { status: string }) {
       )}
       variant="outline"
     >
-      {STATUS_LABELS[status] || status.replaceAll('_', ' ')}
+      {labelKey ? t(labelKey) : status.replaceAll('_', ' ')}
     </Badge>
   );
 }
