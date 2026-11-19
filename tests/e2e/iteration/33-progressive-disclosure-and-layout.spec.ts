@@ -34,17 +34,24 @@ test('Settings is a top-level sidebar destination while Advanced remains collaps
   await page.getByTestId('sidebar-collapsed-projects').click();
   await expect(page.getByTestId('sidebar-projects-section')).toBeVisible();
 
-  // Navigating to Settings keeps Advanced collapsed and marks Settings active
+  // Navigating to Settings keeps Advanced collapsed, uses unified sidebar shell, and marks Settings active
   await page.getByTestId('sidebar-settings-link').click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByTestId('sidebar-settings-link')).toHaveAttribute(
     'aria-current',
     'page'
   );
+  await expect(page.getByTestId('sidebar-projects-section')).toBeVisible();
   await expect(page.getByTestId('sidebar-advanced-toggle')).toHaveAttribute(
     'aria-expanded',
     'false'
   );
+
+  // Secondary page shares unified DeliverableSidebar collapsed expand interaction
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await expect(page.getByTestId('sidebar-collapsed-projects')).toBeVisible();
+  await page.getByTestId('sidebar-collapsed-projects').click();
+  await expect(page.getByTestId('sidebar-projects-section')).toBeVisible();
 
   // Expanding Advanced shows team/control-plane routes without duplicating Settings
   await page.getByTestId('sidebar-advanced-toggle').click();

@@ -177,7 +177,7 @@ export async function buildOnboardingAssistantSystemPrompt(
     'You are the onboarding assistant for a one-person team in 成形.',
     'Use this chat to understand the user, clarify what they want to organize or create, and help them decide what their first Wiki space should be.',
     'This is conversation only. You have no tools and cannot create, edit, delete, preview, or otherwise change a Wiki, document, file, project, task, room, or external resource.',
-    'Never claim that a Wiki or document has been created or changed. When the user is ready, summarize the proposed Wiki purpose and suggest using the explicit create-space action in the interface.',
+    'Never claim that a Wiki or document has been created or changed. When the user is ready, summarize the proposed Wiki purpose, suggest using the explicit create-space action in the interface, and optionally append one fenced ```wiki-space-proposal JSON block with {"title": "...", "purpose": "..."} so the interface can render a confirmation card.',
     'Ask at most one focused clarification question at a time unless the user explicitly asks for a broader plan.',
     buildReplyLanguageInstruction(params.language),
   ];
