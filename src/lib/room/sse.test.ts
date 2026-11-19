@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import { createRoomEventSseResponse } from './sse';
 
@@ -20,12 +21,12 @@ test('stops producing at backpressure and resumes on consumer pulls', async () =
   });
   const reader = response.body!.getReader();
 
-  expect(decoder.decode((await reader.read()).value)).toContain(': connected');
+  assert.match(decoder.decode((await reader.read()).value), /: connected/);
   await Promise.resolve();
-  expect(loadCalls).toBe(0);
-  expect(decoder.decode((await reader.read()).value)).toContain('id: 1');
+  assert.equal(loadCalls, 0);
+  assert.match(decoder.decode((await reader.read()).value), /id: 1/);
   await Promise.resolve();
-  expect(loadCalls).toBe(0);
+  assert.equal(loadCalls, 0);
   await reader.cancel('backpressure checked');
 });
 
@@ -50,7 +51,7 @@ test('cancels promptly while a loader is in flight and forwards its signal', asy
   await reader.read();
   await started;
   await reader.cancel('consumer left');
-  expect(loaderSignal?.aborted).toBe(true);
+  assert.equal(loaderSignal?.aborted, true);
 });
 
 test('does not enqueue or poll for an already-aborted request', async () => {
@@ -66,6 +67,6 @@ test('does not enqueue or poll for an already-aborted request', async () => {
     signal: controller.signal,
   });
 
-  expect((await response.arrayBuffer()).byteLength).toBe(0);
-  expect(loadCalls).toBe(0);
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+  assert.equal(loadCalls, 0);
 });

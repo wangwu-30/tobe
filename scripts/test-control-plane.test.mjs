@@ -3,6 +3,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  buildControlPlaneGroupCommand,
   compareTestInventory,
   configuredTestsFromManifest,
   controlPlaneBuilds,
@@ -118,11 +119,24 @@ test('control-plane gate builds and executes every standalone process suite', ()
     'scripts/bootstrap-local-db.test.mjs',
     'scripts/browser-preflight.test.mjs',
     'scripts/check-web-interface-guidelines.test.mjs',
+    'scripts/dev-all.test.mjs',
     'scripts/oauth-credential-file.test.mjs',
     'scripts/test-ai-inspector.test.mjs',
     'scripts/test-control-plane.test.mjs',
     'scripts/verify-iteration.test.mjs',
   ]);
+});
+
+test('node runner groups dispatch directly to node --test with the TypeScript register hook', () => {
+  const unitGroup = controlPlaneConfigs.find((group) => group.id === 'unit');
+  assert.ok(unitGroup);
+  assert.equal(unitGroup.runner, 'node');
+  const command = buildControlPlaneGroupCommand(unitGroup);
+  assert.equal(command[0], process.execPath);
+  assert.equal(command[1], '--import');
+  assert.match(command[2], /scripts\/node-ts-register\.mjs$/u);
+  assert.equal(command[3], '--test');
+  assert.ok(command.slice(4).length >= 8);
 });
 
 test('control-plane gate executes every configured stage in fail-closed order', async () => {

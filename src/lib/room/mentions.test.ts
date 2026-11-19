@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   applyRoomTextEdit,
@@ -24,8 +25,8 @@ test('creates distinct structured UTF-16 ranges for multiple selected agents', (
     { end: first.caret, start: first.caret }
   );
 
-  expect(second.draft.text).toBe('😀 Ask @analyst @writer ');
-  expect(getValidRoomMentions(second.draft)).toEqual([
+  assert.equal(second.draft.text, '😀 Ask @analyst @writer ');
+  assert.deepEqual(getValidRoomMentions(second.draft), [
     {
       agentId: 'agent-analyst',
       handle: '@analyst',
@@ -55,13 +56,11 @@ test('shifts untouched mentions and invalidates a mention edited as plain text',
   };
 
   const prefixed = applyRoomTextEdit(draft, 'Please @analyst review this');
-  expect(prefixed.mentions[0]?.range).toEqual({ end: 15, start: 7 });
+  assert.deepEqual(prefixed.mentions[0]?.range, { end: 15, start: 7 });
 
   const editedToken = applyRoomTextEdit(prefixed, 'Please @analysis review this');
-  expect(editedToken.mentions).toEqual([]);
-  expect(getValidRoomMentions({ mentions: [], text: '@analyst raw text' })).toEqual(
-    []
-  );
+  assert.deepEqual(editedToken.mentions, []);
+  assert.deepEqual(getValidRoomMentions({ mentions: [], text: '@analyst raw text' }), []);
 });
 
 test('removing one selected agent updates the remaining mention range', () => {
@@ -77,8 +76,8 @@ test('removing one selected agent updates the remaining mention range', () => {
   );
   const removed = removeRoomMention(second.draft, analyst.id);
 
-  expect(removed.draft.text).toBe('@writer ');
-  expect(removed.draft.mentions).toEqual([
+  assert.equal(removed.draft.text, '@writer ');
+  assert.deepEqual(removed.draft.mentions, [
     {
       agentId: writer.id,
       handle: writer.handle,
@@ -89,13 +88,13 @@ test('removing one selected agent updates the remaining mention range', () => {
 });
 
 test('finds only the active @ query at the caret', () => {
-  expect(findRoomMentionQuery('hello @ana', 10)).toEqual({
+  assert.deepEqual(findRoomMentionQuery('hello @ana', 10), {
     end: 10,
     query: 'ana',
     start: 6,
   });
-  expect(findRoomMentionQuery('email@example.com', 17)).toBeNull();
-  expect(findRoomMentionQuery('hello @ana done', 15)).toBeNull();
+  assert.equal(findRoomMentionQuery('email@example.com', 17), null);
+  assert.equal(findRoomMentionQuery('hello @ana done', 15), null);
 });
 
 test('separates a toolbar-inserted mention from adjacent prose', () => {
@@ -105,6 +104,6 @@ test('separates a toolbar-inserted mention from adjacent prose', () => {
     { end: 3, start: 3 }
   );
 
-  expect(inserted.draft.text).toBe('Ask @analyst ');
-  expect(inserted.draft.mentions[0]?.range).toEqual({ end: 12, start: 4 });
+  assert.equal(inserted.draft.text, 'Ask @analyst ');
+  assert.deepEqual(inserted.draft.mentions[0]?.range, { end: 12, start: 4 });
 });
