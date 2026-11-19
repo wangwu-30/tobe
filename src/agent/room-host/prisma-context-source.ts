@@ -45,6 +45,8 @@ export type PrismaRoomHostContextSourceOptionsV1 = {
   documentCandidateLimit?: number;
   documentSliceLimit?: number;
   documentSliceCharacters?: number;
+  noteCandidateLimit?: number;
+  playbookCandidateLimit?: number;
   summarySourceLimit?: number;
   summaryCharacters?: number;
   knowledgeBindingLimit?: number;
@@ -59,6 +61,8 @@ const DEFAULT_REPLY_ANCESTOR_LIMIT = 8;
 const DEFAULT_DOCUMENT_CANDIDATE_LIMIT = 24;
 const DEFAULT_DOCUMENT_SLICE_LIMIT = 6;
 const DEFAULT_DOCUMENT_SLICE_CHARACTERS = 1_600;
+const DEFAULT_NOTE_CANDIDATE_LIMIT = 16;
+const DEFAULT_PLAYBOOK_CANDIDATE_LIMIT = 4;
 const DEFAULT_SUMMARY_SOURCE_LIMIT = 24;
 const DEFAULT_SUMMARY_CHARACTERS = 2_400;
 const DEFAULT_KNOWLEDGE_BINDING_LIMIT = 8;
@@ -86,6 +90,8 @@ export class PrismaRoomHostContextSourceV1 implements RoomHostContextSourceV1 {
   private readonly documentCandidateLimit: number;
   private readonly documentSliceLimit: number;
   private readonly documentSliceCharacters: number;
+  private readonly noteCandidateLimit: number;
+  private readonly playbookCandidateLimit: number;
   private readonly summarySourceLimit: number;
   private readonly summaryCharacters: number;
   private readonly knowledgeBindingLimit: number;
@@ -122,6 +128,16 @@ export class PrismaRoomHostContextSourceV1 implements RoomHostContextSourceV1 {
       options.documentSliceCharacters ?? DEFAULT_DOCUMENT_SLICE_CHARACTERS,
       "documentSliceCharacters",
       8_000,
+    );
+    this.noteCandidateLimit = boundedLimit(
+      options.noteCandidateLimit ?? DEFAULT_NOTE_CANDIDATE_LIMIT,
+      "noteCandidateLimit",
+      64,
+    );
+    this.playbookCandidateLimit = boundedLimit(
+      options.playbookCandidateLimit ?? DEFAULT_PLAYBOOK_CANDIDATE_LIMIT,
+      "playbookCandidateLimit",
+      16,
     );
     this.summarySourceLimit = boundedLimit(
       options.summarySourceLimit ?? DEFAULT_SUMMARY_SOURCE_LIMIT,
@@ -302,7 +318,9 @@ export class PrismaRoomHostContextSourceV1 implements RoomHostContextSourceV1 {
             agentId: session.agentId,
             candidateLimit: this.documentCandidateLimit,
             maximumCharacters: this.documentSliceCharacters,
+            noteCandidateLimit: this.noteCandidateLimit,
             organizationId: this.organizationId,
+            playbookCandidateLimit: this.playbookCandidateLimit,
             projectId: session.room.projectId,
             roomId: session.room.id,
             roomSessionId: session.id,
@@ -686,6 +704,8 @@ async function loadDocumentSlices(
     roomSessionId: string;
     agentId: string;
     candidateLimit: number;
+    noteCandidateLimit: number;
+    playbookCandidateLimit: number;
     sliceLimit: number;
     maximumCharacters: number;
     searchTerms: readonly string[];
@@ -716,7 +736,10 @@ async function loadDocumentSlices(
     take: input.candidateLimit,
   })) as ContextDocumentRow[];
 
-  return rows
+  const projectDocumentIds = rows.map((row) => row.id);
+  const projectDocumentIdSet = new Set(projectDocumentIds);
+
+  const documentCandidates = rows
     .flatMap((document) => {
       const file = document.files[0];
       const sourceContent = file?.content ?? document.content;
@@ -772,8 +795,262 @@ async function loadDocumentSlices(
       (left, right) =>
         right.relevanceScore - left.relevanceScore ||
         compareText(left.documentId, right.documentId),
-    )
-    .slice(0, input.sliceLimit);
+    );
+
+  const noteScopeFilters: Prisma.NoteWhereInput[] = [
+    { scope: "project", scopeId: input.projectId },
+    ...(projectDocumentIds.length > 0
+      ? [{ scope: "deliverable", scopeId: { in: projectDocumentIds } }]
+      : []),
+  ];
+  const noteRows = await tx.note.findMany({
+    where: {
+      organizationId: input.organizationId,
+      deletedAt: null,
+      active: true,
+      OR: noteScopeFilters,
+    },
+    select: {
+      id: true,
+      scope: true,
+      scopeId: true,
+      kind: true,
+      title: true,
+      content: true,
+      revision: true,
+      updatedAt: true,
+    },
+    orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+    take: input.noteCandidateLimit,
+  });
+
+  const noteCandidates = noteRows
+    .flatMap((note) => {
+      const normalizedContent = note.content.trim();
+      if (!normalizedContent) return [];
+      const targetDocumentId =
+        note.scope === "deliverable" && projectDocumentIdSet.has(note.scopeId)
+          ? note.scopeId
+          : input.projectId;
+      const kindLabel =
+        note.kind === "knowledge" ? "Knowledge Note" : `Memory (${note.kind})`;
+      const title = note.title?.trim()
+        ? `[${kindLabel}] ${note.title.trim()}`
+        : `[${kindLabel}]`;
+      const score = relevanceScore(
+        `${title}\n${normalizedContent}`,
+        input.searchTerms,
+      );
+      const slice = boundedSnippet(
+        normalizedContent,
+        input.searchTerms,
+        input.maximumCharacters,
+      );
+      const revision = `note-${note.id}-rev-${note.revision}`;
+      const acl = resourceAcl({
+        agentId: input.agentId,
+        authorizationRef: `room:${input.roomId}:project:${input.projectId}:note:${note.id}`,
+        organizationId: input.organizationId,
+        policyVersion: [
+          "project-note-v1",
+          note.scope,
+          note.updatedAt.toISOString(),
+        ].join(":"),
+        resource: { type: "document", documentId: targetDocumentId },
+        roomSessionId: input.roomSessionId,
+      });
+      return [
+        {
+          sliceId: `note_${hashRoomContextValueV1({
+            noteId: note.id,
+            revision,
+            start: slice.start,
+            end: slice.end,
+          }).slice(0, 24)}`,
+          documentId: targetDocumentId,
+          revision,
+          title,
+          start: slice.start,
+          end: slice.end,
+          content: slice.content,
+          relevanceScore: score,
+          acl,
+        } satisfies RoomContextDocumentSliceInputV1,
+      ];
+    })
+    .sort(
+      (left, right) =>
+        right.relevanceScore - left.relevanceScore ||
+        compareText(left.sliceId, right.sliceId),
+    );
+
+  const planRows =
+    projectDocumentIds.length > 0
+      ? await tx.workspacePlan.findMany({
+          where: {
+            organizationId: input.organizationId,
+            deletedAt: null,
+            documentId: { in: projectDocumentIds },
+            activeWorkflowPlaybook: {
+              is: {
+                organizationId: input.organizationId,
+                deletedAt: null,
+                status: "active",
+              },
+            },
+          },
+          select: {
+            documentId: true,
+            activeWorkflowPlaybook: {
+              select: {
+                id: true,
+                title: true,
+                summary: true,
+                steps: true,
+                constraints: true,
+                checklist: true,
+                content: true,
+                revision: true,
+                updatedAt: true,
+              },
+            },
+          },
+          orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+          take: input.playbookCandidateLimit,
+        })
+      : [];
+
+  const seenPlaybooks = new Set<string>();
+  const playbookCandidates = planRows
+    .flatMap((plan) => {
+      const playbook = plan.activeWorkflowPlaybook;
+      if (!playbook || seenPlaybooks.has(playbook.id)) return [];
+      seenPlaybooks.add(playbook.id);
+      const formatted = formatPlaybookSliceContent(playbook);
+      if (!formatted) return [];
+      const title = `[Workflow Playbook] ${playbook.title.trim()}`;
+      const score = relevanceScore(
+        `${title}\n${formatted}`,
+        input.searchTerms,
+      );
+      const slice = boundedSnippet(
+        formatted,
+        input.searchTerms,
+        input.maximumCharacters,
+      );
+      const revision = `playbook-${playbook.id}-rev-${playbook.revision}`;
+      const acl = resourceAcl({
+        agentId: input.agentId,
+        authorizationRef: `room:${input.roomId}:project:${input.projectId}:playbook:${playbook.id}`,
+        organizationId: input.organizationId,
+        policyVersion: [
+          "project-playbook-v1",
+          playbook.updatedAt.toISOString(),
+        ].join(":"),
+        resource: { type: "document", documentId: plan.documentId },
+        roomSessionId: input.roomSessionId,
+      });
+      return [
+        {
+          sliceId: `playbook_${hashRoomContextValueV1({
+            playbookId: playbook.id,
+            revision,
+            start: slice.start,
+            end: slice.end,
+          }).slice(0, 24)}`,
+          documentId: plan.documentId,
+          revision,
+          title,
+          start: slice.start,
+          end: slice.end,
+          content: slice.content,
+          relevanceScore: score,
+          acl,
+        } satisfies RoomContextDocumentSliceInputV1,
+      ];
+    })
+    .sort(
+      (left, right) =>
+        right.relevanceScore - left.relevanceScore ||
+        compareText(left.sliceId, right.sliceId),
+    );
+
+  return combineProjectContextSlices({
+    documents: documentCandidates,
+    notes: noteCandidates,
+    playbooks: playbookCandidates,
+    sliceLimit: input.sliceLimit,
+  });
+}
+
+function formatPlaybookSliceContent(playbook: {
+  summary: string;
+  steps: string;
+  constraints: string;
+  checklist: string;
+  content: string;
+}): string {
+  const sections: string[] = [];
+  if (playbook.summary.trim()) sections.push(`Summary: ${playbook.summary.trim()}`);
+  if (playbook.steps.trim()) sections.push(`Steps:\n${playbook.steps.trim()}`);
+  if (playbook.constraints.trim()) {
+    sections.push(`Constraints:\n${playbook.constraints.trim()}`);
+  }
+  if (playbook.checklist.trim()) {
+    sections.push(`Checklist:\n${playbook.checklist.trim()}`);
+  }
+  if (playbook.content.trim()) sections.push(playbook.content.trim());
+  return sections.join("\n\n").trim();
+}
+
+function combineProjectContextSlices(input: {
+  documents: readonly RoomContextDocumentSliceInputV1[];
+  playbooks: readonly RoomContextDocumentSliceInputV1[];
+  notes: readonly RoomContextDocumentSliceInputV1[];
+  sliceLimit: number;
+}): RoomContextDocumentSliceInputV1[] {
+  const { documents, notes, playbooks, sliceLimit } = input;
+  if (sliceLimit <= 0) return [];
+  if (playbooks.length === 0 && notes.length === 0) {
+    return documents.slice(0, sliceLimit);
+  }
+
+  const minDocumentReserve = documents.length > 0 ? 1 : 0;
+  const playbookReserve = Math.min(
+    1,
+    playbooks.length,
+    Math.max(0, sliceLimit - minDocumentReserve),
+  );
+  const noteReserve = Math.min(
+    2,
+    notes.length,
+    Math.max(0, sliceLimit - minDocumentReserve - playbookReserve),
+  );
+  const docTarget = Math.min(
+    documents.length,
+    Math.max(minDocumentReserve, sliceLimit - playbookReserve - noteReserve),
+  );
+
+  const selected: RoomContextDocumentSliceInputV1[] = [
+    ...documents.slice(0, docTarget),
+    ...playbooks.slice(0, playbookReserve),
+    ...notes.slice(0, noteReserve),
+  ];
+
+  if (selected.length < sliceLimit) {
+    const overflow = [
+      ...documents.slice(docTarget),
+      ...playbooks.slice(playbookReserve),
+      ...notes.slice(noteReserve),
+    ].sort(
+      (left, right) =>
+        right.relevanceScore - left.relevanceScore ||
+        compareText(left.sliceId, right.sliceId),
+    );
+    selected.push(...overflow.slice(0, sliceLimit - selected.length));
+  }
+
+  return selected.slice(0, sliceLimit);
 }
 
 async function loadKnowledgeHits(

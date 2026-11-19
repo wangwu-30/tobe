@@ -19,8 +19,10 @@ export const DEFAULT_ROOM_CONTEXT_BUDGET_V1: RoomContextBudgetConfigV1 = {
   schemaVersion: ROOM_CONTEXT_CONTRACT_VERSION_V1,
   configVersion: 'room-context-builder-v1',
   summaryConfigVersion: 'room-summary-v1',
-  maxTotalCharacters: 16_000,
-  maxTotalBlocks: 32,
+  // Total ceilings match the exact sum of category ceilings (20,000 chars / 34 blocks)
+  // so high-volume conversation history cannot silently starve document-slice or retrieval-hit.
+  maxTotalCharacters: 20_000,
+  maxTotalBlocks: 34,
   categories: {
     summary: { maxCharacters: 3_000, maxBlocks: 1 },
     'room-delta': { maxCharacters: 4_000, maxBlocks: 12 },
@@ -30,6 +32,40 @@ export const DEFAULT_ROOM_CONTEXT_BUDGET_V1: RoomContextBudgetConfigV1 = {
     'current-message': { maxCharacters: 4_000, maxBlocks: 1 },
   },
 };
+
+export type RoomContextBudgetSummaryV1 = {
+  categoryBlocksSum: number;
+  categoryCharactersSum: number;
+  maxTotalBlocks: number;
+  maxTotalCharacters: number;
+  starvationFree: boolean;
+};
+
+export function summarizeRoomContextBudgetV1(
+  budget: RoomContextBudgetConfigV1
+): RoomContextBudgetSummaryV1 {
+  let categoryCharactersSum = 0;
+  let categoryBlocksSum = 0;
+  for (const category of ROOM_CONTEXT_CATEGORIES_V1) {
+    categoryCharactersSum += budget.categories[category].maxCharacters;
+    categoryBlocksSum += budget.categories[category].maxBlocks;
+  }
+  return {
+    categoryBlocksSum,
+    categoryCharactersSum,
+    maxTotalBlocks: budget.maxTotalBlocks,
+    maxTotalCharacters: budget.maxTotalCharacters,
+    starvationFree:
+      categoryCharactersSum <= budget.maxTotalCharacters &&
+      categoryBlocksSum <= budget.maxTotalBlocks,
+  };
+}
+
+export function isRoomContextBudgetStarvationFreeV1(
+  budget: RoomContextBudgetConfigV1
+): boolean {
+  return summarizeRoomContextBudgetV1(budget).starvationFree;
+}
 
 export class RoomContextBudgetErrorV1 extends Error {
   constructor(message: string) {
