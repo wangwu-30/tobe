@@ -15,6 +15,7 @@ import { AlertCircle, Lock, Pencil, Eye, MessageSquarePlus } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { EditorSessionProvider } from '@/components/editor/editor-session-context';
+import { EditorToolbar } from '@/components/editor/editor-toolbar';
 import { useT } from '@/components/providers/language-provider';
 import { commentPlugin } from '@/components/editor/plugins/comment-kit';
 import { discussionPlugin } from '@/components/editor/plugins/discussion-kit';
@@ -316,14 +317,8 @@ export function EditorWrapper({
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <ScrollArea
-            className="min-h-0 min-w-0 flex-1"
-            viewportProps={{
-              'aria-labelledby': editorLabelId,
-              tabIndex: 0,
-            }}
-          >
-            {documentId ? (
+          {documentId ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <Plate
                 editor={editor}
                 onChange={({ value }) => {
@@ -340,19 +335,36 @@ export function EditorWrapper({
                   }
                 }}
               >
-                <EditorContainer>
-                <Editor
-                  aria-labelledby={editorLabelId}
-                  readOnly={isReadOnly}
-                  placeholder={editorPlaceholder}
-                />
-                </EditorContainer>
-                <SelectionCommentTrigger
-                  onThreadsChanged={loadThreads}
-                  threads={threads}
-                />
+                {!isReadOnly ? <EditorToolbar /> : null}
+                <ScrollArea
+                  className="min-h-0 min-w-0 flex-1"
+                  viewportProps={{
+                    'aria-labelledby': editorLabelId,
+                    tabIndex: 0,
+                  }}
+                >
+                  <EditorContainer>
+                    <Editor
+                      aria-labelledby={editorLabelId}
+                      readOnly={isReadOnly}
+                      placeholder={editorPlaceholder}
+                    />
+                  </EditorContainer>
+                  <SelectionCommentTrigger
+                    onThreadsChanged={loadThreads}
+                    threads={threads}
+                  />
+                </ScrollArea>
               </Plate>
-            ) : (
+            </div>
+          ) : (
+            <ScrollArea
+              className="min-h-0 min-w-0 flex-1"
+              viewportProps={{
+                'aria-labelledby': editorLabelId,
+                tabIndex: 0,
+              }}
+            >
               <div className="flex flex-col items-center justify-center h-full py-32 text-muted-foreground">
                 <Pencil className="h-10 w-10 mb-3 opacity-20" />
                 <p className="text-sm">{resolvedEmptyTitle}</p>
@@ -360,8 +372,8 @@ export function EditorWrapper({
                   {resolvedEmptyDescription}
                 </p>
               </div>
-            )}
-          </ScrollArea>
+            </ScrollArea>
+          )}
 
           {documentId && commentSidebarOpen && (
             <CommentSidebar

@@ -1154,6 +1154,18 @@
 - 为什么：较新的 Git 会拒绝移动仍被另一个 worktree checkout 的分支，而旧版 Git 可能放行，导致本地门禁假绿、CI 才失败。
 - 默认做法：在持有该分支的 linked worktree 内执行 `git reset --hard <commit>`，并让创建与查找 worktree 复用同一个路径 helper；这既遵守 Git worktree 所有权约束，也能精确模拟 ref 漂移。
 
+### 52. Plate v52 列表基于缩进段落模型，接入时需兼顾历史 `ul/ol/li` 节点与有序 `listStart`
+
+- 结论：Plate v52 的 `@platejs/list` 将列表建模为带 `listStyleType` + `indent` + `listStart` 的段落节点，而非经典 `ul/ol/li` 容器；激活列表排版时必须同时兼容新旧两种结构。
+- 为什么：仅注册 `ListPlugin` 会让历史落库的 `ul/ol/li` JSON 继续退化为无样式文本；而 `ListPlugin` 渲染每个有序列表项时会按节点自身的 `listStart` 渲染 `<ol start={listStart}>`，若 `markdownToPlate` 漏填顺序 `listStart`，有序列表在初始渲染和静态渲染中都会全部显示为 `1.`。
+- 默认做法：`markdownToPlate` 输出带 `indent` 与顺序 `listStart` 的 Plate v52 列表段落，同时在 `ListKit` / `BaseBasicBlocksKit` 注册轻量 `ul/ol/li` 兼容节点，并让 `plateToMarkdown` 双向序列化两种列表模型。
+
+### 53. 激活沉睡 UI 原语前必须同步核验 CSS 语义 Token、对比度与 ARIA 契约
+
+- 结论：把仓库里已存在但未接线的组件（如 `code-block-node.tsx`、`link-node.tsx`）接入实时编辑器时，必须检查其引用的 CSS 变量、语法高亮对比度与 ARIA 角色是否真正在当前主题和 `axe-core` 下有效。
+- 为什么：`globals.css` 此前缺失 `--brand` / `--color-brand` 定义，导致选区高亮、评论确认和建议块引用空变量；`CodeBlockCombobox` 触发按钮使用裸 `role="combobox"` 而无 `aria-controls` 会触发 `aria-required-attr`；同时内置的 GitHub 浅色语法色（如 `#d73a49`）在 `bg-muted/50`（`#fafafa`）上对比度仅 `4.38:1`，直接触发 WCAG AA `color-contrast` 违例。
+- 默认做法：在 `@theme inline`、`:root`、`.dark` 补齐高对比度 `--brand` / `--color-brand`，Popover 触发按钮改用 `aria-haspopup="dialog"` 与显式 `aria-label`，将代码高亮浅色 token 校准到 ≥ 4.5:1 对比度，并在真实 Chromium + `axe-core` 用例中验证。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。

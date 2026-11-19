@@ -23,6 +23,10 @@ import {
 } from '@/components/ui/heading-node';
 import { HrElement } from '@/components/ui/hr-node';
 import { ParagraphElement } from '@/components/ui/paragraph-node';
+import { CodeBlockKit } from '@/components/editor/plugins/code-block-kit';
+import { LinkKit } from '@/components/editor/plugins/link-kit';
+import { ListKit } from '@/components/editor/plugins/list-kit';
+import { MarkdownShortcutsKit } from '@/components/editor/plugins/markdown-shortcuts-kit';
 import { SlidePageKit } from '@/components/editor/plugins/slide-page-kit';
 
 export const BasicBlocksKit = [
@@ -86,5 +90,9 @@ export const BasicBlocksKit = [
     shortcuts: { toggle: { keys: 'mod+shift+period' } },
   }),
   HorizontalRulePlugin.withComponent(HrElement),
+  ...CodeBlockKit,
+  ...LinkKit,
+  ...ListKit,
+  ...MarkdownShortcutsKit,
   ...SlidePageKit,
 ];
