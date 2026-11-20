@@ -13,7 +13,6 @@
     "src/agent/room-runtime/adapters/pi-agent-core.ts": 1221,
     "src/app/api/workspaces/[workspaceId]/route.ts": 451,
     "src/components/knowledge/knowledge-panel.tsx": 1620,
-    "src/components/workspace/deliverable-sidebar.tsx": 2281,
     "src/lib/ai/pi-agent-tools.ts": 1492,
     "src/lib/workspace/planning.ts": 1213,
     "src/objects/execution-job/schema.ts": 1522,

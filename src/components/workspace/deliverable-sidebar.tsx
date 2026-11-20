@@ -8,15 +8,11 @@ import {
   FolderClosed,
   FolderPlus,
   List,
-  MoreHorizontal,
-  Pencil,
   Plus,
   Search,
   Sparkles,
-  Trash2,
 } from 'lucide-react';
 import { AdvancedNavigation } from '@/components/layout/advanced-navigation';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -25,23 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   getSidebarWidthClass,
   SidebarIconButton,
@@ -53,36 +32,38 @@ import { useT } from '@/components/providers/language-provider';
 import { useAppRouter } from '@/lib/app-router';
 import { useGuardedRouter } from '@/lib/navigation/navigation-guard';
 import { cn } from '@/lib/utils';
-import { getWorkspaceFileDisplayName } from '@/lib/workspace/file-presentation';
 import { buildWorkspaceRoute } from '@/lib/workspace/route';
 import {
   formatProjectDeliverableCount,
-  formatProjectListMeta,
   listProjectFolderPath,
 } from '@/lib/workspace/project-summary';
 import {
   createWorkspaceProjectMount,
   listWorkspaceProjectMounts,
 } from '@/lib/workspace/project-client';
-import type { ProjectDeliverableItem } from '@/types';
-import type { ProjectFolderItem } from '@/types';
-import type { ProjectMountData } from '@/types';
-import type { ProjectSummaryData } from '@/types';
+import type {
+  ProjectDeliverableItem,
+  ProjectFolderItem,
+  ProjectMountData,
+  ProjectSummaryData,
+} from '@/types';
 import { apiFetch } from '@/framework/resilience';
+import { ProjectDeliverableTree } from './project-deliverable-tree';
+import { SupportMaterialTree, type SidebarSupportFile } from './support-material-tree';
+import { DeliverableSidebarDialogs } from './deliverable-sidebar-dialogs';
 import {
-  buildProjectFolderOptions,
-  collectProjectFolderDescendantIds,
-  ProjectDeliverableTree,
-  type ProjectTreeMoveNode,
-  type ProjectTreeNode,
-} from './project-deliverable-tree';
+  SidebarLinkedProjectsSection,
+  SidebarOutlineSection,
+  SidebarProjectsListSection,
+} from './deliverable-sidebar-sections';
 import {
-  buildWorkspaceFileTree,
-  buildWorkspaceFolderOptions,
-  SupportMaterialTree,
-  type SidebarSupportFile,
-  type SupportTreeMoveNode,
-} from './support-material-tree';
+  PROJECT_TREE_ROOT_VALUE,
+  useProjectTreeActions,
+} from './use-project-tree-actions';
+import {
+  SUPPORT_TREE_ROOT_VALUE,
+  useSupportTreeActions,
+} from './use-support-tree-actions';
 
 export type DeliverableOutlineItem = {
   active?: boolean;
@@ -90,9 +71,6 @@ export type DeliverableOutlineItem = {
   id: string;
   label: string;
 };
-
-const PROJECT_TREE_ROOT_VALUE = '__root__';
-const SUPPORT_TREE_ROOT_VALUE = '__support_root__';
 
 export function DeliverableSidebar({
   activeSupportFileId,
@@ -244,51 +222,53 @@ export function DeliverableSidebar({
   const [selectedMountTargetProjectId, setSelectedMountTargetProjectId] = React.useState('');
   const [mountDialogError, setMountDialogError] = React.useState<string | null>(null);
   const [isCreatingMount, setIsCreatingMount] = React.useState(false);
-  const [projectTreeError, setProjectTreeError] = React.useState<string | null>(null);
-  const [dragNode, setDragNode] = React.useState<ProjectTreeMoveNode | null>(null);
-  const [dropTargetFolderId, setDropTargetFolderId] = React.useState<string | null>(null);
-  const [renameDeliverableId, setRenameDeliverableId] = React.useState<string | null>(null);
-  const [renameDeliverableValue, setRenameDeliverableValue] = React.useState('');
-  const [renameDeliverableError, setRenameDeliverableError] = React.useState<string | null>(null);
-  const [isRenamingDeliverable, setIsRenamingDeliverable] = React.useState(false);
-  const [moveNode, setMoveNode] = React.useState<ProjectTreeMoveNode | null>(null);
-  const [moveTargetFolderId, setMoveTargetFolderId] = React.useState<string>(PROJECT_TREE_ROOT_VALUE);
-  const [moveNodeError, setMoveNodeError] = React.useState<string | null>(null);
-  const [isMovingNode, setIsMovingNode] = React.useState(false);
-  const [renameProjectFolderId, setRenameProjectFolderId] = React.useState<string | null>(null);
-  const [renameProjectFolderValue, setRenameProjectFolderValue] = React.useState('');
-  const [renameProjectFolderError, setRenameProjectFolderError] = React.useState<string | null>(null);
-  const [isRenamingProjectFolder, setIsRenamingProjectFolder] = React.useState(false);
-  const [renameSupportFileId, setRenameSupportFileId] = React.useState<string | null>(null);
-  const [renameSupportValue, setRenameSupportValue] = React.useState('');
-  const [renameSupportError, setRenameSupportError] = React.useState<string | null>(null);
-  const [isRenamingSupportFile, setIsRenamingSupportFile] = React.useState(false);
-  const [supportTreeError, setSupportTreeError] = React.useState<string | null>(null);
-  const [dragSupportNode, setDragSupportNode] = React.useState<SupportTreeMoveNode | null>(null);
-  const [dropTargetSupportParentId, setDropTargetSupportParentId] = React.useState<string | null>(
-    null
-  );
-  const [moveSupportNode, setMoveSupportNode] = React.useState<SupportTreeMoveNode | null>(null);
-  const [moveSupportTargetId, setMoveSupportTargetId] = React.useState<string>(
-    SUPPORT_TREE_ROOT_VALUE
-  );
-  const [moveSupportError, setMoveSupportError] = React.useState<string | null>(null);
-  const [isMovingSupportNode, setIsMovingSupportNode] = React.useState(false);
-  // Canvas shell: surfaceMode controls which view the workspace renders.
-  // 'editor' = current result surface (default), 'overview' = reserved for Canvas.
-  const [_surfaceMode] = React.useState<'editor' | 'overview'>('editor');
-  const projectFoldersById = React.useMemo(
-    () => new Map(projectFolders.map((folder) => [folder.id, folder])),
-    [projectFolders]
-  );
-  const projectFolderOptions = React.useMemo(
-    () => buildProjectFolderOptions(projectFolders),
-    [projectFolders]
-  );
-  const projectDeliverablesById = React.useMemo(
-    () => new Map(projectDeliverables.map((deliverable) => [deliverable.id, deliverable])),
-    [projectDeliverables]
-  );
+
+  const loadProjects = React.useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiFetch('/api/project-list');
+      if (!res.ok) {
+        return;
+      }
+
+      const data = await res.json();
+      const nextProjects = data.items || [];
+      setProjects(nextProjects);
+      onProjectsChange?.(nextProjects);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [onProjectsChange]);
+
+  React.useEffect(() => {
+    void loadProjects();
+  }, [loadProjects]);
+
+  const projectTreeActions = useProjectTreeActions({
+    loadProjects,
+    onDeleteDeliverable,
+    onDeleteProjectFolder,
+    onMoveDeliverable,
+    onMoveProjectFolder,
+    onRenameDeliverable,
+    onRenameProjectFolder,
+    onReorderDeliverable,
+    onReorderProjectFolder,
+    projectDeliverables,
+    projectFolders,
+    t,
+  });
+
+  const supportTreeActions = useSupportTreeActions({
+    currentWorkspaceId,
+    onDeleteSupportFile,
+    onMoveSupportFile,
+    onRenameSupportFile,
+    onReorderSupportFile,
+    supportFiles,
+    t,
+  });
+
   const activeProject = React.useMemo(
     () => projects.find((project) => project.id === currentProjectId) || null,
     [currentProjectId, projects]
@@ -322,8 +302,10 @@ export function DeliverableSidebar({
   }, [activeProject?.title, currentProjectTitle]);
   const currentProjectDeliverable = React.useMemo(
     () =>
-      currentWorkspaceId ? projectDeliverablesById.get(currentWorkspaceId) || null : null,
-    [currentWorkspaceId, projectDeliverablesById]
+      currentWorkspaceId
+        ? projectTreeActions.projectDeliverablesById.get(currentWorkspaceId) || null
+        : null,
+    [currentWorkspaceId, projectTreeActions.projectDeliverablesById]
   );
   const currentProjectDeliverablePath = React.useMemo(() => {
     if (!currentProjectContextTitle || !currentProjectDeliverable) {
@@ -353,39 +335,6 @@ export function DeliverableSidebar({
     projectDeliverables.length,
     projectFolders.length,
   ]);
-  const supportItemsById = React.useMemo(
-    () => new Map(supportFiles.map((file) => [file.id, file])),
-    [supportFiles]
-  );
-  const supportTree = React.useMemo(
-    () => buildWorkspaceFileTree(supportFiles),
-    [supportFiles]
-  );
-  const supportFolderOptions = React.useMemo(
-    () => buildWorkspaceFolderOptions(supportFiles),
-    [supportFiles]
-  );
-
-  const loadProjects = React.useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const res = await apiFetch('/api/project-list');
-      if (!res.ok) {
-        return;
-      }
-
-      const data = await res.json();
-      const nextProjects = data.items || [];
-      setProjects(nextProjects);
-      onProjectsChange?.(nextProjects);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [onProjectsChange]);
-
-  React.useEffect(() => {
-    void loadProjects();
-  }, [loadProjects]);
 
   const loadMounts = React.useCallback(async () => {
     if (!currentProjectId) {
@@ -530,11 +479,6 @@ export function DeliverableSidebar({
     setSelectedMountTargetProjectId(availableMountProjects[0]?.id || '');
     setMountDialogError(null);
   }, [availableMountProjects]);
-  const openRenameSupportDialog = React.useCallback((file: SidebarSupportFile) => {
-    setRenameSupportFileId(file.id);
-    setRenameSupportValue(getWorkspaceFileDisplayName(file));
-    setRenameSupportError(null);
-  }, []);
   const closeRenameDialog = React.useCallback(
     (open: boolean) => {
       if (open || isRenamingWorkspace) {
@@ -558,18 +502,6 @@ export function DeliverableSidebar({
       setMountDialogError(null);
     },
     [isCreatingMount]
-  );
-  const closeRenameSupportDialog = React.useCallback(
-    (open: boolean) => {
-      if (open || isRenamingSupportFile) {
-        return;
-      }
-
-      setRenameSupportFileId(null);
-      setRenameSupportValue('');
-      setRenameSupportError(null);
-    },
-    [isRenamingSupportFile]
   );
   const handleRename = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -666,590 +598,6 @@ export function DeliverableSidebar({
     },
     [currentProjectId, loadMounts, selectedMountTargetProjectId, t]
   );
-  const openRenameDeliverableDialog = React.useCallback(
-    (deliverable: ProjectDeliverableItem) => {
-      setRenameDeliverableId(deliverable.id);
-      setRenameDeliverableValue(deliverable.title);
-      setRenameDeliverableError(null);
-    },
-    []
-  );
-  const closeRenameDeliverableDialog = React.useCallback((open: boolean) => {
-    if (open) {
-      return;
-    }
-
-    setRenameDeliverableId(null);
-    setRenameDeliverableValue('');
-    setRenameDeliverableError(null);
-  }, []);
-  const handleRenameDeliverable = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!renameDeliverableId) {
-        return;
-      }
-
-      const nextTitle = renameDeliverableValue.trim();
-      const currentTitle = projectDeliverablesById.get(renameDeliverableId)?.title.trim() || '';
-
-      if (!nextTitle) {
-        setRenameDeliverableError(t('sidebar.renameDeliverableRequired'));
-        return;
-      }
-
-      if (nextTitle === currentTitle) {
-        setRenameDeliverableId(null);
-        setRenameDeliverableValue('');
-        setRenameDeliverableError(null);
-        return;
-      }
-
-      setIsRenamingDeliverable(true);
-      setRenameDeliverableError(null);
-
-      try {
-        if (onRenameDeliverable) {
-          await onRenameDeliverable(renameDeliverableId, nextTitle);
-        }
-
-        await loadProjects();
-        setRenameDeliverableId(null);
-        setRenameDeliverableValue('');
-        setRenameDeliverableError(null);
-      } catch (error) {
-        setRenameDeliverableError(
-          error instanceof Error ? error.message : t('sidebar.renameDeliverableFailed')
-        );
-      } finally {
-        setIsRenamingDeliverable(false);
-      }
-    },
-    [
-      loadProjects,
-      onRenameDeliverable,
-      projectDeliverablesById,
-      renameDeliverableId,
-      renameDeliverableValue,
-      t,
-    ]
-  );
-  const handleDeleteDeliverable = React.useCallback(
-    async (workspaceId: string) => {
-      if (!window.confirm(t('sidebar.deleteDeliverableConfirm'))) {
-        return;
-      }
-
-      if (onDeleteDeliverable) {
-        await onDeleteDeliverable(workspaceId);
-        await loadProjects();
-      }
-    },
-    [loadProjects, onDeleteDeliverable, t]
-  );
-  const openMoveDeliverableDialog = React.useCallback(
-    (deliverable: ProjectDeliverableItem) => {
-      setMoveNode({
-        currentParentFolderId: deliverable.projectFolderId || null,
-        id: deliverable.id,
-        title: deliverable.title,
-        type: 'deliverable',
-      });
-      setMoveTargetFolderId(deliverable.projectFolderId || PROJECT_TREE_ROOT_VALUE);
-      setMoveNodeError(null);
-    },
-    []
-  );
-  const openMoveProjectFolderDialog = React.useCallback(
-    (folder: ProjectFolderItem) => {
-      setMoveNode({
-        currentParentFolderId: folder.parentFolderId || null,
-        id: folder.id,
-        title: folder.title,
-        type: 'folder',
-      });
-      setMoveTargetFolderId(folder.parentFolderId || PROJECT_TREE_ROOT_VALUE);
-      setMoveNodeError(null);
-    },
-    []
-  );
-  const closeMoveDialog = React.useCallback((open: boolean) => {
-    if (open) {
-      return;
-    }
-
-    setMoveNode(null);
-    setMoveTargetFolderId(PROJECT_TREE_ROOT_VALUE);
-    setMoveNodeError(null);
-  }, []);
-  const availableMoveTargets = React.useMemo(() => {
-    if (!moveNode) {
-      return projectFolderOptions;
-    }
-
-    if (moveNode.type !== 'folder') {
-      return projectFolderOptions;
-    }
-
-    const blockedIds = collectProjectFolderDescendantIds(projectFolders, moveNode.id);
-    blockedIds.add(moveNode.id);
-
-    return projectFolderOptions.filter((option) => !blockedIds.has(option.id));
-  }, [moveNode, projectFolderOptions, projectFolders]);
-  const canMoveProjectTreeNode = React.useCallback(
-    (node: ProjectTreeMoveNode, targetFolderId: string | null) => {
-      if (targetFolderId === node.currentParentFolderId) {
-        return false;
-      }
-
-      if (node.type !== 'folder' || !targetFolderId) {
-        return true;
-      }
-
-      if (targetFolderId === node.id) {
-        return false;
-      }
-
-      const blockedIds = collectProjectFolderDescendantIds(projectFolders, node.id);
-      return !blockedIds.has(targetFolderId);
-    },
-    [projectFolders]
-  );
-  const executeProjectTreeMove = React.useCallback(
-    async (node: ProjectTreeMoveNode, targetFolderId: string | null) => {
-      if (!canMoveProjectTreeNode(node, targetFolderId)) {
-        return false;
-      }
-
-      if (node.type === 'deliverable') {
-        if (!onMoveDeliverable) {
-          return false;
-        }
-
-        await onMoveDeliverable(node.id, targetFolderId);
-      } else {
-        if (!onMoveProjectFolder) {
-          return false;
-        }
-
-        await onMoveProjectFolder(node.id, targetFolderId);
-      }
-
-      await loadProjects();
-      setProjectTreeError(null);
-      return true;
-    },
-    [canMoveProjectTreeNode, loadProjects, onMoveDeliverable, onMoveProjectFolder]
-  );
-  const handleReorderProjectTreeNode = React.useCallback(
-    async (node: ProjectTreeNode, direction: 'up' | 'down') => {
-      try {
-        setProjectTreeError(null);
-
-        if (node.nodeType === 'folder') {
-          if (!onReorderProjectFolder) {
-            return;
-          }
-
-          await onReorderProjectFolder(node.id, direction);
-        } else {
-          if (!onReorderDeliverable) {
-            return;
-          }
-
-          await onReorderDeliverable(node.id, direction);
-        }
-
-        await loadProjects();
-      } catch (error) {
-        setProjectTreeError(
-          error instanceof Error
-            ? error.message
-            : node.nodeType === 'folder'
-              ? t('sidebar.moveProjectFolderFailed')
-              : t('sidebar.moveDeliverableFailed')
-        );
-      }
-    },
-    [loadProjects, onReorderDeliverable, onReorderProjectFolder, t]
-  );
-  const handleProjectTreeDragStart = React.useCallback((node: ProjectTreeMoveNode) => {
-    setDragNode(node);
-    setDropTargetFolderId(node.currentParentFolderId);
-    setProjectTreeError(null);
-  }, []);
-  const handleProjectTreeDragEnd = React.useCallback(() => {
-    setDragNode(null);
-    setDropTargetFolderId(null);
-  }, []);
-  const handleProjectTreeDrop = React.useCallback(
-    async (targetFolderId: string | null) => {
-      if (!dragNode) {
-        return;
-      }
-
-      try {
-        await executeProjectTreeMove(dragNode, targetFolderId);
-      } catch (error) {
-        setProjectTreeError(
-          error instanceof Error
-            ? error.message
-            : dragNode.type === 'folder'
-              ? t('sidebar.moveProjectFolderFailed')
-              : t('sidebar.moveDeliverableFailed')
-        );
-      } finally {
-        setDragNode(null);
-        setDropTargetFolderId(null);
-      }
-    },
-    [dragNode, executeProjectTreeMove, t]
-  );
-  const handleMoveNode = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!moveNode) {
-        return;
-      }
-
-      const nextParentFolderId =
-        moveTargetFolderId === PROJECT_TREE_ROOT_VALUE ? null : moveTargetFolderId;
-
-      if (nextParentFolderId === moveNode.currentParentFolderId) {
-        setMoveNode(null);
-        setMoveTargetFolderId(PROJECT_TREE_ROOT_VALUE);
-        setMoveNodeError(null);
-        return;
-      }
-
-      setIsMovingNode(true);
-      setMoveNodeError(null);
-
-      try {
-        await executeProjectTreeMove(moveNode, nextParentFolderId);
-        setMoveNode(null);
-        setMoveTargetFolderId(PROJECT_TREE_ROOT_VALUE);
-        setMoveNodeError(null);
-      } catch (error) {
-        setMoveNodeError(
-          error instanceof Error
-            ? error.message
-            : moveNode.type === 'folder'
-              ? t('sidebar.moveProjectFolderFailed')
-              : t('sidebar.moveDeliverableFailed')
-        );
-      } finally {
-        setIsMovingNode(false);
-      }
-    },
-    [executeProjectTreeMove, moveNode, moveTargetFolderId, t]
-  );
-  const openRenameProjectFolderDialog = React.useCallback(
-    (folder: ProjectFolderItem) => {
-      setRenameProjectFolderId(folder.id);
-      setRenameProjectFolderValue(folder.title);
-      setRenameProjectFolderError(null);
-    },
-    []
-  );
-  const closeRenameProjectFolderDialog = React.useCallback((open: boolean) => {
-    if (open) {
-      return;
-    }
-
-    setRenameProjectFolderId(null);
-    setRenameProjectFolderValue('');
-    setRenameProjectFolderError(null);
-  }, []);
-  const handleRenameProjectFolder = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!renameProjectFolderId) {
-        return;
-      }
-
-      const nextTitle = renameProjectFolderValue.trim();
-      const currentTitle = projectFoldersById.get(renameProjectFolderId)?.title.trim() || '';
-
-      if (!nextTitle) {
-        setRenameProjectFolderError(t('sidebar.renameProjectFolderRequired'));
-        return;
-      }
-
-      if (nextTitle === currentTitle) {
-        setRenameProjectFolderId(null);
-        setRenameProjectFolderValue('');
-        setRenameProjectFolderError(null);
-        return;
-      }
-
-      setIsRenamingProjectFolder(true);
-      setRenameProjectFolderError(null);
-
-      try {
-        if (onRenameProjectFolder) {
-          await onRenameProjectFolder(renameProjectFolderId, nextTitle);
-        }
-
-        setRenameProjectFolderId(null);
-        setRenameProjectFolderValue('');
-        setRenameProjectFolderError(null);
-      } catch (error) {
-        setRenameProjectFolderError(
-          error instanceof Error ? error.message : t('sidebar.renameProjectFolderFailed')
-        );
-      } finally {
-        setIsRenamingProjectFolder(false);
-      }
-    },
-    [
-      onRenameProjectFolder,
-      projectFoldersById,
-      renameProjectFolderId,
-      renameProjectFolderValue,
-      t,
-    ]
-  );
-  const handleDeleteProjectFolder = React.useCallback(
-    async (folderId: string) => {
-      if (!window.confirm(t('sidebar.deleteProjectFolderConfirm'))) {
-        return;
-      }
-
-      if (onDeleteProjectFolder) {
-        await onDeleteProjectFolder(folderId);
-      }
-    },
-    [onDeleteProjectFolder, t]
-  );
-  const handleRenameSupportFile = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!renameSupportFileId) {
-        return;
-      }
-
-      const nextName = renameSupportValue.trim();
-      const currentName = getWorkspaceFileDisplayName(
-        supportItemsById.get(renameSupportFileId)
-      ).trim();
-
-      if (!nextName) {
-        setRenameSupportError(t('sidebar.renameSupportMaterialRequired'));
-        return;
-      }
-
-      if (nextName === currentName) {
-        setRenameSupportFileId(null);
-        setRenameSupportValue('');
-        setRenameSupportError(null);
-        return;
-      }
-
-      setIsRenamingSupportFile(true);
-      setRenameSupportError(null);
-
-      try {
-        if (onRenameSupportFile) {
-          await onRenameSupportFile(renameSupportFileId, nextName);
-        } else if (currentWorkspaceId) {
-          const response = await apiFetch(
-            `/api/workspaces/${currentWorkspaceId}/files/${renameSupportFileId}`,
-            {
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ name: nextName }),
-            }
-          );
-          const payload = await response.json().catch(() => null);
-          if (!response.ok) {
-            throw new Error(payload?.error || t('sidebar.renameSupportMaterialFailed'));
-          }
-        }
-
-        setRenameSupportFileId(null);
-        setRenameSupportValue('');
-        setRenameSupportError(null);
-      } catch (error) {
-        setRenameSupportError(
-          error instanceof Error ? error.message : t('sidebar.renameSupportMaterialFailed')
-        );
-      } finally {
-        setIsRenamingSupportFile(false);
-      }
-    },
-    [
-      currentWorkspaceId,
-      onRenameSupportFile,
-      renameSupportFileId,
-      renameSupportValue,
-      supportItemsById,
-      t,
-    ]
-  );
-  const handleDeleteSupportFile = React.useCallback(
-    async (fileId: string) => {
-      if (!window.confirm(t('sidebar.deleteSupportMaterialConfirm'))) {
-        return;
-      }
-
-      if (onDeleteSupportFile) {
-        await onDeleteSupportFile(fileId);
-        return;
-      }
-
-      if (!currentWorkspaceId) {
-        return;
-      }
-
-      await apiFetch(`/api/workspaces/${currentWorkspaceId}/files/${fileId}`, {
-        method: 'DELETE',
-      });
-    },
-    [currentWorkspaceId, onDeleteSupportFile, t]
-  );
-  const openMoveSupportDialog = React.useCallback((file: SidebarSupportFile) => {
-    setMoveSupportNode({
-      currentParentId: file.parentId || null,
-      id: file.id,
-      name: getWorkspaceFileDisplayName(file),
-      nodeType: file.nodeType,
-      path: file.path,
-    });
-    setMoveSupportTargetId(file.parentId || SUPPORT_TREE_ROOT_VALUE);
-    setMoveSupportError(null);
-  }, []);
-  const closeMoveSupportDialog = React.useCallback((open: boolean) => {
-    if (open) {
-      return;
-    }
-
-    setMoveSupportNode(null);
-    setMoveSupportTargetId(SUPPORT_TREE_ROOT_VALUE);
-    setMoveSupportError(null);
-  }, []);
-  const availableSupportMoveTargets = React.useMemo(() => {
-    if (!moveSupportNode || moveSupportNode.nodeType !== 'folder') {
-      return supportFolderOptions;
-    }
-
-    return supportFolderOptions.filter(
-      (option) =>
-        option.id !== moveSupportNode.id &&
-        !option.path.startsWith(`${moveSupportNode.path}/`)
-    );
-  }, [moveSupportNode, supportFolderOptions]);
-  const canMoveSupportNode = React.useCallback(
-    (node: SupportTreeMoveNode, parentId: string | null) => {
-      if (parentId === node.currentParentId) {
-        return false;
-      }
-
-      if (node.nodeType !== 'folder' || !parentId) {
-        return true;
-      }
-
-      const target = supportItemsById.get(parentId);
-      if (!target) {
-        return false;
-      }
-
-      return target.id !== node.id && !target.path.startsWith(`${node.path}/`);
-    },
-    [supportItemsById]
-  );
-  const executeSupportMove = React.useCallback(
-    async (node: SupportTreeMoveNode, parentId: string | null, sortOrder?: number) => {
-      if (!onMoveSupportFile || !canMoveSupportNode(node, parentId)) {
-        return false;
-      }
-
-      await onMoveSupportFile(node.id, parentId, sortOrder);
-      setSupportTreeError(null);
-      return true;
-    },
-    [canMoveSupportNode, onMoveSupportFile]
-  );
-  const handleReorderSupportNode = React.useCallback(
-    async (fileId: string, direction: 'up' | 'down') => {
-      try {
-        setSupportTreeError(null);
-        await onReorderSupportFile?.(fileId, direction);
-      } catch (error) {
-        setSupportTreeError(
-          error instanceof Error ? error.message : t('sidebar.moveSupportMaterialFailed')
-        );
-      }
-    },
-    [onReorderSupportFile, t]
-  );
-  const handleSupportTreeDragStart = React.useCallback((node: SupportTreeMoveNode) => {
-    setDragSupportNode(node);
-    setDropTargetSupportParentId(node.currentParentId);
-    setSupportTreeError(null);
-  }, []);
-  const handleSupportTreeDragEnd = React.useCallback(() => {
-    setDragSupportNode(null);
-    setDropTargetSupportParentId(null);
-  }, []);
-  const handleSupportTreeDrop = React.useCallback(
-    async (parentId: string | null, sortOrder?: number) => {
-      if (!dragSupportNode) {
-        return;
-      }
-
-      try {
-        await executeSupportMove(dragSupportNode, parentId, sortOrder);
-      } catch (error) {
-        setSupportTreeError(
-          error instanceof Error ? error.message : t('sidebar.moveSupportMaterialFailed')
-        );
-      } finally {
-        setDragSupportNode(null);
-        setDropTargetSupportParentId(null);
-      }
-    },
-    [dragSupportNode, executeSupportMove, t]
-  );
-  const handleMoveSupportNode = React.useCallback(
-    async (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!moveSupportNode) {
-        return;
-      }
-
-      const nextParentId =
-        moveSupportTargetId === SUPPORT_TREE_ROOT_VALUE ? null : moveSupportTargetId;
-
-      if (nextParentId === moveSupportNode.currentParentId) {
-        closeMoveSupportDialog(false);
-        return;
-      }
-
-      setIsMovingSupportNode(true);
-      setMoveSupportError(null);
-
-      try {
-        await executeSupportMove(moveSupportNode, nextParentId);
-        closeMoveSupportDialog(false);
-      } catch (error) {
-        setMoveSupportError(
-          error instanceof Error ? error.message : t('sidebar.moveSupportMaterialFailed')
-        );
-      } finally {
-        setIsMovingSupportNode(false);
-      }
-    },
-    [closeMoveSupportDialog, executeSupportMove, moveSupportNode, moveSupportTargetId, t]
-  );
-  const outlineInteractive = Boolean(onOpenOutline);
 
   return (
     <>
@@ -1464,9 +812,9 @@ export function DeliverableSidebar({
                         ) : null}
                       </div>
                     ) : null}
-                    {projectTreeError ? (
+                    {projectTreeActions.projectTreeError ? (
                       <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                        {projectTreeError}
+                        {projectTreeActions.projectTreeError}
                       </div>
                     ) : null}
                     {projectFolders.length === 0 && projectDeliverables.length === 0 ? (
@@ -1474,72 +822,88 @@ export function DeliverableSidebar({
                     ) : (
                       <ProjectDeliverableTree
                         currentWorkspaceId={currentWorkspaceId}
-                        dragNode={dragNode}
+                        dragNode={projectTreeActions.dragNode}
                         folders={projectFolders}
                         deliverables={projectDeliverables}
-                        dropTargetFolderId={dropTargetFolderId}
+                        dropTargetFolderId={projectTreeActions.dropTargetFolderId}
                         onCreateDeliverable={onCreateDeliverable}
                         onCreateProjectFolder={onCreateProjectFolder}
                         onCreateSiblingDeliverable={onCreateSiblingDeliverable}
                         onDeleteDeliverable={
                           onDeleteDeliverable
-                            ? (targetWorkspaceId) => void handleDeleteDeliverable(targetWorkspaceId)
+                            ? (targetWorkspaceId) =>
+                                void projectTreeActions.handleDeleteDeliverable(targetWorkspaceId)
                             : undefined
                         }
                         onDeleteProjectFolder={
                           onDeleteProjectFolder
-                            ? (folderId) => void handleDeleteProjectFolder(folderId)
+                            ? (folderId) =>
+                                void projectTreeActions.handleDeleteProjectFolder(folderId)
                             : undefined
                         }
                         onMoveDeliverable={
-                          onMoveDeliverable ? openMoveDeliverableDialog : undefined
+                          onMoveDeliverable
+                            ? projectTreeActions.openMoveDeliverableDialog
+                            : undefined
                         }
                         onMoveProjectFolder={
-                          onMoveProjectFolder ? openMoveProjectFolderDialog : undefined
+                          onMoveProjectFolder
+                            ? projectTreeActions.openMoveProjectFolderDialog
+                            : undefined
                         }
                         onOpenDeliverable={onOpenDeliverable || onOpenWorkspace}
                         onReorderDeliverable={
                           onReorderDeliverable
                             ? (node, direction) =>
-                                void handleReorderProjectTreeNode(node, direction)
+                                void projectTreeActions.handleReorderProjectTreeNode(
+                                  node,
+                                  direction
+                                )
                             : undefined
                         }
                         onReorderProjectFolder={
                           onReorderProjectFolder
                             ? (node, direction) =>
-                                void handleReorderProjectTreeNode(node, direction)
+                                void projectTreeActions.handleReorderProjectTreeNode(
+                                  node,
+                                  direction
+                                )
                             : undefined
                         }
                         onDragEndNode={
                           onMoveDeliverable || onMoveProjectFolder
-                            ? handleProjectTreeDragEnd
+                            ? projectTreeActions.handleProjectTreeDragEnd
                             : undefined
                         }
                         onDragStartNode={
                           onMoveDeliverable || onMoveProjectFolder
-                            ? handleProjectTreeDragStart
+                            ? projectTreeActions.handleProjectTreeDragStart
                             : undefined
                         }
                         onDropNodeOnFolder={
                           onMoveDeliverable || onMoveProjectFolder
-                            ? (folderId) => void handleProjectTreeDrop(folderId)
+                            ? (folderId) => void projectTreeActions.handleProjectTreeDrop(folderId)
                             : undefined
                         }
                         onDropNodeOnRoot={
                           onMoveDeliverable || onMoveProjectFolder
-                            ? () => void handleProjectTreeDrop(null)
+                            ? () => void projectTreeActions.handleProjectTreeDrop(null)
                             : undefined
                         }
                         onSetDropTargetFolderId={
                           onMoveDeliverable || onMoveProjectFolder
-                            ? setDropTargetFolderId
+                            ? projectTreeActions.setDropTargetFolderId
                             : undefined
                         }
                         onRequestRenameDeliverable={
-                          onRenameDeliverable ? openRenameDeliverableDialog : undefined
+                          onRenameDeliverable
+                            ? projectTreeActions.openRenameDeliverableDialog
+                            : undefined
                         }
                         onRequestRenameProjectFolder={
-                          onRenameProjectFolder ? openRenameProjectFolderDialog : undefined
+                          onRenameProjectFolder
+                            ? projectTreeActions.openRenameProjectFolderDialog
+                            : undefined
                         }
                       />
                     )}
@@ -1547,115 +911,22 @@ export function DeliverableSidebar({
                 ) : null}
 
                 {currentWorkspaceId ? (
-                  <SidebarSection
-                    testId="sidebar-outline-section"
-                    title={t('sidebar.deliverableOutline')}
-                  >
-                    {outlineItems.length === 0 ? (
-                      <SidebarInfo text={t('sidebar.outlineEmpty')} />
-                    ) : (
-                      <div className="min-w-0 space-y-1 overflow-hidden">
-                        {outlineItems.map((item) =>
-                          outlineInteractive ? (
-                            <button
-                              key={item.id}
-                              type="button"
-                              data-testid={`outline-item-${item.id}`}
-                              onClick={() => onOpenOutline?.(item.id)}
-                              className={cn(
-                                'flex w-full touch-manipulation items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring motion-reduce:transition-none',
-                                item.active && 'bg-background shadow-sm ring-1 ring-border'
-                              )}
-                              style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
-                            >
-                              <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              <span className="truncate">{item.label}</span>
-                            </button>
-                          ) : (
-                            <div
-                              key={item.id}
-                              className="flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm text-foreground"
-                              style={{ paddingLeft: `${item.depth * 14 + 8}px` }}
-                            >
-                              <Sparkles className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                              <span className="truncate">{item.label}</span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    )}
-                  </SidebarSection>
+                  <SidebarOutlineSection
+                    onOpenOutline={onOpenOutline}
+                    outlineItems={outlineItems}
+                    t={t}
+                  />
                 ) : null}
 
                 {currentWorkspaceId && currentProjectId ? (
-                  <SidebarSection
-                    testId="sidebar-linked-projects-section"
-                    title={t('sidebar.linkedProjects')}
-                    action={
-                      <Button
-                        aria-label={t('sidebar.addLinkedProject')}
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 shrink-0"
-                        onClick={openMountDialog}
-                        data-testid="sidebar-linked-project-dialog-trigger"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </Button>
-                    }
-                  >
-                    {mountError ? (
-                      <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                        {mountError}
-                      </div>
-                    ) : null}
-                    {isLoadingMounts ? (
-                      <SidebarInfo text={t('sidebar.loadingLinkedProjects')} />
-                    ) : mountedProjectItems.length === 0 ? (
-                      <div data-testid="sidebar-linked-projects-empty">
-                        <SidebarInfo text={t('sidebar.noLinkedProjectsYet')} />
-                      </div>
-                    ) : (
-                      <div className="space-y-2" data-testid="sidebar-linked-projects-list">
-                        {mountedProjectItems.map(({ mount, targetProject, title }) => (
-                          <div
-                            key={mount.id}
-                            className="rounded-2xl border border-border/70 bg-background/80 px-3 py-2.5"
-                            data-testid={`sidebar-linked-project-${mount.targetProjectId}`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                  <div className="truncate text-sm font-medium">{title}</div>
-                                  <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] uppercase tracking-[0.12em]">
-                                    {t('sidebar.linkedProjectBadge')}
-                                  </Badge>
-                                </div>
-                                <div className="mt-1 truncate text-xs text-muted-foreground">
-                                  {targetProject
-                                    ? formatProjectListMeta(targetProject, t)
-                                    : t('sidebar.linkedProjectReferenceOnly')}
-                                </div>
-                              </div>
-                              {targetProject ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 rounded-lg px-2 text-xs"
-                                  onClick={() => openProject(targetProject)}
-                                  data-testid={`sidebar-linked-project-open-${mount.targetProjectId}`}
-                                >
-                                  {t('sidebar.openLinkedProject')}
-                                </Button>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </SidebarSection>
+                  <SidebarLinkedProjectsSection
+                    isLoadingMounts={isLoadingMounts}
+                    mountError={mountError}
+                    mountedProjectItems={mountedProjectItems}
+                    onOpenMountDialog={openMountDialog}
+                    onOpenProject={openProject}
+                    t={t}
+                  />
                 ) : null}
 
                 {currentWorkspaceId ? (
@@ -1694,168 +965,87 @@ export function DeliverableSidebar({
                       ) : undefined
                     }
                   >
-                    {supportTreeError ? (
+                    {supportTreeActions.supportTreeError ? (
                       <div className="mb-2 rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                        {supportTreeError}
+                        {supportTreeActions.supportTreeError}
                       </div>
                     ) : null}
-                    {supportTree.length === 0 ? (
+                    {supportTreeActions.supportTree.length === 0 ? (
                       <div data-testid="support-tree-empty">
                         <SidebarInfo text={t('sidebar.noUploadsYet')} />
                       </div>
                     ) : (
                       <SupportMaterialTree
                         activeSupportFileId={activeSupportFileId}
-                        dragNode={dragSupportNode}
-                        files={supportTree}
+                        dragNode={supportTreeActions.dragSupportNode}
+                        files={supportTreeActions.supportTree}
                         onCreateSupportFile={onCreateSupportFile}
                         onCreateSupportFolder={onCreateSupportFolder}
                         onDeleteSupportFile={
-                          onDeleteSupportFile ? (fileId) => void handleDeleteSupportFile(fileId) : undefined
+                          onDeleteSupportFile
+                            ? (fileId) => void supportTreeActions.handleDeleteSupportFile(fileId)
+                            : undefined
                         }
                         onDragEndNode={
-                          onMoveSupportFile ? handleSupportTreeDragEnd : undefined
+                          onMoveSupportFile ? supportTreeActions.handleSupportTreeDragEnd : undefined
                         }
                         onDragStartNode={
-                          onMoveSupportFile ? handleSupportTreeDragStart : undefined
+                          onMoveSupportFile
+                            ? supportTreeActions.handleSupportTreeDragStart
+                            : undefined
                         }
                         onDropNodeOnFolder={
                           onMoveSupportFile
-                            ? (parentId, sortOrder) => void handleSupportTreeDrop(parentId, sortOrder)
+                            ? (parentId, sortOrder) =>
+                                void supportTreeActions.handleSupportTreeDrop(parentId, sortOrder)
                             : undefined
                         }
                         onDropNodeOnRoot={
                           onMoveSupportFile
-                            ? (sortOrder) => void handleSupportTreeDrop(null, sortOrder)
+                            ? (sortOrder) =>
+                                void supportTreeActions.handleSupportTreeDrop(null, sortOrder)
                             : undefined
                         }
                         onMoveSupportFile={
-                          onMoveSupportFile ? openMoveSupportDialog : undefined
+                          onMoveSupportFile ? supportTreeActions.openMoveSupportDialog : undefined
                         }
                         onOpenSupportFile={openSupportFile}
                         onReorderSupportFile={
                           onReorderSupportFile
-                            ? (fileId, direction) => void handleReorderSupportNode(fileId, direction)
+                            ? (fileId, direction) =>
+                                void supportTreeActions.handleReorderSupportNode(fileId, direction)
                             : undefined
                         }
                         onRenameSupportFile={
                           onRenameSupportFile
-                            ? (file) => openRenameSupportDialog(file)
+                            ? (file) => supportTreeActions.openRenameSupportDialog(file)
                             : undefined
                         }
                         onSetDropTargetParentId={
-                          onMoveSupportFile ? setDropTargetSupportParentId : undefined
+                          onMoveSupportFile
+                            ? supportTreeActions.setDropTargetSupportParentId
+                            : undefined
                         }
-                        dropTargetParentId={dropTargetSupportParentId}
+                        dropTargetParentId={supportTreeActions.dropTargetSupportParentId}
                       />
                     )}
                   </SidebarSection>
                 ) : null}
 
-                <SidebarSection
-                  testId="sidebar-projects-section"
-                  title={t('sidebar.projects')}
-                  action={
-                    <Button
-                      aria-label={t('sidebar.newProject')}
-                      size="icon"
-                      variant="ghost"
-                      className="h-7 w-7 shrink-0"
-                      onClick={onCreateWorkspace}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </Button>
-                  }
-                >
-                  {isLoading ? (
-                    <SidebarInfo text={t('sidebar.loadingProjects')} />
-                  ) : projects.length === 0 && showEmptyProjectState ? (
-                    <SidebarInfo text={t('sidebar.noProjectsYet')} />
-                  ) : (
-                    <div className="min-w-0 space-y-1">
-                      {projects.map((project) => (
-                        <div
-                          key={project.id}
-                          className={cn(
-                            'group flex min-w-0 items-center gap-1 overflow-hidden rounded-xl pr-1 transition-colors hover:bg-accent',
-                            currentProjectId === project.id
-                              ? 'bg-background shadow-sm ring-1 ring-border'
-                              : ''
-                          )}
-                        >
-                          <button
-                            type="button"
-                            className="flex min-w-0 w-full flex-1 touch-manipulation items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                            onClick={() => openProject(project)}
-                            data-testid={`sidebar-project-open-${project.id}`}
-                          >
-                            <div className="shrink-0 rounded-md bg-foreground/5 p-1.5 ring-1 ring-border/30">
-                              <FolderClosed className="h-3.5 w-3.5 text-muted-foreground" />
-                            </div>
-                            <div className="min-w-0 flex-1 overflow-hidden">
-                              <div className="truncate text-sm font-medium leading-5">
-                                {project.title}
-                              </div>
-                              <div className="truncate text-[11px] text-muted-foreground">
-                                {!currentWorkspaceId
-                                  ? `${t('sidebar.continueCurrentDeliverable')} · ${formatProjectListMeta(project, t)}`
-                                  : currentProjectId === project.id && currentWorkspaceStatusLabel
-                                  ? currentWorkspaceStatusLabel
-                                  : formatProjectListMeta(project, t)}
-                              </div>
-                            </div>
-                          </button>
-                          <div className="flex shrink-0 items-center gap-1 pl-1">
-                            {!currentWorkspaceId ? (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 rounded-lg px-2 text-xs"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  openProjectNextDeliverable(project);
-                                }}
-                                data-testid={`sidebar-project-create-next-${project.id}`}
-                              >
-                                <Plus className="mr-1 h-3.5 w-3.5" />
-                                {t('sidebar.newSiblingDeliverable')}
-                              </Button>
-                            ) : null}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  aria-label={`${t('sidebar.renameProject')}: ${project.title}`}
-                                  size="icon"
-                                  variant="ghost"
-                                  className={cn(
-                                    'h-7 w-7 shrink-0 data-[state=open]:opacity-100',
-                                    !currentWorkspaceId &&
-                                      'opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100'
-                                  )}
-                                >
-                                  <MoreHorizontal className="h-3.5 w-3.5" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onSelect={() => openRenameDialog(project)}>
-                                  <Pencil className="h-3.5 w-3.5" />
-                                  {t('sidebar.renameProject')}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={() => void handleDelete(project.id)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                  {t('sidebar.deleteProject')}
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </SidebarSection>
+                <SidebarProjectsListSection
+                  currentProjectId={currentProjectId}
+                  currentWorkspaceId={currentWorkspaceId}
+                  currentWorkspaceStatusLabel={currentWorkspaceStatusLabel}
+                  isLoading={isLoading}
+                  onCreateWorkspace={onCreateWorkspace}
+                  onDeleteProject={(projectId) => void handleDelete(projectId)}
+                  onOpenProject={openProject}
+                  onOpenProjectNextDeliverable={openProjectNextDeliverable}
+                  onOpenRenameDialog={openRenameDialog}
+                  projects={projects}
+                  showEmptyProjectState={showEmptyProjectState}
+                  t={t}
+                />
               </div>
             )}
           </ScrollArea>
@@ -1871,411 +1061,30 @@ export function DeliverableSidebar({
         </div>
       </aside>
 
-      <Dialog open={isMountDialogOpen} onOpenChange={closeMountDialog}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('sidebar.addLinkedProject')}</DialogTitle>
-            <DialogDescription>
-              {t('sidebar.addLinkedProjectDescription')}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form className="space-y-4" onSubmit={(event) => void handleCreateMount(event)}>
-            <div className="space-y-2">
-              <Label htmlFor="linked-project-target">{t('sidebar.addLinkedProjectSelect')}</Label>
-              <Select
-                value={selectedMountTargetProjectId || undefined}
-                onValueChange={(value) => {
-                  setSelectedMountTargetProjectId(value);
-                  if (mountDialogError) {
-                    setMountDialogError(null);
-                  }
-                }}
-                disabled={isCreatingMount || availableMountProjects.length === 0}
-              >
-                <SelectTrigger
-                  id="linked-project-target"
-                  className="w-full"
-                  data-testid="sidebar-linked-project-select"
-                >
-                  <SelectValue placeholder={t('sidebar.addLinkedProjectPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableMountProjects.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
-                      {project.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {availableMountProjects.length === 0 ? (
-              <div
-                className="rounded-2xl border border-dashed border-border/70 px-3 py-3 text-sm text-muted-foreground"
-                data-testid="sidebar-linked-project-no-options"
-              >
-                {t('sidebar.noLinkableProjects')}
-              </div>
-            ) : null}
-
-            {mountDialogError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {mountDialogError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeMountDialog(false)}
-                disabled={isCreatingMount}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                type="submit"
-                disabled={isCreatingMount || availableMountProjects.length === 0}
-                data-testid="sidebar-linked-project-submit"
-              >
-                {isCreatingMount ? t('common.saving') : t('sidebar.addLinkedProjectSave')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(renameWorkspaceId)} onOpenChange={closeRenameDialog}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('sidebar.renameProject')}</DialogTitle>
-            <DialogDescription>{t('sidebar.renameProjectDescription')}</DialogDescription>
-          </DialogHeader>
-
-          <form className="space-y-4" onSubmit={(event) => void handleRename(event)}>
-            <Input
-              value={renameValue}
-              onChange={(event) => {
-                setRenameValue(event.target.value);
-                if (renameError) {
-                  setRenameError(null);
-                }
-              }}
-              placeholder={t('sidebar.renameProjectPlaceholder')}
-              disabled={isRenamingWorkspace}
-              autoFocus
-            />
-
-            {renameError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {renameError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeRenameDialog(false)}
-                disabled={isRenamingWorkspace}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={isRenamingWorkspace}>
-                {isRenamingWorkspace
-                  ? t('common.saving')
-                  : t('sidebar.renameProjectSave')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(renameDeliverableId)} onOpenChange={closeRenameDeliverableDialog}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('sidebar.renameDeliverable')}</DialogTitle>
-            <DialogDescription>
-              {t('sidebar.renameDeliverableDescription')}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form
-            className="space-y-4"
-            onSubmit={(event) => void handleRenameDeliverable(event)}
-          >
-            <Input
-              value={renameDeliverableValue}
-              onChange={(event) => {
-                setRenameDeliverableValue(event.target.value);
-                if (renameDeliverableError) {
-                  setRenameDeliverableError(null);
-                }
-              }}
-              placeholder={t('sidebar.renameDeliverablePlaceholder')}
-              disabled={isRenamingDeliverable}
-              autoFocus
-            />
-
-            {renameDeliverableError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {renameDeliverableError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeRenameDeliverableDialog(false)}
-                disabled={isRenamingDeliverable}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={isRenamingDeliverable}>
-                {isRenamingDeliverable
-                  ? t('common.saving')
-                  : t('sidebar.renameDeliverableSave')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(moveNode)} onOpenChange={closeMoveDialog}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>
-              {moveNode?.type === 'folder'
-                ? t('sidebar.moveProjectFolder')
-                : t('sidebar.moveDeliverable')}
-            </DialogTitle>
-            <DialogDescription>
-              {moveNode?.type === 'folder'
-                ? t('sidebar.moveProjectFolderDescription', { title: moveNode.title })
-                : t('sidebar.moveDeliverableDescription', { title: moveNode?.title || '' })}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form className="space-y-4" onSubmit={(event) => void handleMoveNode(event)}>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-foreground">
-                {t('sidebar.moveDestination')}
-              </div>
-              <Select
-                value={moveTargetFolderId}
-                onValueChange={(value) => {
-                  setMoveTargetFolderId(value);
-                  if (moveNodeError) {
-                    setMoveNodeError(null);
-                  }
-                }}
-                disabled={isMovingNode}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('sidebar.moveToRoot')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={PROJECT_TREE_ROOT_VALUE}>
-                    {t('sidebar.moveToRoot')}
-                  </SelectItem>
-                  {availableMoveTargets.map((option) => (
-                  <SelectItem key={option.id} value={option.id}>
-                      {`${'> '.repeat(option.depth)}${option.title}`}
-                  </SelectItem>
-                ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {moveNodeError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {moveNodeError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeMoveDialog(false)}
-                disabled={isMovingNode}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={isMovingNode}>
-                {isMovingNode ? t('common.saving') : t('sidebar.moveConfirm')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={Boolean(renameProjectFolderId)}
-        onOpenChange={closeRenameProjectFolderDialog}
-      >
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('sidebar.renameProjectFolder')}</DialogTitle>
-            <DialogDescription>
-              {t('sidebar.renameProjectFolderDescription')}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form
-            className="space-y-4"
-            onSubmit={(event) => void handleRenameProjectFolder(event)}
-          >
-            <Input
-              value={renameProjectFolderValue}
-              onChange={(event) => {
-                setRenameProjectFolderValue(event.target.value);
-                if (renameProjectFolderError) {
-                  setRenameProjectFolderError(null);
-                }
-              }}
-              placeholder={t('sidebar.renameProjectFolderPlaceholder')}
-              disabled={isRenamingProjectFolder}
-              autoFocus
-            />
-
-            {renameProjectFolderError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {renameProjectFolderError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeRenameProjectFolderDialog(false)}
-                disabled={isRenamingProjectFolder}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={isRenamingProjectFolder}>
-                {isRenamingProjectFolder
-                  ? t('common.saving')
-                  : t('sidebar.renameProjectFolderSave')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(renameSupportFileId)} onOpenChange={closeRenameSupportDialog}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('sidebar.renameSupportMaterial')}</DialogTitle>
-            <DialogDescription>{t('sidebar.renameSupportMaterialDescription')}</DialogDescription>
-          </DialogHeader>
-
-          <form className="space-y-4" onSubmit={(event) => void handleRenameSupportFile(event)}>
-            <Input
-              value={renameSupportValue}
-              onChange={(event) => {
-                setRenameSupportValue(event.target.value);
-                if (renameSupportError) {
-                  setRenameSupportError(null);
-                }
-              }}
-              placeholder={t('sidebar.renameSupportMaterialPlaceholder')}
-              disabled={isRenamingSupportFile}
-              autoFocus
-            />
-
-            {renameSupportError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {renameSupportError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeRenameSupportDialog(false)}
-                disabled={isRenamingSupportFile}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={isRenamingSupportFile}>
-                {isRenamingSupportFile
-                  ? t('common.saving')
-                  : t('sidebar.renameSupportMaterialSave')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(moveSupportNode)} onOpenChange={closeMoveSupportDialog}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('sidebar.moveSupportMaterial')}</DialogTitle>
-            <DialogDescription>
-              {t('sidebar.moveSupportMaterialDescription', {
-                title: moveSupportNode?.name || '',
-              })}
-            </DialogDescription>
-          </DialogHeader>
-
-          <form className="space-y-4" onSubmit={(event) => void handleMoveSupportNode(event)}>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-foreground">
-                {t('sidebar.moveDestination')}
-              </div>
-              <Select
-                value={moveSupportTargetId}
-                onValueChange={(value) => {
-                  setMoveSupportTargetId(value);
-                  if (moveSupportError) {
-                    setMoveSupportError(null);
-                  }
-                }}
-                disabled={isMovingSupportNode}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t('sidebar.moveSupportToRoot')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SUPPORT_TREE_ROOT_VALUE}>
-                    {t('sidebar.moveSupportToRoot')}
-                  </SelectItem>
-                  {availableSupportMoveTargets.map((option) => (
-                    <SelectItem key={option.id} value={option.id}>
-                      {`${'> '.repeat(option.depth)}${option.name}`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {moveSupportError ? (
-              <div className="rounded-2xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {moveSupportError}
-              </div>
-            ) : null}
-
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => closeMoveSupportDialog(false)}
-                disabled={isMovingSupportNode}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="submit" disabled={isMovingSupportNode}>
-                {isMovingSupportNode ? t('common.saving') : t('sidebar.moveConfirm')}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <DeliverableSidebarDialogs
+        availableMountProjects={availableMountProjects}
+        closeMountDialog={closeMountDialog}
+        closeRenameDialog={closeRenameDialog}
+        handleCreateMount={handleCreateMount}
+        handleRename={handleRename}
+        isCreatingMount={isCreatingMount}
+        isMountDialogOpen={isMountDialogOpen}
+        isRenamingWorkspace={isRenamingWorkspace}
+        mountDialogError={mountDialogError}
+        projectTreeActions={projectTreeActions}
+        projectTreeRootValue={PROJECT_TREE_ROOT_VALUE}
+        renameError={renameError}
+        renameValue={renameValue}
+        renameWorkspaceId={renameWorkspaceId}
+        selectedMountTargetProjectId={selectedMountTargetProjectId}
+        setMountDialogError={setMountDialogError}
+        setRenameError={setRenameError}
+        setRenameValue={setRenameValue}
+        setSelectedMountTargetProjectId={setSelectedMountTargetProjectId}
+        supportTreeActions={supportTreeActions}
+        supportTreeRootValue={SUPPORT_TREE_ROOT_VALUE}
+        t={t}
+      />
     </>
   );
 }
