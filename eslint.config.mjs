@@ -44,6 +44,7 @@ const eslintConfig = defineConfig([
       "src/agent/knowledge/**/*.{js,jsx,ts,tsx}",
       "src/agent/room-host/**/*.{js,jsx,ts,tsx}",
       "src/agent/room-runtime/**/*.{js,jsx,ts,tsx}",
+      "src/agent/runtime-proxy/**/*.{js,jsx,ts,tsx}",
       "src/agent/tool-policy.{js,jsx,ts,tsx}",
     ],
     rules: {
