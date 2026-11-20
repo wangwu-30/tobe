@@ -1208,6 +1208,12 @@
 - 为什么：Next.js 的 `next/server` 缺少现代 ESM `exports` 映射，纯 Node ESM 加载 `src/framework/resilience/route-handler.ts` 等传递依赖会直接报 `ERR_MODULE_NOT_FOUND`；而 `scripts/bootstrap-local-db.mjs` 在 `fs.mkdirSync` 之前就调用 `createClient({ url })` 且只负责建表不负责写入 singleton `Organization`，独立拉起守护进程（如 `npm run dev:all -- --no-web`）会直接撞上外键约束。
 - 默认做法：新写纯逻辑单测优先直接用 `node:test` + `node:assert/strict` 并挂入 `scripts/control-plane-test-inventory.mjs` 的 `unit` 组（`runner: 'node'`），与 Playwright 控制面测试共享同一套 1:1 inventory 与 `skip/only/todo/fixme` AST 护栏；对 `scripts/dev-all.mjs` 同时维护 mock 生命周期单测与面向全新隔离临时库的真实 3 守护进程 `ready -> SIGTERM` 冒烟验证。
 
+### 61. 控制面纯逻辑单测迁移至 `node:test`、冻结历史 DB 修复归档与 UI 巨型组件拆解原则
+
+- 结论：将不依赖 DB/真实进程/浏览器的控制面单测从 Playwright 迁入原生 `node:test`（`runner: 'node'`）时，可复用零外部依赖的轻量断言辅助（`src/lib/testing/node-assert.ts`）替代 `expect().toMatchObject(...)`，避开 Node 22/24 与 `@types/node@22` 的 API 差异；对 `scripts/bootstrap-local-db.mjs` 这类历史迁移引导脚本，应保证 `fs.mkdirSync(path.dirname(targetDbPath), { recursive: true })` 早于 `createClient()` 执行，并将已冻结的 pre-v1 兼容修补声明与 resolver 独立归档到 `scripts/db/`；拆解超千行 UI 单体组件（如 `deliverable-version-controls.tsx`、`comment-sidebar.tsx`）时，优先沿「零 DOM 依赖纯 helpers + 自包含弹窗/表单 + 展示型卡片」三条缝隙拆解，并保持原有状态机与渲染时序不变。
+- 为什么：在 Playwright 中运行纯逻辑单测会平白支付浏览器测试框架调度与启动开销，而直接依赖 Node 24 新增的 `assert.partialDeepStrictEqual` 会在 Node 22 CI 上触发类型或运行时不兼容；将 2,000+ 行冻结历史修补代码与当前核心 DB bootstrap 混写会掩盖诸如目录创建晚于 `createClient` 的根因缺陷；而在拆解巨型 UI 组件时若顺手改变 `useEffect` 或状态提升时序，极易在 Radix overlay 与选区同步路径上制造 E2E 竞态回归。
+- 默认做法：纯逻辑单测统一进入 `scripts/control-plane-test-inventory.mjs` 的 `unit` 组，只把真正依赖 SQLite/子进程/文件系统的集成测留在 Playwright `core` 组；DB 引导脚本把核心 WAL/迁移 runner 与冻结历史 repair 物理隔离；UI 大组件拆解坚持 zero-behavior-change，拆解后用 `tsc`、`eslint`、`npm run build` 和完整 `Iteration Gate` 验收。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。
