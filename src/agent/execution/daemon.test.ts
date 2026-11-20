@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import { RUNTIME_CONTRACT_VERSION_V1 } from './contracts';
 import {
@@ -48,7 +51,7 @@ test('persists every success event before completing with aggregated text', asyn
     },
     complete: async (input) => {
       order.push('complete');
-      expect(input).toMatchObject({
+      assertMatchesObject(input, {
         attemptId: 'attempt-1',
         generation: 1,
         runtimeRunId: 'runtime-run-1',
@@ -70,7 +73,7 @@ test('persists every success event before completing with aggregated text', asyn
   await daemon.drain();
   await running;
 
-  expect(order).toEqual([
+  assert.deepEqual(order, [
     'event:attempt-started',
     'event:text-delta',
     'event:progress',
@@ -123,8 +126,8 @@ test('heartbeat fencing interrupts the runtime and never completes', async () =>
   await daemon.drain();
   await running;
 
-  expect(interrupts).toEqual(['heartbeat-fenced']);
-  expect(completions).toEqual([]);
+  assert.deepEqual(interrupts, ['heartbeat-fenced']);
+  assert.deepEqual(completions, []);
 });
 
 test('waiting input suspends the attempt, closes the iterator, and stops lifecycle work', async () => {
@@ -179,19 +182,22 @@ test('waiting input suspends the attempt, closes the iterator, and stops lifecyc
   await daemon.drain();
   await running;
 
-  expect(store.events.map(({ event }) => event)).toEqual([
-    { type: 'attempt-started', runtimeAttemptId: 'runtime-waiting' },
-    {
-      type: 'waiting-for-human',
-      requestId: 'request-1',
-      prompt: 'Approve the proposed change?',
-    },
-  ]);
-  expect(iteratorCloses).toBe(1);
-  expect(store.heartbeats).toHaveLength(1);
-  expect(interrupts).toEqual([]);
-  expect(store.completions).toEqual([]);
-  expect(workspaceCleanups).toBe(0);
+  assert.deepEqual(
+    store.events.map(({ event }) => event),
+    [
+      { type: 'attempt-started', runtimeAttemptId: 'runtime-waiting' },
+      {
+        type: 'waiting-for-human',
+        requestId: 'request-1',
+        prompt: 'Approve the proposed change?',
+      },
+    ]
+  );
+  assert.equal(iteratorCloses, 1);
+  assert.equal(store.heartbeats.length, 1);
+  assert.deepEqual(interrupts, []);
+  assert.deepEqual(store.completions, []);
+  assert.equal(workspaceCleanups, 0);
 });
 
 test('native resume receives the exact pending human input for the same attempt', async () => {
@@ -233,8 +239,8 @@ test('native resume receives the exact pending human input for the same attempt'
   await daemon.drain();
   await running;
 
-  expect(starts).toEqual([]);
-  expect(resumes).toEqual([
+  assert.deepEqual(starts, []);
+  assert.deepEqual(resumes, [
     {
       jobId: 'job-1',
       attemptId: 'attempt-1',
@@ -283,17 +289,21 @@ test('restarts a reclaimed non-resumable attempt instead of calling resume', asy
   await daemon.drain();
   await running;
 
-  expect(starts[0]).toMatchObject({
+  assertMatchesObject(starts[0], {
     attemptId: 'attempt-1',
     generation: 2,
     executionSpec: { goal: 'Run daemon test' },
   });
-  expect(resumes).toEqual([]);
-  expect(store.heartbeats.slice(1)).not.toContainEqual(
-    expect.objectContaining({
-      runtimeRunId: 'expired-runtime-run',
-      checkpointRef: 'expired-checkpoint',
-    })
+  assert.deepEqual(resumes, []);
+  assert.equal(
+    store.heartbeats
+      .slice(1)
+      .some(
+        (hb) =>
+          hb.runtimeRunId === 'expired-runtime-run' &&
+          hb.checkpointRef === 'expired-checkpoint'
+      ),
+    false
   );
 });
 
@@ -328,8 +338,8 @@ test('event fencing interrupts from the rejected started event and never complet
   await daemon.drain();
   await running;
 
-  expect(interrupts).toEqual(['runtime-event-fenced']);
-  expect(completions).toEqual([]);
+  assert.deepEqual(interrupts, ['runtime-event-fenced']);
+  assert.deepEqual(completions, []);
 });
 
 test('drain stops new claims, keeps heartbeats, and waits for active work', async () => {
@@ -363,7 +373,7 @@ test('drain stops new claims, keeps heartbeats, and waits for active work', asyn
   await eventually(() => daemon.activeAttemptCount === 1);
   const draining = daemon.drain();
   await eventually(() => daemon.isDraining);
-  expect(claims).toBe(1);
+  assert.equal(claims, 1);
 
   while (heartbeats < 2) {
     await eventually(() => wait.pendingCount > 0);
@@ -371,12 +381,12 @@ test('drain stops new claims, keeps heartbeats, and waits for active work', asyn
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
   await eventually(() => heartbeats >= 2);
-  expect(claims).toBe(1);
+  assert.equal(claims, 1);
 
   gate.resolve();
   await draining;
   await running;
-  expect(claims).toBe(1);
+  assert.equal(claims, 1);
 });
 
 test('interruptActive abandons the lease and never completes', async () => {
@@ -412,8 +422,8 @@ test('interruptActive abandons the lease and never completes', async () => {
   await draining;
   await running;
 
-  expect(interrupts).toEqual(['test-force-shutdown']);
-  expect(completions).toEqual([]);
+  assert.deepEqual(interrupts, ['test-force-shutdown']);
+  assert.deepEqual(completions, []);
 });
 
 test('rejects a heartbeat interval above one third of the lease', async () => {
@@ -421,7 +431,7 @@ test('rejects a heartbeat interval above one third of the lease', async () => {
   const registry = new ExecutionRuntimeDriverRegistryV1();
   await registry.register(driver);
 
-  expect(
+  assert.throws(
     () =>
       new ExecutionDaemonV1({
         workerId: 'test-worker',
@@ -432,8 +442,9 @@ test('rejects a heartbeat interval above one third of the lease', async () => {
         logger: silentLogger(),
         heartbeatIntervalMs: 10_001,
         leaseDurationMs: 30_000,
-      })
-  ).toThrow(/one third/);
+      }),
+    /one third/
+  );
 });
 
 test('orders worktree lifecycle, sanitizes runtime input, and skips terminal append', async () => {
@@ -494,7 +505,7 @@ test('orders worktree lifecycle, sanitizes runtime input, and skips terminal app
     },
     async createKnowledgeChangeRequest(input) {
       order.push('change-request');
-      expect(input.finalized).toEqual(finalized.finalized);
+      assert.deepEqual(input.finalized, finalized.finalized);
       return { changeRequest: { id: 'change-1' } };
     },
     async complete(input) {
@@ -510,18 +521,21 @@ test('orders worktree lifecycle, sanitizes runtime input, and skips terminal app
   await daemon.drain();
   await running;
 
-  expect(starts).toHaveLength(1);
-  expect(starts[0].workspace).toEqual({
+  assert.equal(starts.length, 1);
+  assert.deepEqual(starts[0].workspace, {
     uri: 'file:///trusted/worktree',
     revision: HEAD,
   });
-  expect(JSON.stringify(starts[0])).not.toContain('/private/repository');
-  expect(store.events.map(({ event }) => event.type)).toEqual([
-    'attempt-started',
-    'text-delta',
-  ]);
-  expect(store.terminals).toHaveLength(1);
-  expect(order).toEqual([
+  assert.equal(
+    JSON.stringify(starts[0]).includes('/private/repository'),
+    false
+  );
+  assert.deepEqual(
+    store.events.map(({ event }) => event.type),
+    ['attempt-started', 'text-delta']
+  );
+  assert.equal(store.terminals.length, 1);
+  assert.deepEqual(order, [
     'prepare',
     'persist:prepared',
     'start',
@@ -600,10 +614,10 @@ test('recovers durable unchanged completion without restarting runtime', async (
   await daemon.drain();
   await running;
 
-  expect(starts).toEqual([]);
-  expect(resumes).toEqual([]);
-  expect(store.terminals).toEqual([]);
-  expect(order).toEqual([
+  assert.deepEqual(starts, []);
+  assert.deepEqual(resumes, []);
+  assert.deepEqual(store.terminals, []);
+  assert.deepEqual(order, [
     'prepare',
     'persist:completed',
     'finalize',
@@ -612,7 +626,7 @@ test('recovers durable unchanged completion without restarting runtime', async (
     'persist:cleaned',
     'complete',
   ]);
-  expect(store.completions[0].status).toBe('succeeded');
+  assert.equal(store.completions[0].status, 'succeeded');
 });
 
 test('initial workspace cancellation prepares, records interrupted, cleans, and completes cancelled', async () => {
@@ -661,12 +675,12 @@ test('initial workspace cancellation prepares, records interrupted, cleans, and 
   await daemon.drain();
   await running;
 
-  expect(store.terminals[0].event).toMatchObject({
+  assertMatchesObject(store.terminals[0].event, {
     type: 'attempt-completed',
     status: 'interrupted',
   });
-  expect(store.completions[0].status).toBe('cancelled');
-  expect(order).toEqual([
+  assert.equal(store.completions[0].status, 'cancelled');
+  assert.deepEqual(order, [
     'prepare',
     'persist:prepared',
     'persist:terminal',
@@ -704,8 +718,8 @@ test('terminal cancel race replaces rejected success with one interrupted termin
   await daemon.drain();
   await running;
 
-  expect(terminalStatuses).toEqual(['succeeded', 'interrupted']);
-  expect(store.completions[0].status).toBe('cancelled');
+  assert.deepEqual(terminalStatuses, ['succeeded', 'interrupted']);
+  assert.equal(store.completions[0].status, 'cancelled');
 });
 
 test('fenced prepared persistence stops runtime and later lifecycle side effects', async () => {
@@ -738,9 +752,9 @@ test('fenced prepared persistence stops runtime and later lifecycle side effects
   await daemon.drain();
   await running;
 
-  expect(starts).toBe(0);
-  expect(cleanup).toBe(0);
-  expect(store.completions).toEqual([]);
+  assert.equal(starts, 0);
+  assert.equal(cleanup, 0);
+  assert.deepEqual(store.completions, []);
 });
 
 test('forced shutdown during change-request persistence skips stale cleanup and completion', async () => {
@@ -783,9 +797,9 @@ test('forced shutdown during change-request persistence skips stale cleanup and 
   changeRequestResult.resolve();
   await running;
 
-  expect(cleanup).toBe(0);
-  expect(store.lifecycles).toHaveLength(persistedBeforeShutdown);
-  expect(store.completions).toEqual([]);
+  assert.equal(cleanup, 0);
+  assert.equal(store.lifecycles.length, persistedBeforeShutdown);
+  assert.deepEqual(store.completions, []);
 });
 
 test('late fenced heartbeat after completion does not interrupt or warn', async () => {
@@ -852,11 +866,15 @@ test('late fenced heartbeat after completion does not interrupt or warn', async 
   await daemon.drain();
   await running;
 
-  expect(interrupts).toEqual([]);
-  expect(warnings).not.toContainEqual({
-    message: 'Execution daemon attempt was fenced.',
-    reason: 'heartbeat-fenced',
-  });
+  assert.deepEqual(interrupts, []);
+  assert.equal(
+    warnings.some(
+      (warning) =>
+        warning.message === 'Execution daemon attempt was fenced.' &&
+        warning.reason === 'heartbeat-fenced'
+    ),
+    false
+  );
 });
 
 type TestStoreV1 = ExecutionDaemonStoreV1 & {

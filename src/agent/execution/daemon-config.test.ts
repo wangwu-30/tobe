@@ -1,4 +1,10 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  assertErrorMatches,
+  assertMatchesObject,
+} from '@/lib/testing/node-assert';
 
 import {
   ExecutionDaemonConfigErrorV1,
@@ -32,7 +38,7 @@ function validConfig() {
 }
 
 test('parses the strict V1 daemon configuration', () => {
-  expect(parseExecutionDaemonConfigV1(validConfig())).toEqual(validConfig());
+  assert.deepEqual(parseExecutionDaemonConfigV1(validConfig()), validConfig());
 });
 
 test('parses a strict external module runtime with named or default factory export', () => {
@@ -47,15 +53,17 @@ test('parses a strict external module runtime with named or default factory expo
     capacityTotal: 3,
   };
 
-  expect(
-    parseExecutionDaemonConfigV1({ ...config, runtimes: [external] }).runtimes
-  ).toEqual([external]);
-  expect(
+  assert.deepEqual(
+    parseExecutionDaemonConfigV1({ ...config, runtimes: [external] }).runtimes,
+    [external]
+  );
+  assertMatchesObject(
     parseExecutionDaemonConfigV1({
       ...config,
       runtimes: [{ ...external, exportName: 'default' }],
-    }).runtimes[0]
-  ).toMatchObject({ exportName: 'default' });
+    }).runtimes[0],
+    { exportName: 'default' }
+  );
 });
 
 test('rejects unknown external driver, module, export, contract, and secret fields', () => {
@@ -107,7 +115,7 @@ test('accepts an exact worktree deployment configuration', () => {
     ],
   };
 
-  expect(parseExecutionDaemonConfigV1(withWorktree)).toEqual(withWorktree);
+  assert.deepEqual(parseExecutionDaemonConfigV1(withWorktree), withWorktree);
 });
 
 test('validates worktree config as an exact, enabled deployment object', () => {
@@ -206,17 +214,21 @@ test('loads JSON only from the trusted absolute config path', async () => {
     },
   });
 
-  expect(loaded).toEqual(config);
-  expect(calls).toEqual(['/etc/dao/daemon.json:utf8']);
+  assert.deepEqual(loaded, config);
+  assert.deepEqual(calls, ['/etc/dao/daemon.json:utf8']);
 
-  await expect(
-    loadExecutionDaemonConfigV1({ environment: {} })
-  ).rejects.toMatchObject({ code: 'missing-config-path' });
-  await expect(
+  await assert.rejects(
+    loadExecutionDaemonConfigV1({ environment: {} }),
+    (error: unknown) =>
+      assertErrorMatches(error, { code: 'missing-config-path' })
+  );
+  await assert.rejects(
     loadExecutionDaemonConfigV1({
       environment: { DAO_EXECUTION_DAEMON_CONFIG_PATH: './daemon.json' },
-    })
-  ).rejects.toMatchObject({ code: 'invalid-config-path' });
+    }),
+    (error: unknown) =>
+      assertErrorMatches(error, { code: 'invalid-config-path' })
+  );
 });
 
 test('requires schemaVersion 1 and rejects unknown fields', () => {
@@ -280,7 +292,7 @@ test('defaults shutdown grace to 15 seconds and validates explicit values', () =
     ReturnType<typeof validConfig>
   >;
   delete withoutGrace.shutdownGraceMs;
-  expect(parseExecutionDaemonConfigV1(withoutGrace).shutdownGraceMs).toBe(15_000);
+  assert.equal(parseExecutionDaemonConfigV1(withoutGrace).shutdownGraceMs, 15_000);
   expectConfigError(
     () => parseExecutionDaemonConfigV1({ ...validConfig(), shutdownGraceMs: 0 }),
     'invalid-config',
@@ -340,12 +352,13 @@ test('env allowlist contains unique names only and resolves no implicit values',
     'runtimes[0].envAllowlist'
   );
 
-  expect(
+  assert.deepEqual(
     resolveExecutionDaemonRuntimeEnvironmentV1(
       { envAllowlist: ['PATH', 'DAO_RUNTIME_TOKEN', 'MISSING'] },
       { PATH: '/trusted/bin', DAO_RUNTIME_TOKEN: 'secret', OTHER: 'blocked' }
-    )
-  ).toEqual({ PATH: '/trusted/bin', DAO_RUNTIME_TOKEN: 'secret' });
+    ),
+    { PATH: '/trusted/bin', DAO_RUNTIME_TOKEN: 'secret' }
+  );
 
   const inheritedEnvironment = Object.assign(
     Object.create({ DAO_RUNTIME_TOKEN: 'inherited-secret' }) as Record<
@@ -354,12 +367,13 @@ test('env allowlist contains unique names only and resolves no implicit values',
     >,
     { PATH: '/trusted/bin' }
   );
-  expect(
+  assert.deepEqual(
     resolveExecutionDaemonRuntimeEnvironmentV1(
       { envAllowlist: ['PATH', 'DAO_RUNTIME_TOKEN'] },
       inheritedEnvironment
-    )
-  ).toEqual({ PATH: '/trusted/bin' });
+    ),
+    { PATH: '/trusted/bin' }
+  );
 });
 
 function expectConfigError(
@@ -367,11 +381,7 @@ function expectConfigError(
   code: ExecutionDaemonConfigErrorV1['code'],
   path: string
 ): void {
-  try {
-    action();
-    throw new Error('Expected execution daemon configuration to be rejected.');
-  } catch (error) {
-    expect(error).toBeInstanceOf(ExecutionDaemonConfigErrorV1);
-    expect(error).toMatchObject({ code, path });
-  }
+  assert.throws(action, (error: unknown) =>
+    assertErrorMatches(error, { code, path }, ExecutionDaemonConfigErrorV1)
+  );
 }

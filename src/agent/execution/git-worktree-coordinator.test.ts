@@ -1,4 +1,10 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  assertErrorMatches,
+  assertMatchesObject,
+} from '@/lib/testing/node-assert';
 
 import type {
   FinalizedGitWorktreeV1,
@@ -192,7 +198,7 @@ test('prepares from trusted identity and exposes only a file URI to the runtime'
 
   const result = await coordinator.prepareOrRecover(coordinatorInput());
 
-  expect(port.prepareInputs).toEqual([
+  assert.deepEqual(port.prepareInputs, [
     {
       spaceId: binding.spaceId,
       mountPath: '/',
@@ -205,14 +211,15 @@ test('prepares from trusted identity and exposes only a file URI to the runtime'
       baseCommit: binding.baseCommit,
     },
   ]);
-  expect(result.lifecycle).toEqual(preparedLifecycle());
-  expect(result.workspace).toEqual({
+  assert.deepEqual(result.lifecycle, preparedLifecycle());
+  assert.deepEqual(result.workspace, {
     uri: 'file:///trusted/worktrees/attempt%20one',
     revision: BASE,
   });
-  expect(result.workspace).not.toHaveProperty('repositoryPath');
-  expect(JSON.stringify(result.workspace)).not.toContain(
-    prepared.repositoryPath
+  assert.equal('repositoryPath' in result.workspace, false);
+  assert.equal(
+    JSON.stringify(result.workspace).includes(prepared.repositoryPath),
+    false
   );
 });
 
@@ -225,8 +232,8 @@ test('reclaims prepare-only state by revalidating Git', async () => {
     coordinatorInput(lifecycle)
   );
 
-  expect(port.prepareInputs).toHaveLength(1);
-  expect(result.lifecycle).toEqual(lifecycle);
+  assert.equal(port.prepareInputs.length, 1);
+  assert.deepEqual(result.lifecycle, lifecycle);
 });
 
 test('preserves completed state without applying prepare-phase Git validation', async () => {
@@ -241,9 +248,10 @@ test('preserves completed state without applying prepare-phase Git validation', 
     coordinatorInput(lifecycle)
   );
 
-  expect(port.prepareInputs).toEqual([]);
-  expect(result.lifecycle).toEqual(lifecycle);
-  expect(result.workspace.uri).toBe(
+  assert.deepEqual(port.prepareInputs, []);
+  assert.deepEqual(result.lifecycle, lifecycle);
+  assert.equal(
+    result.workspace.uri,
     'file:///trusted/worktrees/attempt%20one'
   );
 });
@@ -260,8 +268,8 @@ test('preserves finalized state without applying prepare-phase Git validation', 
     coordinatorInput(lifecycle)
   );
 
-  expect(result.lifecycle).toEqual(lifecycle);
-  expect(port.prepareInputs).toEqual([]);
+  assert.deepEqual(result.lifecycle, lifecycle);
+  assert.deepEqual(port.prepareInputs, []);
 });
 
 test('does not recreate a cleaned lifecycle during reclaim', async () => {
@@ -281,9 +289,9 @@ test('does not recreate a cleaned lifecycle during reclaim', async () => {
     coordinatorInput(cleaned)
   );
 
-  expect(replay.lifecycle).toEqual(cleaned);
-  expect(port.prepareInputs).toEqual([]);
-  expect(port.cleanupInputs).toEqual([]);
+  assert.deepEqual(replay.lifecycle, cleaned);
+  assert.deepEqual(port.prepareInputs, []);
+  assert.deepEqual(port.cleanupInputs, []);
 });
 
 test('fails closed when recovered Git prepare state differs from the durable receipt', async () => {
@@ -294,13 +302,16 @@ test('fails closed when recovered Git prepare state differs from the durable rec
   };
   const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
 
-  await expect(
-    coordinator.prepareOrRecover(coordinatorInput(preparedLifecycle()))
-  ).rejects.toMatchObject({
-    code: 'invalid-lifecycle',
-    path: 'lifecycle.prepared',
-  });
-  expect(port.prepareInputs).toHaveLength(1);
+  await assert.rejects(
+    coordinator.prepareOrRecover(coordinatorInput(preparedLifecycle())),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-lifecycle', path: 'lifecycle.prepared' },
+        WorkspaceLifecycleErrorV1
+      )
+  );
+  assert.equal(port.prepareInputs.length, 1);
 });
 
 test('accepts a recovered receipt with different property insertion order', async () => {
@@ -321,10 +332,11 @@ test('accepts a recovered receipt with different property insertion order', asyn
   };
   const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
 
-  await expect(
-    coordinator.prepareOrRecover(coordinatorInput(preparedLifecycle()))
-  ).resolves.toMatchObject({ lifecycle: preparedLifecycle() });
-  expect(port.prepareInputs).toHaveLength(1);
+  assertMatchesObject(
+    await coordinator.prepareOrRecover(coordinatorInput(preparedLifecycle())),
+    { lifecycle: preparedLifecycle() }
+  );
+  assert.equal(port.prepareInputs.length, 1);
 });
 
 test('rejects trusted identity mismatches before touching Git', async () => {
@@ -338,27 +350,31 @@ test('rejects trusted identity mismatches before touching Git', async () => {
   for (const variant of variants) {
     const port = new FakeGitWorktreePort();
     const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
-    await expect(
+    await assert.rejects(
       coordinator.prepareOrRecover({
         ...coordinatorInput(preparedLifecycle()),
         [variant.field]: variant.value,
-      })
-    ).rejects.toBeInstanceOf(WorkspaceLifecycleErrorV1);
-    expect(port.prepareInputs, variant.field).toEqual([]);
+      }),
+      WorkspaceLifecycleErrorV1
+    );
+    assert.deepEqual(port.prepareInputs, [], variant.field);
   }
 
   const port = new FakeGitWorktreePort();
   const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
-  await expect(
+  await assert.rejects(
     coordinator.prepareOrRecover({
       ...coordinatorInput(preparedLifecycle()),
       binding: { ...binding, bindingId: 'other-binding' },
-    })
-  ).rejects.toMatchObject({
-    code: 'invalid-lifecycle',
-    path: 'lifecycle.binding.bindingId',
-  });
-  expect(port.prepareInputs).toEqual([]);
+    }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-lifecycle', path: 'lifecycle.binding.bindingId' },
+        WorkspaceLifecycleErrorV1
+      )
+  );
+  assert.deepEqual(port.prepareInputs, []);
 });
 
 test('adds runtime completion as one immutable, canonical stage', () => {
@@ -368,17 +384,19 @@ test('adds runtime completion as one immutable, canonical stage', () => {
     succeeded
   );
 
-  expect(completed.runtimeCompletion).toEqual({
+  assert.deepEqual(completed.runtimeCompletion, {
     status: 'succeeded',
     result: { a: 'canonical', z: true },
     runtimeRunId: 'runtime-run-1',
   });
-  expect(addWorkspaceRuntimeCompletionV1(completed, succeeded)).toEqual(
+  assert.deepEqual(
+    addWorkspaceRuntimeCompletionV1(completed, succeeded),
     completed
   );
-  expect(() =>
-    addWorkspaceRuntimeCompletionV1(completed, { status: 'cancelled' })
-  ).toThrow(WorkspaceLifecycleErrorV1);
+  assert.throws(
+    () => addWorkspaceRuntimeCompletionV1(completed, { status: 'cancelled' }),
+    WorkspaceLifecycleErrorV1
+  );
 });
 
 test('finalizes changed and unchanged successful workspaces one stage at a time', async () => {
@@ -394,9 +412,9 @@ test('finalizes changed and unchanged successful workspaces one stage at a time'
     const result = await coordinator.finalizeOrRecover(completed);
     const replay = await coordinator.finalizeOrRecover(result);
 
-    expect(result.finalized).toEqual(finalized);
-    expect(replay).toEqual(result);
-    expect(port.finalizeInputs).toEqual([prepared]);
+    assert.deepEqual(result.finalized, finalized);
+    assert.deepEqual(replay, result);
+    assert.deepEqual(port.finalizeInputs, [prepared]);
   }
 });
 
@@ -415,10 +433,16 @@ test('rejects finalization for missing, failed, and cancelled runtime completion
   for (const lifecycle of states) {
     const port = new FakeGitWorktreePort();
     const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
-    await expect(
-      coordinator.finalizeOrRecover(lifecycle)
-    ).rejects.toMatchObject({ code: 'invalid-advance' });
-    expect(port.finalizeInputs).toEqual([]);
+    await assert.rejects(
+      coordinator.finalizeOrRecover(lifecycle),
+      (error: unknown) =>
+        assertErrorMatches(
+          error,
+          { code: 'invalid-advance' },
+          WorkspaceLifecycleErrorV1
+        )
+    );
+    assert.deepEqual(port.finalizeInputs, []);
   }
 });
 
@@ -437,8 +461,8 @@ test('cleans failed, cancelled, and successful unchanged workspaces at their val
       lifecycle,
       cleanedAt: '2026-08-21T05:06:07Z',
     });
-    expect(result.cleanedAt).toBe(CLEANED_AT);
-    expect(port.cleanupInputs).toEqual([prepared]);
+    assert.equal(result.cleanedAt, CLEANED_AT);
+    assert.deepEqual(port.cleanupInputs, [prepared]);
   }
 
   const port = new FakeGitWorktreePort();
@@ -451,8 +475,8 @@ test('cleans failed, cancelled, and successful unchanged workspaces at their val
     lifecycle: finalized,
     cleanedAt: CLEANED_AT,
   });
-  expect(result.cleanedAt).toBe(CLEANED_AT);
-  expect(port.cleanupInputs).toEqual([prepared]);
+  assert.equal(result.cleanedAt, CLEANED_AT);
+  assert.deepEqual(port.cleanupInputs, [prepared]);
 });
 
 test('requires a change request before cleaning a changed workspace', async () => {
@@ -462,10 +486,16 @@ test('requires a change request before cleaning a changed workspace', async () =
     addWorkspaceRuntimeCompletionV1(preparedLifecycle(), succeeded)
   );
 
-  await expect(
-    coordinator.cleanupOrRecover({ lifecycle: finalized, cleanedAt: CLEANED_AT })
-  ).rejects.toMatchObject({ code: 'invalid-advance' });
-  expect(port.cleanupInputs).toEqual([]);
+  await assert.rejects(
+    coordinator.cleanupOrRecover({ lifecycle: finalized, cleanedAt: CLEANED_AT }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-advance' },
+        WorkspaceLifecycleErrorV1
+      )
+  );
+  assert.deepEqual(port.cleanupInputs, []);
 
   const proposed: WorkspaceLifecycleV1 = {
     ...finalized,
@@ -475,8 +505,8 @@ test('requires a change request before cleaning a changed workspace', async () =
     lifecycle: proposed,
     cleanedAt: CLEANED_AT,
   });
-  expect(cleaned.cleanedAt).toBe(CLEANED_AT);
-  expect(port.cleanupInputs).toEqual([prepared]);
+  assert.equal(cleaned.cleanedAt, CLEANED_AT);
+  assert.deepEqual(port.cleanupInputs, [prepared]);
 });
 
 test('cleanup replay is exact and never calls Git again', async () => {
@@ -494,29 +524,41 @@ test('cleanup replay is exact and never calls Git again', async () => {
     lifecycle: cleaned,
     cleanedAt: '2026-08-21T05:06:07Z',
   });
-  expect(replay).toEqual(cleaned);
-  expect(port.cleanupInputs).toEqual([prepared]);
+  assert.deepEqual(replay, cleaned);
+  assert.deepEqual(port.cleanupInputs, [prepared]);
 
-  await expect(
+  await assert.rejects(
     coordinator.cleanupOrRecover({
       lifecycle: cleaned,
       cleanedAt: '2026-08-21T05:06:08Z',
-    })
-  ).rejects.toMatchObject({ code: 'invalid-advance' });
-  expect(port.cleanupInputs).toEqual([prepared]);
+    }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-advance' },
+        WorkspaceLifecycleErrorV1
+      )
+  );
+  assert.deepEqual(port.cleanupInputs, [prepared]);
 });
 
 test('cleanup rejects a skipped stage before invoking Git', async () => {
   const port = new FakeGitWorktreePort();
   const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
 
-  await expect(
+  await assert.rejects(
     coordinator.cleanupOrRecover({
       lifecycle: preparedLifecycle(),
       cleanedAt: CLEANED_AT,
-    })
-  ).rejects.toMatchObject({ code: 'invalid-advance' });
-  expect(port.cleanupInputs).toEqual([]);
+    }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-advance' },
+        WorkspaceLifecycleErrorV1
+      )
+  );
+  assert.deepEqual(port.cleanupInputs, []);
 });
 
 test('forwards recovery inspection using the durable prepared receipt', async () => {
@@ -524,38 +566,43 @@ test('forwards recovery inspection using the durable prepared receipt', async ()
   port.recoveryStateResult = { schemaVersion: 1, state: 'prepared-dirty' };
   const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
 
-  await expect(
-    coordinator.inspectRecoveryState(preparedLifecycle())
-  ).resolves.toEqual({ schemaVersion: 1, state: 'prepared-dirty' });
-  expect(port.inspectRecoveryInputs).toEqual([prepared]);
+  assert.deepEqual(
+    await coordinator.inspectRecoveryState(preparedLifecycle()),
+    { schemaVersion: 1, state: 'prepared-dirty' }
+  );
+  assert.deepEqual(port.inspectRecoveryInputs, [prepared]);
 });
 
 test('recovers a suspended workspace only when the receipt matches exactly', async () => {
   const port = new FakeGitWorktreePort();
   const coordinator = new GitWorktreeLifecycleCoordinatorV1(port);
 
-  await expect(
-    coordinator.recoverSuspended(preparedLifecycle())
-  ).resolves.toEqual({
-    lifecycle: preparedLifecycle(),
-    workspace: {
-      uri: 'file:///trusted/worktrees/attempt%20one',
-      revision: BASE,
-    },
-  });
-  expect(port.recoverSuspendedInputs).toEqual([prepared]);
+  assert.deepEqual(
+    await coordinator.recoverSuspended(preparedLifecycle()),
+    {
+      lifecycle: preparedLifecycle(),
+      workspace: {
+        uri: 'file:///trusted/worktrees/attempt%20one',
+        revision: BASE,
+      },
+    }
+  );
+  assert.deepEqual(port.recoverSuspendedInputs, [prepared]);
 
   port.recoveredResult = {
     ...prepared,
     worktreePath: '/trusted/worktrees/lookalike',
   };
-  await expect(
-    coordinator.recoverSuspended(preparedLifecycle())
-  ).rejects.toMatchObject({
-    code: 'invalid-lifecycle',
-    path: 'lifecycle.prepared',
-  });
-  expect(port.recoverSuspendedInputs).toEqual([prepared, prepared]);
+  await assert.rejects(
+    coordinator.recoverSuspended(preparedLifecycle()),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-lifecycle', path: 'lifecycle.prepared' },
+        WorkspaceLifecycleErrorV1
+      )
+  );
+  assert.deepEqual(port.recoverSuspendedInputs, [prepared, prepared]);
 });
 
 test('forwards quarantined discard using the durable prepared receipt', async () => {
@@ -564,5 +611,5 @@ test('forwards quarantined discard using the durable prepared receipt', async ()
 
   await coordinator.discardQuarantined(preparedLifecycle());
 
-  expect(port.discardQuarantinedInputs).toEqual([prepared]);
+  assert.deepEqual(port.discardQuarantinedInputs, [prepared]);
 });

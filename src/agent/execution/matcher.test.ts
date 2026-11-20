@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   RUNTIME_CONTRACT_VERSION_V1,
@@ -82,7 +83,7 @@ function evaluationFor(
     ({ candidate: item }) => item.descriptor.runtimeId === runtimeId
   );
 
-  expect(evaluation, `Expected an evaluation for ${runtimeId}`).toBeDefined();
+  assert.notEqual(evaluation, undefined, `Expected an evaluation for ${runtimeId}`);
   if (!evaluation) {
     throw new Error(`Expected an evaluation for ${runtimeId}`);
   }
@@ -103,18 +104,19 @@ test('auto selection applies organization allowlist before agent preference', ()
     })
   );
 
-  expect(result.matched).toBe(true);
+  assert.equal(result.matched, true);
   if (!result.matched) {
     return;
   }
 
-  expect(result.selected.descriptor.runtimeId).toBe('codex');
-  expect(result.selectedBy).toBe('agent-preference');
-  expect(
+  assert.equal(result.selected.descriptor.runtimeId, 'codex');
+  assert.equal(result.selectedBy, 'agent-preference');
+  assert.deepEqual(
     evaluationFor(result, 'openhands').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(['not-allowed-by-organization']);
+    ),
+    ['not-allowed-by-organization']
+  );
 });
 
 test('auto fallback never weakens required capabilities', () => {
@@ -142,21 +144,17 @@ test('auto fallback never weakens required capabilities', () => {
     })
   );
 
-  expect(result.matched).toBe(true);
+  assert.equal(result.matched, true);
   if (!result.matched) {
     return;
   }
 
-  expect(result.selected.descriptor.runtimeId).toBe('openhands');
-  expect(
+  assert.equal(result.selected.descriptor.runtimeId, 'openhands');
+  assert.deepEqual(
     evaluationFor(result, 'preferred-cli').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(
-    [
-      'workspace-capability-insufficient',
-      'structured-artifacts-required',
-    ]
+    ),
+    ['workspace-capability-insufficient', 'structured-artifacts-required']
   );
 });
 
@@ -179,18 +177,19 @@ test('malformed waiting-for-human capabilities fail closed', () => {
     })
   );
 
-  expect(result.matched).toBe(true);
+  assert.equal(result.matched, true);
   if (!result.matched) {
     return;
   }
 
-  expect(result.selected.descriptor.runtimeId).toBe('compatible-runtime');
-  expect(
+  assert.equal(result.selected.descriptor.runtimeId, 'compatible-runtime');
+  assert.deepEqual(
     evaluationFor(
       result,
       'malformed-waiting-runtime'
-    ).rejectionReasons.map(({ code }) => code)
-  ).toEqual(['native-resume-required']);
+    ).rejectionReasons.map(({ code }) => code),
+    ['native-resume-required']
+  );
 });
 
 test('explicit selection fails instead of falling back to another runtime', () => {
@@ -207,22 +206,24 @@ test('explicit selection fails instead of falling back to another runtime', () =
     })
   );
 
-  expect(result.matched).toBe(false);
+  assert.equal(result.matched, false);
   if (result.matched) {
     return;
   }
 
-  expect(result.failure.code).toBe('requested-runtime-ineligible');
-  expect(
+  assert.equal(result.failure.code, 'requested-runtime-ineligible');
+  assert.deepEqual(
     evaluationFor(result, 'requested').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(['runtime-at-capacity']);
-  expect(
+    ),
+    ['runtime-at-capacity']
+  );
+  assert.equal(
     evaluationFor(result, 'fallback').rejectionReasons.some(
       ({ code }) => code === 'not-explicit-runtime'
-    )
-  ).toBe(true);
+    ),
+    true
+  );
 });
 
 test('explicit selection reports a missing runtime clearly', () => {
@@ -235,13 +236,13 @@ test('explicit selection reports a missing runtime clearly', () => {
     })
   );
 
-  expect(result.matched).toBe(false);
+  assert.equal(result.matched, false);
   if (result.matched) {
     return;
   }
 
-  expect(result.failure.code).toBe('requested-runtime-not-found');
-  expect(result.failure.runtimeId).toBe('missing');
+  assert.equal(result.failure.code, 'requested-runtime-not-found');
+  assert.equal(result.failure.runtimeId, 'missing');
 });
 
 test('health and capacity are hard filters with explainable reasons', () => {
@@ -256,22 +257,24 @@ test('health and capacity are hard filters with explainable reasons', () => {
   });
   const result = matchExecutionRuntimeV1(request([offline, saturated]));
 
-  expect(result.matched).toBe(false);
+  assert.equal(result.matched, false);
   if (result.matched) {
     return;
   }
 
-  expect(result.failure.code).toBe('no-compatible-runtime');
-  expect(
+  assert.equal(result.failure.code, 'no-compatible-runtime');
+  assert.deepEqual(
     evaluationFor(result, 'offline').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(['runtime-unhealthy', 'runtime-not-accepting-attempts']);
-  expect(
+    ),
+    ['runtime-unhealthy', 'runtime-not-accepting-attempts']
+  );
+  assert.deepEqual(
     evaluationFor(result, 'saturated').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(['runtime-at-capacity']);
+    ),
+    ['runtime-at-capacity']
+  );
 });
 
 test('degraded runtime requires organization opt-in', () => {
@@ -290,13 +293,14 @@ test('degraded runtime requires organization opt-in', () => {
     })
   );
 
-  expect(denied.matched).toBe(false);
-  expect(
+  assert.equal(denied.matched, false);
+  assert.deepEqual(
     evaluationFor(denied, 'degraded').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(['runtime-degraded']);
-  expect(allowed.matched).toBe(true);
+    ),
+    ['runtime-degraded']
+  );
+  assert.equal(allowed.matched, true);
 });
 
 test('matcher explains every unsupported execution requirement', () => {
@@ -337,12 +341,11 @@ test('matcher explains every unsupported execution requirement', () => {
     })
   );
 
-  expect(result.matched).toBe(false);
-  expect(
+  assert.equal(result.matched, false);
+  assert.deepEqual(
     evaluationFor(result, 'limited').rejectionReasons.map(
       ({ code }) => code
-    )
-  ).toEqual(
+    ),
     [
       'execution-kind-not-supported',
       'native-resume-required',
@@ -377,13 +380,13 @@ test('auto selection is deterministic after preference and priority ranking', ()
     ])
   );
 
-  expect(result.matched).toBe(true);
+  assert.equal(result.matched, true);
   if (!result.matched) {
     return;
   }
 
-  expect(result.selected.descriptor.runtimeId).toBe('a-runtime');
-  expect(result.selectedBy).toBe('automatic-ranking');
+  assert.equal(result.selected.descriptor.runtimeId, 'a-runtime');
+  assert.equal(result.selectedBy, 'automatic-ranking');
 });
 
 test('duplicate runtime registrations invalidate the request', () => {
@@ -391,15 +394,16 @@ test('duplicate runtime registrations invalidate the request', () => {
     request([candidate('duplicate'), candidate('duplicate')])
   );
 
-  expect(result.matched).toBe(false);
+  assert.equal(result.matched, false);
   if (result.matched) {
     return;
   }
 
-  expect(result.failure.code).toBe('invalid-selection-request');
-  expect(
+  assert.equal(result.failure.code, 'invalid-selection-request');
+  assert.equal(
     result.evaluations.every(({ rejectionReasons }) =>
       rejectionReasons.some(({ code }) => code === 'duplicate-runtime-id')
-    )
-  ).toBe(true);
+    ),
+    true
+  );
 });

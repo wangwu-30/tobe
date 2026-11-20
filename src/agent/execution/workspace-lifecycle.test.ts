@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { assertErrorMatches } from '@/lib/testing/node-assert';
 
 import {
   WorkspaceLifecycleErrorV1,
@@ -88,26 +91,30 @@ test('strictly parses, deep-copies, and stably serializes a private receipt', ()
   const input = withFinalized();
   const parsed = parseWorkspaceLifecycleV1(input);
 
-  expect(parsed).toEqual(input);
-  expect(parsed).not.toBe(input);
-  expect(parsed.binding).not.toBe(input.binding);
-  expect(parsed.prepared).not.toBe(input.prepared);
-  expect(parsed.runtimeCompletion?.result).not.toBe(
+  assert.deepEqual(parsed, input);
+  assert.notEqual(parsed, input);
+  assert.notEqual(parsed.binding, input.binding);
+  assert.notEqual(parsed.prepared, input.prepared);
+  assert.notEqual(
+    parsed.runtimeCompletion?.result,
     input.runtimeCompletion?.result
   );
-  expect(serializeWorkspaceLifecycleV1(input)).toBe(
+  assert.equal(
+    serializeWorkspaceLifecycleV1(input),
     serializeWorkspaceLifecycleV1(parsed)
   );
-  expect(serializeWorkspaceLifecycleV1(input)).toContain(
-    '"result":{"a":{"first":false,"second":true},"z":1}'
+  assert.ok(
+    serializeWorkspaceLifecycleV1(input).includes(
+      '"result":{"a":{"first":false,"second":true},"z":1}'
+    )
   );
-  expect(parsed.prepared.repositoryPath).toBe('/srv/repos/knowledge');
-  expect(parsed.binding).not.toHaveProperty('repositoryPath');
-  expect(parsed.binding).not.toHaveProperty('worktreePath');
+  assert.equal(parsed.prepared.repositoryPath, '/srv/repos/knowledge');
+  assert.equal('repositoryPath' in parsed.binding, false);
+  assert.equal('worktreePath' in parsed.binding, false);
 });
 
 test('stored values fail closed on invalid JSON, unknown fields, and misalignment', () => {
-  expect(parseStoredWorkspaceLifecycleV1(null)).toBeNull();
+  assert.equal(parseStoredWorkspaceLifecycleV1(null), null);
   expectLifecycleError(
     () => parseStoredWorkspaceLifecycleV1('{'),
     'invalid-json'
@@ -145,35 +152,38 @@ test('allows exact replay and exactly one valid durable stage per advance', () =
   const proposed = { ...finalized, changeRequestId: 'change-1' };
   const cleaned = { ...proposed, cleanedAt: '2026-08-21T04:00:00.000Z' };
 
-  expect(isWorkspaceLifecycleAdvanceV1(null, prepared)).toBe(true);
-  expect(isWorkspaceLifecycleAdvanceV1(prepared, prepared)).toBe(true);
-  expect(isWorkspaceLifecycleAdvanceV1(prepared, completed)).toBe(true);
-  expect(isWorkspaceLifecycleAdvanceV1(completed, finalized)).toBe(true);
-  expect(isWorkspaceLifecycleAdvanceV1(finalized, proposed)).toBe(true);
-  expect(isWorkspaceLifecycleAdvanceV1(proposed, cleaned)).toBe(true);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(null, prepared), true);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(prepared, prepared), true);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(prepared, completed), true);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(completed, finalized), true);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(finalized, proposed), true);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(proposed, cleaned), true);
 
-  expect(isWorkspaceLifecycleAdvanceV1(null, completed)).toBe(false);
-  expect(isWorkspaceLifecycleAdvanceV1(prepared, finalized)).toBe(false);
-  expect(
+  assert.equal(isWorkspaceLifecycleAdvanceV1(null, completed), false);
+  assert.equal(isWorkspaceLifecycleAdvanceV1(prepared, finalized), false);
+  assert.equal(
     isWorkspaceLifecycleAdvanceV1(completed, {
       ...completed,
       prepared: { ...completed.prepared, worktreePath: '/tmp/replaced' },
-    })
-  ).toBe(false);
-  expect(isWorkspaceLifecycleAdvanceV1(cleaned, proposed)).toBe(false);
-  expect(() => assertWorkspaceLifecycleAdvanceV1(prepared, finalized)).toThrow(
+    }),
+    false
+  );
+  assert.equal(isWorkspaceLifecycleAdvanceV1(cleaned, proposed), false);
+  assert.throws(
+    () => assertWorkspaceLifecycleAdvanceV1(prepared, finalized),
     WorkspaceLifecycleErrorV1
   );
 });
 
 test('failed or unchanged runs skip inapplicable stages and advance to cleanup', () => {
   const failed = withCompletion(lifecycle(), 'failed');
-  expect(
+  assert.equal(
     isWorkspaceLifecycleAdvanceV1(failed, {
       ...failed,
       cleanedAt: '2026-08-21T04:00:00Z',
-    })
-  ).toBe(true);
+    }),
+    true
+  );
 
   const finalized = withFinalized();
   const unchanged: WorkspaceLifecycleV1 = {
@@ -191,18 +201,20 @@ test('failed or unchanged runs skip inapplicable stages and advance to cleanup',
       },
     },
   };
-  expect(
+  assert.equal(
     isWorkspaceLifecycleAdvanceV1(unchanged, {
       ...unchanged,
       cleanedAt: '2026-08-21T04:00:00.000Z',
-    })
-  ).toBe(true);
-  expect(
+    }),
+    true
+  );
+  assert.equal(
     isWorkspaceLifecycleAdvanceV1(unchanged, {
       ...unchanged,
       changeRequestId: 'must-not-exist',
-    })
-  ).toBe(false);
+    }),
+    false
+  );
 });
 
 function expectLifecycleError(
@@ -210,11 +222,11 @@ function expectLifecycleError(
   code: WorkspaceLifecycleErrorV1['code'],
   path?: string
 ): void {
-  try {
-    action();
-    throw new Error('Expected workspace lifecycle to be rejected.');
-  } catch (error) {
-    expect(error).toBeInstanceOf(WorkspaceLifecycleErrorV1);
-    expect(error).toMatchObject({ code, ...(path ? { path } : {}) });
-  }
+  assert.throws(action, (error: unknown) =>
+    assertErrorMatches(
+      error,
+      { code, ...(path ? { path } : {}) },
+      WorkspaceLifecycleErrorV1
+    )
+  );
 }

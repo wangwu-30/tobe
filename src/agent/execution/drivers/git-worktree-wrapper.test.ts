@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import { RUNTIME_CONTRACT_VERSION_V1 } from '../contracts';
 import type {
@@ -91,10 +94,10 @@ test('upgrades only workspace capability and preserves base descriptor fields', 
   const inner = innerDriver();
   const wrapper = new GitWorktreeExecutionRuntimeDriverV1(inner.driver);
 
-  await expect(inner.driver.describe()).resolves.toMatchObject({
+  assertMatchesObject(await inner.driver.describe(), {
     capabilities: { workspace: 'none' },
   });
-  await expect(wrapper.describe()).resolves.toMatchObject({
+  assertMatchesObject(await wrapper.describe(), {
     runtimeId: 'generic-cli',
     capabilities: {
       workspace: 'git-worktree',
@@ -102,17 +105,18 @@ test('upgrades only workspace capability and preserves base descriptor fields', 
       interrupt: 'process-kill',
     },
   });
-  expect(wrapper.resume).toBeUndefined();
+  assert.equal(wrapper.resume, undefined);
 });
 
 test('fails closed before delegation when workspace is missing', () => {
   const inner = innerDriver();
   const wrapper = new GitWorktreeExecutionRuntimeDriverV1(inner.driver);
 
-  expect(() => wrapper.start(startInput(false))).toThrow(
+  assert.throws(
+    () => wrapper.start(startInput(false)),
     GitWorktreeWorkspaceRequiredErrorV1
   );
-  expect(inner.starts).toEqual([]);
+  assert.deepEqual(inner.starts, []);
 });
 
 test('passes workspace and all lifecycle calls through unchanged', async () => {
@@ -126,12 +130,12 @@ test('passes workspace and all lifecycle calls through unchanged', async () => {
     runtimeAttemptId: 'runtime-attempt-1',
   };
 
-  expect(wrapper.start(input)).toBeDefined();
-  expect(inner.starts).toEqual([input]);
+  assert.notEqual(wrapper.start(input), undefined);
+  assert.deepEqual(inner.starts, [input]);
   await wrapper.interrupt(attemptRef);
   await wrapper.reconcile(attemptRef);
   await wrapper.archive(attemptRef);
-  expect(inner.interrupts).toEqual([attemptRef]);
-  expect(inner.reconciles).toEqual([attemptRef]);
-  expect(inner.archives).toEqual([attemptRef]);
+  assert.deepEqual(inner.interrupts, [attemptRef]);
+  assert.deepEqual(inner.reconciles, [attemptRef]);
+  assert.deepEqual(inner.archives, [attemptRef]);
 });

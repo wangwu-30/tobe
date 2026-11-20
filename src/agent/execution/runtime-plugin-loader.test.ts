@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { assertErrorMatches } from '@/lib/testing/node-assert';
 
 import type { ExecutionRuntimeDriverV1 } from './driver';
 import {
@@ -31,19 +34,19 @@ test('loads named and default V1 factories with a frozen deployment context', as
         },
       }
     );
-    expect(loaded).toBe(driver);
+    assert.equal(loaded, driver);
   }
 
-  expect(importUrls).toEqual([
+  assert.deepEqual(importUrls, [
     'file:///trusted/runtime%20plugins/a%23b%25.mjs',
     'file:///trusted/runtime%20plugins/a%23b%25.mjs',
   ]);
-  expect(contexts).toEqual([
+  assert.deepEqual(contexts, [
     { contractVersion: 1, runtimeId: 'external-runtime', environment: { RUNTIME_TOKEN: 'secret' } },
     { contractVersion: 1, runtimeId: 'external-runtime', environment: { RUNTIME_TOKEN: 'secret' } },
   ]);
-  expect(Object.isFrozen(contexts[0])).toBe(true);
-  expect(Object.isFrozen((contexts[0] as { environment: object }).environment)).toBe(true);
+  assert.equal(Object.isFrozen(contexts[0]), true);
+  assert.equal(Object.isFrozen((contexts[0] as { environment: object }).environment), true);
 });
 
 test('fails closed for module, export, factory, driver, and runtime id failures', async () => {
@@ -76,12 +79,18 @@ test('fails closed for module, export, factory, driver, and runtime id failures'
   ];
 
   for (const item of cases) {
-    await expect(
-      loadExecutionRuntimePluginV1(base, { importModule: item.importModule })
-    ).rejects.toMatchObject({
-      name: 'ExecutionRuntimePluginLoadErrorV1',
-      code: item.expectedCode,
-    });
+    await assert.rejects(
+      loadExecutionRuntimePluginV1(base, { importModule: item.importModule }),
+      (error: unknown) =>
+        assertErrorMatches(
+          error,
+          {
+            name: 'ExecutionRuntimePluginLoadErrorV1',
+            code: item.expectedCode,
+          },
+          ExecutionRuntimePluginLoadErrorV1
+        )
+    );
   }
 });
 
@@ -95,11 +104,17 @@ test('rejects malformed descriptors and an unsafe waiting-input contract', async
   };
   const malformed = runtimeDriver('external-runtime');
   malformed.describe = async () => ({ schemaVersion: 2 } as never);
-  await expect(
+  await assert.rejects(
     loadExecutionRuntimePluginV1(base, {
       importModule: async () => ({ default: () => malformed }),
-    })
-  ).rejects.toMatchObject({ code: 'invalid-plugin-driver-contract' });
+    }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-plugin-driver-contract' },
+        ExecutionRuntimePluginLoadErrorV1
+      )
+  );
 
   const unsafe = runtimeDriver('external-runtime');
   unsafe.describe = async () => ({
@@ -110,11 +125,17 @@ test('rejects malformed descriptors and an unsafe waiting-input contract', async
       nativeResume: false,
     },
   });
-  await expect(
+  await assert.rejects(
     loadExecutionRuntimePluginV1(base, {
       importModule: async () => ({ default: () => unsafe }),
-    })
-  ).rejects.toMatchObject({ code: 'invalid-plugin-driver-contract' });
+    }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-plugin-driver-contract' },
+        ExecutionRuntimePluginLoadErrorV1
+      )
+  );
 
   const missingResume = runtimeDriver('external-runtime');
   missingResume.describe = async () => ({
@@ -124,11 +145,17 @@ test('rejects malformed descriptors and an unsafe waiting-input contract', async
       nativeResume: true,
     },
   });
-  await expect(
+  await assert.rejects(
     loadExecutionRuntimePluginV1(base, {
       importModule: async () => ({ default: () => missingResume }),
-    })
-  ).rejects.toMatchObject({ code: 'invalid-plugin-driver-contract' });
+    }),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'invalid-plugin-driver-contract' },
+        ExecutionRuntimePluginLoadErrorV1
+      )
+  );
 });
 
 function runtimeDriver(runtimeId: string): ExecutionRuntimeDriverV1 {
