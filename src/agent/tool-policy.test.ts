@@ -1,5 +1,8 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { Type } from 'typebox';
+
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import {
   AgentToolConfirmationRequiredError,
@@ -37,11 +40,12 @@ test('required tools fail closed without a confirmation authority', async () => 
     })
   );
 
-  await expect(tool.execute('call-1', { value: 'requested' })).rejects.toThrow(
+  await assert.rejects(
+    tool.execute('call-1', { value: 'requested' }),
     AgentToolConfirmationRequiredError
   );
-  expect(executeCalls).toBe(0);
-  expect(tool.getPendingConfirmation?.('call-1')).toBeUndefined();
+  assert.equal(executeCalls, 0);
+  assert.equal(tool.getPendingConfirmation?.('call-1'), undefined);
 });
 
 test('denied calls synchronously expose the exact descriptor to an authority', async () => {
@@ -63,14 +67,16 @@ test('denied calls synchronously expose the exact descriptor to an authority', a
     authority
   );
 
-  await expect(
-    tool.execute('typed-call', { value: 'exact typed value' })
-  ).rejects.toBeInstanceOf(AgentToolConfirmationRequiredError);
+  await assert.rejects(
+    tool.execute('typed-call', { value: 'exact typed value' }),
+    AgentToolConfirmationRequiredError
+  );
 
-  expect(authority.getPendingConfirmation('typed-call')).toEqual(
+  assert.deepEqual(
+    authority.getPendingConfirmation('typed-call'),
     tool.getPendingConfirmation?.('typed-call')
   );
-  expect(authority.getPendingConfirmation('typed-call')).toMatchObject({
+  assertMatchesObject(authority.getPendingConfirmation('typed-call'), {
     schemaVersion: 1,
     request: {
       toolCallId: 'typed-call',
@@ -102,9 +108,9 @@ test('required tools execute once only after an authority consumes confirmation'
 
   const result = await tool.execute('call-2', { value: 'confirmed' });
 
-  expect(executeCalls).toBe(1);
-  expect(result.details).toEqual({ executed: true });
-  expect(requests).toEqual([
+  assert.equal(executeCalls, 1);
+  assert.deepEqual(result.details, { executed: true });
+  assert.deepEqual(requests, [
     {
       parameters: { value: 'confirmed' },
       safetyLevel: 'confirm',
@@ -130,13 +136,15 @@ test('denied or failed confirmation never reaches the tool delegate', async () =
     },
   });
 
-  await expect(denied.execute('denied', { value: 'x' })).rejects.toThrow(
+  await assert.rejects(
+    denied.execute('denied', { value: 'x' }),
     AgentToolConfirmationRequiredError
   );
-  await expect(failed.execute('failed', { value: 'x' })).rejects.toThrow(
+  await assert.rejects(
+    failed.execute('failed', { value: 'x' }),
     AgentToolConfirmationRequiredError
   );
-  expect(executeCalls).toBe(0);
+  assert.equal(executeCalls, 0);
 });
 
 test('automatic tools preserve execution and callback arguments', async () => {
@@ -178,11 +186,11 @@ test('automatic tools preserve execution and callback arguments', async () => {
     onUpdate
   );
 
-  expect(result.details).toEqual({ value: 'forwarded' });
-  expect(confirmationCalls).toBe(0);
-  expect(receivedSignal).toBe(abortController.signal);
-  expect(receivedUpdate).toBe(onUpdate);
-  expect(updates).toHaveLength(1);
+  assert.deepEqual(result.details, { value: 'forwarded' });
+  assert.equal(confirmationCalls, 0);
+  assert.equal(receivedSignal, abortController.signal);
+  assert.equal(receivedUpdate, onUpdate);
+  assert.equal(updates.length, 1);
 });
 
 test('unknown runtime policy values fail closed even with an authority', async () => {
@@ -198,10 +206,11 @@ test('unknown runtime policy values fail closed even with an authority', async (
     consumeConfirmation: () => true,
   });
 
-  await expect(tool.execute('corrupted', { value: 'x' })).rejects.toThrow(
+  await assert.rejects(
+    tool.execute('corrupted', { value: 'x' }),
     AgentToolConfirmationRequiredError
   );
-  expect(executeCalls).toBe(0);
+  assert.equal(executeCalls, 0);
 });
 
 test('automatic delegate errors remain errors', async () => {
@@ -212,8 +221,9 @@ test('automatic delegate errors remain errors', async () => {
     })
   );
 
-  await expect(tool.execute('automatic-error', { value: 'x' })).rejects.toBe(
-    delegateError
+  await assert.rejects(
+    tool.execute('automatic-error', { value: 'x' }),
+    (error: unknown) => error === delegateError
   );
 });
 
@@ -235,13 +245,14 @@ test('confirm and privileged tools fail closed if misconfigured as automatic', a
       { onAudit: (event) => audits.push(event) }
     );
 
-    await expect(
-      tool.execute(`downgraded-${safetyLevel}`, { value: 'x' })
-    ).rejects.toThrow(AgentToolConfirmationRequiredError);
+    await assert.rejects(
+      tool.execute(`downgraded-${safetyLevel}`, { value: 'x' }),
+      AgentToolConfirmationRequiredError
+    );
   }
 
-  expect(executeCalls).toBe(0);
-  expect(audits).toEqual([
+  assert.equal(executeCalls, 0);
+  assert.deepEqual(audits, [
     {
       confirmationPolicy: 'automatic',
       outcome: 'confirmation_required',
@@ -292,18 +303,20 @@ test('audit observer records executed, confirmation_required, and failed outcome
   );
 
   await safeTool.execute('call-ok', { value: 'ok' });
-  await expect(safeTool.execute('call-fail', { value: 'boom' })).rejects.toThrow(
-    'simulated failure'
+  await assert.rejects(
+    safeTool.execute('call-fail', { value: 'boom' }),
+    /simulated failure/
   );
-  await expect(
-    confirmTool.execute('call-denied', { value: 'x' })
-  ).rejects.toThrow(AgentToolConfirmationRequiredError);
+  await assert.rejects(
+    confirmTool.execute('call-denied', { value: 'x' }),
+    AgentToolConfirmationRequiredError
+  );
   const survived = await throwingObserverTool.execute('call-survived', {
     value: 'ok',
   });
 
-  expect(survived.details).toBe('survived');
-  expect(events).toEqual([
+  assert.equal(survived.details, 'survived');
+  assert.deepEqual(events, [
     {
       confirmationPolicy: 'automatic',
       outcome: 'executed',
@@ -344,6 +357,6 @@ test('isGovernedAgentTool distinguishes enforced governed tools from raw tools',
     createTool('automatic', async () => ({ content: [], details: null }))
   );
 
-  expect(isGovernedAgentTool(raw)).toBe(false);
-  expect(isGovernedAgentTool(governed)).toBe(true);
+  assert.equal(isGovernedAgentTool(raw), false);
+  assert.equal(isGovernedAgentTool(governed), true);
 });

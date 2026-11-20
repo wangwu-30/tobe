@@ -1,5 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
+import { assertErrorMatches } from '@/lib/testing/node-assert';
 import { ROOM_RUNTIME_CONTRACT_VERSION_V1 } from './contracts';
 import type {
   RoomRuntimeEventEnvelopeV1,
@@ -68,14 +70,14 @@ test('registers Room runtimes by descriptor id in stable order', async () => {
   const pi = runtime('pi-agent-core');
   const alternate = runtime('alternate');
 
-  await expect(registry.register(pi)).resolves.toBe(pi);
-  await expect(registry.register(alternate)).resolves.toBe(alternate);
+  assert.equal(await registry.register(pi), pi);
+  assert.equal(await registry.register(alternate), alternate);
 
-  expect(registry.lookup('pi-agent-core')).toBe(pi);
-  expect(registry.lookup('missing')).toBeUndefined();
-  expect(registry.list()).toEqual([pi, alternate]);
-  expect(registry.runtimeIds()).toEqual(['pi-agent-core', 'alternate']);
-  expect(registry.descriptor('pi-agent-core')?.runtimeVersion).toBe('test');
+  assert.equal(registry.lookup('pi-agent-core'), pi);
+  assert.equal(registry.lookup('missing'), undefined);
+  assert.deepEqual(registry.list(), [pi, alternate]);
+  assert.deepEqual(registry.runtimeIds(), ['pi-agent-core', 'alternate']);
+  assert.equal(registry.descriptor('pi-agent-core')?.runtimeVersion, 'test');
 });
 
 test('rejects duplicate ids and preserves the original runtime', async () => {
@@ -83,24 +85,30 @@ test('rejects duplicate ids and preserves the original runtime', async () => {
   const original = runtime('pi-agent-core');
   await registry.register(original);
 
-  const registration = registry.register(runtime('pi-agent-core'));
-  await expect(registration).rejects.toBeInstanceOf(
-    RoomSessionRuntimeRegistryErrorV1
+  await assert.rejects(
+    registry.register(runtime('pi-agent-core')),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'duplicate-runtime-id', runtimeId: 'pi-agent-core' },
+        RoomSessionRuntimeRegistryErrorV1
+      )
   );
-  await expect(registration).rejects.toMatchObject({
-    code: 'duplicate-runtime-id',
-    runtimeId: 'pi-agent-core',
-  });
-  expect(registry.lookup('pi-agent-core')).toBe(original);
+  assert.equal(registry.lookup('pi-agent-core'), original);
 });
 
 test('rejects empty and whitespace-padded ids', async () => {
   for (const runtimeId of ['', ' pi-agent-core', 'pi-agent-core ']) {
     const registry = new RoomSessionRuntimeRegistryV1();
-    await expect(registry.register(runtime(runtimeId))).rejects.toMatchObject({
-      code: 'invalid-runtime-id',
-      runtimeId,
-    });
-    expect(registry.runtimeIds()).toEqual([]);
+    await assert.rejects(
+      registry.register(runtime(runtimeId)),
+      (error: unknown) =>
+        assertErrorMatches(
+          error,
+          { code: 'invalid-runtime-id', runtimeId },
+          RoomSessionRuntimeRegistryErrorV1
+        )
+    );
+    assert.deepEqual(registry.runtimeIds(), []);
   }
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from '@playwright/test';
+import test from 'node:test';
 
 import {
   DEFAULT_ROOM_CONTEXT_BUDGET_V1,

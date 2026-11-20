@@ -1,10 +1,12 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   RUNTIME_CONTRACT_VERSION_V1,
   type RuntimeDescriptorV1,
 } from '@/agent/execution';
 import { ConflictError, NotFoundError } from '@/framework/resilience';
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import type { ExecutionRuntimeRow } from './schema';
 import {
@@ -70,7 +72,7 @@ test('registers and re-registers a daemon without resetting capacityUsed', async
     },
     store
   );
-  expect(registered).toMatchObject({
+  assertMatchesObject(registered, {
     runtimeId: 'runtime-daemon-local',
     organizationId: ACTOR.organizationId,
     enabled: true,
@@ -79,7 +81,7 @@ test('registers and re-registers a daemon without resetting capacityUsed', async
   });
 
   const current = store.rows.get('runtime-daemon-local');
-  expect(current).toBeDefined();
+  assert.notEqual(current, undefined);
   if (!current) return;
   store.rows.set(current.id, { ...current, capacityUsed: 3 });
 
@@ -93,7 +95,7 @@ test('registers and re-registers a daemon without resetting capacityUsed', async
     },
     store
   );
-  expect(refreshed).toMatchObject({
+  assertMatchesObject(refreshed, {
     name: 'Renamed runtime',
     capacity: {
       activeAttempts: 3,
@@ -101,7 +103,7 @@ test('registers and re-registers a daemon without resetting capacityUsed', async
       availableSlots: 3,
     },
   });
-  expect(store.rows.get(current.id)?.capacityUsed).toBe(3);
+  assert.equal(store.rows.get(current.id)?.capacityUsed, 3);
 });
 
 test('heartbeat is organization-scoped and never changes capacityUsed', async () => {
@@ -112,11 +114,11 @@ test('heartbeat is organization-scoped and never changes capacityUsed', async ()
     store
   );
   const current = store.rows.get('runtime-daemon-local');
-  expect(current).toBeDefined();
+  assert.notEqual(current, undefined);
   if (!current) return;
   store.rows.set(current.id, { ...current, capacityUsed: 2 });
 
-  await expect(
+  await assert.rejects(
     heartbeatExecutionRuntimeDaemon(
       OTHER_ACTOR,
       {
@@ -125,8 +127,9 @@ test('heartbeat is organization-scoped and never changes capacityUsed', async ()
         now: LATER,
       },
       store
-    )
-  ).rejects.toBeInstanceOf(NotFoundError);
+    ),
+    NotFoundError
+  );
 
   const heartbeat = await heartbeatExecutionRuntimeDaemon(
     ACTOR,
@@ -143,7 +146,7 @@ test('heartbeat is organization-scoped and never changes capacityUsed', async ()
     },
     store
   );
-  expect(heartbeat).toMatchObject({
+  assertMatchesObject(heartbeat, {
     health: {
       state: 'degraded',
       acceptingNewAttempts: false,
@@ -154,7 +157,7 @@ test('heartbeat is organization-scoped and never changes capacityUsed', async ()
     capacityDetails: { queueDepth: 2 },
     lastHeartbeatAt: LATER.toISOString(),
   });
-  expect(store.rows.get(current.id)?.capacityUsed).toBe(2);
+  assert.equal(store.rows.get(current.id)?.capacityUsed, 2);
 });
 
 test('registration rejects cross-organization ids and organization-local key aliases', async () => {
@@ -164,14 +167,15 @@ test('registration rejects cross-organization ids and organization-local key ali
     { descriptor: descriptor(), driver: 'generic-cli', capacityTotal: 1, now: NOW },
     store
   );
-  await expect(
+  await assert.rejects(
     registerExecutionRuntimeDaemon(
       OTHER_ACTOR,
       { descriptor: descriptor(), driver: 'generic-cli', capacityTotal: 1, now: NOW },
       store
-    )
-  ).rejects.toBeInstanceOf(ConflictError);
-  await expect(
+    ),
+    ConflictError
+  );
+  await assert.rejects(
     registerExecutionRuntimeDaemon(
       ACTOR,
       {
@@ -182,8 +186,9 @@ test('registration rejects cross-organization ids and organization-local key ali
         now: NOW,
       },
       store
-    )
-  ).rejects.toBeInstanceOf(ConflictError);
+    ),
+    ConflictError
+  );
 });
 
 function identity(row: ExecutionRuntimeRow) {

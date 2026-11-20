@@ -1,5 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { safeJsonParse } from '@/framework/resilience/safe-data';
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import {
   createExecutionJob,
@@ -30,31 +32,30 @@ test('sends an encoded execution job search with pagination and abort signal', a
 
   try {
     const controller = new AbortController();
-    await expect(
-      listExecutionJobs({
+    assert.deepEqual(
+      await listExecutionJobs({
         cursor: 'cursor/next',
         limit: 25,
         search: 'C++ & runtime/一',
         signal: controller.signal,
         status: 'running',
-      })
-    ).resolves.toEqual({
-      data: {
-        items: [],
-        pageInfo: { hasNextPage: false, nextCursor: null },
-      },
-      ok: true,
-    });
-    const requested = new URL(requestedUrl, 'http://local.test');
-    expect(requestedUrl).toContain(
-      'q=C%2B%2B+%26+runtime%2F%E4%B8%80'
+      }),
+      {
+        data: {
+          items: [],
+          pageInfo: { hasNextPage: false, nextCursor: null },
+        },
+        ok: true,
+      }
     );
-    expect(requested.pathname).toBe('/api/execution-jobs');
-    expect(requested.searchParams.get('cursor')).toBe('cursor/next');
-    expect(requested.searchParams.get('limit')).toBe('25');
-    expect(requested.searchParams.get('q')).toBe('C++ & runtime/一');
-    expect(requested.searchParams.get('status')).toBe('running');
-    expect(Boolean(requestedSignal)).toBe(true);
+    const requested = new URL(requestedUrl, 'http://local.test');
+    assert.ok(requestedUrl.includes('q=C%2B%2B+%26+runtime%2F%E4%B8%80'));
+    assert.equal(requested.pathname, '/api/execution-jobs');
+    assert.equal(requested.searchParams.get('cursor'), 'cursor/next');
+    assert.equal(requested.searchParams.get('limit'), '25');
+    assert.equal(requested.searchParams.get('q'), 'C++ & runtime/一');
+    assert.equal(requested.searchParams.get('status'), 'running');
+    assert.equal(Boolean(requestedSignal), true);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -117,29 +118,30 @@ test('fetches and defensively normalizes paged execution logs', async () => {
   try {
     const result = await listExecutionLogs('job / logs', '7');
 
-    expect(requestedUrl).toBe(
+    assert.equal(
+      requestedUrl,
       '/api/execution-jobs/job%20%2F%20logs/logs?afterSequence=7'
     );
-    expect(result).toEqual({
+    assertMatchesObject(result, {
       data: {
         items: [
-          expect.objectContaining({
+          {
             id: 'log-text',
             text: ' line one\nline two ',
             payloadValid: true,
-          }),
-          expect.objectContaining({
+          },
+          {
             id: 'log-progress',
             text: 'Almost done',
             percent: 80,
             payloadValid: true,
-          }),
-          expect.objectContaining({
+          },
+          {
             id: 'log-invalid-payload',
             text: null,
             percent: null,
             payloadValid: false,
-          }),
+          },
         ],
         pageInfo: { hasNextPage: true, nextCursor: '10' },
       },
@@ -151,40 +153,49 @@ test('fetches and defensively normalizes paged execution logs', async () => {
 });
 
 test('normalizes execution origin room fields only as a complete nullable pair', () => {
-  expect(normalizeJobEnvelope({
-    job: {
-      id: 'job-with-origin',
+  assertMatchesObject(
+    normalizeJobEnvelope({
+      job: {
+        id: 'job-with-origin',
+        originRoomId: 'room-1',
+        originRoomMessageId: 'message-1',
+        status: 'queued',
+      },
+    }),
+    {
       originRoomId: 'room-1',
       originRoomMessageId: 'message-1',
-      status: 'queued',
-    },
-  })).toMatchObject({
-    originRoomId: 'room-1',
-    originRoomMessageId: 'message-1',
-  });
-  expect(normalizeJobEnvelope({
-    job: {
-      id: 'job-without-origin',
+    }
+  );
+  assertMatchesObject(
+    normalizeJobEnvelope({
+      job: {
+        id: 'job-without-origin',
+        originRoomId: null,
+        originRoomMessageId: null,
+        status: 'queued',
+      },
+    }),
+    {
       originRoomId: null,
       originRoomMessageId: null,
-      status: 'queued',
-    },
-  })).toMatchObject({
-    originRoomId: null,
-    originRoomMessageId: null,
-  });
-  expect(normalizeJobEnvelope({
-    job: {
-      id: 'job-with-partial-origin',
-      originRoomId: 'room-1',
-      originRoomMessageId: null,
-      status: 'queued',
-    },
-  })).toBeNull();
+    }
+  );
+  assert.equal(
+    normalizeJobEnvelope({
+      job: {
+        id: 'job-with-partial-origin',
+        originRoomId: 'room-1',
+        originRoomMessageId: null,
+        status: 'queued',
+      },
+    }),
+    null
+  );
 });
 
 test('preserves job revision and successful result for product actions', () => {
-  expect(
+  assertMatchesObject(
     normalizeJobEnvelope({
       job: {
         id: 'job-actionable',
@@ -194,12 +205,13 @@ test('preserves job revision and successful result for product actions', () => {
         revision: 7,
         status: 'succeeded',
       },
-    })
-  ).toMatchObject({
-    id: 'job-actionable',
-    result: { delivered: true },
-    revision: 7,
-  });
+    }),
+    {
+      id: 'job-actionable',
+      result: { delivered: true },
+      revision: 7,
+    }
+  );
 });
 
 test('preserves runtime kinds so incompatible explicit choices can be disabled', () => {
@@ -220,7 +232,7 @@ test('preserves runtime kinds so incompatible explicit choices can be disabled',
     },
   });
 
-  expect(launch?.job.selectedRuntime).toMatchObject({
+  assertMatchesObject(launch?.job.selectedRuntime, {
     capabilities: { kinds: ['browser'] },
     id: 'runtime-browser',
   });
@@ -283,11 +295,12 @@ test('submits only client-owned fields using the canonical idempotency header', 
 
     const result = await createExecutionJob(input, 'execution-idempotency-1');
 
-    expect(result.ok).toBe(true);
-    expect(submittedHeaders.get('x-dao-idempotency-key')).toBe(
+    assert.equal(result.ok, true);
+    assert.equal(
+      submittedHeaders.get('x-dao-idempotency-key'),
       'execution-idempotency-1'
     );
-    expect(submittedBody).toEqual({
+    assert.deepEqual(submittedBody, {
       conversationId: 'conversation-1',
       documentVersionId: 'version-1',
       goal: 'Ship the document',
@@ -334,7 +347,7 @@ test('normalizes a matched receipt and its runtime selection reason', () => {
     { goal: 'Ship the document', kind: 'coding' }
   );
 
-  expect(launch).toMatchObject({
+  assertMatchesObject(launch, {
     job: {
       id: 'job-queued',
       selectedRuntime: { id: 'runtime-1', name: 'Runtime One' },
@@ -367,8 +380,8 @@ test('reads selectedBy from a nested selected result when supplied', () => {
     { goal: 'Use the requested runtime', kind: 'coding' }
   );
 
-  expect(launch?.job.selectionReason).toBe('explicit-request');
-  expect(launch?.receipt.selectionReason).toBe('explicit-request');
+  assert.equal(launch?.job.selectionReason, 'explicit-request');
+  assert.equal(launch?.receipt.selectionReason, 'explicit-request');
 });
 
 test('keeps an accepted blocked receipt distinct from execution lifecycle state', () => {
@@ -399,7 +412,7 @@ test('keeps an accepted blocked receipt distinct from execution lifecycle state'
     { goal: 'Ship the document', kind: 'coding' }
   );
 
-  expect(launch).toMatchObject({
+  assertMatchesObject(launch, {
     job: {
       goal: 'Ship the document',
       id: 'job-blocked',
@@ -433,8 +446,8 @@ test('uses only the immutable receipt disposition when a job is also returned', 
     { goal: 'Later failure', kind: 'coding' }
   );
 
-  expect(launch?.job.status).toBe('failed');
-  expect(launch?.receipt).toMatchObject({
+  assert.equal(launch?.job.status, 'failed');
+  assertMatchesObject(launch?.receipt, {
     blocked: false,
     status: 'queued',
   });

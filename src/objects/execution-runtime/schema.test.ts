@@ -1,9 +1,11 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test, { describe } from 'node:test';
 
 import {
   RUNTIME_CONTRACT_VERSION_V1,
   matchExecutionRuntimeV1,
 } from '@/agent/execution';
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import { deriveExecutionRuntimeSelectionContextV1 } from './queries';
 import {
@@ -61,7 +63,7 @@ test('maps the database id as runtimeId while exposing the key separately', () =
   const runtime = mapExecutionRuntimeV1(row(), MAPPING_OPTIONS);
   const candidate = mapExecutionRuntimeCandidateV1(row(), MAPPING_OPTIONS);
 
-  expect(runtime).toMatchObject({
+  assertMatchesObject(runtime, {
     runtimeId: 'runtime-internal-id',
     organizationId: 'organization-a',
     key: 'openhands',
@@ -79,7 +81,7 @@ test('maps the database id as runtimeId while exposing the key separately', () =
       maxConcurrentAttempts: 4,
     },
   });
-  expect(candidate.descriptor).toMatchObject({
+  assertMatchesObject(candidate.descriptor, {
     runtimeId: 'runtime-internal-id',
     displayName: 'OpenHands',
     runtimeVersion: '1.2.3',
@@ -87,6 +89,7 @@ test('maps the database id as runtimeId while exposing the key separately', () =
     capabilities: VALID_CAPABILITIES,
   });
 });
+
 test('invalid JSON and malformed capability values fail closed', () => {
   const candidate = mapExecutionRuntimeCandidateV1(
     row({
@@ -101,18 +104,18 @@ test('invalid JSON and malformed capability values fail closed', () => {
     MAPPING_OPTIONS
   );
 
-  expect(candidate.descriptor.capabilities).toMatchObject({
+  assertMatchesObject(candidate.descriptor.capabilities, {
     kinds: [],
     nativeResume: false,
     supportedModels: [],
   });
-  expect(candidate.descriptor.selectionPriority).toBeUndefined();
-  expect(candidate.health).toEqual({
+  assert.equal(candidate.descriptor.selectionPriority, undefined);
+  assert.deepEqual(candidate.health, {
     state: 'offline',
     acceptingNewAttempts: false,
     observedAt: '2026-08-21T10:00:00.000Z',
   });
-  expect(candidate.capacity.availableSlots).toBe(0);
+  assert.equal(candidate.capacity.availableSlots, 0);
 });
 
 test('disabled runtimes are never represented as eligible snapshots', () => {
@@ -121,66 +124,71 @@ test('disabled runtimes are never represented as eligible snapshots', () => {
     MAPPING_OPTIONS
   );
 
-  expect(candidate.health).toMatchObject({
+  assertMatchesObject(candidate.health, {
     state: 'offline',
     acceptingNewAttempts: false,
   });
-  expect(candidate.capacity.availableSlots).toBe(0);
+  assert.equal(candidate.capacity.availableSlots, 0);
 });
 
 test('heartbeat TTL makes stale runtimes effectively offline', () => {
   const freshAt = new Date('2026-08-21T10:00:30.000Z');
   const staleAt = new Date('2026-08-21T10:00:30.001Z');
 
-  expect(mapExecutionRuntimeCandidateV1(row(), { now: freshAt })).toMatchObject({
+  assertMatchesObject(mapExecutionRuntimeCandidateV1(row(), { now: freshAt }), {
     health: { state: 'healthy', acceptingNewAttempts: true },
     capacity: { availableSlots: 3 },
   });
-  expect(mapExecutionRuntimeCandidateV1(row(), { now: staleAt })).toMatchObject({
+  assertMatchesObject(mapExecutionRuntimeCandidateV1(row(), { now: staleAt }), {
     health: { state: 'offline', acceptingNewAttempts: false },
     capacity: { availableSlots: 0, activeAttempts: 1 },
   });
-  expect(
+  assertMatchesObject(
     mapExecutionRuntimeCandidateV1(row({ lastHeartbeatAt: null }), {
       now: freshAt,
-    })
-  ).toMatchObject({
-    health: { state: 'offline', acceptingNewAttempts: false },
-    capacity: { availableSlots: 0 },
-  });
+    }),
+    {
+      health: { state: 'offline', acceptingNewAttempts: false },
+      capacity: { availableSlots: 0 },
+    }
+  );
 });
 
 test('capability parser rejects partial or wrong-version JSON', () => {
-  expect(parseRuntimeCapabilitiesJsonV1('{}')).toBeNull();
-  expect(
+  assert.equal(parseRuntimeCapabilitiesJsonV1('{}'), null);
+  assert.equal(
     parseRuntimeCapabilitiesJsonV1(
       JSON.stringify({ ...VALID_CAPABILITIES, schemaVersion: 2 })
-    )
-  ).toBeNull();
-  expect(
-    parseRuntimeCapabilitiesJsonV1(JSON.stringify(VALID_CAPABILITIES))
-  ).toEqual(VALID_CAPABILITIES);
+    ),
+    null
+  );
+  assert.deepEqual(
+    parseRuntimeCapabilitiesJsonV1(JSON.stringify(VALID_CAPABILITIES)),
+    VALID_CAPABILITIES
+  );
 });
 
 test('capability parser rejects waiting-for-human without native resume', () => {
-  expect(
+  assert.equal(
     parseRuntimeCapabilitiesJsonV1(
       JSON.stringify({
         ...VALID_CAPABILITIES,
         nativeResume: false,
         waitingForHuman: true,
       })
-    )
-  ).toBeNull();
-  expect(
+    ),
+    null
+  );
+  assert.notEqual(
     parseRuntimeCapabilitiesJsonV1(
       JSON.stringify({
         ...VALID_CAPABILITIES,
         nativeResume: false,
         waitingForHuman: false,
       })
-    )
-  ).not.toBeNull();
+    ),
+    null
+  );
 });
 
 const POLICY_ORGANIZATION = 'runtime-policy-org';
@@ -191,7 +199,7 @@ const ENABLED_RUNTIME_ID = 'runtime-policy-enabled';
 const DISABLED_RUNTIME_ID = 'runtime-policy-disabled';
 const DEGRADED_RUNTIME_ID = 'runtime-policy-degraded';
 
-test.describe('server-owned runtime selection policy', () => {
+describe('server-owned runtime selection policy', () => {
   test('allows only enabled rows in the actor organization and keeps disabled candidates', () => {
     const context = deriveExecutionRuntimeSelectionContextV1(
       { organizationId: POLICY_ORGANIZATION },
@@ -206,13 +214,13 @@ test.describe('server-owned runtime selection policy', () => {
       .map(({ descriptor }) => descriptor.runtimeId)
       .sort();
 
-    expect(context.organizationPolicy).toEqual({
+    assert.deepEqual(context.organizationPolicy, {
       allowedRuntimeIds: [ENABLED_RUNTIME_ID],
       allowDegradedRuntimes: false,
     });
-    expect(candidateIds).toContain(ENABLED_RUNTIME_ID);
-    expect(candidateIds).toContain(DISABLED_RUNTIME_ID);
-    expect(candidateIds).not.toContain('runtime-policy-other-enabled');
+    assert.ok(candidateIds.includes(ENABLED_RUNTIME_ID));
+    assert.ok(candidateIds.includes(DISABLED_RUNTIME_ID));
+    assert.equal(candidateIds.includes('runtime-policy-other-enabled'), false);
 
     const selection = matchExecutionRuntimeV1({
       schemaVersion: RUNTIME_CONTRACT_VERSION_V1,
@@ -221,16 +229,15 @@ test.describe('server-owned runtime selection policy', () => {
       ...context,
     });
 
-    expect(selection.matched).toBe(false);
-    expect(selection.evaluations).toHaveLength(context.candidates.length);
-    expect(
-      selection.evaluations
-        .find(
-          ({ candidate }) =>
-            candidate.descriptor.runtimeId === DISABLED_RUNTIME_ID
-        )
-        ?.rejectionReasons.map(({ code }) => code)
-    ).toContain('not-allowed-by-organization');
+    assert.equal(selection.matched, false);
+    assert.equal(selection.evaluations.length, context.candidates.length);
+    const rejectionCodes = selection.evaluations
+      .find(
+        ({ candidate }) =>
+          candidate.descriptor.runtimeId === DISABLED_RUNTIME_ID
+      )
+      ?.rejectionReasons.map(({ code }) => code);
+    assert.ok(rejectionCodes?.includes('not-allowed-by-organization'));
   });
 
   test('an empty enabled-row allowlist fails closed', () => {
@@ -246,19 +253,20 @@ test.describe('server-owned runtime selection policy', () => {
       ...context,
     });
 
-    expect(context.organizationPolicy.allowedRuntimeIds).toEqual([]);
-    expect(context.candidates.length).toBeGreaterThan(0);
-    expect(selection).toMatchObject({
+    assert.deepEqual(context.organizationPolicy.allowedRuntimeIds, []);
+    assert.ok(context.candidates.length > 0);
+    assertMatchesObject(selection, {
       matched: false,
       failure: { code: 'no-compatible-runtime' },
     });
-    expect(
+    assert.equal(
       selection.evaluations.every(({ rejectionReasons }) =>
         rejectionReasons.some(
           ({ code }) => code === 'not-allowed-by-organization'
         )
-      )
-    ).toBe(true);
+      ),
+      true
+    );
   });
 
   test('enabled degraded runtimes remain disallowed by MVP policy', () => {
@@ -281,25 +289,24 @@ test.describe('server-owned runtime selection policy', () => {
       ...context,
     });
 
-    expect(context.organizationPolicy).toEqual({
+    assert.deepEqual(context.organizationPolicy, {
       allowedRuntimeIds: [DEGRADED_RUNTIME_ID],
       allowDegradedRuntimes: false,
     });
-    expect(selection).toMatchObject({
+    assertMatchesObject(selection, {
       matched: false,
       failure: {
         code: 'requested-runtime-ineligible',
         runtimeId: DEGRADED_RUNTIME_ID,
       },
     });
-    expect(
-      selection.evaluations
-        .find(
-          ({ candidate }) =>
-            candidate.descriptor.runtimeId === DEGRADED_RUNTIME_ID
-        )
-        ?.rejectionReasons.map(({ code }) => code)
-    ).toContain('runtime-degraded');
+    const rejectionCodes = selection.evaluations
+      .find(
+        ({ candidate }) =>
+          candidate.descriptor.runtimeId === DEGRADED_RUNTIME_ID
+      )
+      ?.rejectionReasons.map(({ code }) => code);
+    assert.ok(rejectionCodes?.includes('runtime-degraded'));
   });
 });
 

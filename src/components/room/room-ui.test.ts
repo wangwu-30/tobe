@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import {
   findRoomMentionQuery,
@@ -26,62 +27,67 @@ const ANALYST = {
 };
 
 test('room feed near-bottom detection matches the unread-entry threshold', () => {
-  expect(
+  assert.equal(
     isRoomFeedNearBottom({
       clientHeight: 400,
       scrollHeight: 1000,
       scrollTop: 520,
-    })
-  ).toBe(true);
+    }),
+    true
+  );
 
-  expect(
+  assert.equal(
     isRoomFeedNearBottom({
       clientHeight: 400,
       scrollHeight: 1000,
       scrollTop: 500,
-    })
-  ).toBe(false);
+    }),
+    false
+  );
 });
 
 test('room feed unread increment only grows when the user is off-bottom after initial hydration', () => {
-  expect(
+  assert.equal(
     getRoomFeedUnreadIncrement({
       announcementReady: false,
       nextDurableItemCount: 4,
       previousDurableItemCount: 2,
       shouldStickToBottom: false,
-    })
-  ).toBe(0);
+    }),
+    0
+  );
 
-  expect(
+  assert.equal(
     getRoomFeedUnreadIncrement({
       announcementReady: true,
       nextDurableItemCount: 5,
       previousDurableItemCount: 3,
       shouldStickToBottom: true,
-    })
-  ).toBe(0);
+    }),
+    0
+  );
 
-  expect(
+  assert.equal(
     getRoomFeedUnreadIncrement({
       announcementReady: true,
       nextDurableItemCount: 5,
       previousDurableItemCount: 3,
       shouldStickToBottom: false,
-    })
-  ).toBe(2);
+    }),
+    2
+  );
 });
 
 test('room composer keyboard index helpers wrap through the standalone listbox', () => {
-  expect(normalizeRoomComposerOptionIndex(0, 3)).toBe(0);
-  expect(normalizeRoomComposerOptionIndex(4, 3)).toBe(1);
-  expect(normalizeRoomComposerOptionIndex(-1, 3)).toBe(2);
-  expect(normalizeRoomComposerOptionIndex(0, 0)).toBe(-1);
+  assert.equal(normalizeRoomComposerOptionIndex(0, 3), 0);
+  assert.equal(normalizeRoomComposerOptionIndex(4, 3), 1);
+  assert.equal(normalizeRoomComposerOptionIndex(-1, 3), 2);
+  assert.equal(normalizeRoomComposerOptionIndex(0, 0), -1);
 
-  expect(getNextRoomComposerOptionIndex(0, 3, 1)).toBe(1);
-  expect(getNextRoomComposerOptionIndex(2, 3, 1)).toBe(0);
-  expect(getNextRoomComposerOptionIndex(0, 3, -1)).toBe(2);
-  expect(getNextRoomComposerOptionIndex(0, 0, 1)).toBe(-1);
+  assert.equal(getNextRoomComposerOptionIndex(0, 3, 1), 1);
+  assert.equal(getNextRoomComposerOptionIndex(2, 3, 1), 0);
+  assert.equal(getNextRoomComposerOptionIndex(0, 3, -1), 2);
+  assert.equal(getNextRoomComposerOptionIndex(0, 0, 1), -1);
 });
 
 test('typed mention queries still resolve to the same structured insertion path', () => {
@@ -91,15 +97,15 @@ test('typed mention queries still resolve to the same structured insertion path'
   };
   const query = findRoomMentionQuery(draft.text, draft.text.length);
 
-  expect(query).toEqual({
+  assert.deepEqual(query, {
     end: draft.text.length,
     query: 'ana',
     start: 2,
   });
 
   const inserted = insertRoomMention(draft, ANALYST, query!);
-  expect(inserted.draft.text).toBe('请 @analyst ');
-  expect(inserted.draft.mentions).toEqual([
+  assert.equal(inserted.draft.text, '请 @analyst ');
+  assert.deepEqual(inserted.draft.mentions, [
     {
       agentId: ANALYST.id,
       handle: ANALYST.handle,
