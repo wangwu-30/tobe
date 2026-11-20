@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import { safeJsonParse } from '@/framework/resilience';
 import {
   isRoomAgentMentionV1,
@@ -59,7 +60,6 @@ const GRANT = {
   updatedAt: '2026-08-21T10:00:00.000Z',
 } as const;
 
-
 test('posts exact typed mentions with a stable correlation idempotency key', async () => {
   const originalFetch = globalThis.fetch;
   let requestBody: unknown;
@@ -107,11 +107,12 @@ test('posts exact typed mentions with a stable correlation idempotency key', asy
       text: '@analyst @writer review',
     });
 
-    expect(result.ok).toBe(true);
-    expect(requestHeaders.get('x-dao-idempotency-key')).toBe(
+    assert.equal(result.ok, true);
+    assert.equal(
+      requestHeaders.get('x-dao-idempotency-key'),
       'room-web:request-1'
     );
-    expect(requestBody).toEqual({
+    assert.deepEqual(requestBody, {
       attachments: [],
       correlationId: 'room-web:request-1',
       mentions: [
@@ -140,6 +141,7 @@ test('posts exact typed mentions with a stable correlation idempotency key', asy
     globalThis.fetch = originalFetch;
   }
 });
+
 test('issues a typed Room delegation grant with an idempotency key', async () => {
   const originalFetch = globalThis.fetch;
   const originalRandomUuid = crypto.randomUUID;
@@ -166,12 +168,13 @@ test('issues a typed Room delegation grant with an idempotency key', async () =>
       targetAgentId: 'agent-2',
     });
 
-    expect(result).toEqual({ data: GRANT, ok: true });
-    expect(requestedUrl).toBe('/api/rooms/room%2F1/grants');
-    expect(requestHeaders.get('x-dao-idempotency-key')).toBe(
+    assert.deepEqual(result, { data: GRANT, ok: true });
+    assert.equal(requestedUrl, '/api/rooms/room%2F1/grants');
+    assert.equal(
+      requestHeaders.get('x-dao-idempotency-key'),
       'room-web:grant:issue:00000000-0000-4000-8000-000000000001'
     );
-    expect(requestBody).toEqual({
+    assert.deepEqual(requestBody, {
       fromAgentId: 'agent-1',
       schemaVersion: 1,
       scope: 'once',
@@ -215,15 +218,17 @@ test('revokes a typed Room delegation grant and rejects malformed responses', as
 
   try {
     const result = await revokeRoomDelegationGrant('room/1', 'grant/1');
-    expect(result.ok).toBe(true);
-    expect(requestedUrls[0]).toBe(
+    assert.equal(result.ok, true);
+    assert.equal(
+      requestedUrls[0],
       '/api/rooms/room%2F1/grants/grant%2F1/revoke'
     );
-    expect(requestHeaders.get('x-dao-idempotency-key')).toBe(
+    assert.equal(
+      requestHeaders.get('x-dao-idempotency-key'),
       'room-web:grant:revoke:00000000-0000-4000-8000-000000000002'
     );
 
-    await expect(revokeRoomDelegationGrant('room/1', 'grant/1')).resolves.toEqual({
+    assert.deepEqual(await revokeRoomDelegationGrant('room/1', 'grant/1'), {
       error: 'Room grant response did not contain a valid grant.',
       ok: false,
       retryable: true,
@@ -270,20 +275,21 @@ test('parses SSE frames and resumes after the last durable event sequence', asyn
       }
     );
 
-    expect(requestedUrl).toContain('/events?format=sse&after=2');
-    expect(requestHeaders.get('Last-Event-ID')).toBe('2');
-    expect(states).toEqual(['connecting', 'live']);
-    expect(events).toEqual([EVENT]);
-    expect(cursor).toBe(3);
+    assert.ok(requestedUrl.includes('/events?format=sse&after=2'));
+    assert.equal(requestHeaders.get('Last-Event-ID'), '2');
+    assert.deepEqual(states, ['connecting', 'live']);
+    assert.deepEqual(events, [EVENT]);
+    assert.equal(cursor, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
 test('ignores comments and malformed SSE payloads', () => {
-  expect(parseRoomSseFrame(': heartbeat')).toBeNull();
-  expect(parseRoomSseFrame('data: {not-json}')).toBeNull();
-  expect(parseRoomSseFrame(`id: 3\ndata: ${JSON.stringify(EVENT)}`)).toEqual(
+  assert.equal(parseRoomSseFrame(': heartbeat'), null);
+  assert.equal(parseRoomSseFrame('data: {not-json}'), null);
+  assert.deepEqual(
+    parseRoomSseFrame(`id: 3\ndata: ${JSON.stringify(EVENT)}`),
     EVENT
   );
 });
@@ -312,19 +318,28 @@ test('extracts both accepted human messages and created agent messages from Room
     data: { message },
   };
 
-  expect(getRoomEventMessage(event)).toEqual(message);
-  expect(getRoomEventMessage({
-    ...event,
-    type: 'room.message.created',
-  })).toEqual(message);
-  expect(getRoomEventMessage({
-    ...event,
-    type: 'room.delivery.completed',
-  })).toBeNull();
-  expect(getRoomEventMessage({
-    ...event,
-    data: { message: { ...message, sequence: 1.5 } },
-  })).toBeNull();
+  assert.deepEqual(getRoomEventMessage(event), message);
+  assert.deepEqual(
+    getRoomEventMessage({
+      ...event,
+      type: 'room.message.created',
+    }),
+    message
+  );
+  assert.equal(
+    getRoomEventMessage({
+      ...event,
+      type: 'room.delivery.completed',
+    }),
+    null
+  );
+  assert.equal(
+    getRoomEventMessage({
+      ...event,
+      data: { message: { ...message, sequence: 1.5 } },
+    }),
+    null
+  );
 });
 
 test('bounds streamed Room request bodies by actual bytes and stabilizes cancellation errors', async () => {
@@ -344,16 +359,17 @@ test('bounds streamed Room request bodies by actual bytes and stabilizes cancell
     },
   });
 
-  await expect(
+  await assert.rejects(
     readRoomEnsureBody(
       new Request('http://localhost/api/rooms', {
         body,
         duplex: 'half',
         method: 'POST',
       } as RequestInit)
-    )
-  ).rejects.toThrow('Request body is too large.');
-  expect(cancelled).toBe(true);
+    ),
+    /Request body is too large\./
+  );
+  assert.equal(cancelled, true);
 });
 
 test('rejects invalid UTF-8 and bounded metadata from Room message bodies', async () => {
@@ -362,22 +378,24 @@ test('rejects invalid UTF-8 and bounded metadata from Room message bodies', asyn
     duplex: 'half',
     method: 'POST',
   } as RequestInit);
-  await expect(readRoomMessageBody(invalidUtf8)).rejects.toThrow(
-    'Request body must be valid UTF-8.'
+  await assert.rejects(
+    readRoomMessageBody(invalidUtf8),
+    /Request body must be valid UTF-8\./
   );
 
   let metadata: unknown = 'leaf';
   for (let index = 0; index < 33; index += 1) {
     metadata = { child: metadata };
   }
-  await expect(
+  await assert.rejects(
     readRoomMessageBody(
       new Request('http://localhost/api/rooms/one/messages', {
         body: JSON.stringify({ metadata, text: 'hello' }),
         method: 'POST',
       })
-    )
-  ).rejects.toThrow('metadata must be finite JSON');
+    ),
+    /metadata must be finite JSON/
+  );
 });
 
 test('bootstraps only headerless Room actors and validates every explicit identity', async () => {
@@ -398,57 +416,59 @@ test('bootstraps only headerless Room actors and validates every explicit identi
     },
   };
 
-  await expect(getRoomActorFromHeaders(new Headers(), dependencies)).resolves.toEqual({
+  assert.deepEqual(await getRoomActorFromHeaders(new Headers(), dependencies), {
     deviceId: 'local-device',
     organizationId: 'local-org',
     userId: 'local-user',
   });
-  expect(bootstraps).toBe(1);
+  assert.equal(bootstraps, 1);
 
   const explicitLocal = new Headers({
     'x-dao-device-id': 'local-device',
     'x-dao-organization-id': 'local-org',
     'x-dao-user-id': 'local-user',
   });
-  await expect(
+  await assert.rejects(
     getRoomActorFromHeaders(explicitLocal, {
       ...dependencies,
       isExistingContext: async (actor: unknown) => {
         checkedActor = actor;
         return false;
       },
-    })
-  ).rejects.toThrow('Room actor headers are not authorized.');
-  expect(checkedActor).toEqual({
+    }),
+    /Room actor headers are not authorized\./
+  );
+  assert.deepEqual(checkedActor, {
     deviceId: 'local-device',
     organizationId: 'local-org',
     userId: 'local-user',
   });
-  expect(bootstraps).toBe(1);
+  assert.equal(bootstraps, 1);
 
   const custom = new Headers({
     'x-dao-device-id': 'device-2',
     'x-dao-organization-id': 'org-2',
     'x-dao-user-id': 'user-2',
   });
-  await expect(getRoomActorFromHeaders(custom, dependencies)).resolves.toEqual({
+  assert.deepEqual(await getRoomActorFromHeaders(custom, dependencies), {
     deviceId: 'device-2',
     organizationId: 'org-2',
     userId: 'user-2',
   });
-  expect(checkedActor).toEqual({
+  assert.deepEqual(checkedActor, {
     deviceId: 'device-2',
     organizationId: 'org-2',
     userId: 'user-2',
   });
 
-  await expect(
+  await assert.rejects(
     getRoomActorFromHeaders(custom, {
       ...dependencies,
       isExistingContext: async () => false,
-    })
-  ).rejects.toThrow('Room actor headers are not authorized.');
-  expect(bootstraps).toBe(1);
+    }),
+    /Room actor headers are not authorized\./
+  );
+  assert.equal(bootstraps, 1);
 });
 
 test('requires exact Room DTO shapes, canonical dates, and matching policy hosts', () => {
@@ -476,39 +496,51 @@ test('requires exact Room DTO shapes, canonical dates, and matching policy hosts
     updatedAt: '2026-08-21T10:00:00.000Z',
   } as const;
 
-  expect(isRoomPolicyV1(policy)).toBe(true);
-  expect(isRoomPolicyV1({ ...policy, extra: true })).toBe(false);
-  expect(isRoomPolicyV1({
-    ...policy,
-    participation: { ...policy.participation, extra: true },
-  })).toBe(false);
-  expect(isRoomDtoV1(room)).toBe(true);
-  expect(isRoomDtoV1({ ...room, extra: true })).toBe(false);
-  expect(isRoomDtoV1({
-    ...room,
-    policy: {
+  assert.equal(isRoomPolicyV1(policy), true);
+  assert.equal(isRoomPolicyV1({ ...policy, extra: true }), false);
+  assert.equal(
+    isRoomPolicyV1({
       ...policy,
-      participation: { ...policy.participation, hostAgentId: 'other' },
-    },
-  })).toBe(false);
-  expect(isRoomDtoV1({
-    ...room,
-    createdAt: '2026-08-21T10:00:00Z',
-  })).toBe(false);
+      participation: { ...policy.participation, extra: true },
+    }),
+    false
+  );
+  assert.equal(isRoomDtoV1(room), true);
+  assert.equal(isRoomDtoV1({ ...room, extra: true }), false);
+  assert.equal(
+    isRoomDtoV1({
+      ...room,
+      policy: {
+        ...policy,
+        participation: { ...policy.participation, hostAgentId: 'other' },
+      },
+    }),
+    false
+  );
+  assert.equal(
+    isRoomDtoV1({
+      ...room,
+      createdAt: '2026-08-21T10:00:00Z',
+    }),
+    false
+  );
 });
 
 test('requires plain bounded JSON and exact nested persisted DTO shapes', () => {
   const cyclic: Record<string, unknown> = {};
   cyclic.self = cyclic;
-  expect(isRoomJsonValueV1(cyclic)).toBe(false);
-  expect(isRoomJsonValueV1(new Date())).toBe(false);
-  expect(isRoomJsonValueV1(new Array(10_000).fill(null))).toBe(false);
-  expect(isRoomAgentMentionV1({
-    agentId: 'agent-1',
-    handle: '@agent',
-    range: { end: 6, extra: true, start: 0 },
-    type: 'agent',
-  })).toBe(false);
+  assert.equal(isRoomJsonValueV1(cyclic), false);
+  assert.equal(isRoomJsonValueV1(new Date()), false);
+  assert.equal(isRoomJsonValueV1(new Array(10_000).fill(null)), false);
+  assert.equal(
+    isRoomAgentMentionV1({
+      agentId: 'agent-1',
+      handle: '@agent',
+      range: { end: 6, extra: true, start: 0 },
+      type: 'agent',
+    }),
+    false
+  );
 
   const message = {
     actor: { type: 'system', systemId: 'router' },
@@ -523,21 +555,38 @@ test('requires plain bounded JSON and exact nested persisted DTO shapes', () => 
     sequence: 1,
     text: 'hello',
   } as const;
-  expect(isRoomMessageEnvelopeV1(message)).toBe(true);
-  expect(isRoomMessageEnvelopeV1({
-    ...message,
-    actor: { ...message.actor, elevated: true },
-  })).toBe(false);
+  assert.equal(isRoomMessageEnvelopeV1(message), true);
+  assert.equal(
+    isRoomMessageEnvelopeV1({
+      ...message,
+      actor: { ...message.actor, elevated: true },
+    }),
+    false
+  );
 
-  expect(() => parseRoomAttachmentsJsonV1(JSON.stringify([{
-    attachmentId: 'attachment-1',
-    extra: true,
-    mediaType: 'text/plain',
-  }]))).toThrow('Stored room message attachments is invalid.');
-  expect(() => parseRoomDeliveryCauseJsonV1(JSON.stringify({
-    extra: true,
-    type: 'room-observation',
-  }))).toThrow('Stored room delivery cause is invalid.');
+  assert.throws(
+    () =>
+      parseRoomAttachmentsJsonV1(
+        JSON.stringify([
+          {
+            attachmentId: 'attachment-1',
+            extra: true,
+            mediaType: 'text/plain',
+          },
+        ])
+      ),
+    /Stored room message attachments is invalid\./
+  );
+  assert.throws(
+    () =>
+      parseRoomDeliveryCauseJsonV1(
+        JSON.stringify({
+          extra: true,
+          type: 'room-observation',
+        })
+      ),
+    /Stored room delivery cause is invalid\./
+  );
 });
 
 test('rejects invalid persisted Room scalar data and noncanonical timestamp strings', () => {
@@ -564,27 +613,40 @@ test('rejects invalid persisted Room scalar data and noncanonical timestamp stri
     updatedAt: '2026-08-21T10:00:00.000Z',
   };
 
-  expect(() => mapRoomV1({ ...record, id: ' ' })).toThrow(
-    'Stored room room is invalid.'
+  assert.throws(
+    () => mapRoomV1({ ...record, id: ' ' }),
+    /Stored room room is invalid\./
   );
-  expect(() => mapRoomV1({
-    ...record,
-    createdAt: '2026-08-21T10:00:00Z',
-  })).toThrow('Stored room createdAt is invalid.');
-  expect(() => mapRoomV1({
-    ...record,
-    policyJson: record.policyJson.replace(
-      '"hostAgentId":"host"',
-      '"hostAgentId":"other"'
-    ),
-  })).toThrow('Stored room policy host agent is invalid.');
-  expect(() => mapRoomEventV1({
-    createdAt: record.createdAt,
-    dataJson: '{}',
-    id: '',
-    organizationId: 'org-1',
-    roomId: 'room-1',
-    sequence: 1,
-    type: 'message.accepted',
-  })).toThrow('Stored room event is invalid.');
+  assert.throws(
+    () =>
+      mapRoomV1({
+        ...record,
+        createdAt: '2026-08-21T10:00:00Z',
+      }),
+    /Stored room createdAt is invalid\./
+  );
+  assert.throws(
+    () =>
+      mapRoomV1({
+        ...record,
+        policyJson: record.policyJson.replace(
+          '"hostAgentId":"host"',
+          '"hostAgentId":"other"'
+        ),
+      }),
+    /Stored room policy host agent is invalid\./
+  );
+  assert.throws(
+    () =>
+      mapRoomEventV1({
+        createdAt: record.createdAt,
+        dataJson: '{}',
+        id: '',
+        organizationId: 'org-1',
+        roomId: 'room-1',
+        sequence: 1,
+        type: 'message.accepted',
+      }),
+    /Stored room event is invalid\./
+  );
 });

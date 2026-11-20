@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import type {
   Api,
   AssistantMessage,
@@ -6,9 +8,9 @@ import type {
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { expect, test } from '@playwright/test';
 import { Type } from 'typebox';
 
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 import { ROOM_RUNTIME_CONTRACT_VERSION_V1 } from '../contracts';
 import {
   collect,
@@ -76,12 +78,15 @@ test('passes provider configuration through the injected Pi stream seam', async 
 
   await collect(runtime.handle(handleInput(opened.handle)));
 
-  expect(observed?.model).toBe(TEST_MODEL);
-  expect(observed?.context.systemPrompt).toBe('System prompt');
-  expect(observed?.context.messages.map(({ role }) => role)).toEqual(['user']);
-  expect(observed?.options?.apiKey).toBe('secret-api-key');
-  expect(observed?.options?.sessionId).toContain('room-session-1:1:');
-  expect(observed?.options?.signal).toBeInstanceOf(AbortSignal);
+  assert.equal(observed?.model, TEST_MODEL);
+  assert.equal(observed?.context.systemPrompt, 'System prompt');
+  assert.deepEqual(
+    observed?.context.messages.map(({ role }) => role),
+    ['user']
+  );
+  assert.equal(observed?.options?.apiKey, 'secret-api-key');
+  assert.ok(observed?.options?.sessionId?.includes('room-session-1:1:'));
+  assert.ok(observed?.options?.signal instanceof AbortSignal);
 });
 
 test('preserves bounded context order, provenance, and trust without replaying legacy messages', async () => {
@@ -147,8 +152,11 @@ test('preserves bounded context order, provenance, and trust without replaying l
 
   await collect(runtime.handle(handleInput(opened.handle)));
 
-  expect(observed?.systemPrompt).toContain('TRUSTED-CONTROL');
-  expect(observed?.systemPrompt).not.toContain('UNTRUSTED-DOCUMENT-DATA');
+  assert.ok(observed?.systemPrompt?.includes('TRUSTED-CONTROL'));
+  assert.equal(
+    observed?.systemPrompt?.includes('UNTRUSTED-DOCUMENT-DATA'),
+    false
+  );
   const replayed = observed?.messages.map((entry) =>
     typeof entry.content === 'string'
       ? entry.content
@@ -157,13 +165,14 @@ test('preserves bounded context order, provenance, and trust without replaying l
           .map((block) => ('text' in block ? block.text : ''))
           .join('')
   );
-  expect(replayed).toHaveLength(2);
-  expect(replayed?.[0]).toContain('UNTRUSTED-DOCUMENT-DATA');
-  expect(replayed?.[0]).toContain('data-only');
-  expect(replayed?.[1]).toContain('CURRENT-USER-REQUEST');
-  expect(replayed?.[1]).toContain('user-request');
-  expect(replayed?.join('\n')).not.toContain(
-    'LEGACY-SHOULD-NOT-BE-REPLAYED'
+  assert.equal(replayed?.length, 2);
+  assert.ok(replayed?.[0]?.includes('UNTRUSTED-DOCUMENT-DATA'));
+  assert.ok(replayed?.[0]?.includes('data-only'));
+  assert.ok(replayed?.[1]?.includes('CURRENT-USER-REQUEST'));
+  assert.ok(replayed?.[1]?.includes('user-request'));
+  assert.equal(
+    replayed?.join('\n').includes('LEGACY-SHOULD-NOT-BE-REPLAYED'),
+    false
   );
 });
 
@@ -181,13 +190,13 @@ test('rejects stale-context checkpoints', async () => {
     },
     reason: 'idle',
   });
-  expect(checkpoint.status).toBe('created');
+  assert.equal(checkpoint.status, 'created');
   if (checkpoint.status !== 'created') {
     throw new Error('Expected checkpoint creation.');
   }
 
-  await expect(
-    harness.runtime.resume({
+  assertMatchesObject(
+    await harness.runtime.resume({
       schemaVersion: ROOM_RUNTIME_CONTRACT_VERSION_V1,
       requestId: 'resume-stale',
       session: session(),
@@ -195,11 +204,12 @@ test('rejects stale-context checkpoints', async () => {
       checkpoint: checkpoint.checkpoint,
       context: context(),
       policy: policy(),
-    })
-  ).resolves.toMatchObject({
-    status: 'unsupported',
-    reason: 'Fresh replay context is older than the checkpoint cursor.',
-  });
+    }),
+    {
+      status: 'unsupported',
+      reason: 'Fresh replay context is older than the checkpoint cursor.',
+    }
+  );
 });
 
 test('fails closed for mismatched identity and duplicate deliveries', async () => {
@@ -209,7 +219,7 @@ test('fails closed for mismatched identity and duplicate deliveries', async () =
   await collect(harness.runtime.handle(input));
 
   const duplicate = await collect(harness.runtime.handle(input));
-  expect(duplicate[0]?.event).toMatchObject({
+  assertMatchesObject(duplicate[0]?.event, {
     type: 'error',
     code: 'delivery-already-completed',
     retryable: false,
@@ -225,7 +235,7 @@ test('fails closed for mismatched identity and duplicate deliveries', async () =
       },
     })
   );
-  expect(mismatched[0]?.event).toMatchObject({
+  assertMatchesObject(mismatched[0]?.event, {
     type: 'error',
     code: 'delivery-session-mismatch',
     retryable: false,
@@ -279,11 +289,11 @@ test('projects governed tool denial as confirmation then ignored without generic
 
   const events = await collect(runtime.handle(handleInput(opened.handle)));
 
-  expect(events.map(({ event }) => event.type)).toEqual([
-    'room.tool_confirmation.requested',
-    'delivery-completed',
-  ]);
-  expect(events[0]?.event).toEqual({
+  assert.deepEqual(
+    events.map(({ event }) => event.type),
+    ['room.tool_confirmation.requested', 'delivery-completed']
+  );
+  assert.deepEqual(events[0]?.event, {
     type: 'room.tool_confirmation.requested',
     request: {
       schemaVersion: 1,
@@ -297,7 +307,7 @@ test('projects governed tool denial as confirmation then ignored without generic
       writePolicy: 'organization-scoped-append',
     },
   });
-  expect(events[1]?.event).toEqual({
+  assert.deepEqual(events[1]?.event, {
     type: 'delivery-completed',
     disposition: 'ignored',
   });

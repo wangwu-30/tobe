@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import type { Value } from 'platejs';
 
 import {
@@ -42,12 +43,13 @@ test('Plate node ids alone do not produce a rich-text change', () => {
     },
   ] as Value;
 
-  expect(
+  assert.equal(
     serializeChangedRichTextValue(
       normalizedValue,
       serializeRichTextForComparison(INITIAL_VALUE)
-    )
-  ).toBeNull();
+    ),
+    null
+  );
 });
 
 test('semantic edits save the complete normalized rich-text value', () => {
@@ -75,10 +77,10 @@ test('semantic edits save the complete normalized rich-text value', () => {
     serializeRichTextForComparison(INITIAL_VALUE)
   );
 
-  expect(serialized).toBe(JSON.stringify(editedValue));
-  expect(serialized).toContain('heading-node-id');
-  expect(serialized).toContain('inline-node-id');
-  expect(serialized).toContain('paragraph-node-id');
+  assert.equal(serialized, JSON.stringify(editedValue));
+  assert.ok(serialized?.includes('heading-node-id'));
+  assert.ok(serialized?.includes('inline-node-id'));
+  assert.ok(serialized?.includes('paragraph-node-id'));
 });
 
 test('ids in nested metadata remain part of the semantic comparison', () => {
@@ -98,10 +100,11 @@ test('ids in nested metadata remain part of the semantic comparison', () => {
     },
   ] as Value;
 
-  expect(
+  assert.equal(
     serializeChangedRichTextValue(
       editedValue,
       serializeRichTextForComparison(initialValue)
-    )
-  ).toBe(JSON.stringify(editedValue));
+    ),
+    JSON.stringify(editedValue)
+  );
 });

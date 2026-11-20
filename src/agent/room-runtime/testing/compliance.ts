@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test, { describe } from 'node:test';
+
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import {
   ROOM_RUNTIME_CONTRACT_VERSION_V1,
@@ -39,7 +42,7 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
   name: string,
   factory: RoomSessionRuntimeComplianceFactoryV1
 ) {
-  test.describe(`${name} RoomSessionRuntimePortV1 compliance`, () => {
+  describe(`${name} RoomSessionRuntimePortV1 compliance`, () => {
     test('describes stable capabilities and opens isolated handles', async () => {
       const { runtime } = factory.create('success');
       const descriptor = await runtime.describe();
@@ -51,19 +54,20 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
         })
       );
 
-      expect(await runtime.describe()).toEqual(descriptor);
-      expect(descriptor).toMatchObject({
+      assert.deepEqual(await runtime.describe(), descriptor);
+      assertMatchesObject(descriptor, {
         schemaVersion: ROOM_RUNTIME_CONTRACT_VERSION_V1,
         runtimeId: factory.expectedRuntimeId,
       });
-      expect(first.handle).toMatchObject({
+      assertMatchesObject(first.handle, {
         schemaVersion: ROOM_RUNTIME_CONTRACT_VERSION_V1,
         session: session(),
         generation: 1,
         runtimeId: factory.expectedRuntimeId,
       });
-      expect(first.handle.runtimeSessionId).not.toBe('');
-      expect(second.handle.runtimeSessionId).not.toBe(
+      assert.notEqual(first.handle.runtimeSessionId, '');
+      assert.notEqual(
+        second.handle.runtimeSessionId,
         first.handle.runtimeSessionId
       );
     });
@@ -74,35 +78,41 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
       const input = handleInput(opened.handle);
       const events = await collect(harness.runtime.handle(input));
 
-      expect(events.map(({ event }) => event.type)).toEqual([
-        'response-started',
-        'text-delta',
-        'text-delta',
-        'message-ready',
-        'delivery-completed',
-      ]);
-      expect(events.map(({ eventSequence }) => eventSequence)).toEqual([
-        1, 2, 3, 4, 5,
-      ]);
-      expect(
+      assert.deepEqual(
+        events.map(({ event }) => event.type),
+        [
+          'response-started',
+          'text-delta',
+          'text-delta',
+          'message-ready',
+          'delivery-completed',
+        ]
+      );
+      assert.deepEqual(
+        events.map(({ eventSequence }) => eventSequence),
+        [1, 2, 3, 4, 5]
+      );
+      assert.equal(
         events.every(
           (event) =>
             event.roomSessionId === input.handle.session.roomSessionId &&
             event.runtimeSessionId === input.handle.runtimeSessionId &&
             event.deliveryId === input.delivery.deliveryId
-        )
-      ).toBe(true);
-      expect(
+        ),
+        true
+      );
+      assert.equal(
         events.filter(({ event }) =>
           event.type === 'delivery-completed' || event.type === 'error'
-        )
-      ).toHaveLength(1);
-      expect(events.at(-1)?.event).toEqual({
+        ).length,
+        1
+      );
+      assert.deepEqual(events.at(-1)?.event, {
         type: 'delivery-completed',
         disposition: 'responded',
       });
       const ready = events.find(({ event }) => event.type === 'message-ready');
-      expect(ready?.event).toMatchObject({
+      assertMatchesObject(ready?.event, {
         type: 'message-ready',
         message: {
           text: factory.expectedResponseText,
@@ -110,7 +120,7 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
           attachments: [],
         },
       });
-      expect(harness.invocationCount()).toBe(1);
+      assert.equal(harness.invocationCount(), 1);
     });
 
     test('observes without invoking the provider', async () => {
@@ -118,7 +128,7 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
       const opened = await harness.runtime.open(openInput());
       const input = handleInput(opened.handle, { intent: 'observe' });
 
-      await expect(collect(harness.runtime.handle(input))).resolves.toMatchObject([
+      assertMatchesObject(await collect(harness.runtime.handle(input)), [
         {
           deliveryId: input.delivery.deliveryId,
           event: {
@@ -127,7 +137,7 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
           },
         },
       ]);
-      expect(harness.invocationCount()).toBe(0);
+      assert.equal(harness.invocationCount(), 0);
     });
 
     test('emits a single error terminal when the provider fails', async () => {
@@ -137,16 +147,18 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
         harness.runtime.handle(handleInput(opened.handle))
       );
 
-      expect(events.at(-1)?.event).toMatchObject({
+      assertMatchesObject(events.at(-1)?.event, {
         type: 'error',
         retryable: true,
       });
-      expect(
+      assert.equal(
         events.filter(({ event }) =>
           event.type === 'delivery-completed' || event.type === 'error'
-        )
-      ).toHaveLength(1);
-      expect(events.some(({ event }) => event.type === 'message-ready')).toBe(
+        ).length,
+        1
+      );
+      assert.equal(
+        events.some(({ event }) => event.type === 'message-ready'),
         false
       );
     });
@@ -167,13 +179,14 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
         reason: 'idle',
       });
 
-      expect(checkpointResult.status).toBe('created');
+      assert.equal(checkpointResult.status, 'created');
       if (checkpointResult.status !== 'created') {
         throw new Error('Expected a checkpoint.');
       }
-      expect(() => JSON.stringify(checkpointResult.checkpoint)).not.toThrow();
-      expect(JSON.stringify(checkpointResult.checkpoint)).not.toContain(
-        'secret-api-key'
+      assert.doesNotThrow(() => JSON.stringify(checkpointResult.checkpoint));
+      assert.equal(
+        JSON.stringify(checkpointResult.checkpoint).includes('secret-api-key'),
+        false
       );
 
       const resumed = await harness.runtime.resume({
@@ -185,12 +198,13 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
         context: context(),
         policy: policy(),
       });
-      expect(resumed.status).toBe('resumed');
+      assert.equal(resumed.status, 'resumed');
       if (resumed.status !== 'resumed') {
         throw new Error('Expected a resumed session.');
       }
-      expect(resumed.handle.generation).toBe(2);
-      expect(resumed.handle.runtimeSessionId).not.toBe(
+      assert.equal(resumed.handle.generation, 2);
+      assert.notEqual(
+        resumed.handle.runtimeSessionId,
         opened.handle.runtimeSessionId
       );
 
@@ -205,7 +219,7 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
           })
         )
       );
-      expect(events[0]?.eventSequence).toBeGreaterThan(5);
+      assert.ok((events[0]?.eventSequence ?? 0) > 5);
 
       const stale = await collect(
         harness.runtime.handle(
@@ -218,8 +232,8 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
           })
         )
       );
-      expect(stale).toHaveLength(1);
-      expect(stale[0]?.event).toMatchObject({
+      assert.equal(stale.length, 1);
+      assertMatchesObject(stale[0]?.event, {
         type: 'error',
         code: 'stale-runtime-handle',
         retryable: false,
@@ -233,12 +247,12 @@ export function registerRoomSessionRuntimeComplianceSuiteV1(
         .handle(handleInput(opened.handle))
         [Symbol.asyncIterator]();
 
-      expect((await iterator.next()).value?.event.type).toBe('response-started');
+      assert.equal((await iterator.next()).value?.event.type, 'response-started');
       await iterator.return?.();
 
-      expect(harness.cancellationCount()).toBe(1);
-      expect(harness.idleWaitCount()).toBeGreaterThan(0);
-      expect(await iterator.next()).toMatchObject({ done: true });
+      assert.equal(harness.cancellationCount(), 1);
+      assert.ok(harness.idleWaitCount() > 0);
+      assertMatchesObject(await iterator.next(), { done: true });
     });
   });
 }

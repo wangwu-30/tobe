@@ -1,9 +1,10 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import { parseModelKey } from './model-selection';
 
 test('uses the current default only when the model selection is empty', () => {
-  expect(parseModelKey('')).toEqual({
+  assert.deepEqual(parseModelKey(''), {
     key: 'openai-codex::gpt-5.4',
     modelId: 'gpt-5.4',
     providerId: 'openai-codex',
@@ -11,7 +12,7 @@ test('uses the current default only when the model selection is empty', () => {
 });
 
 test('migrates only the known legacy default model', () => {
-  expect(parseModelKey('openai-codex::gpt-5.2-codex')).toEqual({
+  assert.deepEqual(parseModelKey('openai-codex::gpt-5.2-codex'), {
     key: 'openai-codex::gpt-5.4',
     modelId: 'gpt-5.4',
     providerId: 'openai-codex',
@@ -19,7 +20,8 @@ test('migrates only the known legacy default model', () => {
 });
 
 test('rejects an unrecognized non-empty bare model instead of crossing providers', () => {
-  expect(() => parseModelKey('bogus-model')).toThrow(
-    'Unrecognized model selection: bogus-model'
+  assert.throws(
+    () => parseModelKey('bogus-model'),
+    /Unrecognized model selection: bogus-model/
   );
 });

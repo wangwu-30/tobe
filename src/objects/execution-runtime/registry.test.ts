@@ -1,6 +1,8 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 
 import { safeJsonParse } from '@/framework/resilience';
+import { assertMatchesObject } from '@/lib/testing/node-assert';
 
 import { mapExecutionRuntimeCandidateV1, mapExecutionRuntimeV1 } from './schema';
 import {
@@ -113,9 +115,9 @@ test('ensure is idempotent and requires no HTTP transport', async () => {
   }
 
   const rows = store.list(ORGANIZATION_A);
-  expect(fetchCalls).toBe(0);
-  expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({
+  assert.equal(fetchCalls, 0);
+  assert.equal(rows.length, 1);
+  assertMatchesObject(rows[0], {
     id: builtinOpenHandsRuntimeIdV1(ORGANIZATION_A),
     organizationId: ORGANIZATION_A,
     key: BUILTIN_OPENHANDS_RUNTIME_KEY_V1,
@@ -129,9 +131,7 @@ test('ensure is idempotent and requires no HTTP transport', async () => {
     capacityUsed: 0,
     capacityUpdatedAt: null,
   });
-  expect(
-    safeJsonParse<unknown>(rows[0].registrationJson, null)
-  ).toMatchObject({
+  assertMatchesObject(safeJsonParse<unknown>(rows[0].registrationJson, null), {
     builtin: true,
     configurationState: 'unavailable',
     executable: false,
@@ -148,7 +148,7 @@ test('re-ensure preserves runtime-owned activation and heartbeat facts', async (
 
   const storageKey = `${ORGANIZATION_A}:${BUILTIN_OPENHANDS_RUNTIME_KEY_V1}`;
   const row = store.rows.get(storageKey);
-  expect(row).toBeDefined();
+  assert.notEqual(row, undefined);
   if (!row) return;
 
   store.rows.set(storageKey, {
@@ -175,7 +175,7 @@ test('re-ensure preserves runtime-owned activation and heartbeat facts', async (
     now: new Date('2026-08-21T12:00:01.000Z'),
   });
 
-  expect(runtime).toMatchObject({
+  assertMatchesObject(runtime, {
     endpoint: 'https://unverified.invalid',
     enabled: true,
     health: {
@@ -188,7 +188,7 @@ test('re-ensure preserves runtime-owned activation and heartbeat facts', async (
       maxConcurrentAttempts: 8,
     },
   });
-  expect(candidate).toMatchObject({
+  assertMatchesObject(candidate, {
     descriptor: {
       runtimeId: builtinOpenHandsRuntimeIdV1(ORGANIZATION_A),
     },
@@ -238,15 +238,16 @@ test('migrates only a dormant legacy builtin and leaves deployment key openhands
     store
   );
 
-  expect(store.rows.has(legacyKey)).toBe(false);
-  expect(
-    store.rows.get(`${ORGANIZATION_A}:${BUILTIN_OPENHANDS_RUNTIME_KEY_V1}`)
-  ).toMatchObject({
-    id: builtinOpenHandsRuntimeIdV1(ORGANIZATION_A),
-    key: BUILTIN_OPENHANDS_RUNTIME_KEY_V1,
-    enabled: false,
-    healthStatus: 'offline',
-  });
+  assert.equal(store.rows.has(legacyKey), false);
+  assertMatchesObject(
+    store.rows.get(`${ORGANIZATION_A}:${BUILTIN_OPENHANDS_RUNTIME_KEY_V1}`),
+    {
+      id: builtinOpenHandsRuntimeIdV1(ORGANIZATION_A),
+      key: BUILTIN_OPENHANDS_RUNTIME_KEY_V1,
+      enabled: false,
+      healthStatus: 'offline',
+    }
+  );
 
   store.rows.set(legacyKey, {
     ...store.rows.get(
@@ -273,8 +274,8 @@ test('migrates only a dormant legacy builtin and leaves deployment key openhands
     store
   );
 
-  expect(store.list(ORGANIZATION_A)).toHaveLength(2);
-  expect(store.rows.get(legacyKey)).toMatchObject({
+  assert.equal(store.list(ORGANIZATION_A).length, 2);
+  assertMatchesObject(store.rows.get(legacyKey), {
     id: 'openhands-production',
     key: 'openhands',
     enabled: true,
@@ -315,14 +316,14 @@ test('does not migrate an active legacy row that may be a real deployment', asyn
     store
   );
 
-  expect(store.list(ORGANIZATION_A)).toEqual([
-    expect.objectContaining({
+  assertMatchesObject(store.list(ORGANIZATION_A), [
+    {
       id: builtinOpenHandsRuntimeIdV1(ORGANIZATION_A),
       key: 'openhands',
       enabled: true,
       healthStatus: 'healthy',
       capacityUsed: 1,
-    }),
+    },
   ]);
 });
 
@@ -341,13 +342,15 @@ test('each organization receives its own stable built-in id', async () => {
 
   const organizationARows = store.list(ORGANIZATION_A);
   const organizationBRows = store.list(ORGANIZATION_B);
-  expect(organizationARows).toHaveLength(1);
-  expect(organizationBRows).toHaveLength(1);
-  expect(organizationARows[0].id).toBe(
+  assert.equal(organizationARows.length, 1);
+  assert.equal(organizationBRows.length, 1);
+  assert.equal(
+    organizationARows[0].id,
     builtinOpenHandsRuntimeIdV1(ORGANIZATION_A)
   );
-  expect(organizationBRows[0].id).toBe(
+  assert.equal(
+    organizationBRows[0].id,
     builtinOpenHandsRuntimeIdV1(ORGANIZATION_B)
   );
-  expect(organizationARows[0].id).not.toBe(organizationBRows[0].id);
+  assert.notEqual(organizationARows[0].id, organizationBRows[0].id);
 });

@@ -1,5 +1,11 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
 import type { Value } from 'platejs';
+
+import {
+  assertContainsMatch,
+  assertMatchesObject,
+} from '@/lib/testing/node-assert';
 
 import {
   isSafeLinkUrl,
@@ -31,46 +37,43 @@ test('markdownToPlate converts headings, lists, code blocks, quotes, and links i
 
   const value = markdownToPlate(markdown) as Array<Record<string, unknown>>;
 
-  expect(value[0]).toMatchObject({ type: 'h1' });
-  expect(value[1]).toMatchObject({
-    type: 'p',
-    children: expect.arrayContaining([
-      expect.objectContaining({
-        type: 'a',
-        url: 'https://platejs.org',
-      }),
-      expect.objectContaining({ bold: true, text: 'bold' }),
-      expect.objectContaining({ italic: true, text: 'italic' }),
-      expect.objectContaining({ code: true, text: 'code' }),
-      expect.objectContaining({ strikethrough: true, text: 'old' }),
-    ]),
+  assertMatchesObject(value[0], { type: 'h1' });
+  assertMatchesObject(value[1], { type: 'p' });
+  const inlineChildren = value[1].children as Array<Record<string, unknown>>;
+  assertContainsMatch(inlineChildren, {
+    type: 'a',
+    url: 'https://platejs.org',
   });
+  assertContainsMatch(inlineChildren, { bold: true, text: 'bold' });
+  assertContainsMatch(inlineChildren, { italic: true, text: 'italic' });
+  assertContainsMatch(inlineChildren, { code: true, text: 'code' });
+  assertContainsMatch(inlineChildren, { strikethrough: true, text: 'old' });
 
   // Unordered list items use Plate 52 indent-based lists
-  expect(value[2]).toMatchObject({
+  assertMatchesObject(value[2], {
     type: 'p',
     indent: 1,
     listStyleType: 'disc',
   });
-  expect(value[3]).toMatchObject({
+  assertMatchesObject(value[3], {
     type: 'p',
     indent: 2,
     listStyleType: 'disc',
   });
-  expect(value[4]).toMatchObject({
+  assertMatchesObject(value[4], {
     type: 'p',
     indent: 1,
     listStyleType: 'disc',
   });
 
   // Ordered list items preserve sequential listStart
-  expect(value[5]).toMatchObject({
+  assertMatchesObject(value[5], {
     type: 'p',
     indent: 1,
     listStart: 1,
     listStyleType: 'decimal',
   });
-  expect(value[6]).toMatchObject({
+  assertMatchesObject(value[6], {
     type: 'p',
     indent: 1,
     listStart: 2,
@@ -78,8 +81,8 @@ test('markdownToPlate converts headings, lists, code blocks, quotes, and links i
   });
 
   // Blockquote and code block
-  expect(value[7]).toMatchObject({ type: 'blockquote' });
-  expect(value[8]).toMatchObject({
+  assertMatchesObject(value[7], { type: 'blockquote' });
+  assertMatchesObject(value[8], {
     type: 'code_block',
     lang: 'typescript',
     children: [
@@ -90,15 +93,17 @@ test('markdownToPlate converts headings, lists, code blocks, quotes, and links i
 
   // Round-trip back to Markdown preserves structure
   const roundTripped = plateToMarkdown(value as Value);
-  expect(roundTripped).toContain('# Wiki Guide');
-  expect(roundTripped).toContain('[Plate Docs](https://platejs.org)');
-  expect(roundTripped).toContain('- First bullet');
-  expect(roundTripped).toContain('  - Nested bullet');
-  expect(roundTripped).toContain('1. Step one');
-  expect(roundTripped).toContain('2. Step two');
-  expect(roundTripped).toContain('> Important callout');
-  expect(roundTripped).toContain(
-    '```typescript\nconst answer = 42;\nconsole.log(answer);\n```'
+  assert.ok(roundTripped.includes('# Wiki Guide'));
+  assert.ok(roundTripped.includes('[Plate Docs](https://platejs.org)'));
+  assert.ok(roundTripped.includes('- First bullet'));
+  assert.ok(roundTripped.includes('  - Nested bullet'));
+  assert.ok(roundTripped.includes('1. Step one'));
+  assert.ok(roundTripped.includes('2. Step two'));
+  assert.ok(roundTripped.includes('> Important callout'));
+  assert.ok(
+    roundTripped.includes(
+      '```typescript\nconst answer = 42;\nconsole.log(answer);\n```'
+    )
   );
 });
 
@@ -125,9 +130,9 @@ test('plateToMarkdown preserves legacy ul/ol/li and nested blockquote nodes clea
   ] as Value;
 
   const markdown = plateToMarkdown(legacyValue);
-  expect(markdown).toContain('- Alpha\n- Beta');
-  expect(markdown).toContain('1. First\n2. Second');
-  expect(markdown).toContain('> Legacy quote');
+  assert.ok(markdown.includes('- Alpha\n- Beta'));
+  assert.ok(markdown.includes('1. First\n2. Second'));
+  assert.ok(markdown.includes('> Legacy quote'));
 });
 
 test('markdownToPlate handles empty fenced code blocks and strips unsafe link schemes', () => {
@@ -140,25 +145,23 @@ test('markdownToPlate handles empty fenced code blocks and strips unsafe link sc
 
   const value = markdownToPlate(markdown) as Array<Record<string, unknown>>;
   const paragraphChildren = value[0].children as Array<Record<string, unknown>>;
-  expect(paragraphChildren.some((node) => node.url === 'javascript:alert(1)')).toBe(
+  assert.equal(
+    paragraphChildren.some((node) => node.url === 'javascript:alert(1)'),
     false
   );
-  expect(paragraphChildren).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({ text: 'bad' }),
-      expect.objectContaining({ type: 'a', url: '/workspace/123' }),
-    ])
-  );
+  assertContainsMatch(paragraphChildren, { text: 'bad' });
+  assertContainsMatch(paragraphChildren, { type: 'a', url: '/workspace/123' });
 
-  expect(value[1]).toMatchObject({
+  assertMatchesObject(value[1], {
     type: 'code_block',
     children: [{ type: 'code_line', children: [{ text: '' }] }],
   });
 
-  expect(isSafeLinkUrl('https://example.com')).toBe(true);
-  expect(isSafeLinkUrl('javascript:alert(1)')).toBe(false);
-  expect(normalizeLinkInputUrl('example.com/wiki')).toBe(
+  assert.equal(isSafeLinkUrl('https://example.com'), true);
+  assert.equal(isSafeLinkUrl('javascript:alert(1)'), false);
+  assert.equal(
+    normalizeLinkInputUrl('example.com/wiki'),
     'https://example.com/wiki'
   );
-  expect(normalizeLinkInputUrl('javascript:void(0)')).toBeNull();
+  assert.equal(normalizeLinkInputUrl('javascript:void(0)'), null);
 });
