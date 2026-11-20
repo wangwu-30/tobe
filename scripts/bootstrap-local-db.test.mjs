@@ -897,6 +897,24 @@ test('malformed Prisma delegation data fails closed before constraint repair', a
   });
 });
 
+test('bootstrapping into a non-existent nested app-data-root creates parent directories before opening SQLite', async (t) => {
+  const outerRoot = await temporaryDirectory(t, 'tobe-bootstrap-nested-root-');
+  const nestedAppDataRoot = path.join(outerRoot, 'nested', 'state');
+  const databasePath = path.join(nestedAppDataRoot, 'dev.db');
+
+  await runBootstrap(nestedAppDataRoot);
+
+  const expectedMigrations = await localMigrationNames();
+  assert.deepEqual(await appliedMigrationNames(databasePath), expectedMigrations);
+  await withClient(databasePath, async (client) => {
+    const mode = await client.execute('PRAGMA journal_mode');
+    assert.equal(
+      String(mode.rows[0]?.journal_mode ?? mode.rows[0]?.[0] ?? '').toLowerCase(),
+      'wal'
+    );
+  });
+});
+
 async function runBootstrap(appDataRoot) {
   return execFileAsync(
     process.execPath,
