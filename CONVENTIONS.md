@@ -87,13 +87,17 @@ src/agent/
 
 ## 文件规模
 
-- 默认目标：文件不超过 400 行
-- 默认目标：单个核心 runtime 文件尽量保持在 200 行左右
-- 如果超过阈值但边界仍清晰，可以暂时保留；不要为了凑行数制造更差的抽象
+- 默认软目标：普通文件尽量不超过 400 行，核心 runtime 文件保持职责单一；不要为了凑行数制造更差的抽象
+- **CI 强制硬门禁（`scripts/check-file-size-budget.mjs` + `scripts/file-size-budget.json`）**：
+  - 所有生产源码（`src/`、`apps/`、`scripts/`，不含 `generated/` 与 `*.test.*`/`*.spec.*`）硬上限为 **1,200 行**
+  - 所有 API Route 适配层（`src/app/api/**/route.*`）硬上限为 **400 行**
+  - 存量超限文件必须登记在 `scripts/file-size-budget.json` 的 `legacyAllowlist` 棘轮基线中：**只允许缩减、禁止增长**；每缩减 ≥ 50 行必须同步收紧基线，降至默认上限以内必须从基线删除
+  - `exemptDataFiles` 仅允许登记纯数据字典（如 `src/lib/i18n/copy.ts`），不得豁免业务或运行时逻辑文件
 
 ## 导入方向
 
-- `framework/` 不得 import `objects/`、`derive/`、`agent/`、`canvas/`、`surfaces/`
+- `framework/` 不得 import `objects/`、`derive/`、`agent/`、`canvas/`、`surfaces/`（ESLint 强制）
+- `src/agent/{context,execution,knowledge,room-host,room-runtime,tool-policy}` 不得反向 import `app/`、`components/`、`surfaces/`、`canvas/`（ESLint 强制）
 - `derive/` 只 import 类型，不 import实现
 - `api/` 只 import `objects/` 与 `agent/` 的公开导出
 - `surfaces/` 与 `canvas/` 不要反向依赖 `api/`

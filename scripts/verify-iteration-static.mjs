@@ -15,6 +15,10 @@ export const staticGateSteps = [
     id: 'web-interface-guidelines',
     command: ['node', 'scripts/check-web-interface-guidelines.mjs'],
   },
+  {
+    id: 'file-size-budget',
+    command: ['node', 'scripts/check-file-size-budget.mjs'],
+  },
   { id: 'prisma', command: ['npx', 'prisma', 'generate'] },
   { id: 'clear-next-types' },
   { id: 'typegen', command: ['npx', 'next', 'typegen'] },

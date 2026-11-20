@@ -36,6 +36,10 @@
 - 把 Room Agent Session 与 `ExecutionJob` 合并为一个状态机、lease、capacity 或 recovery lifecycle。
 - 让 Agent、Runtime、execution daemon 或普通 Web route 直接应用 Page 建议修改、更新 Git Knowledge 默认分支
   或激活索引。
+- 新增超过 1,200 行的生产源码文件或超过 400 行的 `src/app/api/**/route.ts`，或在 `scripts/file-size-budget.json`
+  棘轮基线中放大存量超限文件的行数上限（由 `scripts/check-file-size-budget.mjs` 强制 fail-closed）。
+- 在 `src/agent/{context,execution,knowledge,room-host,room-runtime,tool-policy}` 中反向导入
+  `app/`、`components/`、`surfaces/` 或 `canvas/` UI 层（由 ESLint 强制拦截）。
 
 ## 需要确认
 

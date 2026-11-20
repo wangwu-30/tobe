@@ -28,6 +28,7 @@ test('static gate builds generated test modules before TypeScript in fail-closed
     staticGateSteps.map(({ id }) => id),
     [
       'web-interface-guidelines',
+      'file-size-budget',
       'prisma',
       'clear-next-types',
       'typegen',
@@ -41,6 +42,10 @@ test('static gate builds generated test modules before TypeScript in fail-closed
     staticGateSteps.find(({ id }) => id === 'web-interface-guidelines')
       ?.command,
     ['node', 'scripts/check-web-interface-guidelines.mjs']
+  );
+  assert.deepEqual(
+    staticGateSteps.find(({ id }) => id === 'file-size-budget')?.command,
+    ['node', 'scripts/check-file-size-budget.mjs']
   );
   assert.deepEqual(
     staticGateSteps.find(({ id }) => id === 'build:room-backend-test')
@@ -98,6 +103,25 @@ test('static gate stops immediately when the Web interface scan fails', async ()
     /Web interface anti-pattern found/u
   );
   assert.deepEqual(executed, ['web-interface-guidelines']);
+});
+
+test('static gate stops immediately when the file-size budget ratchet fails', async () => {
+  const executed = [];
+  await assert.rejects(
+    runStaticGate({
+      clearGeneratedNextTypes: async () => {
+        executed.push('clear-next-types');
+      },
+      runStep: async (id) => {
+        executed.push(id);
+        if (id === 'file-size-budget') {
+          throw new Error('File size budget exceeded');
+        }
+      },
+    }),
+    /File size budget exceeded/u
+  );
+  assert.deepEqual(executed, ['web-interface-guidelines', 'file-size-budget']);
 });
 
 test('iteration gate includes every release stage in fail-closed order', () => {
