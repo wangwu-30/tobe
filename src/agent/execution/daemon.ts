@@ -1,364 +1,71 @@
-import type { ExecutionSpecV1 } from './contracts';
-import type {
-  ExecutionRuntimeDriverV1,
-  RuntimeHumanInputV1,
-  RuntimeEventV1,
-} from './driver';
-import type { ExecutionRuntimeDriverRegistryV1 } from './registry';
+import type { ExecutionRuntimeDriverV1, RuntimeEventV1 } from './driver';
 import {
   parseWorkspaceLifecycleV1,
-  type FrozenKnowledgeBindingV1,
   type WorkspaceLifecycleV1,
-  type WorkspaceRuntimeCompletionV1,
 } from './workspace-lifecycle';
+import {
+  EXECUTION_DAEMON_DEFAULTS_V1,
+  type ActiveExecutionAttemptV1,
+  type ExecutionDaemonCandidateV1,
+  type ExecutionDaemonClaimV1,
+  type ExecutionDaemonClockV1,
+  type ExecutionDaemonDriverRegistryV1,
+  type ExecutionDaemonLoggerV1,
+  type ExecutionDaemonOptionsV1,
+  type ExecutionDaemonStateV1,
+  type ExecutionDaemonStoreV1,
+  type ExecutionDaemonWaitV1,
+  type ExecutionDaemonWorkspaceCoordinatorV1,
+  type RuntimeCompletionV1,
+} from './daemon-types';
+import {
+  cancellationCompletion,
+  completionFromEvent,
+  createDeferred,
+  errorMessage,
+  readPositiveInteger,
+  rememberInterruptAddress,
+  requireNonEmptyText,
+  runtimeDriverFailure,
+  runtimeEventId,
+  withRuntimeRunId,
+} from './daemon-helpers';
+import {
+  applyRequestedRecoveryActionV1,
+  executeWorkspaceAttemptV1,
+  type ExecutionDaemonWorkspaceHostV1,
+} from './daemon-workspace-runner';
 
-export const EXECUTION_DAEMON_DEFAULTS_V1 = {
-  heartbeatIntervalMs: 10_000,
-  leaseDurationMs: 30_000,
-  maxConcurrentAttempts: 1,
-  pollBatchSize: 10,
-  pollIntervalMs: 1_000,
-} as const;
-
-export type ExecutionDaemonJsonValueV1 =
-  | boolean
-  | number
-  | string
-  | null
-  | readonly ExecutionDaemonJsonValueV1[]
-  | { readonly [key: string]: ExecutionDaemonJsonValueV1 };
-
-export type ExecutionDaemonCandidateV1 = {
-  attemptId: string;
-  runtimeId: string;
-};
-
-/**
- * The durable input returned after a successful claim. The store adapter is
- * responsible for loading the frozen Job spec and context in the same
- * organization scope as the claim.
- */
-export type ExecutionDaemonClaimV1 = {
-  jobId: string;
-  attemptId: string;
-  attemptNumber: number;
-  runtimeId: string;
-  generation: number;
-  cancelRequested: boolean;
-  executionSpec: ExecutionSpecV1;
-  contextManifest: unknown;
-  /** Private control-plane input. It must never cross the runtime boundary. */
-  knowledgeWorkspace?: {
-    binding: FrozenKnowledgeBindingV1;
-    repositoryPath: string;
-  } | null;
-  /** Private durable receipt. It must never cross the runtime boundary. */
-  workspaceLifecycle?: WorkspaceLifecycleV1 | null;
-  workspace?: {
-    uri: string;
-    revision?: string;
-  };
-  runtimeRunId?: string | null;
-  checkpointRef?: string | null;
-  humanInput?: RuntimeHumanInputV1 | null;
-};
-
-export type ListExecutionDaemonCandidatesInputV1 = {
-  runtimeIds: readonly string[];
-  limit: number;
-  now: Date;
-};
-
-export type ClaimExecutionDaemonCandidateInputV1 = {
-  attemptId: string;
-  runtimeId: string;
-  workerId: string;
-  leaseDurationMs: number;
-};
-
-export type HeartbeatExecutionDaemonAttemptInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  leaseDurationMs: number;
-  checkpointRef?: string;
-  runtimeRunId?: string;
-};
-
-export type AppendExecutionDaemonEventInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  runtimeEventId: string;
-  event: RuntimeEventV1;
-  occurredAt: Date;
-};
-
-export type PersistExecutionDaemonWorkspaceLifecycleInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  lifecycle: WorkspaceLifecycleV1;
-};
-
-export type PersistExecutionDaemonTerminalEventInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  runtimeEventId: string;
-  event: Extract<RuntimeEventV1, { type: 'attempt-completed' }>;
-  runtimeCompletion: WorkspaceRuntimeCompletionV1;
-  occurredAt: Date;
-};
-
-export type CreateExecutionDaemonKnowledgeChangeRequestInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  binding: FrozenKnowledgeBindingV1;
-  prepared: WorkspaceLifecycleV1['prepared'];
-  finalized: NonNullable<WorkspaceLifecycleV1['finalized']>;
-};
-
-export type CreateExecutionDaemonKnowledgeChangeRequestResultV1 = {
-  changeRequest: { id: string };
-};
-
-export type CompleteExecutionDaemonAttemptInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  status: 'succeeded' | 'failed' | 'cancelled';
-  result?: ExecutionDaemonJsonValueV1;
-  error?: ExecutionDaemonJsonValueV1;
-  runtimeRunId?: string;
-};
-
-export type ExecutionDaemonRecoveryStageV1 =
-  | 'prepare'
-  | 'finalize'
-  | 'cleanup';
-
-export type ExecutionDaemonRecoveryClassificationV1 =
-  | 'absent'
-  | 'prepared-clean'
-  | 'prepared-dirty'
-  | 'finalized-clean'
-  | 'drifted'
-  | 'partial'
-  | 'unknown';
-
-export type RequestedExecutionDaemonRecoveryActionV1 = {
-  incidentId: string;
-  action: 'retry' | 'discard';
-  cancelRequested: boolean;
-};
-
-export type QuarantineExecutionDaemonRecoveryInputV1 = {
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  stage: ExecutionDaemonRecoveryStageV1;
-  reasonCode: string;
-  classification: ExecutionDaemonRecoveryClassificationV1;
-  discardable: boolean;
-};
-
-export type ResolveExecutionDaemonRecoveryInputV1 = {
-  incidentId: string;
-  attemptId: string;
-  workerId: string;
-  generation: number;
-  resolution: 'retried' | 'discarded';
-};
-
-export interface ExecutionDaemonStoreV1 {
-  listCandidates(
-    input: ListExecutionDaemonCandidatesInputV1
-  ): Promise<readonly ExecutionDaemonCandidateV1[]>;
-
-  /** Returns null when another worker won the claim race. */
-  claim(
-    input: ClaimExecutionDaemonCandidateInputV1
-  ): Promise<ExecutionDaemonClaimV1 | null>;
-
-  heartbeat(
-    input: HeartbeatExecutionDaemonAttemptInputV1
-  ): Promise<'renewed' | 'cancel-requested' | 'fenced'>;
-
-  /**
-   * Persists every driver event before the daemon acts on it. In particular,
-   * implementations should checkpoint atomically with a checkpoint event.
-   */
-  appendEvent(
-    input: AppendExecutionDaemonEventInputV1
-  ): Promise<'appended' | 'suspended' | 'fenced'>;
-
-  /** Required only for claims with a private knowledge workspace. */
-  persistWorkspaceLifecycle?(
-    input: PersistExecutionDaemonWorkspaceLifecycleInputV1
-  ): Promise<'persisted' | 'fenced'>;
-
-  /** Required only for claims with a private knowledge workspace. */
-  persistTerminalEvent?(
-    input: PersistExecutionDaemonTerminalEventInputV1
-  ): Promise<'appended' | 'fenced'>;
-
-  /** Required only when a finalized knowledge workspace contains changes. */
-  createKnowledgeChangeRequest?(
-    input: CreateExecutionDaemonKnowledgeChangeRequestInputV1
-  ): Promise<
-    CreateExecutionDaemonKnowledgeChangeRequestResultV1 | 'fenced'
-  >;
-
-  quarantineWorkspaceRecovery?(
-    input: QuarantineExecutionDaemonRecoveryInputV1
-  ): Promise<'quarantined' | 'fenced'>;
-
-  getRequestedRecoveryAction?(input: {
-    attemptId: string;
-    workerId: string;
-    generation: number;
-  }): Promise<RequestedExecutionDaemonRecoveryActionV1 | null | 'fenced'>;
-
-  resolveRecoveryAction?(
-    input: ResolveExecutionDaemonRecoveryInputV1
-  ): Promise<'resolved' | 'fenced'>;
-
-  complete(
-    input: CompleteExecutionDaemonAttemptInputV1
-  ): Promise<'completed' | 'fenced'>;
-}
-
-export type ExecutionDaemonDriverRegistryV1 = Pick<
-  ExecutionRuntimeDriverRegistryV1,
-  'list' | 'lookup'
->;
-
-export type ExecutionDaemonWorkspacePrepareInputV1 = {
-  jobId: string;
-  attemptId: string;
-  attemptNumber: number;
-  binding: FrozenKnowledgeBindingV1;
-  repositoryPath: string;
-  existingLifecycle: WorkspaceLifecycleV1 | null;
-};
-
-export type ExecutionDaemonWorkspacePrepareResultV1 = {
-  lifecycle: WorkspaceLifecycleV1;
-  workspace: { uri: string; revision: string };
-};
-
-/**
- * Privileged workspace operations are injected per runtime deployment. The
- * daemon depends on this structural contract, never a concrete Git adapter.
- */
-export interface ExecutionDaemonWorkspaceCoordinatorV1 {
-  prepareOrRecover(
-    input: ExecutionDaemonWorkspacePrepareInputV1
-  ): Promise<ExecutionDaemonWorkspacePrepareResultV1>;
-  finalizeOrRecover(
-    lifecycle: WorkspaceLifecycleV1
-  ): Promise<WorkspaceLifecycleV1>;
-  cleanupOrRecover(input: {
-    lifecycle: WorkspaceLifecycleV1;
-    cleanedAt: string;
-  }): Promise<WorkspaceLifecycleV1>;
-  inspectRecoveryState?(lifecycle: WorkspaceLifecycleV1): Promise<{
-    schemaVersion: 1;
-    state:
-      | 'absent'
-      | 'prepared-clean'
-      | 'prepared-dirty'
-      | 'finalized-clean'
-      | 'drifted';
-  }>;
-  recoverSuspended?(
-    lifecycle: WorkspaceLifecycleV1
-  ): Promise<ExecutionDaemonWorkspacePrepareResultV1>;
-  discardQuarantined?(lifecycle: WorkspaceLifecycleV1): Promise<void>;
-}
-
-export interface ExecutionDaemonClockV1 {
-  now(): Date;
-}
-
-export type ExecutionDaemonWaitV1 = (
-  durationMs: number,
-  signal: AbortSignal
-) => Promise<void>;
-
-export type ExecutionDaemonLogContextV1 = Readonly<
-  Record<string, unknown>
->;
-
-export interface ExecutionDaemonLoggerV1 {
-  debug(message: string, context?: ExecutionDaemonLogContextV1): void;
-  info(message: string, context?: ExecutionDaemonLogContextV1): void;
-  warn(message: string, context?: ExecutionDaemonLogContextV1): void;
-  error(message: string, context?: ExecutionDaemonLogContextV1): void;
-}
-
-export type ExecutionDaemonOptionsV1 = {
-  workerId: string;
-  store: ExecutionDaemonStoreV1;
-  registry: ExecutionDaemonDriverRegistryV1;
-  clock: ExecutionDaemonClockV1;
-  wait: ExecutionDaemonWaitV1;
-  logger: ExecutionDaemonLoggerV1;
-  workspaceCoordinators?: ReadonlyMap<
-    string,
-    ExecutionDaemonWorkspaceCoordinatorV1
-  >;
-  pollIntervalMs?: number;
-  heartbeatIntervalMs?: number;
-  leaseDurationMs?: number;
-  pollBatchSize?: number;
-  maxConcurrentAttempts?: number;
-};
-
-type ExecutionDaemonStateV1 =
-  | 'idle'
-  | 'running'
-  | 'draining'
-  | 'stopped';
-
-type RuntimeCompletionV1 = Pick<
+export { EXECUTION_DAEMON_DEFAULTS_V1 };
+export type {
+  AppendExecutionDaemonEventInputV1,
+  ClaimExecutionDaemonCandidateInputV1,
   CompleteExecutionDaemonAttemptInputV1,
-  'status' | 'result' | 'error'
-> & { runtimeRunId?: string };
-
-type DeferredV1 = {
-  promise: Promise<void>;
-  resolve(): void;
-};
-
-type ActiveExecutionAttemptV1 = {
-  claim: ExecutionDaemonClaimV1;
-  driver: ExecutionRuntimeDriverV1;
-  runtimeRunId?: string;
-  checkpointRef?: string;
-  workspaceLifecycle: WorkspaceLifecycleV1 | null;
-  recoveredWorkspace?: ExecutionDaemonWorkspacePrepareResultV1;
-  pendingRecoveryResolution?: { incidentId: string };
-  runtimeCompletion?: RuntimeCompletionV1;
-  runtimeFinished: boolean;
-  cancelRequested: boolean;
-  text: string;
-  truncated: boolean;
-  eventSequence: number;
-  allowComplete: boolean;
-  completing: boolean;
-  completed: boolean;
-  suspensionPending: boolean;
-  suspended: boolean;
-  heartbeatController: AbortController;
-  stop: DeferredV1;
-  iterator?: AsyncIterator<RuntimeEventV1>;
-  interruptPromise?: Promise<void>;
-  cancellationPromise?: Promise<void>;
-  done: Promise<void>;
-};
+  CreateExecutionDaemonKnowledgeChangeRequestInputV1,
+  CreateExecutionDaemonKnowledgeChangeRequestResultV1,
+  ExecutionDaemonCandidateV1,
+  ExecutionDaemonClaimV1,
+  ExecutionDaemonClockV1,
+  ExecutionDaemonDriverRegistryV1,
+  ExecutionDaemonJsonValueV1,
+  ExecutionDaemonLogContextV1,
+  ExecutionDaemonLoggerV1,
+  ExecutionDaemonOptionsV1,
+  ExecutionDaemonRecoveryClassificationV1,
+  ExecutionDaemonRecoveryStageV1,
+  ExecutionDaemonStoreV1,
+  ExecutionDaemonWaitV1,
+  ExecutionDaemonWorkspaceCoordinatorV1,
+  ExecutionDaemonWorkspacePrepareInputV1,
+  ExecutionDaemonWorkspacePrepareResultV1,
+  HeartbeatExecutionDaemonAttemptInputV1,
+  ListExecutionDaemonCandidatesInputV1,
+  PersistExecutionDaemonTerminalEventInputV1,
+  PersistExecutionDaemonWorkspaceLifecycleInputV1,
+  QuarantineExecutionDaemonRecoveryInputV1,
+  RequestedExecutionDaemonRecoveryActionV1,
+  ResolveExecutionDaemonRecoveryInputV1,
+} from './daemon-types';
 
 /**
  * Runtime-neutral worker loop for durable ExecutionAttempts.
@@ -717,454 +424,44 @@ export class ExecutionDaemonV1 {
     );
   }
 
-  private async executeWorkspaceAttempt(
+  private createWorkspaceHost(): ExecutionDaemonWorkspaceHostV1 {
+    return {
+      workerId: this.workerId,
+      store: this.store,
+      clock: this.clock,
+      logger: this.logger,
+      workspaceCoordinators: this.workspaceCoordinators,
+      consumeRuntime: (active, workspace, atomicTerminal) =>
+        this.consumeRuntime(active, workspace, atomicTerminal),
+      requestCancellation: (active) => this.requestCancellation(active),
+      persistSyntheticCancellation: (active, atomicTerminal) =>
+        this.persistSyntheticCancellation(active, atomicTerminal),
+      persistSyntheticTerminal: (active, completion, event, atomicTerminal) =>
+        this.persistSyntheticTerminal(active, completion, event, atomicTerminal),
+      persistWorkspaceLifecycle: (active, lifecycle) =>
+        this.persistWorkspaceLifecycle(active, lifecycle),
+      completeAttempt: (active, completion) =>
+        this.completeAttempt(active, completion),
+      abandonAttempt: (active, reason, cause) =>
+        this.abandonAttempt(active, reason, cause),
+      persistenceError: (active, reason, error) =>
+        this.persistenceError(active, reason, error),
+      logRuntimeFailure: (active, error) =>
+        this.logRuntimeFailure(active, error),
+      interruptDriver: (active, reason) => this.interruptDriver(active, reason),
+    };
+  }
+
+  private executeWorkspaceAttempt(
     active: ActiveExecutionAttemptV1
   ): Promise<void> {
-    const { claim } = active;
-    const knowledgeWorkspace = claim.knowledgeWorkspace;
-    if (!knowledgeWorkspace) return;
-    const coordinator = this.workspaceCoordinators.get(claim.runtimeId);
-    const persistLifecycle = this.store.persistWorkspaceLifecycle;
-    const persistTerminal = this.store.persistTerminalEvent;
-    if (!coordinator || !persistLifecycle || !persistTerminal) {
-      throw new Error(
-        `Runtime ${claim.runtimeId} claimed a knowledge workspace without a complete lifecycle coordinator/store.`
-      );
-    }
-
-    // Always prepare/recover, including cancellation and terminal recovery. It
-    // revalidates prepared-only state, derives the sanitized runtime location,
-    // and allows hidden prepare side effects to be recovered and persisted.
-    let prepared = active.recoveredWorkspace;
-    active.recoveredWorkspace = undefined;
-    if (!prepared) {
-      try {
-        prepared = await coordinator.prepareOrRecover({
-          jobId: claim.jobId,
-          attemptId: claim.attemptId,
-          attemptNumber: claim.attemptNumber,
-          binding: knowledgeWorkspace.binding,
-          repositoryPath: knowledgeWorkspace.repositoryPath,
-          existingLifecycle: active.workspaceLifecycle,
-        });
-      } catch (error) {
-        if (
-          await this.quarantineWorkspaceFailure(
-            active,
-            coordinator,
-            'prepare',
-            active.workspaceLifecycle,
-            error
-          )
-        ) {
-          return;
-        }
-        throw error;
-      }
-    }
-    if (!active.allowComplete) return;
-    if (active.pendingRecoveryResolution) {
-      const pending = active.pendingRecoveryResolution;
-      if (
-        !(await this.resolveRecoveryAction(active, {
-          incidentId: pending.incidentId,
-          resolution: 'retried',
-        }))
-      ) {
-        return;
-      }
-      active.pendingRecoveryResolution = undefined;
-    }
-    if (!(await this.persistWorkspaceLifecycle(active, prepared.lifecycle))) {
-      return;
-    }
-    active.workspaceLifecycle = prepared.lifecycle;
-    active.runtimeCompletion = prepared.lifecycle.runtimeCompletion;
-    active.runtimeFinished = active.runtimeCompletion !== undefined;
-
-    if (!active.runtimeCompletion) {
-      let completion: RuntimeCompletionV1 | null = null;
-      if (active.cancelRequested) {
-        await this.requestCancellation(active);
-      } else {
-        try {
-          completion = await this.consumeRuntime(
-            active,
-            prepared.workspace,
-            true
-          );
-        } catch (error) {
-          if (active.allowComplete && !active.cancelRequested) {
-            this.logRuntimeFailure(active, error);
-            await this.interruptDriver(active, 'runtime-attempt-failed');
-            completion = runtimeDriverFailure(error);
-          }
-        }
-      }
-
-      if (!active.allowComplete) return;
-      if (active.cancelRequested && !active.runtimeCompletion) {
-        await active.cancellationPromise;
-        completion = await this.persistSyntheticCancellation(active, true);
-      } else if (completion && !active.runtimeCompletion) {
-        completion = await this.persistSyntheticTerminal(
-          active,
-          completion,
-          terminalEventForCompletion(completion),
-          true
-        );
-      }
-      if (!active.allowComplete || !completion) return;
-    }
-
-    let lifecycle = active.workspaceLifecycle;
-    if (!lifecycle?.runtimeCompletion) {
-      throw new Error('Workspace runtime completion was not persisted.');
-    }
-
-    // The durable completion receipt is authoritative even if cancellation is
-    // observed later. Complete its monotonic lifecycle without replacing it.
-    if (lifecycle.runtimeCompletion.status === 'succeeded') {
-      if (!lifecycle.finalized) {
-        let finalized: WorkspaceLifecycleV1;
-        try {
-          finalized = await coordinator.finalizeOrRecover(lifecycle);
-        } catch (error) {
-          if (
-            await this.quarantineWorkspaceFailure(
-              active,
-              coordinator,
-              'finalize',
-              lifecycle,
-              error
-            )
-          ) {
-            return;
-          }
-          throw error;
-        }
-        if (!active.allowComplete) return;
-        if (!(await this.persistWorkspaceLifecycle(active, finalized))) {
-          return;
-        }
-        lifecycle = finalized;
-        active.workspaceLifecycle = finalized;
-      }
-
-      if (lifecycle.finalized?.changed && !lifecycle.changeRequestId) {
-        const createChangeRequest =
-          this.store.createKnowledgeChangeRequest;
-        if (!createChangeRequest) {
-          throw new Error(
-            'A changed knowledge workspace requires change-request persistence.'
-          );
-        }
-        let created:
-          | CreateExecutionDaemonKnowledgeChangeRequestResultV1
-          | 'fenced';
-        try {
-          created = await createChangeRequest.call(this.store, {
-            attemptId: claim.attemptId,
-            workerId: this.workerId,
-            generation: claim.generation,
-            binding: lifecycle.binding,
-            prepared: lifecycle.prepared,
-            finalized: lifecycle.finalized,
-          });
-        } catch (error) {
-          await this.persistenceError(
-            active,
-            'change-request-persistence-error',
-            error
-          );
-          return;
-        }
-        if (!active.allowComplete) return;
-        if (created === 'fenced') {
-          await this.abandonAttempt(
-            active,
-            'change-request-fenced',
-            'fenced'
-          );
-          return;
-        }
-        lifecycle = parseWorkspaceLifecycleV1({
-          ...lifecycle,
-          changeRequestId: created.changeRequest.id,
-        });
-        active.workspaceLifecycle = lifecycle;
-      }
-    }
-
-    if (!lifecycle.cleanedAt) {
-      let cleaned: WorkspaceLifecycleV1;
-      try {
-        cleaned = await coordinator.cleanupOrRecover({
-          lifecycle,
-          cleanedAt: this.clock.now().toISOString(),
-        });
-      } catch (error) {
-        if (
-          await this.quarantineWorkspaceFailure(
-            active,
-            coordinator,
-            'cleanup',
-            lifecycle,
-            error
-          )
-        ) {
-          return;
-        }
-        throw error;
-      }
-      if (!active.allowComplete) return;
-      if (!(await this.persistWorkspaceLifecycle(active, cleaned))) {
-        return;
-      }
-      lifecycle = cleaned;
-      active.workspaceLifecycle = cleaned;
-    }
-
-    if (!active.allowComplete) return;
-    const durableCompletion = lifecycle.runtimeCompletion;
-    if (!durableCompletion) {
-      throw new Error('Workspace runtime completion was lost before complete.');
-    }
-    await this.completeAttempt(
-      active,
-      active.cancelRequested
-        ? cancellationCompletion()
-        : durableCompletion
-    );
+    return executeWorkspaceAttemptV1(this.createWorkspaceHost(), active);
   }
 
-  private async applyRequestedRecoveryAction(
+  private applyRequestedRecoveryAction(
     active: ActiveExecutionAttemptV1
   ): Promise<boolean> {
-    const readAction = this.store.getRequestedRecoveryAction;
-    if (!readAction) return true;
-
-    let requested: RequestedExecutionDaemonRecoveryActionV1 | null | 'fenced';
-    try {
-      requested = await readAction.call(this.store, {
-        attemptId: active.claim.attemptId,
-        workerId: this.workerId,
-        generation: active.claim.generation,
-      });
-    } catch (error) {
-      await this.persistenceError(active, 'recovery-action-read-error', error);
-      return false;
-    }
-    if (requested === 'fenced') {
-      await this.abandonAttempt(active, 'recovery-action-read-fenced', 'fenced');
-      return false;
-    }
-    if (!requested) return true;
-
-    active.cancelRequested ||= requested.cancelRequested;
-    const coordinator = this.workspaceCoordinators.get(active.claim.runtimeId);
-    if (!active.claim.knowledgeWorkspace || !coordinator) {
-      await this.persistenceError(
-        active,
-        'recovery-workspace-unavailable',
-        new Error('A requested workspace recovery has no configured workspace.')
-      );
-      return false;
-    }
-
-    if (requested.action === 'discard') {
-      if (!active.workspaceLifecycle || !coordinator.discardQuarantined) {
-        await this.persistenceError(
-          active,
-          'recovery-discard-receipt-missing',
-          new Error('A quarantined workspace receipt is required for discard.')
-        );
-        return false;
-      }
-      try {
-        await coordinator.discardQuarantined(active.workspaceLifecycle);
-      } catch (error) {
-        this.logger.error('Execution workspace discard failed.', {
-          attemptId: active.claim.attemptId,
-          error: errorMessage(error),
-          generation: active.claim.generation,
-        });
-        await this.abandonAttempt(active, 'recovery-discard-failed', 'fenced');
-        return false;
-      }
-      if (
-        !(await this.resolveRecoveryAction(active, {
-          incidentId: requested.incidentId,
-          resolution: 'discarded',
-        }))
-      ) {
-        return false;
-      }
-      active.workspaceLifecycle = null;
-      active.claim.workspaceLifecycle = null;
-      active.claim.runtimeRunId = null;
-      active.claim.checkpointRef = null;
-      active.claim.humanInput = null;
-      active.runtimeRunId = undefined;
-      active.checkpointRef = undefined;
-      active.runtimeCompletion = undefined;
-      active.runtimeFinished = false;
-      return true;
-    }
-
-    if (!active.workspaceLifecycle) {
-      active.pendingRecoveryResolution = {
-        incidentId: requested.incidentId,
-      };
-      return true;
-    }
-
-    if (!coordinator.recoverSuspended) {
-      await this.persistenceError(
-        active,
-        'recovery-port-unavailable',
-        new Error('Workspace recovery port is not configured.')
-      );
-      return false;
-    }
-    let recovered: ExecutionDaemonWorkspacePrepareResultV1;
-    try {
-      recovered = await coordinator.recoverSuspended(
-        active.workspaceLifecycle
-      );
-    } catch (error) {
-      if (
-        await this.quarantineWorkspaceFailure(
-          active,
-          coordinator,
-          'prepare',
-          active.workspaceLifecycle,
-          error
-        )
-      ) {
-        return false;
-      }
-      this.logger.error('Execution workspace retry recovery failed.', {
-        attemptId: active.claim.attemptId,
-        error: errorMessage(error),
-        generation: active.claim.generation,
-      });
-      await this.abandonAttempt(active, 'recovery-retry-failed', 'fenced');
-      return false;
-    }
-    if (
-      !(await this.resolveRecoveryAction(active, {
-        incidentId: requested.incidentId,
-        resolution: 'retried',
-      }))
-    ) {
-      return false;
-    }
-    active.recoveredWorkspace = recovered;
-    return true;
-  }
-
-  private async resolveRecoveryAction(
-    active: ActiveExecutionAttemptV1,
-    input: { incidentId: string; resolution: 'retried' | 'discarded' }
-  ): Promise<boolean> {
-    const resolve = this.store.resolveRecoveryAction;
-    if (!resolve) {
-      await this.persistenceError(
-        active,
-        'recovery-resolution-unavailable',
-        new Error('Execution recovery resolution is not configured.')
-      );
-      return false;
-    }
-    try {
-      const result = await resolve.call(this.store, {
-        ...input,
-        attemptId: active.claim.attemptId,
-        workerId: this.workerId,
-        generation: active.claim.generation,
-      });
-      if (result === 'fenced') {
-        await this.abandonAttempt(active, 'recovery-resolution-fenced', 'fenced');
-        return false;
-      }
-      return true;
-    } catch (error) {
-      await this.persistenceError(active, 'recovery-resolution-error', error);
-      return false;
-    }
-  }
-
-  private async quarantineWorkspaceFailure(
-    active: ActiveExecutionAttemptV1,
-    coordinator: ExecutionDaemonWorkspaceCoordinatorV1,
-    stage: ExecutionDaemonRecoveryStageV1,
-    lifecycle: WorkspaceLifecycleV1 | null,
-    error: unknown
-  ): Promise<boolean> {
-    let classification: ExecutionDaemonRecoveryClassificationV1;
-    let discardable = false;
-    if (!lifecycle) {
-      classification = partialPrepareFailure(error) ? 'partial' : 'unknown';
-    } else {
-      const inspect = coordinator.inspectRecoveryState;
-      if (!inspect) return false;
-      let inspected: {
-        schemaVersion: 1;
-        state:
-          | 'absent'
-          | 'prepared-clean'
-          | 'prepared-dirty'
-          | 'finalized-clean'
-          | 'drifted';
-      };
-      try {
-        inspected = await inspect.call(coordinator, lifecycle);
-      } catch {
-        return false;
-      }
-      if (inspected.state !== 'prepared-dirty' && inspected.state !== 'drifted') {
-        return false;
-      }
-      classification = inspected.state;
-      discardable = inspected.state === 'prepared-dirty';
-    }
-
-    const quarantine = this.store.quarantineWorkspaceRecovery;
-    if (!quarantine) return false;
-    try {
-      const result = await quarantine.call(this.store, {
-        attemptId: active.claim.attemptId,
-        workerId: this.workerId,
-        generation: active.claim.generation,
-        stage,
-        reasonCode: recoveryReasonCode(error, stage),
-        classification,
-        discardable,
-      });
-      if (result === 'fenced') {
-        await this.abandonAttempt(active, 'workspace-quarantine-fenced', 'fenced');
-        return true;
-      }
-      active.allowComplete = false;
-      active.heartbeatController.abort();
-      active.stop.resolve();
-      await this.interruptDriver(active, 'workspace-recovery-quarantined');
-      this.logger.warn('Execution workspace was quarantined.', {
-        attemptId: active.claim.attemptId,
-        classification,
-        generation: active.claim.generation,
-        stage,
-      });
-      return true;
-    } catch (quarantineError) {
-      await this.persistenceError(
-        active,
-        'workspace-quarantine-error',
-        quarantineError
-      );
-      return true;
-    }
+    return applyRequestedRecoveryActionV1(this.createWorkspaceHost(), active);
   }
 
   private async consumeRuntime(
@@ -1833,173 +1130,4 @@ export class ExecutionDaemonV1 {
       );
     }
   }
-}
-
-function completionFromEvent(
-  event: Extract<RuntimeEventV1, { type: 'attempt-completed' }>,
-  runtimeRunId: string | undefined,
-  text: string,
-  truncated: boolean
-): RuntimeCompletionV1 {
-  const runtime: Record<string, ExecutionDaemonJsonValueV1> = {};
-  if (runtimeRunId) {
-    runtime.runtimeRunId = runtimeRunId;
-  }
-  if (event.status === 'succeeded') {
-    return {
-      status: 'succeeded',
-      result: {
-        ...runtime,
-        text,
-        truncated,
-        ...(event.message ? { message: event.message } : {}),
-      },
-    };
-  }
-  if (event.status === 'interrupted') {
-    return {
-      status: 'cancelled',
-      ...(event.message
-        ? { error: { ...runtime, message: event.message } }
-        : {}),
-    };
-  }
-  return {
-    status: 'failed',
-    error: {
-      code: 'runtime-attempt-failed',
-      ...runtime,
-      message: event.message || 'Runtime attempt failed.',
-    },
-  };
-}
-
-function partialPrepareFailure(error: unknown): boolean {
-  return (
-    error !== null &&
-    typeof error === 'object' &&
-    'code' in error &&
-    (error.code === 'branch-already-exists' ||
-      error.code === 'worktree-path-conflict' ||
-      error.code === 'worktree-state-changed')
-  );
-}
-
-function recoveryReasonCode(
-  error: unknown,
-  stage: ExecutionDaemonRecoveryStageV1
-): string {
-  if (
-    error !== null &&
-    typeof error === 'object' &&
-    'code' in error &&
-    typeof error.code === 'string' &&
-    /^[a-z0-9][a-z0-9-]{0,79}$/.test(error.code)
-  ) {
-    return error.code;
-  }
-  return `workspace-${stage}-failed`;
-}
-
-function withRuntimeRunId(
-  completion: RuntimeCompletionV1,
-  runtimeRunId: string | undefined
-): RuntimeCompletionV1 {
-  return runtimeRunId ? { ...completion, runtimeRunId } : completion;
-}
-
-function runtimeDriverFailure(error: unknown): RuntimeCompletionV1 {
-  return {
-    status: 'failed',
-    error: {
-      code: 'runtime-driver-error',
-      message: errorMessage(error),
-    },
-  };
-}
-
-function cancellationCompletion(
-  runtimeRunId?: string
-): RuntimeCompletionV1 {
-  return {
-    status: 'cancelled',
-    error: {
-      ...(runtimeRunId ? { runtimeRunId } : {}),
-      message: 'Execution cancelled.',
-    },
-    ...(runtimeRunId ? { runtimeRunId } : {}),
-  };
-}
-
-function terminalEventForCompletion(
-  completion: RuntimeCompletionV1
-): Extract<RuntimeEventV1, { type: 'attempt-completed' }> {
-  return {
-    type: 'attempt-completed',
-    status:
-      completion.status === 'cancelled'
-        ? 'interrupted'
-        : completion.status,
-    ...(completion.status === 'succeeded'
-      ? {}
-      : { message: terminalCompletionMessage(completion) }),
-  };
-}
-
-function terminalCompletionMessage(completion: RuntimeCompletionV1): string {
-  const error = completion.error;
-  if (error && typeof error === 'object' && !Array.isArray(error)) {
-    const message = (error as { readonly message?: unknown }).message;
-    if (typeof message === 'string') return message;
-  }
-  return completion.status === 'cancelled'
-    ? 'Execution cancelled.'
-    : 'Runtime attempt failed.';
-}
-
-function runtimeEventId(generation: number, sequence: number): string {
-  return `generation:${generation}:event:${sequence}`;
-}
-
-function rememberInterruptAddress(
-  active: ActiveExecutionAttemptV1,
-  event: RuntimeEventV1
-): void {
-  if (event.type === 'attempt-started') {
-    // A rejected write must not advance durable state, but this id is still
-    // required to stop the orphaned runtime work.
-    active.runtimeRunId = event.runtimeAttemptId;
-  }
-}
-
-function createDeferred(): DeferredV1 {
-  let resolvePromise: (() => void) | undefined;
-  const promise = new Promise<void>((resolve) => {
-    resolvePromise = resolve;
-  });
-  return {
-    promise,
-    resolve() {
-      resolvePromise?.();
-      resolvePromise = undefined;
-    },
-  };
-}
-
-function requireNonEmptyText(value: string, field: string): string {
-  if (!value.trim()) {
-    throw new Error(`${field} must be a non-empty string.`);
-  }
-  return value.trim();
-}
-
-function readPositiveInteger(value: number, field: string): number {
-  if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`${field} must be a positive integer.`);
-  }
-  return value;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

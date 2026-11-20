@@ -6,7 +6,6 @@
     "src/lib/i18n/copy.ts": "Bilingual UI copy dictionary (key/value string table, not imperative logic)"
   },
   "legacyAllowlist": {
-    "src/agent/execution/daemon.ts": 2005,
     "src/agent/knowledge/git-worktree.ts": 1375,
     "src/agent/room-host/prisma-context-source.ts": 1427,
     "src/agent/room-runtime/adapters/pi-agent-core.ts": 1221,
