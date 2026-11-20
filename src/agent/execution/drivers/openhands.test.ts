@@ -1,4 +1,10 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  assertErrorMatches,
+  assertMatchesObject,
+} from '@/lib/testing/node-assert';
 
 import type {
   RuntimeArchiveAttemptV1,
@@ -37,7 +43,7 @@ test('descriptor exposes only configured, conservative capabilities', async () =
     selectionPriority: 7,
   });
 
-  await expect(driver.describe()).resolves.toMatchObject({
+  assertMatchesObject(await driver.describe(), {
     runtimeId: 'openhands-east',
     runtimeVersion: 'test-deployment',
     selectionPriority: 7,
@@ -65,7 +71,7 @@ test('reports disabled configuration distinctly without requiring secrets', () =
     token: null,
   });
 
-  expect(driver.getConfigurationState()).toEqual({
+  assert.deepEqual(driver.getConfigurationState(), {
     state: 'disabled',
     executable: false,
     message: 'The OpenHands adapter is explicitly disabled.',
@@ -85,26 +91,20 @@ test('reports missing and invalid connection configuration explicitly', () => {
     requestTimeoutMs: 0,
   });
 
-  expect(
-    missing.getConfigurationState().issues.map(({ code }) => code)
-  ).toEqual([
-    'missing-endpoint',
-    'missing-token',
-    'unverified-api-contract',
-  ]);
-  expect(
-    invalid.getConfigurationState().issues.map(({ code }) => code)
-  ).toEqual([
-    'invalid-endpoint',
-    'invalid-timeout',
-    'unverified-api-contract',
-  ]);
+  assert.deepEqual(
+    missing.getConfigurationState().issues.map(({ code }) => code),
+    ['missing-endpoint', 'missing-token', 'unverified-api-contract']
+  );
+  assert.deepEqual(
+    invalid.getConfigurationState().issues.map(({ code }) => code),
+    ['invalid-endpoint', 'invalid-timeout', 'unverified-api-contract']
+  );
 });
 
 test('valid endpoint and token remain unavailable until an API contract exists', () => {
   const driver = new OpenHandsExecutionRuntimeDriverV1(CONFIG);
 
-  expect(driver.getConfigurationState()).toEqual({
+  assert.deepEqual(driver.getConfigurationState(), {
     state: 'unavailable',
     executable: false,
     message:
@@ -136,36 +136,44 @@ test('every operation fails clearly without fabricating work or leaking the toke
     runtimeAttemptId: 'runtime-attempt-1',
   };
 
-  expect(() => driver.start(startInput)).toThrow(
+  assert.throws(
+    () => driver.start(startInput),
     OpenHandsRuntimeUnavailableError
   );
 
-  const interrupt = driver.interrupt(
-    runtimeAttemptInput as RuntimeInterruptAttemptV1
-  );
-  await expect(interrupt).rejects.toMatchObject({
-    code: 'openhands-runtime-unavailable',
-    operation: 'interrupt',
-  });
+  const operations = [
+    {
+      operation: 'interrupt',
+      promise: driver.interrupt(
+        runtimeAttemptInput as RuntimeInterruptAttemptV1
+      ),
+    },
+    {
+      operation: 'reconcile',
+      promise: driver.reconcile(
+        runtimeAttemptInput as RuntimeReconcileAttemptV1
+      ),
+    },
+    {
+      operation: 'archive',
+      promise: driver.archive(runtimeAttemptInput as RuntimeArchiveAttemptV1),
+    },
+  ];
 
-  const reconcile = driver.reconcile(
-    runtimeAttemptInput as RuntimeReconcileAttemptV1
-  );
-  await expect(reconcile).rejects.toMatchObject({
-    code: 'openhands-runtime-unavailable',
-    operation: 'reconcile',
-  });
-
-  const archive = driver.archive(
-    runtimeAttemptInput as RuntimeArchiveAttemptV1
-  );
-  await expect(archive).rejects.toMatchObject({
-    code: 'openhands-runtime-unavailable',
-    operation: 'archive',
-  });
-
-  for (const operation of [interrupt, reconcile, archive]) {
-    await expect(operation).rejects.not.toThrow(/secret-test-token/);
-    await expect(operation).rejects.toThrow(/No HTTP request was sent/);
+  for (const item of operations) {
+    await assert.rejects(item.promise, (error: unknown) => {
+      assertErrorMatches(
+        error,
+        {
+          code: 'openhands-runtime-unavailable',
+          operation: item.operation,
+        },
+        OpenHandsRuntimeUnavailableError
+      );
+      const message = error instanceof Error ? error.message : String(error);
+      assert.equal(/secret-test-token/.test(message), false);
+      assert.match(message, /No HTTP request was sent/);
+      return true;
+    });
   }
 });

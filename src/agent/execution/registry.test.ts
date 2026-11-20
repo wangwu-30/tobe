@@ -1,4 +1,7 @@
-import { expect, test } from '@playwright/test';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { assertErrorMatches } from '@/lib/testing/node-assert';
 
 import { RUNTIME_CONTRACT_VERSION_V1 } from './contracts';
 import type {
@@ -80,13 +83,13 @@ test('registers multiple drivers and supports stable lookup and listing', async 
   const openhands = driver('openhands');
   const genericCli = driver('generic-cli');
 
-  await expect(registry.register(openhands)).resolves.toBe(openhands);
-  await expect(registry.register(genericCli)).resolves.toBe(genericCli);
+  assert.equal(await registry.register(openhands), openhands);
+  assert.equal(await registry.register(genericCli), genericCli);
 
-  expect(registry.lookup('openhands')).toBe(openhands);
-  expect(registry.lookup('generic-cli')).toBe(genericCli);
-  expect(registry.lookup('missing')).toBeUndefined();
-  expect(registry.list()).toEqual([openhands, genericCli]);
+  assert.equal(registry.lookup('openhands'), openhands);
+  assert.equal(registry.lookup('generic-cli'), genericCli);
+  assert.equal(registry.lookup('missing'), undefined);
+  assert.deepEqual(registry.list(), [openhands, genericCli]);
 });
 
 test('rejects duplicate runtime ids without replacing the first driver', async () => {
@@ -95,61 +98,79 @@ test('rejects duplicate runtime ids without replacing the first driver', async (
   const duplicate = driver('openhands');
   await registry.register(first);
 
-  const registration = registry.register(duplicate);
-  await expect(registration).rejects.toBeInstanceOf(
-    ExecutionRuntimeDriverRegistryErrorV1
+  await assert.rejects(
+    registry.register(duplicate),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        { code: 'duplicate-runtime-id', runtimeId: 'openhands' },
+        ExecutionRuntimeDriverRegistryErrorV1
+      )
   );
-  await expect(registration).rejects.toMatchObject({
-    code: 'duplicate-runtime-id',
-    runtimeId: 'openhands',
-  });
-  expect(registry.lookup('openhands')).toBe(first);
-  expect(registry.list()).toEqual([first]);
+  assert.equal(registry.lookup('openhands'), first);
+  assert.deepEqual(registry.list(), [first]);
 });
 
 test('rejects empty and whitespace-padded runtime ids', async () => {
   for (const runtimeId of ['', ' openhands', 'openhands ']) {
     const registry = new ExecutionRuntimeDriverRegistryV1();
-    await expect(registry.register(driver(runtimeId))).rejects.toMatchObject({
-      code: 'invalid-runtime-id',
-      runtimeId,
-    });
-    expect(registry.list()).toEqual([]);
+    await assert.rejects(
+      registry.register(driver(runtimeId)),
+      (error: unknown) =>
+        assertErrorMatches(
+          error,
+          { code: 'invalid-runtime-id', runtimeId },
+          ExecutionRuntimeDriverRegistryErrorV1
+        )
+    );
+    assert.deepEqual(registry.list(), []);
   }
 });
 
 test('rejects waiting-for-human without advertised native resume', async () => {
   const registry = new ExecutionRuntimeDriverRegistryV1();
 
-  await expect(
+  await assert.rejects(
     registry.register(
       waitingDriver('invalid-waiting-runtime', {
         nativeResume: false,
         implementsResume: true,
       })
-    )
-  ).rejects.toMatchObject({
-    code: 'waiting-for-human-requires-native-resume',
-    runtimeId: 'invalid-waiting-runtime',
-  });
-  expect(registry.list()).toEqual([]);
+    ),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        {
+          code: 'waiting-for-human-requires-native-resume',
+          runtimeId: 'invalid-waiting-runtime',
+        },
+        ExecutionRuntimeDriverRegistryErrorV1
+      )
+  );
+  assert.deepEqual(registry.list(), []);
 });
 
 test('rejects waiting-for-human when the driver omits resume()', async () => {
   const registry = new ExecutionRuntimeDriverRegistryV1();
 
-  await expect(
+  await assert.rejects(
     registry.register(
       waitingDriver('missing-resume-runtime', {
         nativeResume: true,
         implementsResume: false,
       })
-    )
-  ).rejects.toMatchObject({
-    code: 'waiting-for-human-requires-resume-implementation',
-    runtimeId: 'missing-resume-runtime',
-  });
-  expect(registry.list()).toEqual([]);
+    ),
+    (error: unknown) =>
+      assertErrorMatches(
+        error,
+        {
+          code: 'waiting-for-human-requires-resume-implementation',
+          runtimeId: 'missing-resume-runtime',
+        },
+        ExecutionRuntimeDriverRegistryErrorV1
+      )
+  );
+  assert.deepEqual(registry.list(), []);
 });
 
 test('registers waiting-for-human only with native resume and resume()', async () => {
@@ -159,6 +180,6 @@ test('registers waiting-for-human only with native resume and resume()', async (
     implementsResume: true,
   });
 
-  await expect(registry.register(resumable)).resolves.toBe(resumable);
-  expect(registry.lookup('resumable-runtime')).toBe(resumable);
+  assert.equal(await registry.register(resumable), resumable);
+  assert.equal(registry.lookup('resumable-runtime'), resumable);
 });
