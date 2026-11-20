@@ -38,6 +38,47 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    files: [
+      "src/agent/context/**/*.{js,jsx,ts,tsx}",
+      "src/agent/execution/**/*.{js,jsx,ts,tsx}",
+      "src/agent/knowledge/**/*.{js,jsx,ts,tsx}",
+      "src/agent/room-host/**/*.{js,jsx,ts,tsx}",
+      "src/agent/room-runtime/**/*.{js,jsx,ts,tsx}",
+      "src/agent/tool-policy.{js,jsx,ts,tsx}",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "@/app/**",
+                "@/canvas/**",
+                "@/components/**",
+                "@/surfaces/**",
+                "../app/**",
+                "../canvas/**",
+                "../components/**",
+                "../surfaces/**",
+                "../../app/**",
+                "../../canvas/**",
+                "../../components/**",
+                "../../surfaces/**",
+                "../../../app/**",
+                "../../../canvas/**",
+                "../../../components/**",
+                "../../../surfaces/**",
+              ],
+              message:
+                "Runtime/agent 核心模块不得反向依赖 app/components/surfaces/canvas UI 层。",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["src/**/*.{js,jsx,ts,tsx}"],
     ignores: ["src/framework/resilience/safe-data.ts"],
     rules: {

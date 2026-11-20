@@ -55,6 +55,7 @@ export const controlPlaneBuilds = [
 export const scriptTests = [
   'scripts/bootstrap-local-db.test.mjs',
   'scripts/browser-preflight.test.mjs',
+  'scripts/check-file-size-budget.test.mjs',
   'scripts/check-web-interface-guidelines.test.mjs',
   'scripts/dev-all.test.mjs',
   'scripts/oauth-credential-file.test.mjs',
