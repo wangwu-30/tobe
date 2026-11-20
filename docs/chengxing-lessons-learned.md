@@ -1214,6 +1214,12 @@
 - 为什么：在 Playwright 中运行纯逻辑单测会平白支付浏览器测试框架调度与启动开销，而直接依赖 Node 24 新增的 `assert.partialDeepStrictEqual` 会在 Node 22 CI 上触发类型或运行时不兼容；将 2,000+ 行冻结历史修补代码与当前核心 DB bootstrap 混写会掩盖诸如目录创建晚于 `createClient` 的根因缺陷；而在拆解巨型 UI 组件时若顺手改变 `useEffect` 或状态提升时序，极易在 Radix overlay 与选区同步路径上制造 E2E 竞态回归。
 - 默认做法：纯逻辑单测统一进入 `scripts/control-plane-test-inventory.mjs` 的 `unit` 组，只把真正依赖 SQLite/子进程/文件系统的集成测留在 Playwright `core` 组；DB 引导脚本把核心 WAL/迁移 runner 与冻结历史 repair 物理隔离；UI 大组件拆解坚持 zero-behavior-change，拆解后用 `tsc`、`eslint`、`npm run build` 和完整 `Iteration Gate` 验收。
 
+### 62. 单文件体积棘轮、Runtime-to-UI 导入边界与统一 Runtime 代理适配器必须默认 Fail-Closed
+
+- 结论：防止“2,000+ 行巨型文件”和跨层耦合死灰复燃，不能靠口头约定或一次性清理；必须用写入静态门禁的 fail-closed 棘轮脚本（`scripts/check-file-size-budget.mjs` + `scripts/file-size-budget.json`）锁定默认阈值（生产文件 ≤ 1,200 行、API route ≤ 400 行），同时用 ESLint `no-restricted-imports` 阻断 `src/agent/{context,execution,knowledge,room-host,room-runtime,runtime-proxy,tool-policy}` 反向依赖 `app/components/surfaces/canvas`；当需要对接外部统一 Runtime 代理层（如 XAR / 本地 HTTP-NDJSON Sidecar）时，必须将其作为默认关闭的 opt-in 适配器挂在现有 `ExecutionRuntimeDriverV1` / `RoomSessionRuntimePortV1` 端口背后，绝不让渡租约代际栅栏、`StagedChangeSet` 人类主权或工具审批策略。
+- 为什么：没有机械化体积棘轮时，每次需求迭代往热门组件或持久化 Store 顺手追加几十行代码就会在几个周期内重新堆出 2k+ 行单体；即使拆解过程中（如首次拆 `deliverable-sidebar.tsx` 落到 1,240 行），体积棘轮也能在提交前立刻拦截并促使补完 dialog 复合层拆解。而在接入外部 Runtime 代理时，若允许任意远程 HTTP 端点、跳过入站事件校验或在远端绕过代际栅栏，会把本地单机信任边界扩大成 SSRF 与凭据泄漏面。
+- 默认做法：历史超标文件写入带上限的 `legacyAllowlist` 且只允许下降（拆解到阈值内后必须立即移除登记，禁止保留已达标文件的过期豁免）；`deliverable-sidebar.tsx`、`room-host/prisma-store.ts` 与 `execution/daemon.ts` 分别按「UI 区块/弹窗/Action Hook」「codec/queries/store」「types/helpers/workspace-runner」三条缝隙零行为变更拆解至 ≤ 1,200 行；HTTP/JSON Proxy 传输层（`src/agent/runtime-proxy/http-transport.ts`）使用 Node 原生 `http/https` + `safeJsonParse`（零裸 `fetch`/零裸 `JSON.parse`），默认仅放行 loopback 地址，远程端点强制要求显式 `allowRemoteEndpoint: true` + `https:` + Bearer Token，并在适配器本地强制校验代际过期、Quiet Host `observe` 零调用、hostless `file:` 工作区 URI 以及 Checkpoint 凭据零回显。
+
 ## 最新验证状态
 
 - **Wiki-first 首页、模型抽屉与安装告警收口 2026-08-24**：首页已进一步降密度为 Chat + 紧凑 Wiki 列表，普通聊天零创建，显式确认后才创建 Wiki 并原地接管同一 Session；对话模型选择移入设置抽屉并修复 SSR/localStorage hydration；创建 E2E 改走真实资源和真实 onboarding Session；route 日志完成标量化、单行有界处理和 unexpected 脱敏。依赖升级后，Node.js 22.23.2 + npm 11.17.0 下无 `EBADENGINE` 或未审核 install-script 提示，审计仅剩 Prisma 固定的 `deepmerge-ts` 单链 `3 high`。21:32 的完整 `npm run verify:iteration` 通过：inventory `72/72`、script contracts `53`、control-plane Playwright `474`、总计 `527`、production build、browser preflight，以及 Chromium `150/150 passed (4.1m)`。这是文档冻结前的 pre-record 证据；最终 push 前仍需对 clean closure commit 原样复跑。
