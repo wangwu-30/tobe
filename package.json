@@ -43,7 +43,7 @@
     "auth:openai-oauth": "node scripts/openai-oauth-login.mjs"
   },
   "dependencies": {
-    "@ariakit/react": "^0.4.21",
+    "@ariakit/react": "^0.4.43",
     "@earendil-works/pi-agent-core": "^0.84.3",
     "@earendil-works/pi-ai": "^0.84.3",
     "@emoji-mart/data": "^1.2.1",
