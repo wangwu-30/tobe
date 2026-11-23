@@ -44,8 +44,8 @@
   },
   "dependencies": {
     "@ariakit/react": "^0.4.21",
-    "@earendil-works/pi-agent-core": "^0.84.3",
-    "@earendil-works/pi-ai": "^0.84.3",
+    "@earendil-works/pi-agent-core": "^1.5.2",
+    "@earendil-works/pi-ai": "^1.5.2",
     "@emoji-mart/data": "^1.2.1",
     "@libsql/client": "0.17.4",
     "@platejs/basic-nodes": "^52.0.11",
