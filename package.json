@@ -47,7 +47,7 @@
     "@earendil-works/pi-agent-core": "^0.84.3",
     "@earendil-works/pi-ai": "^0.84.3",
     "@emoji-mart/data": "^1.2.1",
-    "@libsql/client": "0.17.4",
+    "@libsql/client": "0.18.0",
     "@platejs/basic-nodes": "^52.0.11",
     "@platejs/code-block": "^52.0.11",
     "@platejs/combobox": "^52.0.15",
